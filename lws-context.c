@@ -138,9 +138,9 @@ custom_headers_callback(const char* name, int nlen, void* opaque) {
   int len = lws_hdr_custom_length(c->wsi, name, nlen);
   char buf[len + 1];
 
-  lws_hdr_custom_copy(c->wsi, buf, len, name, nlen);
+int r =  lws_hdr_custom_copy(c->wsi, buf, len + 1, name, nlen);
 
-  JS_SetProperty(c->ctx, obj, prop, JS_NewStringLen(c->ctx, buf, len));
+  JS_SetProperty(c->ctx, obj, prop, JS_NewStringLen(c->ctx, buf, r));
   JS_FreeAtom(c->ctx, prop);
 }
 
