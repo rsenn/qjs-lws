@@ -1,12 +1,270 @@
 #include <quickjs.h>
 #include <cutils.h>
+#include <list.h>
 #include <libwebsockets.h>
+#include <assert.h>
 
+static JSValue lws_socket_proto, lws_socket_ctor;
+static JSClassID lws_socket_class_id;
 static JSValue lws_context_proto, lws_context_ctor;
 static JSClassID lws_context_class_id;
 
 static struct lws_protocol_vhost_options* lws_context_vh_options(JSContext* ctx, JSValueConst value);
 static void lws_context_vh_options_free(JSRuntime* rt, struct lws_protocol_vhost_options* vho);
+static struct list_head socket_list = {0};
+
+typedef struct socket {
+  struct list_head link;
+  struct lws* wsi;
+  JSObject* obj;
+  BOOL want_write : 8;
+  JSValue headers;
+} lws_socket;
+
+static inline size_t
+str_chr(const char* s, char c) {
+  size_t i;
+
+  for(i = 0; s[i]; ++i)
+    if(s[i] == c)
+      return i;
+
+  return i;
+}
+
+static inline size_t
+str_chrs(const char* s, const char* set, size_t setlen) {
+  size_t i, j;
+
+  for(i = 0; s[i]; ++i)
+    for(j = 0; j < setlen; ++j)
+      if(s[i] == set[j])
+        return i;
+
+  return i;
+}
+
+static struct socket*
+socket_alloc(JSContext* ctx) {
+  struct socket* s = js_mallocz(ctx, sizeof(struct socket));
+
+  assert(socket_list.next);
+  assert(socket_list.prev);
+
+  list_add(&s->link, &socket_list);
+
+  s->headers = JS_UNDEFINED;
+
+  return s;
+}
+
+static struct socket*
+socket_get(struct lws* wsi) {
+  struct list_head* n;
+
+  assert(socket_list.next);
+  assert(socket_list.prev);
+
+  list_for_each(n, &socket_list) {
+    struct socket* s;
+
+    if((s = list_entry(n, lws_socket, link)))
+      if(s->wsi == wsi)
+        return s;
+  }
+
+  return 0;
+}
+
+static void
+socket_delete(struct socket* s) {
+  assert(socket_list.next);
+  assert(socket_list.prev);
+
+  list_del(&s->link);
+  s->wsi = 0;
+}
+
+static struct socket*
+socket_new(JSContext* ctx, struct lws* wsi) {
+  if(!wsi)
+    return 0;
+
+  struct socket* s;
+
+  if(!(s = socket_get(wsi))) {
+    s = socket_alloc(ctx);
+    s->wsi = wsi;
+    lws_set_opaque_user_data(wsi, s);
+  }
+
+  return s;
+}
+
+static JSValue
+js_socket_wrap(JSContext* ctx, struct lws* wsi) {
+  struct socket* s = socket_new(ctx, wsi);
+
+  JSValue obj = JS_NewObjectProtoClass(ctx, lws_socket_proto, lws_socket_class_id);
+
+  JS_SetOpaque(obj, s);
+
+  s->obj = JS_VALUE_GET_OBJ(JS_DupValue(ctx, obj));
+
+  return obj;
+}
+
+static JSValue
+js_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
+  struct socket* s;
+
+  if((s = socket_get(wsi)))
+    return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, s->obj));
+
+  return js_socket_wrap(ctx, wsi);
+}
+
+struct custom_headers_closure {
+  JSObject* obj;
+  JSContext* ctx;
+  struct lws* wsi;
+};
+
+static void
+custom_headers_callback(const char* name, int nlen, void* opaque) {
+  struct custom_headers_closure* c = opaque;
+  JSValue obj = JS_MKPTR(JS_TAG_OBJECT, c->obj);
+  JSAtom prop = JS_NewAtomLen(c->ctx, name, nlen);
+  int len = lws_hdr_custom_length(c->wsi, name, nlen);
+  char buf[len + 1];
+
+  lws_hdr_custom_copy(c->wsi, buf, len, name, nlen);
+
+  JS_SetProperty(c->ctx, obj, prop, JS_NewStringLen(c->ctx, buf, len));
+  JS_FreeAtom(c->ctx, prop);
+}
+
+static JSValue
+js_socket_headers(JSContext* ctx, struct lws* wsi) {
+  JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
+
+  for(int i = WSI_TOKEN_GET_URI; i < WSI_INIT_TOKEN_MUXURL; ++i) {
+    size_t len = lws_hdr_total_length(wsi, i);
+
+    if(len > 0) {
+      const char* name = lws_token_to_string(i);
+      size_t namelen = str_chrs(name, ": ", 2);
+      JSAtom prop = JS_NewAtomLen(ctx, name, namelen);
+      char buf[len + 1];
+
+      int r = lws_hdr_copy(wsi, buf, len + 1, i);
+
+      JS_SetProperty(ctx, ret, prop, JS_NewStringLen(ctx, buf, r));
+      JS_FreeAtom(ctx, prop);
+    }
+  }
+
+  struct custom_headers_closure c = {JS_VALUE_GET_OBJ(ret), ctx, wsi};
+
+  lws_hdr_custom_name_foreach(wsi, custom_headers_callback, &c);
+
+  return ret;
+}
+
+enum {
+  WANT_WRITE,
+};
+
+static JSValue
+lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
+  struct socket* s;
+  JSValue ret = JS_UNDEFINED;
+
+  if(!(s = JS_GetOpaque2(ctx, this_val, lws_socket_class_id)))
+    return JS_EXCEPTION;
+
+  switch(magic) {
+    case WANT_WRITE: {
+      if(!s->want_write) {
+        lws_callback_on_writable(s->wsi);
+
+        s->want_write = TRUE;
+        ret = JS_NewBool(ctx, TRUE);
+      }
+
+      break;
+    }
+  }
+
+  return ret;
+}
+
+enum {
+  PROP_HEADERS,
+  PROP_TLS,
+  PROP_PEER,
+};
+
+static JSValue
+lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
+  struct socket* s;
+  JSValue ret = JS_UNDEFINED;
+
+  if(!(s = JS_GetOpaque2(ctx, this_val, lws_socket_class_id)))
+    return JS_EXCEPTION;
+
+  switch(magic) {
+    case PROP_HEADERS: {
+      ret = JS_DupValue(ctx, s->headers);
+      break;
+    }
+
+    case PROP_TLS: {
+      ret = JS_NewBool(ctx, lws_is_ssl(s->wsi));
+      break;
+    }
+    case PROP_PEER: {
+      char buf[256];
+      lws_get_peer_simple(s->wsi, buf, sizeof(buf));
+      ret = JS_NewString(ctx, buf);
+      break;
+    }
+  }
+
+  return ret;
+}
+
+static void
+lws_socket_finalizer(JSRuntime* rt, JSValue val) {
+  struct socket* s;
+
+  if((s = JS_GetOpaque(val, lws_socket_class_id))) {
+    if(s->obj) {
+      JSValue obj = JS_MKPTR(JS_TAG_OBJECT, s->obj);
+      JS_FreeValueRT(rt, obj);
+      s->obj = 0;
+    }
+
+    JS_FreeValueRT(rt, s->headers);
+    s->headers = JS_UNDEFINED;
+
+    socket_delete(s);
+    js_free_rt(rt, s);
+  }
+}
+
+static const JSClassDef lws_socket_class = {
+    "LWSSocket",
+    .finalizer = lws_socket_finalizer,
+};
+
+static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
+    JS_CFUNC_MAGIC_DEF("want_write", 0, lws_socket_methods, WANT_WRITE),
+    JS_CGETSET_MAGIC_DEF("headers", lws_socket_get, 0, PROP_HEADERS),
+    JS_CGETSET_MAGIC_DEF("tls", lws_socket_get, 0, PROP_TLS),
+    JS_CGETSET_MAGIC_DEF("peer", lws_socket_get, 0, PROP_PEER),
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
+};
 
 static const char*
 value_to_string(JSContext* ctx, JSValueConst value) {
@@ -86,17 +344,19 @@ static int
 protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   struct lws_protocols const* pro = lws_get_protocol(wsi);
   struct protocol_closure* closure = pro->user;
-  JSValue session = user && (*(uintptr_t*)user) ? *(JSValue*)user : JS_NULL;
+  JSContext* ctx = closure->ctx;
 
   switch(reason) {
+    case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
     case LWS_CALLBACK_LOCK_POLL:
-    case LWS_CALLBACK_UNLOCK_POLL: break;
+    case LWS_CALLBACK_UNLOCK_POLL: return 0;
 
     case LWS_CALLBACK_DEL_POLL_FD: {
       struct lws_pollargs* x = in;
-      set_handler(closure->ctx, x->fd, JS_NULL, 0);
-      set_handler(closure->ctx, x->fd, JS_NULL, 1);
-      break;
+
+      set_handler(ctx, x->fd, JS_NULL, 0);
+      set_handler(ctx, x->fd, JS_NULL, 1);
+      return 0;
     }
 
     case LWS_CALLBACK_ADD_POLL_FD:
@@ -104,54 +364,61 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       struct lws_pollargs* x = in;
       BOOL write = !!(x->events & POLLOUT);
       JSValueConst data[] = {
-          JS_NewInt32(closure->ctx, x->fd),
-          JS_NewInt32(closure->ctx, x->events),
-          JS_NewBool(closure->ctx, write),
-          JS_NewInt64(closure->ctx, (intptr_t)lws_get_context(wsi)),
+          JS_NewInt32(ctx, x->fd),
+          JS_NewInt32(ctx, x->events),
+          JS_NewBool(ctx, write),
+          JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
       };
-      JSValue fn = JS_NewCFunctionData(closure->ctx, protocol_handler, 0, 0, countof(data), data);
+      JSValue fn = JS_NewCFunctionData(ctx, protocol_handler, 0, 0, countof(data), data);
 
       if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
-        set_handler(closure->ctx, x->fd, JS_NULL, !write);
+        set_handler(ctx, x->fd, JS_NULL, !write);
 
-      set_handler(closure->ctx, x->fd, fn, write);
+      set_handler(ctx, x->fd, fn, write);
 
-      JS_FreeValue(closure->ctx, fn);
-      break;
-    }
-
-    default: {
-      if(user && pro->per_session_data_size == sizeof(JSValue)) {
-        if(reason == LWS_CALLBACK_WSI_DESTROY) {
-          // if(JS_VALUE_GET_PTR(*(JSValue*)user) != 0 || JS_VALUE_GET_TAG(*(JSValue*)user) != 0)
-          JS_FreeValue(closure->ctx, *(JSValue*)user);
-        } else if(reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
-          //   if(JS_VALUE_GET_PTR(*(JSValue*)user) == 0 && JS_VALUE_GET_TAG(*(JSValue*)user) == 0)
-          *(JSValue*)user = JS_NewObjectProto(closure->ctx, JS_NULL);
-        }
-      }
-
-      JSValue argv[] = {
-          JS_NewInt32(closure->ctx, reason),
-          session,
-          in ? JS_NewArrayBufferCopy(closure->ctx, in, len) : JS_NULL,
-          JS_NewInt64(closure->ctx, len),
-      };
-      JSValue ret = JS_Call(closure->ctx, closure->callback, JS_NULL, in ? countof(argv) : 2, argv);
-      JS_FreeValue(closure->ctx, argv[0]);
-      JS_FreeValue(closure->ctx, argv[1]);
-      JS_FreeValue(closure->ctx, argv[2]);
-      JS_FreeValue(closure->ctx, argv[3]);
-
-      int32_t i = -1;
-      JS_ToInt32(closure->ctx, &i, ret);
-      JS_FreeValue(closure->ctx, ret);
-
-      return i;
+      JS_FreeValue(ctx, fn);
+      return 0;
     }
   }
 
-  return 0;
+  if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
+    JSValue sock = js_socket_get_or_create(ctx, wsi);
+    struct socket* s;
+
+    if((s = JS_GetOpaque(sock, lws_socket_class_id)))
+      if(JS_IsUndefined(s->headers))
+        s->headers = js_socket_headers(ctx, s->wsi);
+
+    JS_FreeValue(ctx, sock);
+  }
+
+  if(user && pro->per_session_data_size == sizeof(JSValue)) {
+    if(reason == LWS_CALLBACK_WSI_DESTROY) {
+      JS_FreeValue(ctx, *(JSValue*)user);
+      *(JSValue*)user = JS_MKPTR(0, 0);
+    } else if(reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
+      *(JSValue*)user = JS_NewObjectProto(ctx, JS_NULL);
+    }
+  }
+
+  JSValue argv[] = {
+      js_socket_get_or_create(ctx, wsi),
+      JS_NewInt32(ctx, reason),
+      (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL,
+      in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL,
+      JS_NewInt64(ctx, len),
+  };
+  JSValue ret = JS_Call(ctx, closure->callback, JS_NULL, countof(argv) - (in ? 0 : 2), argv);
+  JS_FreeValue(ctx, argv[0]);
+  // JS_FreeValue(ctx, argv[2]);
+  JS_FreeValue(ctx, argv[3]);
+  JS_FreeValue(ctx, argv[4]);
+
+  int32_t i = -1;
+  JS_ToInt32(ctx, &i, ret);
+  JS_FreeValue(ctx, ret);
+
+  return i;
 }
 
 static void
@@ -724,6 +991,10 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     value = JS_GetPropertyStr(ctx, argv[0], "vh_listen_sockfd");
     ci->vh_listen_sockfd = value_to_integer(ctx, value);
     JS_FreeValue(ctx, value);
+
+    value = JS_GetPropertyStr(ctx, argv[0], "options");
+    ci->options = value_to_integer(ctx, value);
+    JS_FreeValue(ctx, value);
   }
 
   ci->user = JS_VALUE_GET_OBJ(obj);
@@ -816,11 +1087,11 @@ lws_context_finalizer(JSRuntime* rt, JSValue val) {
 }
 
 static const JSClassDef lws_context_class = {
-    "MinnetWebsocket",
+    "LWSContext",
     .finalizer = lws_context_finalizer,
 };
 static const JSCFunctionListEntry lws_context_proto_funcs[] = {
-    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LwsContext", JS_PROP_CONFIGURABLE),
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSContext", JS_PROP_CONFIGURABLE),
 };
 
 #define JS_CONSTANT(c) JS_PROP_INT32_DEF((#c), (c), JS_PROP_ENUMERABLE)
@@ -1090,16 +1361,28 @@ static const JSCFunctionListEntry lws_funcs[] = {
 
 int
 lws_context_init(JSContext* ctx, JSModuleDef* m) {
+
+  init_list_head(&socket_list);
+
+  JS_NewClassID(&lws_socket_class_id);
+  JS_NewClass(JS_GetRuntime(ctx), lws_socket_class_id, &lws_socket_class);
+  lws_socket_proto = JS_NewObject(ctx);
+  JS_SetPropertyFunctionList(ctx, lws_socket_proto, lws_socket_proto_funcs, countof(lws_socket_proto_funcs));
+
+  lws_socket_ctor = JS_NewObjectProto(ctx, JS_NULL);
+  JS_SetConstructor(ctx, lws_socket_ctor, lws_socket_proto);
+
   JS_NewClassID(&lws_context_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lws_context_class_id, &lws_context_class);
   lws_context_proto = JS_NewObject(ctx);
   JS_SetPropertyFunctionList(ctx, lws_context_proto, lws_context_proto_funcs, countof(lws_context_proto_funcs));
 
-  lws_context_ctor = JS_NewCFunction2(ctx, lws_context_constructor, "MinnetRequest", 1, JS_CFUNC_constructor, 0);
+  lws_context_ctor = JS_NewCFunction2(ctx, lws_context_constructor, "LWSContext", 1, JS_CFUNC_constructor, 0);
   JS_SetConstructor(ctx, lws_context_ctor, lws_context_proto);
 
   if(m) {
-    JS_SetModuleExport(ctx, m, "LwsContext", lws_context_ctor);
+    JS_SetModuleExport(ctx, m, "LWSSocket", lws_socket_ctor);
+    JS_SetModuleExport(ctx, m, "LWSContext", lws_context_ctor);
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
   }
 
@@ -1111,7 +1394,8 @@ js_init_module(JSContext* ctx, const char* module_name) {
   JSModuleDef* m;
 
   if((m = JS_NewCModule(ctx, module_name, lws_context_init))) {
-    JS_AddModuleExport(ctx, m, "LwsContext");
+    JS_AddModuleExport(ctx, m, "LWSSocket");
+    JS_AddModuleExport(ctx, m, "LWSContext");
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
   }
 
