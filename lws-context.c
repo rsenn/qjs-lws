@@ -29,8 +29,8 @@ atom_to_string(JSContext* ctx, JSAtom a) {
     x = js_strdup(ctx, s);
     JS_FreeCString(ctx, s);
   }
-  JS_FreeValue(ctx, v);
 
+  JS_FreeValue(ctx, v);
   return x;
 }
 
@@ -41,40 +41,8 @@ value_to_integer(JSContext* ctx, JSValueConst value) {
   return i;
 }
 
-static const void*
-lws_context_getarray(JSContext* ctx, JSValueConst value, void* fn(JSContext*, JSValueConst)) {
-  const void** arr = 0;
-
-  if(JS_IsArray(ctx, value)) {
-    int32_t len = -1;
-    JSValue vlen = JS_GetPropertyStr(ctx, value, "length");
-    JS_ToInt32(ctx, &len, vlen);
-    JS_FreeValue(ctx, vlen);
-
-    if(len > 0) {
-      arr = js_mallocz(ctx, (len + 1) * sizeof(void*));
-
-      for(int32_t i = 0; i < len; i++) {
-        JSValue item = JS_GetPropertyUint32(ctx, value, i);
-
-        if(!(arr[i] = fn(ctx, item)))
-          break;
-
-        JS_FreeValue(ctx, item);
-      }
-    }
-  }
-
-  return arr;
-}
-
-struct protocols_closure {
-  JSContext* ctx;
-  JSValue callback, user;
-};
-
 static JSValue
-get_cb(JSContext* ctx, int write) {
+get_set_handler_function(JSContext* ctx, int write) {
   JSValue glob = JS_GetGlobalObject(ctx);
   JSValue os = JS_GetPropertyStr(ctx, glob, "os");
   JS_FreeValue(ctx, glob);
@@ -85,7 +53,7 @@ get_cb(JSContext* ctx, int write) {
 
 static void
 set_handler(JSContext* ctx, int fd, JSValueConst handler, int write) {
-  JSValue fn = get_cb(ctx, write);
+  JSValue fn = get_set_handler_function(ctx, write);
   JSValue args[2] = {
       JS_NewInt32(ctx, fd),
       handler,
@@ -109,10 +77,16 @@ protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
   lws_service_fd((struct lws_context*)i64, &x);
 }
 
+struct protocol_closure {
+  JSContext* ctx;
+  JSValue callback, user;
+};
+
 static int
 protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   struct lws_protocols const* pro = lws_get_protocol(wsi);
-  struct protocols_closure* closure = pro->user;
+  struct protocol_closure* closure = pro->user;
+  JSValue session = user && (*(uintptr_t*)user) ? *(JSValue*)user : JS_NULL;
 
   switch(reason) {
     case LWS_CALLBACK_LOCK_POLL:
@@ -147,13 +121,23 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
 
     default: {
+      if(user && pro->per_session_data_size == sizeof(JSValue)) {
+        if(reason == LWS_CALLBACK_WSI_DESTROY) {
+          // if(JS_VALUE_GET_PTR(*(JSValue*)user) != 0 || JS_VALUE_GET_TAG(*(JSValue*)user) != 0)
+          JS_FreeValue(closure->ctx, *(JSValue*)user);
+        } else if(reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
+          //   if(JS_VALUE_GET_PTR(*(JSValue*)user) == 0 && JS_VALUE_GET_TAG(*(JSValue*)user) == 0)
+          *(JSValue*)user = JS_NewObjectProto(closure->ctx, JS_NULL);
+        }
+      }
+
       JSValue argv[] = {
           JS_NewInt32(closure->ctx, reason),
-          pro->per_session_data_size ? JS_NewArrayBufferCopy(closure->ctx, user, pro->per_session_data_size) : JS_NULL,
+          session,
           in ? JS_NewArrayBufferCopy(closure->ctx, in, len) : JS_NULL,
           JS_NewInt64(closure->ctx, len),
       };
-      JSValue ret = JS_Call(closure->ctx, closure->callback, JS_NULL, countof(argv), argv);
+      JSValue ret = JS_Call(closure->ctx, closure->callback, JS_NULL, in ? countof(argv) : 2, argv);
       JS_FreeValue(closure->ctx, argv[0]);
       JS_FreeValue(closure->ctx, argv[1]);
       JS_FreeValue(closure->ctx, argv[2]);
@@ -171,8 +155,8 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 }
 
 static void
-lws_context_protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
-  struct protocols_closure* closure = pro->user;
+protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
+  struct protocol_closure* closure = pro->user;
 
   if(closure) {
     JS_FreeValueRT(rt, closure->callback);
@@ -188,51 +172,52 @@ lws_context_protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
 }
 
 static void
-lws_context_protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
+protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
   size_t i;
 
   for(i = 0; pro[i].name; ++i)
-    lws_context_protocol_free(rt, &pro[i]);
+    protocol_free(rt, &pro[i]);
 
   js_free_rt(rt, pro);
 }
 
 static struct lws_protocols
-lws_context_protocol(JSContext* ctx, JSValueConst obj) {
+protocol_fromobj(JSContext* ctx, JSValueConst obj) {
   struct lws_protocols pro;
-  struct protocols_closure* closure = 0;
+  BOOL is_array = JS_IsArray(ctx, obj);
 
-  JSValue value = JS_GetPropertyStr(ctx, obj, "name");
+  JSValue value = is_array ? JS_GetPropertyUint32(ctx, obj, 0) : JS_GetPropertyStr(ctx, obj, "name");
   pro.name = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "callback");
+  value = is_array ? JS_GetPropertyUint32(ctx, obj, 1) : JS_GetPropertyStr(ctx, obj, "callback");
   if(JS_IsFunction(ctx, value)) {
-    if((closure = js_mallocz(ctx, sizeof(struct protocols_closure)))) {
+    struct protocol_closure* closure = 0;
+
+    if((closure = js_mallocz(ctx, sizeof(struct protocol_closure)))) {
       closure->ctx = ctx;
       closure->callback = JS_DupValue(ctx, value);
-      closure->user = JS_GetPropertyStr(ctx, obj, "user");
+      /*closure->user = is_array ? JS_GetPropertyUint32(ctx, obj, 2) :JS_GetPropertyStr(ctx, obj, "user");*/
 
       pro.callback = protocol_callback;
+      pro.user = closure;
     }
-
-    pro.user = closure;
   }
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "per_session_data_size");
-  pro.per_session_data_size = value_to_integer(ctx, value);
-  JS_FreeValue(ctx, value);
+  // value = JS_GetPropertyStr(ctx, obj, "per_session_data_size");
+  pro.per_session_data_size = sizeof(JSValue); // value_to_integer(ctx, value);
+  // JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "rx_buffer_size");
+  value = is_array ? JS_GetPropertyUint32(ctx, obj, 2) : JS_GetPropertyStr(ctx, obj, "rx_buffer_size");
   pro.rx_buffer_size = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "id");
+  value = is_array ? JS_GetPropertyUint32(ctx, obj, 3) : JS_GetPropertyStr(ctx, obj, "id");
   pro.id = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "tx_packet_size");
+  value = is_array ? JS_GetPropertyUint32(ctx, obj, 4) : JS_GetPropertyStr(ctx, obj, "tx_packet_size");
   pro.tx_packet_size = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
@@ -240,7 +225,7 @@ lws_context_protocol(JSContext* ctx, JSValueConst obj) {
 }
 
 static const struct lws_protocols*
-lws_context_protocols(JSContext* ctx, JSValueConst value) {
+protocols_fromarray(JSContext* ctx, JSValueConst value) {
   struct lws_protocols* pro = 0;
 
   if(JS_IsArray(ctx, value)) {
@@ -255,7 +240,7 @@ lws_context_protocols(JSContext* ctx, JSValueConst value) {
       for(int32_t i = 0; i < len; i++) {
         JSValue protocol = JS_GetPropertyUint32(ctx, value, i);
 
-        pro[i] = lws_context_protocol(ctx, protocol);
+        pro[i] = protocol_fromobj(ctx, protocol);
 
         JS_FreeValue(ctx, protocol);
       }
@@ -266,7 +251,7 @@ lws_context_protocols(JSContext* ctx, JSValueConst value) {
 }
 
 static struct lws_http_mount*
-lws_context_http_mount(JSContext* ctx, JSValueConst obj, const char* name) {
+http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
   struct lws_http_mount* mnt;
   JSValue value;
 
@@ -375,7 +360,7 @@ lws_context_http_mount(JSContext* ctx, JSValueConst obj, const char* name) {
 }
 
 static const struct lws_http_mount*
-lws_context_http_mounts(JSContext* ctx, JSValueConst value) {
+http_mounts_fromarray(JSContext* ctx, JSValueConst value) {
   const struct lws_http_mount *mnt = 0, **ptr = &mnt, *tmp;
 
   if(JS_IsArray(ctx, value)) {
@@ -390,7 +375,7 @@ lws_context_http_mounts(JSContext* ctx, JSValueConst value) {
       for(int32_t i = 0; i < len; i++) {
         JSValue mount = JS_GetPropertyUint32(ctx, value, i);
 
-        if((*ptr = tmp = lws_context_http_mount(ctx, mount, 0)))
+        if((*ptr = tmp = http_mount_fromobj(ctx, mount, 0)))
           ptr = (const struct lws_http_mount**)&(*ptr)->mount_next;
 
         JS_FreeValue(ctx, mount);
@@ -409,7 +394,7 @@ lws_context_http_mounts(JSContext* ctx, JSValueConst value) {
         const char* name = JS_AtomToCString(ctx, tmp_tab[i].atom);
         JSValue mount = JS_GetProperty(ctx, value, tmp_tab[i].atom);
 
-        if((*ptr = tmp = lws_context_http_mount(ctx, mount, name)))
+        if((*ptr = tmp = http_mount_fromobj(ctx, mount, name)))
           ptr = (const struct lws_http_mount**)&(*ptr)->mount_next;
 
         JS_FreeCString(ctx, name);
@@ -425,7 +410,7 @@ lws_context_http_mounts(JSContext* ctx, JSValueConst value) {
 }
 
 static void
-lws_context_http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
+http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
 
   for(; mnt; mnt = (struct lws_http_mount*)mnt->mount_next) {
     if(mnt->mountpoint) {
@@ -568,7 +553,7 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, argv[0], "protocols");
-    ci->protocols = lws_context_protocols(ctx, value);
+    ci->protocols = protocols_fromarray(ctx, value);
     JS_FreeValue(ctx, value);
 
 #if defined(LWS_ROLE_WS)
@@ -596,7 +581,7 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, argv[0], "mounts");
-    ci->mounts = lws_context_http_mounts(ctx, value);
+    ci->mounts = http_mounts_fromarray(ctx, value);
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, argv[0], "server_string");
@@ -760,7 +745,7 @@ lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* 
   if(ci->iface)
     js_free_rt(rt, (char*)ci->iface);
   if(ci->protocols)
-    lws_context_protocols_free(rt, (struct lws_protocols*)ci->protocols);
+    protocols_free(rt, (struct lws_protocols*)ci->protocols);
   if(ci->http_proxy_address)
     js_free_rt(rt, (char*)ci->http_proxy_address);
   if(ci->headers)
@@ -772,7 +757,7 @@ lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* 
   if(ci->log_filepath)
     js_free_rt(rt, (char*)ci->log_filepath);
   if(ci->mounts)
-    lws_context_http_mounts_free(rt, (struct lws_http_mount*)ci->mounts);
+    http_mounts_free(rt, (struct lws_http_mount*)ci->mounts);
   if(ci->server_string)
     js_free_rt(rt, (char*)ci->server_string);
   if(ci->error_document_404)
@@ -838,10 +823,269 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LwsContext", JS_PROP_CONFIGURABLE),
 };
 
+#define JS_CONSTANT(c) JS_PROP_INT32_DEF((#c), (c), JS_PROP_ENUMERABLE)
+
 static const JSCFunctionListEntry lws_funcs[] = {
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),
+    JS_CONSTANT(LWS_CALLBACK_PROTOCOL_INIT),
+    JS_CONSTANT(LWS_CALLBACK_PROTOCOL_DESTROY),
+    JS_CONSTANT(LWS_CALLBACK_WSI_CREATE),
+    JS_CONSTANT(LWS_CALLBACK_WSI_DESTROY),
+    JS_CONSTANT(LWS_CALLBACK_WSI_TX_CREDIT_GET),
+    JS_CONSTANT(LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS),
+    JS_CONSTANT(LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS),
+    JS_CONSTANT(LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION),
+    JS_CONSTANT(LWS_CALLBACK_SSL_INFO),
+    JS_CONSTANT(LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION),
+    JS_CONSTANT(LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED),
+    JS_CONSTANT(LWS_CALLBACK_HTTP),
+    JS_CONSTANT(LWS_CALLBACK_HTTP_BODY),
+    JS_CONSTANT(LWS_CALLBACK_HTTP_BODY_COMPLETION),
+    JS_CONSTANT(LWS_CALLBACK_HTTP_FILE_COMPLETION),
+    JS_CONSTANT(LWS_CALLBACK_HTTP_WRITEABLE),
+    JS_CONSTANT(LWS_CALLBACK_CLOSED_HTTP),
+    JS_CONSTANT(LWS_CALLBACK_FILTER_HTTP_CONNECTION),
+    JS_CONSTANT(LWS_CALLBACK_ADD_HEADERS),
+    JS_CONSTANT(LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION),
+    JS_CONSTANT(LWS_CALLBACK_CHECK_ACCESS_RIGHTS),
+    JS_CONSTANT(LWS_CALLBACK_PROCESS_HTML),
+    JS_CONSTANT(LWS_CALLBACK_HTTP_BIND_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_HTTP_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_HTTP_CONFIRM_UPGRADE),
+    JS_CONSTANT(LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP),
+    JS_CONSTANT(LWS_CALLBACK_CLOSED_CLIENT_HTTP),
+    JS_CONSTANT(LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ),
+    JS_CONSTANT(LWS_CALLBACK_RECEIVE_CLIENT_HTTP),
+    JS_CONSTANT(LWS_CALLBACK_COMPLETED_CLIENT_HTTP),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_HTTP_WRITEABLE),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_HTTP_REDIRECT),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_ESTABLISHED),
+    JS_CONSTANT(LWS_CALLBACK_CLOSED),
+    JS_CONSTANT(LWS_CALLBACK_SERVER_WRITEABLE),
+    JS_CONSTANT(LWS_CALLBACK_RECEIVE),
+    JS_CONSTANT(LWS_CALLBACK_RECEIVE_PONG),
+    JS_CONSTANT(LWS_CALLBACK_WS_PEER_INITIATED_CLOSE),
+    JS_CONSTANT(LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION),
+    JS_CONSTANT(LWS_CALLBACK_CONFIRM_EXTENSION_OKAY),
+    JS_CONSTANT(LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_CONNECTION_ERROR),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_ESTABLISHED),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_CLOSED),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_RECEIVE),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_RECEIVE_PONG),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_WRITEABLE),
+    JS_CONSTANT(LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED),
+    JS_CONSTANT(LWS_CALLBACK_WS_EXT_DEFAULTS),
+    JS_CONSTANT(LWS_CALLBACK_FILTER_NETWORK_CONNECTION),
+    JS_CONSTANT(LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_WS_CLIENT_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_GET_THREAD_ID),
+    JS_CONSTANT(LWS_CALLBACK_ADD_POLL_FD),
+    JS_CONSTANT(LWS_CALLBACK_DEL_POLL_FD),
+    JS_CONSTANT(LWS_CALLBACK_CHANGE_MODE_POLL_FD),
+    JS_CONSTANT(LWS_CALLBACK_LOCK_POLL),
+    JS_CONSTANT(LWS_CALLBACK_UNLOCK_POLL),
+    JS_CONSTANT(LWS_CALLBACK_CGI),
+    JS_CONSTANT(LWS_CALLBACK_CGI_TERMINATED),
+    JS_CONSTANT(LWS_CALLBACK_CGI_STDIN_DATA),
+    JS_CONSTANT(LWS_CALLBACK_CGI_STDIN_COMPLETED),
+    JS_CONSTANT(LWS_CALLBACK_CGI_PROCESS_ATTACH),
+    JS_CONSTANT(LWS_CALLBACK_SESSION_INFO),
+    JS_CONSTANT(LWS_CALLBACK_GS_EVENT),
+    JS_CONSTANT(LWS_CALLBACK_HTTP_PMO),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_CLI_RX),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_SRV_RX),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_CLI_CLOSE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_SRV_CLOSE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_CLI_ADOPT),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_SRV_ADOPT),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_CLI_BIND_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_SRV_BIND_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_CLI_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_RAW_PROXY_SRV_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_RAW_RX),
+    JS_CONSTANT(LWS_CALLBACK_RAW_CLOSE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_WRITEABLE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_ADOPT),
+    JS_CONSTANT(LWS_CALLBACK_RAW_CONNECTED),
+    JS_CONSTANT(LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_RAW_ADOPT_FILE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_RX_FILE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_WRITEABLE_FILE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_CLOSE_FILE),
+    JS_CONSTANT(LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_RAW_FILE_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_TIMER),
+    JS_CONSTANT(LWS_CALLBACK_EVENT_WAIT_CANCELLED),
+    JS_CONSTANT(LWS_CALLBACK_CHILD_CLOSING),
+    JS_CONSTANT(LWS_CALLBACK_CONNECTING),
+    JS_CONSTANT(LWS_CALLBACK_VHOST_CERT_AGING),
+    JS_CONSTANT(LWS_CALLBACK_VHOST_CERT_UPDATE),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_NEW_CLIENT_INSTANTIATED),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_IDLE),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_SUBSCRIBED),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_CLIENT_WRITEABLE),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_CLIENT_RX),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_UNSUBSCRIBED),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_DROP_PROTOCOL),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_CLIENT_CLOSED),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_ACK),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_RESEND),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT),
+    JS_CONSTANT(LWS_CALLBACK_MQTT_SHADOW_TIMEOUT),
+    JS_CONSTANT(LWS_CALLBACK_USER),
+    JS_CONSTANT(WSI_TOKEN_GET_URI), /* 0 */
+    JS_CONSTANT(WSI_TOKEN_POST_URI),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_OPTIONS_URI),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HOST),
+    JS_CONSTANT(WSI_TOKEN_CONNECTION),
+    JS_CONSTANT(WSI_TOKEN_UPGRADE), /* 5 */
+    JS_CONSTANT(WSI_TOKEN_ORIGIN),
+#if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_DRAFT),
+#endif
+    JS_CONSTANT(WSI_TOKEN_CHALLENGE),
+#if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_EXTENSIONS),
+    JS_CONSTANT(WSI_TOKEN_KEY1), /* 10 */
+    JS_CONSTANT(WSI_TOKEN_KEY2),
+    JS_CONSTANT(WSI_TOKEN_PROTOCOL),
+    JS_CONSTANT(WSI_TOKEN_ACCEPT),
+    JS_CONSTANT(WSI_TOKEN_NONCE),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP),
+#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP2_SETTINGS), /* 16 */
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_AC_REQUEST_HEADERS),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_MODIFIED_SINCE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_NONE_MATCH), /* 20 */
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT_ENCODING),
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT_LANGUAGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_PRAGMA),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CACHE_CONTROL),
+    JS_CONSTANT(WSI_TOKEN_HTTP_AUTHORIZATION),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COOKIE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_LENGTH), /* 27 */
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_TYPE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_DATE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_RANGE),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_REFERER),
+#endif
+#if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_KEY),
+    JS_CONSTANT(WSI_TOKEN_VERSION),
+    JS_CONSTANT(WSI_TOKEN_SWORIGIN),
+#endif
+#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_AUTHORITY),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_METHOD),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_PATH),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_SCHEME),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_STATUS),
+#endif
+
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT_CHARSET),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT_RANGES),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCESS_CONTROL_ALLOW_ORIGIN),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_AGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_ALLOW),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_DISPOSITION),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_ENCODING),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_LANGUAGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_LOCATION),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_RANGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_ETAG),
+    JS_CONSTANT(WSI_TOKEN_HTTP_EXPECT),
+    JS_CONSTANT(WSI_TOKEN_HTTP_EXPIRES),
+    JS_CONSTANT(WSI_TOKEN_HTTP_FROM),
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_MATCH),
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_RANGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_UNMODIFIED_SINCE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_LAST_MODIFIED),
+    JS_CONSTANT(WSI_TOKEN_HTTP_LINK),
+    JS_CONSTANT(WSI_TOKEN_HTTP_LOCATION),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_MAX_FORWARDS),
+    JS_CONSTANT(WSI_TOKEN_HTTP_PROXY_AUTHENTICATE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_PROXY_AUTHORIZATION),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_REFRESH),
+    JS_CONSTANT(WSI_TOKEN_HTTP_RETRY_AFTER),
+    JS_CONSTANT(WSI_TOKEN_HTTP_SERVER),
+    JS_CONSTANT(WSI_TOKEN_HTTP_SET_COOKIE),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_STRICT_TRANSPORT_SECURITY),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_TRANSFER_ENCODING),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_USER_AGENT),
+    JS_CONSTANT(WSI_TOKEN_HTTP_VARY),
+    JS_CONSTANT(WSI_TOKEN_HTTP_VIA),
+    JS_CONSTANT(WSI_TOKEN_HTTP_WWW_AUTHENTICATE),
+#endif
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_PATCH_URI),
+    JS_CONSTANT(WSI_TOKEN_PUT_URI),
+    JS_CONSTANT(WSI_TOKEN_DELETE_URI),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_URI_ARGS),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_PROXY),
+    JS_CONSTANT(WSI_TOKEN_HTTP_X_REAL_IP),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP1_0),
+    JS_CONSTANT(WSI_TOKEN_X_FORWARDED_FOR),
+    JS_CONSTANT(WSI_TOKEN_CONNECT),
+    JS_CONSTANT(WSI_TOKEN_HEAD_URI),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_TE),
+    JS_CONSTANT(WSI_TOKEN_REPLAY_NONCE), /* ACME */
+#endif
+#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_COLON_PROTOCOL),
+#endif
+    JS_CONSTANT(WSI_TOKEN_X_AUTH_TOKEN),
+    JS_CONSTANT(WSI_TOKEN_DSS_SIGNATURE),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_SENT_PROTOCOLS),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_PEER_ADDRESS),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_URI),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_HOST),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_ORIGIN),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_METHOD),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_IFACE),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_LOCALPORT),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_ALPN),
+    JS_CONSTANT(WSI_TOKEN_COUNT),
+    JS_CONSTANT(WSI_TOKEN_NAME_PART),
+#if defined(LWS_WITH_CUSTOM_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_UNKNOWN_VALUE_PART),
+#endif
+    JS_CONSTANT(WSI_TOKEN_SKIPPING),
+    JS_CONSTANT(WSI_TOKEN_SKIPPING_SAW_CR),
+    JS_CONSTANT(WSI_PARSING_COMPLETE),
+    JS_CONSTANT(WSI_INIT_TOKEN_MUXURL),
 };
 
 int
