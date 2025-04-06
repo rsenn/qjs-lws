@@ -22,7 +22,8 @@ typedef struct socket {
   JSValue headers;
 } lws_socket;
 
-static inline size_t str_chr(const char* s, char c) {
+static inline size_t
+str_chr(const char* s, char c) {
   size_t i;
 
   for(i = 0; s[i]; ++i)
@@ -32,7 +33,8 @@ static inline size_t str_chr(const char* s, char c) {
   return i;
 }
 
-static inline size_t str_chrs(const char* s, const char* set, size_t setlen) {
+static inline size_t
+str_chrs(const char* s, const char* set, size_t setlen) {
   size_t i, j;
 
   for(i = 0; s[i]; ++i)
@@ -43,7 +45,8 @@ static inline size_t str_chrs(const char* s, const char* set, size_t setlen) {
   return i;
 }
 
-static const char* value_to_string(JSContext* ctx, JSValueConst value) {
+static const char*
+value_to_string(JSContext* ctx, JSValueConst value) {
   if(JS_IsUndefined(value) || JS_IsNull(value))
     return 0;
 
@@ -53,7 +56,8 @@ static const char* value_to_string(JSContext* ctx, JSValueConst value) {
   return x;
 }
 
-static const char* atom_to_string(JSContext* ctx, JSAtom a) {
+static const char*
+atom_to_string(JSContext* ctx, JSAtom a) {
   char* x = 0;
   JSValue v = JS_AtomToValue(ctx, a);
 
@@ -67,12 +71,14 @@ static const char* atom_to_string(JSContext* ctx, JSAtom a) {
   return x;
 }
 
-static const int64_t value_to_integer(JSContext* ctx, JSValueConst value) {
+static const int64_t
+value_to_integer(JSContext* ctx, JSValueConst value) {
   int64_t i = -1;
   JS_ToInt64(ctx, &i, value);
   return i;
 }
-static struct socket* socket_alloc(JSContext* ctx) {
+static struct socket*
+socket_alloc(JSContext* ctx) {
   struct socket* s = js_mallocz(ctx, sizeof(struct socket));
 
   assert(socket_list.next);
@@ -85,7 +91,8 @@ static struct socket* socket_alloc(JSContext* ctx) {
   return s;
 }
 
-static struct socket* socket_get(struct lws* wsi) {
+static struct socket*
+socket_get(struct lws* wsi) {
   struct list_head* n;
 
   assert(socket_list.next);
@@ -102,7 +109,8 @@ static struct socket* socket_get(struct lws* wsi) {
   return 0;
 }
 
-static void socket_delete(struct socket* s) {
+static void
+socket_delete(struct socket* s) {
   assert(socket_list.next);
   assert(socket_list.prev);
 
@@ -110,7 +118,8 @@ static void socket_delete(struct socket* s) {
   s->wsi = 0;
 }
 
-static struct socket* socket_new(JSContext* ctx, struct lws* wsi) {
+static struct socket*
+socket_new(JSContext* ctx, struct lws* wsi) {
   if(!wsi)
     return 0;
 
@@ -125,7 +134,8 @@ static struct socket* socket_new(JSContext* ctx, struct lws* wsi) {
   return s;
 }
 
-static JSValue js_socket_wrap(JSContext* ctx, struct lws* wsi) {
+static JSValue
+js_socket_wrap(JSContext* ctx, struct lws* wsi) {
   struct socket* s = socket_new(ctx, wsi);
 
   JSValue obj = JS_NewObjectProtoClass(ctx, lws_socket_proto, lws_socket_class_id);
@@ -137,7 +147,8 @@ static JSValue js_socket_wrap(JSContext* ctx, struct lws* wsi) {
   return obj;
 }
 
-static JSValue js_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
+static JSValue
+js_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
   struct socket* s;
 
   if((s = socket_get(wsi)))
@@ -152,7 +163,8 @@ struct custom_headers_closure {
   struct lws* wsi;
 };
 
-static void custom_headers_callback(const char* name, int nlen, void* opaque) {
+static void
+custom_headers_callback(const char* name, int nlen, void* opaque) {
   struct custom_headers_closure* c = opaque;
   JSValue obj = JS_MKPTR(JS_TAG_OBJECT, c->obj);
   int namelen = nlen;
@@ -168,7 +180,8 @@ static void custom_headers_callback(const char* name, int nlen, void* opaque) {
   JS_FreeAtom(c->ctx, prop);
 }
 
-static JSValue js_socket_headers(JSContext* ctx, struct lws* wsi) {
+static JSValue
+js_socket_headers(JSContext* ctx, struct lws* wsi) {
   JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
 
   for(int i = WSI_TOKEN_GET_URI; i < WSI_INIT_TOKEN_MUXURL; ++i) {
@@ -200,7 +213,8 @@ enum {
   RESPOND,
 };
 
-static JSValue lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
+static JSValue
+lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
   struct socket* s;
   JSValue ret = JS_UNDEFINED;
 
@@ -325,7 +339,8 @@ enum {
   PROP_PEER,
 };
 
-static JSValue lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
+static JSValue
+lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
   struct socket* s;
   JSValue ret = JS_UNDEFINED;
 
@@ -353,7 +368,8 @@ static JSValue lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) 
   return ret;
 }
 
-static void lws_socket_finalizer(JSRuntime* rt, JSValue val) {
+static void
+lws_socket_finalizer(JSRuntime* rt, JSValue val) {
   struct socket* s;
 
   if((s = JS_GetOpaque(val, lws_socket_class_id))) {
@@ -386,7 +402,8 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 
-static JSValue get_set_handler_function(JSContext* ctx, int write) {
+static JSValue
+get_set_handler_function(JSContext* ctx, int write) {
   JSValue glob = JS_GetGlobalObject(ctx);
   JSValue os = JS_GetPropertyStr(ctx, glob, "os");
   JS_FreeValue(ctx, glob);
@@ -395,7 +412,8 @@ static JSValue get_set_handler_function(JSContext* ctx, int write) {
   return fn;
 }
 
-static void set_handler(JSContext* ctx, int fd, JSValueConst handler, int write) {
+static void
+set_handler(JSContext* ctx, int fd, JSValueConst handler, int write) {
   JSValue fn = get_set_handler_function(ctx, write);
   JSValue args[2] = {
       JS_NewInt32(ctx, fd),
@@ -406,7 +424,8 @@ static void set_handler(JSContext* ctx, int fd, JSValueConst handler, int write)
   JS_FreeValue(ctx, fn);
 }
 
-static JSValue protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValue* func_data) {
+static JSValue
+protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValue* func_data) {
   BOOL write = JS_ToBool(ctx, func_data[2]);
   int64_t i64;
   int32_t fd, events;
@@ -426,7 +445,8 @@ struct protocol_closure {
   JSValue callback, user;
 };
 
-static int protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+static int
+protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   struct lws_protocols const* pro = lws_get_protocol(wsi);
   struct protocol_closure* closure = pro->user;
   JSContext* ctx = closure->ctx;
@@ -531,7 +551,8 @@ static int protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, 
   return i;
 }
 
-static void protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
+static void
+protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
   struct protocol_closure* closure = pro->user;
 
   if(closure) {
@@ -547,7 +568,8 @@ static void protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
   js_free_rt(rt, (char*)pro->name);
 }
 
-static void protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
+static void
+protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
   size_t i;
 
   for(i = 0; pro[i].name; ++i)
@@ -556,7 +578,8 @@ static void protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
   js_free_rt(rt, pro);
 }
 
-static struct lws_protocols protocol_fromobj(JSContext* ctx, JSValueConst obj) {
+static struct lws_protocols
+protocol_fromobj(JSContext* ctx, JSValueConst obj) {
   struct lws_protocols pro;
   BOOL is_array = JS_IsArray(ctx, obj);
 
@@ -598,7 +621,8 @@ static struct lws_protocols protocol_fromobj(JSContext* ctx, JSValueConst obj) {
   return pro;
 }
 
-static const struct lws_protocols* protocols_fromarray(JSContext* ctx, JSValueConst value) {
+static const struct lws_protocols*
+protocols_fromarray(JSContext* ctx, JSValueConst value) {
   struct lws_protocols* pro = 0;
 
   if(JS_IsArray(ctx, value)) {
@@ -623,7 +647,8 @@ static const struct lws_protocols* protocols_fromarray(JSContext* ctx, JSValueCo
   return pro;
 }
 
-static struct lws_http_mount* http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
+static struct lws_http_mount*
+http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
   struct lws_http_mount* mnt;
   JSValue value;
 
@@ -731,7 +756,8 @@ static struct lws_http_mount* http_mount_fromobj(JSContext* ctx, JSValueConst ob
   return mnt;
 }
 
-static const struct lws_http_mount* http_mounts_fromarray(JSContext* ctx, JSValueConst value) {
+static const struct lws_http_mount*
+http_mounts_fromarray(JSContext* ctx, JSValueConst value) {
   const struct lws_http_mount *mnt = 0, **ptr = &mnt, *tmp;
 
   if(JS_IsArray(ctx, value)) {
@@ -780,7 +806,8 @@ static const struct lws_http_mount* http_mounts_fromarray(JSContext* ctx, JSValu
   return mnt;
 }
 
-static void http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
+static void
+http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
 
   for(; mnt; mnt = (struct lws_http_mount*)mnt->mount_next) {
     if(mnt->mountpoint) {
@@ -818,7 +845,8 @@ static void http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
   }
 }
 
-static struct lws_protocol_vhost_options* lws_context_vh_option(JSContext* ctx, JSValueConst obj) {
+static struct lws_protocol_vhost_options*
+lws_context_vh_option(JSContext* ctx, JSValueConst obj) {
   struct lws_protocol_vhost_options* vho;
   JSValue name, value, options;
 
@@ -892,7 +920,8 @@ struct context_closure {
   struct lws_context_creation_info info;
 };
 
-JSValue lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
+JSValue
+lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
   JSValue proto, obj;
   struct lws_context_creation_info* ci;
   struct context_closure* lc;
@@ -1111,7 +1140,34 @@ fail:
   return JS_EXCEPTION;
 }
 
-static void lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
+enum {
+  DESTROY,
+};
+
+static JSValue
+lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
+  struct context_closure* lc;
+  JSValue ret = JS_UNDEFINED;
+
+  if(!(lc = JS_GetOpaque2(ctx, this_val, lws_context_class_id)))
+    return JS_EXCEPTION;
+
+  switch(magic) {
+    case DESTROY: {
+      if(lc->ctx) {
+        lws_context_destroy(lc->ctx);
+        lc->ctx = 0;
+        ret = JS_TRUE;
+      }
+      break;
+    }
+  }
+
+  return ret;
+}
+
+static void
+lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
   if(ci->iface)
     js_free_rt(rt, (char*)ci->iface);
   if(ci->protocols)
@@ -1171,7 +1227,8 @@ static void lws_context_creation_info_free(JSRuntime* rt, struct lws_context_cre
 #endif
 }
 
-static void lws_context_finalizer(JSRuntime* rt, JSValue val) {
+static void
+lws_context_finalizer(JSRuntime* rt, JSValue val) {
   struct context_closure* lc;
 
   if((lc = JS_GetOpaque(val, lws_context_class_id))) {
@@ -1189,6 +1246,7 @@ static const JSClassDef lws_context_class = {
     .finalizer = lws_context_finalizer,
 };
 static const JSCFunctionListEntry lws_context_proto_funcs[] = {
+    JS_CFUNC_MAGIC_DEF("destroy", 0, lws_context_methods, DESTROY),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSContext", JS_PROP_CONFIGURABLE),
 };
 
@@ -1457,13 +1515,14 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CONSTANT(WSI_INIT_TOKEN_MUXURL),
 };
 
-int lws_context_init(JSContext* ctx, JSModuleDef* m) {
+int
+lws_context_init(JSContext* ctx, JSModuleDef* m) {
 
   init_list_head(&socket_list);
 
   JS_NewClassID(&lws_socket_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lws_socket_class_id, &lws_socket_class);
-  lws_socket_proto = JS_NewObject(ctx);
+  lws_socket_proto = JS_NewObjectProto(ctx, JS_NULL);
   JS_SetPropertyFunctionList(ctx, lws_socket_proto, lws_socket_proto_funcs, countof(lws_socket_proto_funcs));
 
   lws_socket_ctor = JS_NewObjectProto(ctx, JS_NULL);
@@ -1486,7 +1545,8 @@ int lws_context_init(JSContext* ctx, JSModuleDef* m) {
   return 0;
 }
 
-__attribute__((visibility("default"))) JSModuleDef* js_init_module(JSContext* ctx, const char* module_name) {
+__attribute__((visibility("default"))) JSModuleDef*
+js_init_module(JSContext* ctx, const char* module_name) {
   JSModuleDef* m;
 
   if((m = JS_NewCModule(ctx, module_name, lws_context_init))) {
