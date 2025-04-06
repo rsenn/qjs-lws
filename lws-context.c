@@ -844,8 +844,7 @@ static struct lws_protocol_vhost_options* lws_context_vh_option(JSContext* ctx, 
   return vho;
 }
 
-static struct lws_protocol_vhost_options*
-vhost_options(JSContext* ctx, JSValueConst value) {
+static struct lws_protocol_vhost_options* vhost_options(JSContext* ctx, JSValueConst value) {
   struct lws_protocol_vhost_options *vho = 0, **ptr = &vho, *tmp;
 
   if(JS_IsArray(ctx, value)) {
