@@ -9,8 +9,8 @@ static JSClassID lws_socket_class_id;
 static JSValue lws_context_proto, lws_context_ctor;
 static JSClassID lws_context_class_id;
 
-static struct lws_protocol_vhost_options* lws_context_vh_options(JSContext* ctx, JSValueConst value);
-static void lws_context_vh_options_free(JSRuntime* rt, struct lws_protocol_vhost_options* vho);
+static struct lws_protocol_vhost_options* vhost_options(JSContext* ctx, JSValueConst value);
+static void vhost_options_free(JSRuntime* rt, struct lws_protocol_vhost_options* vho);
 static struct list_head socket_list = {0};
 
 typedef struct socket {
@@ -705,15 +705,15 @@ http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "cgienv");
-    mnt->cgienv = lws_context_vh_options(ctx, value);
+    mnt->cgienv = vhost_options(ctx, value);
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "extra_mimetypes");
-    mnt->extra_mimetypes = lws_context_vh_options(ctx, value);
+    mnt->extra_mimetypes = vhost_options(ctx, value);
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "interpret");
-    mnt->interpret = lws_context_vh_options(ctx, value);
+    mnt->interpret = vhost_options(ctx, value);
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "cgi_timeout");
@@ -827,15 +827,15 @@ http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
       mnt->protocol = 0;
     }
     if(mnt->cgienv) {
-      lws_context_vh_options_free(rt, (struct lws_protocol_vhost_options*)mnt->cgienv);
+      vhost_options_free(rt, (struct lws_protocol_vhost_options*)mnt->cgienv);
       mnt->cgienv = 0;
     }
     if(mnt->extra_mimetypes) {
-      lws_context_vh_options_free(rt, (struct lws_protocol_vhost_options*)mnt->extra_mimetypes);
+      vhost_options_free(rt, (struct lws_protocol_vhost_options*)mnt->extra_mimetypes);
       mnt->extra_mimetypes = 0;
     }
     if(mnt->interpret) {
-      lws_context_vh_options_free(rt, (struct lws_protocol_vhost_options*)mnt->interpret);
+      vhost_options_free(rt, (struct lws_protocol_vhost_options*)mnt->interpret);
       mnt->interpret = 0;
     }
     if(mnt->basic_auth_login_file) {
@@ -863,7 +863,7 @@ lws_context_vh_option(JSContext* ctx, JSValueConst obj) {
   if((vho = js_malloc(ctx, sizeof(struct lws_protocol_vhost_options)))) {
     vho->name = value_to_string(ctx, name);
     vho->value = value_to_string(ctx, value);
-    vho->options = lws_context_vh_options(ctx, options);
+    vho->options = vhost_options(ctx, options);
   }
 
   JS_FreeValue(ctx, name);
@@ -873,7 +873,7 @@ lws_context_vh_option(JSContext* ctx, JSValueConst obj) {
 }
 
 static struct lws_protocol_vhost_options*
-lws_context_vh_options(JSContext* ctx, JSValueConst value) {
+vhost_options(JSContext* ctx, JSValueConst value) {
   struct lws_protocol_vhost_options *vho = 0, **ptr = &vho, *tmp;
 
   if(JS_IsArray(ctx, value)) {
@@ -902,17 +902,17 @@ lws_context_vh_options(JSContext* ctx, JSValueConst value) {
 }
 
 static void
-lws_context_vh_options_free(JSRuntime* rt, struct lws_protocol_vhost_options* vho) {
+vhost_options_free(JSRuntime* rt, struct lws_protocol_vhost_options* vho) {
 
   js_free_rt(rt, (char*)vho->name);
   vho->name = 0;
   js_free_rt(rt, (char*)vho->value);
   vho->value = 0;
 
-  lws_context_vh_options_free(rt, (struct lws_protocol_vhost_options*)vho->next);
+  vhost_options_free(rt, (struct lws_protocol_vhost_options*)vho->next);
   vho->next = 0;
 
-  lws_context_vh_options_free(rt, (struct lws_protocol_vhost_options*)vho->options);
+  vhost_options_free(rt, (struct lws_protocol_vhost_options*)vho->options);
   vho->options = 0;
 }
 
@@ -962,15 +962,15 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, argv[0], "headers");
-    ci->headers = lws_context_vh_options(ctx, value);
+    ci->headers = vhost_options(ctx, value);
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, argv[0], "reject_service_keywords");
-    ci->reject_service_keywords = lws_context_vh_options(ctx, value);
+    ci->reject_service_keywords = vhost_options(ctx, value);
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, argv[0], "pvo");
-    ci->pvo = lws_context_vh_options(ctx, value);
+    ci->pvo = vhost_options(ctx, value);
     JS_FreeValue(ctx, value);
 
     value = JS_GetPropertyStr(ctx, argv[0], "log_filepath");
@@ -1150,11 +1150,11 @@ lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* 
   if(ci->http_proxy_address)
     js_free_rt(rt, (char*)ci->http_proxy_address);
   if(ci->headers)
-    lws_context_vh_options_free(rt, (struct lws_protocol_vhost_options*)ci->headers);
+    vhost_options_free(rt, (struct lws_protocol_vhost_options*)ci->headers);
   if(ci->reject_service_keywords)
-    lws_context_vh_options_free(rt, (struct lws_protocol_vhost_options*)ci->reject_service_keywords);
+    vhost_options_free(rt, (struct lws_protocol_vhost_options*)ci->reject_service_keywords);
   if(ci->pvo)
-    lws_context_vh_options_free(rt, (struct lws_protocol_vhost_options*)ci->pvo);
+    vhost_options_free(rt, (struct lws_protocol_vhost_options*)ci->pvo);
   if(ci->log_filepath)
     js_free_rt(rt, (char*)ci->log_filepath);
   if(ci->mounts)
