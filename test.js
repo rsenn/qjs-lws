@@ -1,5 +1,7 @@
 import * as lws from 'lws';
 
+//lws.setLog(lws.LLL_USER , (l,m) => console.log(m))
+
 const cbnames = Object.getOwnPropertyNames(lws)
   .filter(n => /LWS_CALLB/.test(n))
   .reduce((a, n) => {
