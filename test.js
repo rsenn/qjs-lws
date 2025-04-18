@@ -1,35 +1,35 @@
-import * as lws from 'lws';
+//import * as lws from 'lws';
+import { getCallbackName, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext } from 'lws';
 
-const cbnames = Object.getOwnPropertyNames(lws)
-  .filter(n => /LWS_CALLB/.test(n))
-  .reduce((a, n) => {
-    a[lws[n]] = n;
-    return a;
-  }, []);
+const C = console.config({ compact: true });
 
 const protocols = [
+  {
+    name: 'ws',
+    callback(wsi, reason, ...args) {
+      globalThis.wsi = wsi;
+      console.log(getCallbackName(reason).padEnd(29, ' '), C, args);
+      return 0;
+    },
+  },
   {
     name: 'http',
     callback(wsi, reason, ...args) {
       globalThis.wsi = wsi;
-      console.log(cbnames[reason].padEnd(42, ' ').slice(13), console.config({ compact: true }), args);
+      console.log(getCallbackName(reason).padEnd(29, ' '), C, args);
+      return 0;
     },
   },
 ];
 
-const mounts = [
-  { mountpoint: '/test', origin_protocol: lws.LWSMPRO_CALLBACK },
-  { mountpoint: '/', origin: '.', def: 'index.html', origin_protocol: lws.LWSMPRO_FILE },
-];
-
-globalThis.ctx = new lws.LWSContext({
+globalThis.ctx = new LWSContext({
   port: 8886,
-  /*http_proxy_address: '127.0.0.1',
-  http_proxy_port: 8123,
-  socks_proxy_address: '127.0.0.1',
-  socks_proxy_port: 9050,*/
+  /*http_proxy_address: '127.0.0.1', http_proxy_port: 8123,
+  socks_proxy_address: '127.0.0.1', socks_proxy_port: 9050,*/
   protocols,
-  mounts,
+  mounts: [
+    { mountpoint: '/ws', protocol: 'ws', origin_protocol: LWSMPRO_NO_MOUNT },
+    { mountpoint: '/test', protocol: 'http', origin_protocol: LWSMPRO_CALLBACK },
+    { mountpoint: '/', origin: '.', def: 'index.html', origin_protocol: LWSMPRO_FILE },
+  ],
 });
-
-//await import('util').then(m => m.startInteractive());

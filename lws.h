@@ -4,6 +4,8 @@
 #include <quickjs.h>
 
 #define VISIBLE __attribute__((visibility("default")))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 static inline size_t
 str_chrs(const char* s, const char* set, size_t setlen) {
