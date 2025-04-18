@@ -315,7 +315,6 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CONSTANT(LWS_WRITE_H2_STREAM_END),
     JS_CONSTANT(LWS_WRITE_CLIENT_IGNORE_XOR_MASK),
     JS_CONSTANT(LWS_WRITE_RAW),
-
 };
 
 static const char* lws_callback_names[] = {
