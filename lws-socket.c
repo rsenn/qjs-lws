@@ -2,14 +2,17 @@
 #include "lws.h"
 #include <assert.h>
 
-static JSValue lws_socket_proto, lws_socket_ctor;
 JSClassID lws_socket_class_id;
+static JSValue lws_socket_proto, lws_socket_ctor;
 
 static struct list_head socket_list = {0};
 
 static LWSSocket*
 socket_alloc(JSContext* ctx) {
   LWSSocket* sock = js_mallocz(ctx, sizeof(LWSSocket));
+
+  if(socket_list.next == 0)
+    init_list_head(&socket_list);
 
   assert(socket_list.next);
   assert(socket_list.prev);
@@ -167,9 +170,9 @@ js_socket_headers(JSContext* ctx, struct lws* wsi) {
 }
 
 enum {
-  WANT_WRITE = 0,
-  SEND,
-  RESPOND,
+  METHOD_WANT_WRITE = 0,
+  METHOD_WRITE,
+  METHOD_RESPOND,
 };
 
 static JSValue
@@ -181,7 +184,7 @@ lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
     return JS_EXCEPTION;
 
   switch(magic) {
-    case WANT_WRITE: {
+    case METHOD_WANT_WRITE: {
       if(!s->want_write) {
         lws_callback_on_writable(s->wsi);
 
@@ -192,7 +195,7 @@ lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
       break;
     }
 
-    case SEND: {
+    case METHOD_WRITE: {
       size_t len;
       void* ptr = JS_GetArrayBuffer(ctx, &len, argv[0]);
       int32_t n = len, proto = LWS_WRITE_HTTP;
@@ -217,7 +220,7 @@ lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
       break;
     }
 
-    case RESPOND: {
+    case METHOD_RESPOND: {
       unsigned char result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE], *p = (unsigned char*)result + LWS_PRE, *start = p;
       unsigned char* end = p + sizeof(result) - LWS_PRE - 1;
       uint8_t* ptr = 0;
@@ -381,9 +384,9 @@ static const JSClassDef lws_socket_class = {
 };
 
 static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
-    JS_CFUNC_MAGIC_DEF("want_write", 0, lws_socket_methods, WANT_WRITE),
-    JS_CFUNC_MAGIC_DEF("send", 1, lws_socket_methods, SEND),
-    JS_CFUNC_MAGIC_DEF("respond", 1, lws_socket_methods, RESPOND),
+    JS_CFUNC_MAGIC_DEF("wantWrite", 0, lws_socket_methods, METHOD_WANT_WRITE),
+    JS_CFUNC_MAGIC_DEF("write", 1, lws_socket_methods, METHOD_WRITE),
+    JS_CFUNC_MAGIC_DEF("respond", 1, lws_socket_methods, METHOD_RESPOND),
     JS_CGETSET_MAGIC_DEF("headers", lws_socket_get, 0, PROP_HEADERS),
     JS_CGETSET_MAGIC_DEF("tls", lws_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lws_socket_get, 0, PROP_PEER),
@@ -395,9 +398,6 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
 
 int
 lws_socket_init(JSContext* ctx, JSModuleDef* m) {
-
-  init_list_head(&socket_list);
-
   JS_NewClassID(&lws_socket_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lws_socket_class_id, &lws_socket_class);
   lws_socket_proto = JS_NewObjectProto(ctx, JS_NULL);

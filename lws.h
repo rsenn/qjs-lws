@@ -6,17 +6,6 @@
 #define VISIBLE __attribute__((visibility("default")))
 
 static inline size_t
-str_chr(const char* s, char c) {
-  size_t i;
-
-  for(i = 0; s[i]; ++i)
-    if(s[i] == c)
-      return i;
-
-  return i;
-}
-
-static inline size_t
 str_chrs(const char* s, const char* set, size_t setlen) {
   size_t i, j;
 

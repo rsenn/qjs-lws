@@ -7,8 +7,10 @@
 #include "lws-context.h"
 #include "lws.h"
 
-static JSValue lws_context_proto, lws_context_ctor;
+typedef struct lws_protocols LWSProtocols;
+
 JSClassID lws_context_class_id;
+static JSValue lws_context_proto, lws_context_ctor;
 
 static struct lws_protocol_vhost_options* vhost_options(JSContext*, JSValueConst);
 static void vhost_options_free(JSRuntime*, struct lws_protocol_vhost_options*);
@@ -44,22 +46,22 @@ protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
   JS_ToInt32(ctx, &fd, func_data[0]);
   JS_ToInt32(ctx, &events, func_data[1]);
 
-  struct lws_pollfd x = {.fd = fd, .events = events, .revents = write ? POLLOUT : POLLIN};
+  struct lws_pollfd lpfd = {.fd = fd, .events = events, .revents = write ? POLLOUT : POLLIN};
 
-  lws_service_fd((struct lws_context*)i64, &x);
+  lws_service_fd((struct lws_context*)i64, &lpfd);
 
   return JS_UNDEFINED;
 }
 
-struct protocol_closure {
+typedef struct {
   JSContext* ctx;
   JSValue callback, user;
-};
+} LWSProtocol;
 
 static int
 protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   struct lws_protocols const* pro = lws_get_protocol(wsi);
-  struct protocol_closure* closure = pro->user;
+  LWSProtocol* closure = pro->user;
   JSContext* ctx = closure->ctx;
 
   switch(reason) {
@@ -103,11 +105,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JSValue sock = js_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
-    if((s = JS_GetOpaque(sock, lws_socket_class_id))) {
-
+    if((s = JS_GetOpaque(sock, lws_socket_class_id)))
       if(s->want_write)
         s->want_write = FALSE;
-    }
 
     JS_FreeValue(ctx, sock);
 
@@ -161,8 +161,8 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 }
 
 static void
-protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
-  struct protocol_closure* closure = pro->user;
+protocol_free(JSRuntime* rt, LWSProtocols* pro) {
+  LWSProtocol* closure = pro->user;
 
   if(closure) {
     JS_FreeValueRT(rt, closure->callback);
@@ -178,7 +178,7 @@ protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
 }
 
 static void
-protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
+protocols_free(JSRuntime* rt, LWSProtocols* pro) {
   size_t i;
 
   for(i = 0; pro[i].name; ++i)
@@ -187,24 +187,22 @@ protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
   js_free_rt(rt, pro);
 }
 
-static struct lws_protocols
+static LWSProtocols
 protocol_fromobj(JSContext* ctx, JSValueConst obj) {
-  struct lws_protocols pro;
+  LWSProtocols pro;
   BOOL is_array = JS_IsArray(ctx, obj);
-
   JSValue value = is_array ? JS_GetPropertyUint32(ctx, obj, 0) : JS_GetPropertyStr(ctx, obj, "name");
   pro.name = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 1) : JS_GetPropertyStr(ctx, obj, "callback");
   if(JS_IsFunction(ctx, value)) {
-    struct protocol_closure* closure = 0;
+    LWSProtocol* closure = 0;
 
-    if((closure = js_mallocz(ctx, sizeof(struct protocol_closure)))) {
+    if((closure = js_mallocz(ctx, sizeof(LWSProtocol)))) {
       closure->ctx = ctx;
       closure->callback = JS_DupValue(ctx, value);
-      /*closure->user = is_array ? JS_GetPropertyUint32(ctx, obj, 2) :JS_GetPropertyStr(ctx,
-       * obj, "user");*/
+      /*closure->user = is_array ? JS_GetPropertyUint32(ctx, obj, 2) :JS_GetPropertyStr(ctx, obj, "user"); */
 
       pro.callback = protocol_callback;
       pro.user = closure;
@@ -232,10 +230,8 @@ protocol_fromobj(JSContext* ctx, JSValueConst obj) {
   return pro;
 }
 
-static const struct lws_protocols*
+static const LWSProtocols*
 protocols_fromarray(JSContext* ctx, JSValueConst value) {
-  struct lws_protocols* pro = 0;
-
   if(JS_IsArray(ctx, value)) {
     int32_t len = -1;
     JSValue vlen = JS_GetPropertyStr(ctx, value, "length");
@@ -243,7 +239,7 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
     JS_FreeValue(ctx, vlen);
 
     if(len > 0) {
-      pro = js_mallocz(ctx, (len + 1) * sizeof(struct lws_protocols));
+      LWSProtocols* pro = js_mallocz(ctx, (len + 1) * sizeof(LWSProtocols));
 
       for(int32_t i = 0; i < len; i++) {
         JSValue protocol = JS_GetPropertyUint32(ctx, value, i);
@@ -252,10 +248,12 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
 
         JS_FreeValue(ctx, protocol);
       }
+
+      return pro;
     }
   }
 
-  return pro;
+  return 0;
 }
 
 static struct lws_http_mount*
@@ -295,6 +293,7 @@ http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
 
     value = JS_GetPropertyUint32(ctx, obj, i++);
     mnt->basic_auth_login_file = value_to_string(ctx, value);
+
   } else if(JS_IsObject(obj)) {
     value = JS_GetPropertyStr(ctx, obj, "mountpoint");
     if(JS_IsString(value)) {
@@ -397,7 +396,6 @@ http_mounts_fromarray(JSContext* ctx, JSValueConst value) {
     uint32_t len;
 
     if(!JS_GetOwnPropertyNames(ctx, &tmp_tab, &len, value, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)) {
-
       for(uint32_t i = 0; i < len; i++) {
         const char* name = JS_AtomToCString(ctx, tmp_tab[i].atom);
         JSValue mount = JS_GetProperty(ctx, value, tmp_tab[i].atom);
@@ -564,9 +562,10 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     ci->protocols = protocols_fromarray(ctx, value);
     JS_FreeValue(ctx, value);
 
-#if defined(LWS_ROLE_WS)
+#ifdef LWS_ROLE_WS
 
 #endif
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
     value = JS_GetPropertyStr(ctx, argv[0], "http_proxy_address");
     ci->http_proxy_address = value_to_string(ctx, value);
@@ -613,7 +612,7 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     JS_FreeValue(ctx, value);
 #endif
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
+#ifdef LWS_WITH_SYS_ASYNC_DNS
     value = JS_GetPropertyStr(ctx, argv[0], "async_dns_servers");
 
     if(JS_IsObject(value)) {
@@ -638,7 +637,7 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     JS_FreeValue(ctx, value);
 #endif
 
-#if defined(LWS_WITH_TLS)
+#ifdef LWS_WITH_TLS
     value = JS_GetPropertyStr(ctx, argv[0], "ssl_private_key_password");
     ci->ssl_private_key_password = value_to_string(ctx, value);
     JS_FreeValue(ctx, value);
@@ -689,7 +688,7 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
 
 #endif
 
-#if defined(LWS_WITH_SOCKS5)
+#ifdef LWS_WITH_SOCKS5
     value = JS_GetPropertyStr(ctx, argv[0], "socks_proxy_address");
     ci->socks_proxy_address = value_to_string(ctx, value);
     JS_FreeValue(ctx, value);
@@ -700,7 +699,7 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
 
 #endif
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
+#ifdef LWS_WITH_SYS_ASYNC_DNS
     value = JS_GetPropertyStr(ctx, argv[0], "async_dns_servers");
 
     if(JS_IsObject(value)) {
@@ -884,7 +883,7 @@ lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* 
     js_free_rt(rt, (char*)ci->iface);
 
   if(ci->protocols)
-    protocols_free(rt, (struct lws_protocols*)ci->protocols);
+    protocols_free(rt, (LWSProtocols*)ci->protocols);
 
   if(ci->http_proxy_address)
     js_free_rt(rt, (char*)ci->http_proxy_address);
@@ -910,7 +909,7 @@ lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* 
   if(ci->error_document_404)
     js_free_rt(rt, (char*)ci->error_document_404);
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS)
+#ifdef LWS_WITH_SYS_ASYNC_DNS
   if(ci->async_dns_servers) {
     for(size_t i = 0; ci->async_dns_servers[i]; ++i)
       js_free_rt(rt, (char*)ci->async_dns_servers[i]);
@@ -918,7 +917,7 @@ lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* 
   }
 #endif
 
-#if defined(LWS_WITH_TLS)
+#ifdef LWS_WITH_TLS
   if(ci->ssl_private_key_password)
     js_free_rt(rt, (char*)ci->ssl_private_key_password);
 
@@ -956,7 +955,7 @@ lws_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* 
     js_free_rt(rt, (char*)ci->client_tls_1_3_plus_cipher_list);
 #endif
 
-#if defined(LWS_WITH_SOCKS5)
+#ifdef LWS_WITH_SOCKS5
   if(ci->socks_proxy_address)
     js_free_rt(rt, (char*)ci->socks_proxy_address);
 #endif
@@ -994,7 +993,6 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
 
 int
 lws_context_init(JSContext* ctx, JSModuleDef* m) {
-
   JS_NewClassID(&lws_context_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lws_context_class_id, &lws_context_class);
   lws_context_proto = JS_NewObject(ctx);

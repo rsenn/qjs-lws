@@ -299,6 +299,23 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CONSTANT(WSI_TOKEN_SKIPPING_SAW_CR),
     JS_CONSTANT(WSI_PARSING_COMPLETE),
     JS_CONSTANT(WSI_INIT_TOKEN_MUXURL),
+
+    JS_CONSTANT(LWS_WRITE_TEXT),
+    JS_CONSTANT(LWS_WRITE_BINARY),
+    JS_CONSTANT(LWS_WRITE_CONTINUATION),
+    JS_CONSTANT(LWS_WRITE_HTTP),
+    JS_CONSTANT(LWS_WRITE_PING),
+    JS_CONSTANT(LWS_WRITE_PONG),
+    JS_CONSTANT(LWS_WRITE_HTTP_FINAL),
+    JS_CONSTANT(LWS_WRITE_HTTP_HEADERS),
+    JS_CONSTANT(LWS_WRITE_HTTP),
+    JS_CONSTANT(LWS_WRITE_HTTP_HEADERS_CONTINUATION),
+    JS_CONSTANT(LWS_WRITE_BUFLIST),
+    JS_CONSTANT(LWS_WRITE_NO_FIN),
+    JS_CONSTANT(LWS_WRITE_H2_STREAM_END),
+    JS_CONSTANT(LWS_WRITE_CLIENT_IGNORE_XOR_MASK),
+    JS_CONSTANT(LWS_WRITE_RAW),
+
 };
 
 static const char* lws_callback_names[] = {
@@ -424,6 +441,7 @@ static const char*
 lws_get_callback_name(enum lws_callback_reasons reason) {
   if(reason >= 0 && reason < countof(lws_callback_names))
     return lws_callback_names[reason];
+
   return 0;
 }
 
