@@ -115,6 +115,27 @@ socket_get(struct lws* wsi) {
   return 0;
 }
 
+static LWSSocket*
+socket_get_by_fd(lws_sockfd_type sock) {
+  struct list_head* n;
+
+  assert(socket_list.next);
+  assert(socket_list.prev);
+
+  list_for_each(n, &socket_list) {
+    LWSSocket* s;
+
+    if((s = list_entry(n, LWSSocket, link))) {
+      lws_sockfd_type fd = s->wsi ? lws_get_socket_fd(s->wsi) : -1;
+
+      if(fd != -1 && sock == fd)
+        return s;
+    }
+  }
+
+  return 0;
+}
+
 static void
 socket_delete(LWSSocket* s) {
   assert(socket_list.next);
@@ -214,7 +235,7 @@ js_socket_headers(JSContext* ctx, struct lws* wsi) {
 }
 
 enum {
-  WANT_WRITE,
+  WANT_WRITE = 0,
   SEND,
   RESPOND,
 };
@@ -345,9 +366,11 @@ lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
 }
 
 enum {
-  PROP_HEADERS,
+  PROP_HEADERS = 0,
   PROP_TLS,
   PROP_PEER,
+  PROP_FD,
+  PROP_CONTEXT,
 };
 
 static JSValue
@@ -363,14 +386,34 @@ lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_DupValue(ctx, s->headers);
       break;
     }
+
     case PROP_TLS: {
       ret = JS_NewBool(ctx, lws_is_ssl(s->wsi));
       break;
     }
+
     case PROP_PEER: {
       char buf[256];
       lws_get_peer_simple(s->wsi, buf, sizeof(buf));
       ret = JS_NewString(ctx, buf);
+      break;
+    }
+
+    case PROP_FD: {
+      lws_sockfd_type fd = s->wsi ? lws_get_socket_fd(s->wsi) : -1;
+      ret = JS_NewInt32(ctx, fd);
+      break;
+    }
+
+    case PROP_CONTEXT: {
+      struct lws_context* lws;
+
+      if((lws = lws_get_context(s->wsi))) {
+        JSObject* obj = lws_context_user(lws);
+
+        ret = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
+      }
+
       break;
     }
   }
@@ -1152,7 +1195,7 @@ fail:
 }
 
 enum {
-  DESTROY,
+  DESTROY = 0,
 };
 
 static JSValue
@@ -1170,6 +1213,7 @@ lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
         lc->ctx = 0;
         ret = JS_TRUE;
       }
+
       break;
     }
   }
@@ -1287,7 +1331,34 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
 
 #define JS_CONSTANT(c) JS_PROP_INT32_DEF((#c), (c), JS_PROP_ENUMERABLE)
 
+enum {
+  GET_CALLBACK_NAME = 0,
+};
+
+static JSValue
+lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
+  JSValue ret = JS_UNDEFINED;
+
+  switch(magic) {
+    case GET_CALLBACK_NAME: {
+      int32_t reason = -1;
+      JS_ToInt32(ctx, &reason, argv[0]);
+      const char* name = lws_get_callback_name(reason);
+
+      ret = name ? JS_NewString(ctx, name) : JS_NULL;
+
+      if(name)
+        JS_FreeCString(ctx, name);
+
+      break;
+    }
+  }
+
+  return ret;
+}
+
 static const JSCFunctionListEntry lws_funcs[] = {
+    JS_CFUNC_MAGIC_DEF("getCallbackName", 1, lws_functions, GET_CALLBACK_NAME),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),
