@@ -46,7 +46,7 @@ value_to_string(JSContext* ctx, JSValueConst value) {
   return x;
 }
 
-static inline const char*
+/*static inline const char*
 atom_to_string(JSContext* ctx, JSAtom a) {
   char* x = 0;
   JSValue v = JS_AtomToValue(ctx, a);
@@ -59,7 +59,7 @@ atom_to_string(JSContext* ctx, JSAtom a) {
 
   JS_FreeValue(ctx, v);
   return x;
-}
+}*/
 
 int lws_init(JSContext*, JSModuleDef*);
 JSModuleDef* js_init_module(JSContext*, const char*);
