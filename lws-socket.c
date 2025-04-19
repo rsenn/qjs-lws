@@ -98,6 +98,11 @@ socket_destroy(struct lws* wsi, JSContext* ctx) {
   JS_FreeValue(ctx, obj);
   sock->obj = 0;
 
+  if(!JS_IsUndefined(sock->write_handler)) {
+    JS_FreeValue(ctx, sock->write_handler);
+    sock->write_handler = JS_UNDEFINED;
+  }
+
   socket_delete(sock);
 }
 
