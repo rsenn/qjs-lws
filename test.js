@@ -8,7 +8,7 @@ const protocols = [
     name: 'ws',
     callback(wsi, reason, ...args) {
       globalThis.wsi = wsi;
-      console.log(getCallbackName(reason).padEnd(29, ' '), C, args);
+      console.log('ws', getCallbackName(reason).padEnd(29, ' '), C, args);
       return 0;
     },
   },
@@ -16,7 +16,7 @@ const protocols = [
     name: 'http',
     callback(wsi, reason, ...args) {
       globalThis.wsi = wsi;
-      console.log(getCallbackName(reason).padEnd(29, ' '), C, args);
+      console.log('ws', getCallbackName(reason).padEnd(29, ' '), C, args);
       return 0;
     },
   },

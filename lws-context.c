@@ -1008,7 +1008,7 @@ int
 lws_context_init(JSContext* ctx, JSModuleDef* m) {
   JS_NewClassID(&lws_context_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lws_context_class_id, &lws_context_class);
-  lws_context_proto = JS_NewObject(ctx);
+  lws_context_proto = JS_NewObjectProto(ctx, JS_NULL);
   JS_SetPropertyFunctionList(ctx, lws_context_proto, lws_context_proto_funcs, countof(lws_context_proto_funcs));
 
   lws_context_ctor = JS_NewCFunction2(ctx, lws_context_constructor, "LWSContext", 1, JS_CFUNC_constructor, 0);
