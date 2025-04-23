@@ -158,9 +158,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
   if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
     argv[argi++] = JS_NewStringLen(ctx, in, len);
-  } else
-
-      if(in || len > 0) {
+  } else if(in || len > 0) {
     argv[argi++] = in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL;
     argv[argi++] = JS_NewInt64(ctx, len);
   }

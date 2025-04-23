@@ -16,6 +16,7 @@ typedef struct {
     };
     JSValue array[4];
   };
+  JSValue name, filename;
 } SPACallbacks;
 
 typedef struct {
@@ -29,22 +30,37 @@ lws_spa_callback(void* data, const char* name, const char* filename, char* buf, 
   SPACallbacks* cb = data;
   int32_t ret = 0;
 
+  if(state == LWS_UFS_OPEN) {
+    JS_FreeValue(cb->ctx, cb->name);
+    cb->name = JS_NewString(cb->ctx, name);
+    JS_FreeValue(cb->ctx, cb->filename);
+    cb->filename = JS_NewString(cb->ctx, filename);
+  }
+
   JSValue args[] = {
-      name ? JS_NewString(cb->ctx, name) : JS_NULL,
-      filename ? JS_NewString(cb->ctx, filename) : JS_NULL,
-      buf ? JS_NewArrayBufferCopy(cb->ctx, buf, len) : JS_NULL,
+      cb->name,
+      cb->filename,
+      (buf && len) ? JS_NewArrayBufferCopy(cb->ctx, buf, len) : JS_NULL,
   };
 
   JSValue fn = cb->array[state - LWS_UFS_CONTENT];
 
-  JSValue result = JS_Call(cb->ctx, fn, cb->this_obj, countof(args), args);
+  JSValue result = JS_Call(cb->ctx, fn, cb->this_obj, (buf && len) ? 3 : 2, args);
 
   if(JS_IsException(result))
     ret = -1;
   else
     JS_ToInt32(cb->ctx, &ret, result);
 
+  JS_FreeValue(cb->ctx, args[2]);
   JS_FreeValue(cb->ctx, result);
+
+  if(state == LWS_UFS_CLOSE) {
+    JS_FreeValue(cb->ctx, cb->name);
+    cb->name = JS_NULL;
+    JS_FreeValue(cb->ctx, cb->filename);
+    cb->filename = JS_NULL;
+  }
 
   return ret;
 }
@@ -78,6 +94,8 @@ lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueCo
       .onfinalcontent = JS_NULL,
       .onopen = JS_NULL,
       .onclose = JS_NULL,
+      .name = JS_NULL,
+      .filename = JS_NULL,
   };
 
   static const char* const callback_names[] = {

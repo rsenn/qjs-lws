@@ -1,7 +1,7 @@
 //import * as lws from 'lws';
 import { LWSSPA, getCallbackName, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext } from 'lws';
 
-const C = console.config({ compact: true });
+const C = console.config({ compact: true, maxArrayLength: 8 });
 
 const spa = new WeakMap();
 
@@ -42,7 +42,7 @@ const protocols = [
     onHttpBody(wsi, buf, len) {
       const s = spa.get(wsi);
 
-     console.log('onHttpBody', C, s, buf);
+      console.log('onHttpBody', C, s, buf);
 
       s.process(buf, len);
     },
