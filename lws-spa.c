@@ -164,12 +164,23 @@ lws_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 }
 
 static JSValue
-lws_spa_get_property(JSContext* ctx, JSValueConst obj, JSAtom prop, JSValueConst receiver) {
+lws_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSValueConst receiver) {
   JSValue value = JS_UNDEFINED;
-  JSValue key = JS_AtomToValue(ctx, prop);
+  //  JSValue key = JS_AtomToValue(ctx, prop);
 
-  {
-    JSValue proto = JS_GetPrototype(ctx, obj);
+  if(prop > 0x7fffffff) {
+    LWSSPA* s;
+
+    if(!(s = JS_GetOpaque2(ctx, this_val, lws_spa_class_id)))
+      return JS_EXCEPTION;
+
+    int len = lws_spa_get_length(s->spa, prop & 0x7fffffff);
+    const char* str = lws_spa_get_string(s->spa, prop & 0x7fffffff);
+
+    if(str)
+      value = JS_NewStringLen(ctx, str, len);
+  } else {
+    JSValue proto = JS_GetPrototype(ctx, this_val);
 
     if(!JS_IsObject(proto))
       proto = JS_DupValue(ctx, lws_spa_proto);
