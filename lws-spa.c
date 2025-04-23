@@ -27,7 +27,20 @@ typedef struct {
 static int
 lws_spa_callback(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
   SPACallbacks* cb = data;
-  int ret = 0;
+  int32_t ret = 0;
+
+  JSValue args[] = {
+      name ? JS_NewString(cb->ctx, name) : JS_NULL,
+      filename ? JS_NewString(cb->ctx, filename) : JS_NULL,
+      buf ? JS_NewArrayBufferCopy(cb->ctx, buf, len) : JS_NULL,
+  };
+
+  JSValue fn = cb->array[state - LWS_UFS_CONTENT];
+
+  JSValue result = JS_Call(cb->ctx, fn, cb->this_obj, countof(args), args);
+
+  JS_ToInt32(cb->ctx, &ret, result);
+  JS_FreeValue(cb->ctx, result);
 
   return ret;
 }
@@ -56,12 +69,23 @@ lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueCo
 
   s->callbacks = (SPACallbacks){
       .ctx = ctx,
-      .this_obj = (argc > 1 && JS_IsObject(argv[1])) ? obj : JS_UNDEFINED,
-      .oncontent = (argc > 1 && JS_IsObject(argv[1])) ? JS_GetPropertyStr(ctx, argv[1], "onContent") : JS_NULL,
-      .onfinalcontent = (argc > 1 && JS_IsObject(argv[1])) ? JS_GetPropertyStr(ctx, argv[1], "onFinalContent") : JS_NULL,
-      .onopen = (argc > 1 && JS_IsObject(argv[1])) ? JS_GetPropertyStr(ctx, argv[1], "onOpen") : JS_NULL,
-      .onclose = (argc > 1 && JS_IsObject(argv[1])) ? JS_GetPropertyStr(ctx, argv[1], "onClose") : JS_NULL,
+      .this_obj = (argc > 1 && JS_IsObject(argv[1])) ? JS_DupValue(ctx, argv[1]) : JS_UNDEFINED,
+      .oncontent = JS_NULL,
+      .onfinalcontent = JS_NULL,
+      .onopen = JS_NULL,
+      .onclose = JS_NULL,
   };
+
+  static const char* const callback_names[] = {
+      "onContent",
+      "onFinalContent",
+      "onOpen",
+      "onClose",
+  };
+
+  if(argc > 1 && JS_IsObject(argv[1]))
+    for(size_t i = 0; i < countof(callback_names); ++i)
+      s->callbacks.array[i] = JS_GetPropertyStr(ctx, argv[1], callback_names[i]);
 
   s->info = (struct lws_spa_create_info){
       .param_names = js_mallocz(ctx, sizeof(char*) * 1024),
@@ -134,7 +158,7 @@ lws_spa_finalizer(JSRuntime* rt, JSValue val) {
     for(size_t i = 0; i < countof(s->callbacks.array); i++)
       JS_FreeValueRT(rt, s->callbacks.array[i]);
 
-    // JS_FreeValueRT(rt, s->callbacks.this_obj);
+    JS_FreeValueRT(rt, s->callbacks.this_obj);
 
     if(s->info.param_names) {
       for(size_t i = 0; i < s->info.count_params; i++)
