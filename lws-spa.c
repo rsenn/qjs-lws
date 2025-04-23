@@ -39,7 +39,11 @@ lws_spa_callback(void* data, const char* name, const char* filename, char* buf, 
 
   JSValue result = JS_Call(cb->ctx, fn, cb->this_obj, countof(args), args);
 
-  JS_ToInt32(cb->ctx, &ret, result);
+  if(JS_IsException(result))
+    ret = -1;
+  else
+    JS_ToInt32(cb->ctx, &ret, result);
+
   JS_FreeValue(cb->ctx, result);
 
   return ret;
