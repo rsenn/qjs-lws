@@ -6,6 +6,7 @@ JSClassID lws_socket_class_id;
 static JSValue lws_socket_proto, lws_socket_ctor;
 
 static struct list_head socket_list;
+static uint32_t socket_id;
 
 static LWSSocket*
 socket_alloc(JSContext* ctx) {
@@ -23,6 +24,7 @@ socket_alloc(JSContext* ctx) {
 
   sock->headers = JS_UNDEFINED;
   sock->write_handler = JS_UNDEFINED;
+  sock->id = ++socket_id;
 
   return sock;
 }
@@ -245,7 +247,7 @@ lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
 
     case METHOD_WRITE: {
       size_t len;
-      void* ptr = JS_GetArrayBuffer(ctx, &len, argv[0]);
+      void* ptr = JS_IsString(argv[0]) ? (void*)JS_ToCStringLen(ctx, &len, argv[0]) : JS_GetArrayBuffer(ctx, &len, argv[0]);
       int32_t n = len, proto = LWS_WRITE_HTTP;
 
       if(argc > 2)
@@ -264,6 +266,9 @@ lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
             if(lws_http_transaction_completed(s->wsi))
               s->completed = TRUE;
       }
+
+      if(JS_IsString(argv[0]))
+        JS_FreeCString(ctx, ptr);
 
       break;
     }
@@ -390,6 +395,7 @@ lws_socket_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
 enum {
   PROP_HEADERS = 0,
+  PROP_ID,
   PROP_TLS,
   PROP_PEER,
   PROP_FD,
@@ -408,6 +414,11 @@ lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
   switch(magic) {
     case PROP_HEADERS: {
       ret = JS_DupValue(ctx, s->headers);
+      break;
+    }
+
+    case PROP_ID: {
+      ret = JS_NewUint32(ctx, s->id);
       break;
     }
 
@@ -478,6 +489,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("wantWrite", 0, lws_socket_methods, METHOD_WANT_WRITE),
     JS_CFUNC_MAGIC_DEF("write", 1, lws_socket_methods, METHOD_WRITE),
     JS_CFUNC_MAGIC_DEF("respond", 1, lws_socket_methods, METHOD_RESPOND),
+    JS_CGETSET_MAGIC_FLAGS_DEF("id", lws_socket_get, 0, PROP_ID, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_DEF("headers", lws_socket_get, 0, PROP_HEADERS),
     JS_CGETSET_MAGIC_DEF("tls", lws_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lws_socket_get, 0, PROP_PEER),

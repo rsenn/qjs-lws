@@ -2,6 +2,7 @@
 #define QJS_LWS_H
 
 #include <quickjs.h>
+#include <libwebsockets.h>
 #include <cutils.h>
 #include <ctype.h>
 
@@ -25,15 +26,14 @@ static inline size_t
 str_camelize(char* dst, size_t dlen, const char* src) {
   size_t i, j;
 
-  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i) {
-    if(src[i] == '_' || i == 0) {
-      if(i)
-        ++i;
-      dst[j++] = toupper(src[i++]);
+  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
+    if(src[i] == '_') {
+      ++i;
+      dst[j] = toupper(src[i]);
       continue;
     }
 
-    dst[j++] = tolower(src[i++]);
+    dst[j] = tolower(src[i]);
   }
 
   dst[j] = '\0';
@@ -44,11 +44,11 @@ static inline size_t
 str_decamelize(char* dst, size_t dlen, const char* src) {
   size_t i, j;
 
-  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i) {
+  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
     if(i > 0 && islower(src[i - 1]) && isupper(src[i]))
       dst[j++] = '_';
 
-    dst[j++] = toupper(src[i++]);
+    dst[j] = toupper(src[i]);
   }
 
   dst[j] = '\0';
@@ -88,6 +88,16 @@ atom_to_string(JSContext* ctx, JSAtom a) {
   return x;
 }*/
 
+static inline BOOL
+js_is_null_or_undefined(JSValueConst val) {
+  return JS_IsNull(val) || JS_IsUndefined(val);
+}
+#define JS_CGETSET_MAGIC_FLAGS_DEF(prop_name, fgetter, fsetter, magic_num, flags) \
+  { \
+    .name = prop_name, .prop_flags = flags, .def_type = JS_DEF_CGETSET_MAGIC, .magic = magic_num, .u = {.getset = {.get = {.getter_magic = fgetter}, .set = {.setter_magic = fsetter}} } \
+  }
+
+void js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_USER + 1]);
 BOOL js_has_property(JSContext*, JSValue, const char*);
 JSValue js_get_property(JSContext*, JSValue, const char*);
 enum lws_callback_reasons lws_callback_find(const char* name);

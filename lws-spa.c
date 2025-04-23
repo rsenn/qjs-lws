@@ -109,7 +109,8 @@ lws_spa_finalizer(JSRuntime* rt, JSValue val) {
 
     // JS_FreeValueRT(rt, s->callbacks.this_obj);
 
-    lws_spa_destroy(s->spa);
+    if(s->spa)
+      lws_spa_destroy(s->spa);
 
     js_free_rt(rt, s);
   }

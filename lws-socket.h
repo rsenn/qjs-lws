@@ -9,6 +9,7 @@
 typedef struct {
   struct list_head link;
   struct lws* wsi;
+  uint32_t id;
   JSObject* obj;
   BOOL want_write : 8;
   BOOL completed : 8;

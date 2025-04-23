@@ -14,6 +14,7 @@ typedef struct lws_context_creation_info LWSContextCreationInfo;
 typedef struct {
   JSContext* ctx;
   JSValue callback, user;
+  JSValue callbacks[LWS_CALLBACK_USER + 1];
 } LWSProtocol;
 
 JSClassID lws_context_class_id;
@@ -65,43 +66,48 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   struct lws_protocols const* pro = lws_get_protocol(wsi);
   LWSProtocol* closure = pro->user;
   JSContext* ctx = closure->ctx;
+  JSValue* cb = &closure->callback;
 
-  switch(reason) {
-    case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
-    case LWS_CALLBACK_LOCK_POLL:
-    case LWS_CALLBACK_UNLOCK_POLL: return 0;
+  if(!js_is_null_or_undefined(closure->callbacks[reason])) {
+    cb = &closure->callbacks[reason];
+  } else
 
-    case LWS_CALLBACK_DEL_POLL_FD: {
-      struct lws_pollargs* x = in;
+    switch(reason) {
+      case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+      case LWS_CALLBACK_LOCK_POLL:
+      case LWS_CALLBACK_UNLOCK_POLL: return 0;
 
-      js_set_handler(ctx, x->fd, JS_NULL, 0);
-      js_set_handler(ctx, x->fd, JS_NULL, 1);
-      return 0;
+      case LWS_CALLBACK_DEL_POLL_FD: {
+        struct lws_pollargs* x = in;
+
+        js_set_handler(ctx, x->fd, JS_NULL, 0);
+        js_set_handler(ctx, x->fd, JS_NULL, 1);
+        return 0;
+      }
+
+      case LWS_CALLBACK_ADD_POLL_FD:
+      case LWS_CALLBACK_CHANGE_MODE_POLL_FD: {
+        struct lws_pollargs* x = in;
+        BOOL write = !!(x->events & POLLOUT);
+        JSValueConst data[] = {
+            JS_NewInt32(ctx, x->fd),
+            JS_NewInt32(ctx, x->events),
+            JS_NewBool(ctx, write),
+            JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
+        };
+        JSValue fn = JS_NewCFunctionData(ctx, protocol_handler, 0, 0, countof(data), data);
+
+        if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
+          js_set_handler(ctx, x->fd, JS_NULL, !write);
+
+        js_set_handler(ctx, x->fd, fn, write);
+
+        JS_FreeValue(ctx, fn);
+        return 0;
+      }
+
+      default: break;
     }
-
-    case LWS_CALLBACK_ADD_POLL_FD:
-    case LWS_CALLBACK_CHANGE_MODE_POLL_FD: {
-      struct lws_pollargs* x = in;
-      BOOL write = !!(x->events & POLLOUT);
-      JSValueConst data[] = {
-          JS_NewInt32(ctx, x->fd),
-          JS_NewInt32(ctx, x->events),
-          JS_NewBool(ctx, write),
-          JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
-      };
-      JSValue fn = JS_NewCFunctionData(ctx, protocol_handler, 0, 0, countof(data), data);
-
-      if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
-        js_set_handler(ctx, x->fd, JS_NULL, !write);
-
-      js_set_handler(ctx, x->fd, fn, write);
-
-      JS_FreeValue(ctx, fn);
-      return 0;
-    }
-
-    default: break;
-  }
 
   if(reason == LWS_CALLBACK_HTTP_WRITEABLE) {
     JSValue sock = js_socket_get_or_create(ctx, wsi);
@@ -140,18 +146,29 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
   }
 
-  JSValue argv[] = {
+  int argi = 1;
+  JSValue argv[5] = {
       js_socket_get_or_create(ctx, wsi),
-      JS_NewInt32(ctx, reason),
-      (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL,
-      in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL,
-      JS_NewInt64(ctx, len),
   };
-  JSValue ret = JS_Call(ctx, closure->callback, JS_NULL, countof(argv) - (in ? 0 : 2), argv);
-  JS_FreeValue(ctx, argv[0]);
-  // JS_FreeValue(ctx, argv[2]);
-  JS_FreeValue(ctx, argv[3]);
-  JS_FreeValue(ctx, argv[4]);
+
+  if(cb == &closure->callback)
+    argv[argi++] = JS_NewInt32(ctx, reason);
+
+  /*  argv[argi++] = (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL;*/
+
+  if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
+    argv[argi++] = JS_NewStringLen(ctx, in, len);
+  } else
+
+      if(in || len > 0) {
+    argv[argi++] = in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL;
+    argv[argi++] = JS_NewInt64(ctx, len);
+  }
+
+  JSValue ret = JS_Call(ctx, *cb, JS_NULL, argi, argv);
+
+  for(int i = 0; i < argi; i++)
+    JS_FreeValue(ctx, argv[i]);
 
   int32_t i = -1;
   JS_ToInt32(ctx, &i, ret);
@@ -191,6 +208,8 @@ protocol_fromobj(JSContext* ctx, JSValueConst obj) {
 
       pro.callback = protocol_callback;
       pro.user = closure;
+
+      js_get_lws_callbacks(ctx, obj, closure->callbacks);
     }
   }
 

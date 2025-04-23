@@ -8,6 +8,7 @@ static const char* lws_callback_name(enum lws_callback_reasons);
 
 enum {
   FUNCTION_GET_CALLBACK_NAME = 0,
+  FUNCTION_GET_CALLBACK_NUMBER,
   FUNCTION_LOG,
 };
 
@@ -20,8 +21,23 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
       int32_t reason = -1;
       JS_ToInt32(ctx, &reason, argv[0]);
       const char* name = lws_callback_name(reason);
+      char buf[strlen(name) + 1];
 
-      ret = name ? JS_NewString(ctx, name) : JS_NULL;
+      if(name) {
+        str_camelize(buf, sizeof(buf), name);
+        buf[0] = toupper(buf[0]);
+      }
+
+      ret = name ? JS_NewString(ctx, buf) : JS_NULL;
+      break;
+    }
+
+    case FUNCTION_GET_CALLBACK_NUMBER: {
+      const char* name = JS_ToCString(ctx, argv[0]);
+
+      enum lws_callback_reasons reason = lws_callback_find(name);
+
+      ret = JS_NewInt32(ctx, reason);
       break;
     }
 
@@ -45,6 +61,7 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
 
 static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getCallbackName", 1, lws_functions, FUNCTION_GET_CALLBACK_NAME),
+    JS_CFUNC_MAGIC_DEF("getCallbackNumber", 1, lws_functions, FUNCTION_GET_CALLBACK_NUMBER),
     JS_CFUNC_MAGIC_DEF("log", 2, lws_functions, FUNCTION_LOG),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
@@ -523,6 +540,26 @@ lws_callback_find(const char* name) {
         return i;
 
   return -1;
+}
+
+void
+js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_USER + 1]) {
+  for(size_t i = 0; i <= LWS_CALLBACK_USER; i++) {
+    if(lws_callback_names[i]) {
+      char buf[128];
+
+      buf[0] = 'o';
+      buf[1] = 'n';
+
+      str_camelize(&buf[2], sizeof(buf) - 2, lws_callback_names[i]);
+      buf[2] = toupper(buf[2]);
+
+      callbacks[i] = JS_GetPropertyStr(ctx, obj, buf);
+      continue;
+    }
+
+    callbacks[i] = JS_NULL;
+  }
 }
 
 BOOL
