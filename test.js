@@ -36,6 +36,10 @@ const protocols = [
       s.finalize();
 
       wsi.respond(200, { 'content-type': 'text/html' });
+      wsi.wantWrite();
+    },
+    onHttpWriteable(wsi) {
+      console.log('onHttpWriteable', C, wsi);
       wsi.write('TEST\n', LWS_WRITE_HTTP_FINAL);
       return 1;
     },
