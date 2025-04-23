@@ -150,6 +150,17 @@ lws_spa_get_property(JSContext* ctx, JSValueConst obj, JSAtom prop, JSValueConst
   JSValue value = JS_UNDEFINED;
   JSValue key = JS_AtomToValue(ctx, prop);
 
+  {
+    JSValue proto = JS_GetPrototype(ctx, obj);
+
+    if(!JS_IsObject(proto))
+      proto = JS_DupValue(ctx, lws_spa_proto);
+
+    value = JS_GetProperty(ctx, proto, prop);
+
+    JS_FreeValue(ctx, proto);
+  }
+
   return value;
 }
 

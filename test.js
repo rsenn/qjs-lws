@@ -12,7 +12,23 @@ const protocols = [
       const { headers } = wsi;
       console.log('onFilterHttpConnection', C, wsi, url, headers);
       if(/multipart/.test(headers['content-type'])) {
-        spa.set(wsi, new LWSSPA(wsi, {}));
+        spa.set(
+          wsi,
+          new LWSSPA(wsi, {
+            onContent(name, filename, buf) {
+              console.log('onContent', C, { name, filename, buf });
+            },
+            onFinalContent(name, filename, buf) {
+              console.log('onFinalContent', C, { name, filename, buf });
+            },
+            onOpen(name, filename, buf) {
+              console.log('onOpen', C, { name, filename, buf });
+            },
+            onClose(name, filename, buf) {
+              console.log('onClose', C, { name, filename, buf });
+            },
+          }),
+        );
       }
     },
     callback(wsi, reason, ...args) {
@@ -26,7 +42,7 @@ const protocols = [
     onHttpBody(wsi, buf, len) {
       const s = spa.get(wsi);
 
-      //console.log('onHttpBody', C, s, buf);
+     console.log('onHttpBody', C, s, buf);
 
       s.process(buf, len);
     },
