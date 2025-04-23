@@ -21,14 +21,15 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
       int32_t reason = -1;
       JS_ToInt32(ctx, &reason, argv[0]);
       const char* name = lws_callback_name(reason);
-      char buf[strlen(name) + 1];
 
       if(name) {
+        char buf[strlen(name) + 1];
         str_camelize(buf, sizeof(buf), name);
         buf[0] = toupper(buf[0]);
+
+        ret = JS_NewString(ctx, buf);
       }
 
-      ret = name ? JS_NewString(ctx, buf) : JS_NULL;
       break;
     }
 
@@ -71,7 +72,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_PROP_INT32_DEF("LWSMPRO_REDIR_HTTPS", LWSMPRO_REDIR_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_CALLBACK", LWSMPRO_CALLBACK, 0),
     JS_PROP_INT32_DEF("LWSMPRO_NO_MOUNT", LWSMPRO_NO_MOUNT, 0),
-   
+
     JS_CONSTANT(LWS_WRITE_TEXT),
     JS_CONSTANT(LWS_WRITE_BINARY),
     JS_CONSTANT(LWS_WRITE_CONTINUATION),
@@ -286,8 +287,8 @@ lws_callback_find(const char* name) {
 }
 
 void
-js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_USER + 1]) {
-  for(size_t i = 0; i <= LWS_CALLBACK_USER; i++) {
+js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1]) {
+  for(size_t i = 0; i <= LWS_CALLBACK_MQTT_SHADOW_TIMEOUT; i++) {
     if(lws_callback_names[i]) {
       char buf[128];
 

@@ -97,7 +97,7 @@ js_is_null_or_undefined(JSValueConst val) {
     .name = prop_name, .prop_flags = flags, .def_type = JS_DEF_CGETSET_MAGIC, .magic = magic_num, .u = {.getset = {.get = {.getter_magic = fgetter}, .set = {.setter_magic = fsetter}} } \
   }
 
-void js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_USER + 1]);
+void js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1]);
 BOOL js_has_property(JSContext*, JSValue, const char*);
 JSValue js_get_property(JSContext*, JSValue, const char*);
 enum lws_callback_reasons lws_callback_find(const char* name);

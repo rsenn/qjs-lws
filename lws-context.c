@@ -14,7 +14,7 @@ typedef struct lws_context_creation_info LWSContextCreationInfo;
 typedef struct {
   JSContext* ctx;
   JSValue callback, user;
-  JSValue callbacks[LWS_CALLBACK_USER + 1];
+  JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1];
 } LWSProtocol;
 
 JSClassID lws_context_class_id;
