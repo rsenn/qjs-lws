@@ -21,11 +21,11 @@ const protocols = [
             onFinalContent(name, filename, buf) {
               console.log('onFinalContent', C, { name, filename, buf });
             },
-            onOpen(name, filename, buf) {
-              console.log('onOpen', C, { name, filename, buf });
+            onOpen(name, filename) {
+              console.log('onOpen', C, { name, filename });
             },
-            onClose(name, filename, buf) {
-              console.log('onClose', C, { name, filename, buf });
+            onClose(name, filename) {
+              console.log('onClose', C, { name, filename });
             },
           }),
         );
