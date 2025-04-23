@@ -1,4 +1,5 @@
 #include "lws.h"
+#include "lws-socket.h"
 #include <cutils.h>
 #include <libwebsockets.h>
 #include <assert.h>
@@ -17,6 +18,7 @@ typedef struct {
 
 typedef struct {
   struct lws_spa* spa;
+  struct lws_spa_create_info info;
   SPACallbacks callbacks;
 } LWSSPA;
 
@@ -31,16 +33,14 @@ lws_spa_callback(void* data, const char* name, const char* filename, char* buf, 
 static JSValue
 lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
   JSValue proto, obj;
-  LWSSPA* spa;
+  LWSSPA* s;
+  LWSSocket* sock;
 
-  if(!(spa = js_mallocz(ctx, sizeof(LWSSPA))))
+  if(!(sock = JS_GetOpaque(argv[0], lws_socket_class_id)))
+    return JS_ThrowTypeError(ctx, "argument 1 must be an LWSSocket");
+
+  if(!(s = js_mallocz(ctx, sizeof(LWSSPA))))
     return JS_EXCEPTION;
-
-  spa->callbacks.ctx = ctx;
-  spa->callbacks.array[0] = JS_NULL;
-  spa->callbacks.array[1] = JS_NULL;
-  spa->callbacks.array[2] = JS_NULL;
-  spa->callbacks.array[3] = JS_NULL;
 
   /* using new_target to get the prototype is necessary when the class is extended. */
   proto = JS_GetPropertyStr(ctx, new_target, "prototype");
@@ -52,14 +52,28 @@ lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueCo
   if(JS_IsException(obj))
     goto fail;
 
-  spa->callbacks.this_obj = obj;
+  s->callbacks = (SPACallbacks){
+      .ctx = ctx,
+      .this_obj = obj,
+      .array = {JS_NULL, JS_NULL, JS_NULL, JS_NULL},
+  };
 
-  JS_SetOpaque(obj, spa);
+  s->info = (struct lws_spa_create_info){
+      .param_names = js_mallocz(ctx, sizeof(char*) * 1024),
+      .count_params = 0,
+      .max_storage = 1024,
+      .opt_cb = &lws_spa_callback,
+      .opt_data = &s->callbacks,
+  };
+
+  s->spa = lws_spa_create_via_info(sock->wsi, &s->info);
+
+  JS_SetOpaque(obj, s);
 
   return obj;
 
 fail:
-  js_free(ctx, spa);
+  js_free(ctx, s);
   JS_FreeValue(ctx, obj);
   return JS_EXCEPTION;
 }
@@ -98,6 +112,14 @@ lws_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
   return ret;
 }
 
+static JSValue
+lws_spa_get_property(JSContext* ctx, JSValueConst obj, JSAtom prop, JSValueConst receiver) {
+  JSValue value = JS_UNDEFINED;
+  JSValue key = JS_AtomToValue(ctx, prop);
+
+  return value;
+}
+
 static void
 lws_spa_finalizer(JSRuntime* rt, JSValue val) {
   LWSSPA* s;
@@ -116,9 +138,14 @@ lws_spa_finalizer(JSRuntime* rt, JSValue val) {
   }
 }
 
+static JSClassExoticMethods lws_spa_exotic_methods = {
+    .get_property = lws_spa_get_property,
+};
+
 static const JSClassDef lws_spa_class = {
     "LWSSPA",
     .finalizer = lws_spa_finalizer,
+    .exotic = &lws_spa_exotic_methods,
 };
 
 static const JSCFunctionListEntry lws_spa_proto_funcs[] = {
