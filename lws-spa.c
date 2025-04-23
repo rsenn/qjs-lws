@@ -11,7 +11,9 @@ typedef struct {
   JSContext* ctx;
   JSValue this_obj;
   union {
-    JSValue oncontent, onfinalcontent, onopen, onclose;
+    struct {
+      JSValue oncontent, onfinalcontent, onopen, onclose;
+    };
     JSValue array[4];
   };
 } SPACallbacks;
@@ -54,8 +56,11 @@ lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueCo
 
   s->callbacks = (SPACallbacks){
       .ctx = ctx,
-      .this_obj = obj,
-      .array = {JS_NULL, JS_NULL, JS_NULL, JS_NULL},
+      .this_obj = (argc > 1 && JS_IsObject(argv[1])) ? obj : JS_UNDEFINED,
+      .oncontent = (argc > 1 && JS_IsObject(argv[1])) ? JS_GetPropertyStr(ctx, argv[1], "onContent") : JS_NULL,
+      .onfinalcontent = (argc > 1 && JS_IsObject(argv[1])) ? JS_GetPropertyStr(ctx, argv[1], "onFinalContent") : JS_NULL,
+      .onopen = (argc > 1 && JS_IsObject(argv[1])) ? JS_GetPropertyStr(ctx, argv[1], "onOpen") : JS_NULL,
+      .onclose = (argc > 1 && JS_IsObject(argv[1])) ? JS_GetPropertyStr(ctx, argv[1], "onClose") : JS_NULL,
   };
 
   s->info = (struct lws_spa_create_info){
@@ -130,6 +135,14 @@ lws_spa_finalizer(JSRuntime* rt, JSValue val) {
       JS_FreeValueRT(rt, s->callbacks.array[i]);
 
     // JS_FreeValueRT(rt, s->callbacks.this_obj);
+
+    if(s->info.param_names) {
+      for(size_t i = 0; i < s->info.count_params; i++)
+        if(s->info.param_names[i])
+          js_free_rt(rt, (void*)s->info.param_names[i]);
+
+      js_free_rt(rt, (void*)s->info.param_names);
+    }
 
     if(s->spa)
       lws_spa_destroy(s->spa);

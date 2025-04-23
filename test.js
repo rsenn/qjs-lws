@@ -12,7 +12,7 @@ const protocols = [
       const { headers } = wsi;
       console.log('onFilterHttpConnection', C, wsi, url, headers);
       if(/multipart/.test(headers['content-type'])) {
-        spa.set(wsi, new LWSSPA({}));
+        spa.set(wsi, new LWSSPA(wsi, {}));
       }
     },
     callback(wsi, reason, ...args) {
