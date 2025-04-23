@@ -511,10 +511,13 @@ lws_get_callback_name(enum lws_callback_reasons reason) {
   return 0;
 }
 
+int lws_spa_init(JSContext* ctx, JSModuleDef* m);
+
 int
 lws_init(JSContext* ctx, JSModuleDef* m) {
   lws_context_init(ctx, m);
   lws_socket_init(ctx, m);
+  lws_spa_init(ctx, m);
 
   if(m)
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
@@ -529,6 +532,7 @@ js_init_module(JSContext* ctx, const char* module_name) {
   if((m = JS_NewCModule(ctx, module_name, lws_init))) {
     JS_AddModuleExport(ctx, m, "LWSContext");
     JS_AddModuleExport(ctx, m, "LWSSocket");
+    JS_AddModuleExport(ctx, m, "LWSSPA");
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
   }
 

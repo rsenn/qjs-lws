@@ -20,6 +20,14 @@ typedef struct {
   SPACallbacks callbacks;
 } LWSSPA;
 
+static int
+lws_spa_callback(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
+  SPACallbacks* cb = data;
+  int ret = 0;
+
+  return ret;
+}
+
 static JSValue
 lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
   JSValue proto, obj;
@@ -99,7 +107,7 @@ lws_spa_finalizer(JSRuntime* rt, JSValue val) {
     for(size_t i = 0; i < countof(s->callbacks.array); i++)
       JS_FreeValueRT(rt, s->callbacks.array[i]);
 
-    JS_FreeValueRT(rt, s->callbacks.this_obj);
+    // JS_FreeValueRT(rt, s->callbacks.this_obj);
 
     lws_spa_destroy(s->spa);
 
@@ -125,7 +133,7 @@ lws_spa_init(JSContext* ctx, JSModuleDef* m) {
   lws_spa_proto = JS_NewObjectProto(ctx, JS_NULL);
   JS_SetPropertyFunctionList(ctx, lws_spa_proto, lws_spa_proto_funcs, countof(lws_spa_proto_funcs));
 
-  lws_spa_ctor = JS_NewObjectProto(ctx, JS_NULL);
+  lws_spa_ctor = JS_NewCFunction2(ctx, lws_spa_constructor, "LWSSPA", 1, JS_CFUNC_constructor, 0);
   JS_SetConstructor(ctx, lws_spa_ctor, lws_spa_proto);
 
   if(m) {
