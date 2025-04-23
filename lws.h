@@ -2,6 +2,8 @@
 #define QJS_LWS_H
 
 #include <quickjs.h>
+#include <cutils.h>
+#include <ctype.h>
 
 #define VISIBLE __attribute__((visibility("default")))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -17,6 +19,40 @@ str_chrs(const char* s, const char* set, size_t setlen) {
         return i;
 
   return i;
+}
+
+static inline size_t
+str_camelize(char* dst, size_t dlen, const char* src) {
+  size_t i, j;
+
+  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i) {
+    if(src[i] == '_' || i == 0) {
+      if(i)
+        ++i;
+      dst[j++] = toupper(src[i++]);
+      continue;
+    }
+
+    dst[j++] = tolower(src[i++]);
+  }
+
+  dst[j] = '\0';
+  return j;
+}
+
+static inline size_t
+str_decamelize(char* dst, size_t dlen, const char* src) {
+  size_t i, j;
+
+  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i) {
+    if(i > 0 && islower(src[i - 1]) && isupper(src[i]))
+      dst[j++] = '_';
+
+    dst[j++] = toupper(src[i++]);
+  }
+
+  dst[j] = '\0';
+  return j;
 }
 
 static inline const int64_t
@@ -52,6 +88,9 @@ atom_to_string(JSContext* ctx, JSAtom a) {
   return x;
 }*/
 
+BOOL js_has_property(JSContext*, JSValue, const char*);
+JSValue js_get_property(JSContext*, JSValue, const char*);
+enum lws_callback_reasons lws_callback_find(const char* name);
 int lws_init(JSContext*, JSModuleDef*);
 JSModuleDef* js_init_module(JSContext*, const char*);
 

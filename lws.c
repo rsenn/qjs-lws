@@ -4,7 +4,7 @@
 
 #define JS_CONSTANT(c) JS_PROP_INT64_DEF((#c), (c), JS_PROP_ENUMERABLE)
 
-static const char* lws_get_callback_name(enum lws_callback_reasons);
+static const char* lws_callback_name(enum lws_callback_reasons);
 
 enum {
   FUNCTION_GET_CALLBACK_NAME = 0,
@@ -19,7 +19,7 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
     case FUNCTION_GET_CALLBACK_NAME: {
       int32_t reason = -1;
       JS_ToInt32(ctx, &reason, argv[0]);
-      const char* name = lws_get_callback_name(reason);
+      const char* name = lws_callback_name(reason);
 
       ret = name ? JS_NewString(ctx, name) : JS_NULL;
       break;
@@ -504,11 +504,46 @@ static const char* lws_callback_names[] = {
 };
 
 static const char*
-lws_get_callback_name(enum lws_callback_reasons reason) {
+lws_callback_name(enum lws_callback_reasons reason) {
   if(reason >= 0 && reason < countof(lws_callback_names))
     return lws_callback_names[reason];
 
   return 0;
+}
+
+enum lws_callback_reasons
+lws_callback_find(const char* name) {
+  char buf[128];
+
+  str_decamelize(buf, sizeof(buf), name);
+
+  for(size_t i = 0; i <= LWS_CALLBACK_USER; i++)
+    if(lws_callback_names[i])
+      if(!strcmp(lws_callback_names[i], buf))
+        return i;
+
+  return -1;
+}
+
+BOOL
+js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
+  JSAtom atom = JS_NewAtom(ctx, name);
+  BOOL ret = JS_HasProperty(ctx, obj, atom);
+  JS_FreeAtom(ctx, atom);
+  return ret;
+}
+
+JSValue
+js_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
+  if(!js_has_property(ctx, obj, name)) {
+    char buf[strlen(name) + 1];
+
+    str_camelize(buf, sizeof(buf), name);
+
+    return JS_GetPropertyStr(ctx, obj, buf);
+  }
+
+  return JS_GetPropertyStr(ctx, obj, name);
 }
 
 int lws_spa_init(JSContext* ctx, JSModuleDef* m);

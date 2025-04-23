@@ -196,11 +196,11 @@ protocol_fromobj(JSContext* ctx, JSValueConst obj) {
 
   JS_FreeValue(ctx, value);
 
-  // value = JS_GetPropertyStr(ctx, obj, "per_session_data_size");
+  // value = js_get_property(ctx, obj, "per_session_data_size");
   pro.per_session_data_size = sizeof(JSValue); // value_to_integer(ctx, value);
   // JS_FreeValue(ctx, value);
 
-  value = is_array ? JS_GetPropertyUint32(ctx, obj, 2) : JS_GetPropertyStr(ctx, obj, "rx_buffer_size");
+  value = is_array ? JS_GetPropertyUint32(ctx, obj, 2) : js_get_property(ctx, obj, "rx_buffer_size");
   pro.rx_buffer_size = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
@@ -208,7 +208,7 @@ protocol_fromobj(JSContext* ctx, JSValueConst obj) {
   pro.id = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = is_array ? JS_GetPropertyUint32(ctx, obj, 4) : JS_GetPropertyStr(ctx, obj, "tx_packet_size");
+  value = is_array ? JS_GetPropertyUint32(ctx, obj, 4) : js_get_property(ctx, obj, "tx_packet_size");
   pro.tx_packet_size = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
@@ -330,7 +330,7 @@ http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
     mnt->cgienv = vhost_options_fromarray(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "extra_mimetypes");
+    value = js_get_property(ctx, obj, "extra_mimetypes");
     mnt->extra_mimetypes = vhost_options_fromarray(ctx, value);
     JS_FreeValue(ctx, value);
 
@@ -338,39 +338,39 @@ http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
     mnt->interpret = vhost_options_fromarray(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "cgi_timeout");
+    value = js_get_property(ctx, obj, "cgi_timeout");
     mnt->cgi_timeout = value_to_integer(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "cache_max_age");
+    value = js_get_property(ctx, obj, "cache_max_age");
     mnt->cache_max_age = value_to_integer(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "auth_mask");
+    value = js_get_property(ctx, obj, "auth_mask");
     mnt->auth_mask = value_to_integer(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "cache_reusable");
+    value = js_get_property(ctx, obj, "cache_reusable");
     mnt->cache_reusable = JS_ToBool(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "cache_revalidate");
+    value = js_get_property(ctx, obj, "cache_revalidate");
     mnt->cache_revalidate = JS_ToBool(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "cache_intermediaries");
+    value = js_get_property(ctx, obj, "cache_intermediaries");
     mnt->cache_intermediaries = JS_ToBool(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "cache_no");
+    value = js_get_property(ctx, obj, "cache_no");
     mnt->cache_no = JS_ToBool(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "origin_protocol");
+    value = js_get_property(ctx, obj, "origin_protocol");
     mnt->origin_protocol = value_to_integer(ctx, value);
     JS_FreeValue(ctx, value);
 
-    value = JS_GetPropertyStr(ctx, obj, "basic_auth_login_file");
+    value = js_get_property(ctx, obj, "basic_auth_login_file");
     mnt->basic_auth_login_file = value_to_string(ctx, value);
     JS_FreeValue(ctx, value);
   }
@@ -559,7 +559,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-  value = JS_GetPropertyStr(ctx, obj, "http_proxy_address");
+  value = js_get_property(ctx, obj, "http_proxy_address");
   ci->http_proxy_address = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
@@ -567,7 +567,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   ci->headers = vhost_options_fromarray(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "reject_service_keywords");
+  value = js_get_property(ctx, obj, "reject_service_keywords");
   ci->reject_service_keywords = vhost_options_fromarray(ctx, value);
   JS_FreeValue(ctx, value);
 
@@ -575,7 +575,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   ci->pvo = vhost_options_fromarray(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "log_filepath");
+  value = js_get_property(ctx, obj, "log_filepath");
   ci->log_filepath = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
@@ -583,11 +583,11 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   ci->mounts = http_mounts_fromarray(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "server_string");
+  value = js_get_property(ctx, obj, "server_string");
   ci->server_string = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "error_document_404");
+  value = js_get_property(ctx, obj, "error_document_404");
   ci->error_document_404 = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
@@ -595,17 +595,17 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   ci->port = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "http_proxy_port");
+  value = js_get_property(ctx, obj, "http_proxy_port");
   ci->http_proxy_port = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "keepalive_timeout");
+  value = js_get_property(ctx, obj, "keepalive_timeout");
   ci->keepalive_timeout = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 #endif
 
 #ifdef LWS_WITH_SYS_ASYNC_DNS
-  value = JS_GetPropertyStr(ctx, obj, "async_dns_servers");
+  value = js_get_property(ctx, obj, "async_dns_servers");
 
   if(JS_IsObject(value)) {
     JS_GetPropertyStr(ctx, value, "length");
@@ -630,97 +630,72 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 #endif
 
 #ifdef LWS_WITH_TLS
-  value = JS_GetPropertyStr(ctx, obj, "ssl_private_key_password");
+  value = js_get_property(ctx, obj, "ssl_private_key_password");
   ci->ssl_private_key_password = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "ssl_cert_filepath");
+  value = js_get_property(ctx, obj, "ssl_cert_filepath");
   ci->ssl_cert_filepath = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "ssl_private_key_filepath");
+  value = js_get_property(ctx, obj, "ssl_private_key_filepath");
   ci->ssl_private_key_filepath = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "ssl_ca_filepath");
+  value = js_get_property(ctx, obj, "ssl_ca_filepath");
   ci->ssl_ca_filepath = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "ssl_cipher_list");
+  value = js_get_property(ctx, obj, "ssl_cipher_list");
   ci->ssl_cipher_list = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "tls1_3_plus_cipher_list");
+  value = js_get_property(ctx, obj, "tls1_3_plus_cipher_list");
   ci->tls1_3_plus_cipher_list = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "client_ssl_private_key_password");
+  value = js_get_property(ctx, obj, "client_ssl_private_key_password");
   ci->client_ssl_private_key_password = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "client_ssl_cert_filepath");
+  value = js_get_property(ctx, obj, "client_ssl_cert_filepath");
   ci->client_ssl_cert_filepath = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "client_ssl_private_key_filepath");
+  value = js_get_property(ctx, obj, "client_ssl_private_key_filepath");
   ci->client_ssl_private_key_filepath = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "client_ssl_ca_filepath");
+  value = js_get_property(ctx, obj, "client_ssl_ca_filepath");
   ci->client_ssl_ca_filepath = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "client_ssl_cipher_list");
+  value = js_get_property(ctx, obj, "client_ssl_cipher_list");
   ci->client_ssl_cipher_list = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "client_tls_1_3_plus_cipher_list");
+  value = js_get_property(ctx, obj, "client_tls_1_3_plus_cipher_list");
   ci->client_tls_1_3_plus_cipher_list = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
 #endif
 
 #ifdef LWS_WITH_SOCKS5
-  value = JS_GetPropertyStr(ctx, obj, "socks_proxy_address");
+  value = js_get_property(ctx, obj, "socks_proxy_address");
   ci->socks_proxy_address = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "socks_proxy_port");
+  value = js_get_property(ctx, obj, "socks_proxy_port");
   ci->socks_proxy_port = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
 #endif
 
-#ifdef LWS_WITH_SYS_ASYNC_DNS
-  value = JS_GetPropertyStr(ctx, obj, "async_dns_servers");
-
-  if(JS_IsObject(value)) {
-    JS_GetPropertyStr(ctx, value, "length");
-    JS_ToInt32(ctx, &i, value);
-    JS_FreeValue(ctx, value);
-
-    if(i > 0) {
-      ci->async_dns_servers = js_malloc(ctx, (i + 1) * sizeof(const char*));
-
-      for(int32_t j = 0; j < i; i++) {
-        JSValue server = JS_GetPropertyUint32(ctx, value, j);
-
-        ci->async_dns_servers[j] = value_to_string(ctx, server);
-        JS_FreeValue(ctx, server);
-      }
-
-      ci->async_dns_servers[i] = 0;
-    }
-  }
-
-  JS_FreeValue(ctx, value);
-#endif
-
-  value = JS_GetPropertyStr(ctx, obj, "default_loglevel");
+  value = js_get_property(ctx, obj, "default_loglevel");
   ci->default_loglevel = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "vh_listen_sockfd");
+  value = js_get_property(ctx, obj, "vh_listen_sockfd");
   ci->vh_listen_sockfd = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
