@@ -109,6 +109,9 @@ lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueCo
     for(size_t i = 0; i < countof(callback_names); ++i)
       s->callbacks.array[i] = JS_GetPropertyStr(ctx, argv[1], callback_names[i]);
 
+  if(js_is_null_or_undefined(s->callbacks.onfinalcontent) && !js_is_null_or_undefined(s->callbacks.oncontent))
+    s->callbacks.onfinalcontent = JS_DupValue(ctx, s->callbacks.oncontent);
+
   s->info = (struct lws_spa_create_info){
       .param_names = js_mallocz(ctx, sizeof(char*) * 1024),
       .count_params = 0,

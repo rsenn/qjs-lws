@@ -3,7 +3,7 @@ import { LWSSPA, getCallbackName, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPR
 
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
-const spa = globalThis.spa = new WeakMap();
+const spa = (globalThis.spa = new WeakMap());
 
 const protocols = [
   {
@@ -17,9 +17,6 @@ const protocols = [
           new LWSSPA(wsi, {
             onContent(name, filename, buf) {
               console.log('onContent', C, { name, filename, buf });
-            },
-            onFinalContent(name, filename, buf) {
-              console.log('onFinalContent', C, { name, filename, buf });
             },
             onOpen(name, filename) {
               console.log('onOpen', C, { name, filename });
@@ -51,12 +48,12 @@ const protocols = [
 
       s.finalize();
 
-      wsi.respond(200, { 'content-type': 'text/html' });
       wsi.wantWrite();
     },
     onHttpWriteable(wsi) {
       console.log('onHttpWriteable', C, wsi);
-      wsi.write('TEST\n', LWS_WRITE_HTTP_FINAL);
+           wsi.respond(200, { 'content-type': 'text/html', 'connection': 'close' });
+ wsi.write('TEST\n', LWS_WRITE_HTTP_FINAL);
       return 1;
     },
     onHttp(wsi, buf, len) {
