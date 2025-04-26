@@ -52,8 +52,8 @@ const protocols = [
     },
     onHttpWriteable(wsi) {
       console.log('onHttpWriteable', C, wsi);
-           wsi.respond(200, { 'content-type': 'text/html', 'connection': 'close' });
- wsi.write('TEST\n', LWS_WRITE_HTTP_FINAL);
+      wsi.respond(200, { 'content-type': 'text/html', connection: 'close' });
+      wsi.write('TEST\n', LWS_WRITE_HTTP_FINAL);
       return 1;
     },
     onHttp(wsi, buf, len) {
