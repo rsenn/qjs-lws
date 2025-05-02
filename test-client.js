@@ -6,8 +6,16 @@ let ctx = (globalThis.ctx = new LWSContext({
   protocols: [
     {
       name: 'raw',
+      onConnecting(wsi) {
+        console.log('onConnecting', C, wsi);
+      },
       onRawRx(wsi, data) {
+        data= [...new Uint8Array(data)].reduce((s,n) =>s+ String.fromCodePoint(n), '');
+
         console.log('onRawRx', C, wsi, data);
+      },
+      onRawClose(wsi) {
+        console.log('onRawClose', C, wsi);
       },
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
