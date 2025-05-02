@@ -132,12 +132,17 @@ socket_new(JSContext* ctx, struct lws* wsi) {
 JSValue
 js_socket_wrap(JSContext* ctx, struct lws* wsi) {
   LWSSocket* sock = socket_new(ctx, wsi);
+  JSValue obj;
 
-  JSValue obj = JS_NewObjectProtoClass(ctx, lws_socket_proto, lws_socket_class_id);
+  if(sock->obj) {
+    obj = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, sock->obj));
+  } else {
+    obj = JS_NewObjectProtoClass(ctx, lws_socket_proto, lws_socket_class_id);
 
-  JS_SetOpaque(obj, sock);
+    JS_SetOpaque(obj, sock);
 
-  sock->obj = JS_VALUE_GET_OBJ(JS_DupValue(ctx, obj));
+    sock->obj = JS_VALUE_GET_OBJ(JS_DupValue(ctx, obj));
+  }
 
   return obj;
 }

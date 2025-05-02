@@ -10,6 +10,7 @@
 typedef struct lws_protocols LWSProtocols;
 typedef struct lws_protocol_vhost_options LWSProtocolVHostOptions;
 typedef struct lws_context_creation_info LWSContextCreationInfo;
+typedef struct lws_client_connect_info LWSClientConnectInfo;
 
 typedef struct {
   JSContext* ctx;
@@ -559,7 +560,96 @@ vhost_options_free(JSRuntime* rt, LWSProtocolVHostOptions* vho) {
   vho->options = 0;
 }
 
-void
+static void
+client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectInfo* ci) {
+  JSValue value;
+
+  value = JS_GetPropertyStr(ctx, obj, "context");
+  ci->context = JS_GetOpaque(value, lws_context_class_id);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "address");
+  ci->address = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = js_get_property(ctx, obj, "port");
+  ci->port = value_to_integer(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = js_get_property(ctx, obj, "ssl_connection");
+  ci->ssl_connection = value_to_integer(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "path");
+  ci->path = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "host");
+  ci->host = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "origin");
+  ci->origin = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "protocol");
+  ci->protocol = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "iface");
+  ci->iface = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = js_get_property(ctx, obj, "local_port");
+  ci->local_port = value_to_integer(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "local_protocol_name");
+  ci->local_protocol_name = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "alpn");
+  ci->alpn = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = js_get_property(ctx, obj, "keep_warm_secs");
+  ci->keep_warm_secs = value_to_integer(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "auth_username");
+  ci->auth_username = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
+  value = JS_GetPropertyStr(ctx, obj, "auth_password");
+  ci->auth_password = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+}
+
+static void
+client_connect_info_free(JSRuntime* rt, LWSClientConnectInfo* ci) {
+  if(ci->address)
+    js_free_rt(rt, (char*)ci->address);
+  if(ci->path)
+    js_free_rt(rt, (char*)ci->path);
+  if(ci->host)
+    js_free_rt(rt, (char*)ci->host);
+  if(ci->origin)
+    js_free_rt(rt, (char*)ci->origin);
+  if(ci->protocol)
+    js_free_rt(rt, (char*)ci->protocol);
+  if(ci->iface)
+    js_free_rt(rt, (char*)ci->iface);
+  if(ci->local_protocol_name)
+    js_free_rt(rt, (char*)ci->local_protocol_name);
+  if(ci->alpn)
+    js_free_rt(rt, (char*)ci->alpn);
+  if(ci->auth_username)
+    js_free_rt(rt, (char*)ci->auth_username);
+  if(ci->auth_password)
+    js_free_rt(rt, (char*)ci->auth_password);
+}
+
+static void
 context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreationInfo* ci) {
   JSValue value;
 
@@ -843,6 +933,7 @@ enum {
   DESTROY = 0,
   ADOPT_SOCKET,
   ADOPT_SOCKET_READBUF,
+  CLIENT_CONNECT,
 };
 
 static JSValue
@@ -868,13 +959,12 @@ lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
       int32_t arg = -1;
       JS_ToInt32(ctx, &arg, argv[0]);
       struct lws* wsi;
+      LWSSocket* s;
 
-      if((wsi = lws_adopt_socket(lc->ctx, arg))) {
-        LWSSocket* s;
-
-        if((s = socket_new(ctx, wsi)))
-          ret = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, s->obj));
-      }
+      if((s = socket_get_by_fd(arg)))
+        ret = JS_DupValue(ctx, js_socket_wrap(ctx, s->wsi));
+      else if((wsi = lws_adopt_socket(lc->ctx, arg)))
+        ret = JS_DupValue(ctx, js_socket_wrap(ctx, wsi));
 
       break;
     }
@@ -885,6 +975,10 @@ lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
       struct lws* wsi;
       size_t len;
       uint8_t* buf;
+      LWSSocket* s;
+
+      if((s = socket_get_by_fd(arg)))
+        return JS_ThrowInternalError(ctx, "socket %" PRIi32 " already adopted", arg);
 
       if(!(buf = JS_GetArrayBuffer(ctx, &len, argv[1])))
         return JS_ThrowTypeError(ctx, "argument 2 must be an arraybuffer");
@@ -904,6 +998,20 @@ lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
           ret = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, s->obj));
       }
 
+      break;
+    }
+
+    case CLIENT_CONNECT: {
+      LWSClientConnectInfo cci = {0};
+      struct lws* wsi;
+
+      if(JS_IsObject(argv[0]))
+        client_connect_info_fromobj(ctx, argv[0], &cci);
+
+      if((wsi = lws_client_connect_via_info(&cci)))
+        ret = js_socket_wrap(ctx, wsi);
+
+      client_connect_info_free(JS_GetRuntime(ctx), &cci);
       break;
     }
   }
@@ -988,6 +1096,7 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("destroy", 0, lws_context_methods, DESTROY),
     JS_CFUNC_MAGIC_DEF("adoptSocket", 1, lws_context_methods, ADOPT_SOCKET),
     JS_CFUNC_MAGIC_DEF("adoptSocketReadbuf", 2, lws_context_methods, ADOPT_SOCKET_READBUF),
+    JS_CFUNC_MAGIC_DEF("clientConnect", 1, lws_context_methods, CLIENT_CONNECT),
     JS_CGETSET_MAGIC_DEF("hostname", lws_context_get, 0, PROP_HOSTNAME),
     // JS_CGETSET_MAGIC_DEF("vhost", lws_context_get, 0, PROP_VHOST),
     JS_CGETSET_MAGIC_DEF("deprecated", lws_context_get, 0, PROP_DEPRECATED),
