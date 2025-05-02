@@ -1,6 +1,12 @@
 include(CheckLibraryExists)
 
 macro(build_libwebsockets)
+  if(ARGN)
+    set(TARGET "${ARGN}")
+  else(ARGN)
+    set(TARGET libwebsockets)
+  endif(ARGN)
+
   message("-- Building LIBWEBSOCKETS from source")
 
   if(NOT DEFINED LIBWEBSOCKETS_C_FLAGS)
@@ -183,7 +189,7 @@ macro(build_libwebsockets)
   string(REGEX REPLACE "[ ]" ";" LIBWEBSOCKETS_ARGS "${LIBWEBSOCKETS_ARGS}")
 
   ExternalProject_Add(
-    libwebsockets
+    "${TARGET}"
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
     BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets
     PREFIX libwebsockets
@@ -323,13 +329,13 @@ macro(build_libwebsockets)
     USES_TERMINAL_BUILD ON
     #LOG_OUTPUT_ON_FAILURE ON
   )
-  # ExternalProject_Get_Property(libwebsockets CMAKE_CACHE_DEFAULT_ARGS)
+  # ExternalProject_Get_Property("${TARGET}" CMAKE_CACHE_DEFAULT_ARGS)
   #message("CMAKE_CACHE_DEFAULT_ARGS of libwebsockets = ${CMAKE_CACHE_DEFAULT_ARGS}")
 
   #link_directories("${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib")
 
   if(ARGN)
-    ExternalProject_Add_StepDependencies(libwebsockets build ${ARGN})
+    ExternalProject_Add_StepDependencies("${TARGET}" build ${ARGN})
   endif(ARGN)
 
 endmacro(build_libwebsockets)
