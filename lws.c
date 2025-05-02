@@ -12,6 +12,8 @@ enum {
   FUNCTION_LOG,
   FUNCTION_PARSE_URI,
   FUNCTION_VISIBLE,
+  FUNCTION_TO_STRING,
+  FUNCTION_TO_ARRAYBUFFER,
 };
 
 static JSValue
@@ -86,6 +88,32 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
       ret = JS_NewBool(ctx, lwsl_visible(level));
       break;
     }
+
+    case FUNCTION_TO_STRING: {
+      size_t n;
+      uint8_t* p;
+
+      if((p = JS_GetArrayBuffer(ctx, &n, argv[0])))
+        ret = JS_NewStringLen(ctx, p, n);
+
+      break;
+    }
+
+    case FUNCTION_TO_ARRAYBUFFER: {
+      size_t n;
+      uint8_t* p;
+      const char* s;
+
+      if((p = JS_GetArrayBuffer(ctx, &n, argv[0])))
+        ret = JS_DupValue(ctx, argv[0]);
+      else if((s = JS_ToCStringLen(ctx, &n, argv[0]))) {
+        ret = JS_NewArrayBufferCopy(ctx, s, n);
+
+        JS_FreeCString(ctx, s);
+      }
+
+      break;
+    }
   }
 
   return ret;
@@ -97,6 +125,8 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("log", 2, lws_functions, FUNCTION_LOG),
     JS_CFUNC_MAGIC_DEF("parseUri", 1, lws_functions, FUNCTION_PARSE_URI),
     JS_CFUNC_MAGIC_DEF("visible", 1, lws_functions, FUNCTION_VISIBLE),
+    JS_CFUNC_MAGIC_DEF("toString", 1, lws_functions, FUNCTION_TO_STRING),
+    JS_CFUNC_MAGIC_DEF("toArrayBuffer", 1, lws_functions, FUNCTION_TO_ARRAYBUFFER),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),

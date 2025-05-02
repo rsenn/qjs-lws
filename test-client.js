@@ -9,21 +9,36 @@ let ctx = (globalThis.ctx = new LWSContext({
       onConnecting(wsi) {
         console.log('onConnecting', C, wsi);
       },
+      onRawConnected(wsi) {
+        console.log('onRawConnected', C, wsi);
+      },
+      onRawWriteable(wsi) {
+        wsi.write('blah\n');
+      },
       onRawRx(wsi, data) {
-        data= [...new Uint8Array(data)].reduce((s,n) =>s+ String.fromCodePoint(n), '');
+        data = [...new Uint8Array(data)].reduce((s, n) => s + String.fromCodePoint(n), '');
 
-        console.log('onRawRx', C, wsi, data);
+        console.log('onRawRx', C, wsi, data.trimEnd());
       },
       onRawClose(wsi) {
         console.log('onRawClose', C, wsi);
-      },
+      } /*,
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
         console.log('raw', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
         return 0;
-      },
+      },*/,
     },
+    {
+      name: 'http',
+      callback(wsi, reason, ...args) {
+        globalThis.wsi = wsi;
+        console.log('http', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+        return 0;
+      },
+    }
   ],
 }));
 
-ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
+//ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
+ctx.clientConnect({ address: 'localhost', port: 8000, local_protocol_name: 'http', method: 'GET' });

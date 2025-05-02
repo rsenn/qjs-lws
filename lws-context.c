@@ -104,6 +104,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       default: break;
     }
 
+  if(js_is_null_or_undefined(*cb))
+    return 0;
+
   if(reason == LWS_CALLBACK_HTTP_WRITEABLE) {
     JSValue sock = js_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
@@ -156,7 +159,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   } else if(in || len > 0) {
     BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
 
-    argv[argi++] = in ? (!is_ws || lws_frame_is_binary(wsi)) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
+    argv[argi++] = in ? (/*reason != LWS_CALLBACK_CLIENT_HTTP_REDIRECT &&*/ (!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
     argv[argi++] = JS_NewInt64(ctx, len);
   }
 
@@ -193,7 +196,7 @@ protocol_fromobj(JSContext* ctx, JSValueConst obj) {
   JS_FreeValue(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 1) : JS_GetPropertyStr(ctx, obj, "callback");
-  if(JS_IsFunction(ctx, value)) {
+  /*if(JS_IsFunction(ctx, value))*/ {
     LWSProtocol* closure = 0;
 
     if((closure = js_mallocz(ctx, sizeof(LWSProtocol)))) {
