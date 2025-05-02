@@ -13,7 +13,7 @@ let ctx = (globalThis.ctx = new LWSContext({
         console.log('onRawConnected', C, wsi);
       },
       onRawWriteable(wsi) {
-        wsi.write(toArrayBuffer('blah\n'));
+        wsi.write(toArrayBuffer('GET / HTTP/1.0\n'));
       },
       onRawRx(wsi, data) {
         data = toString(data);
