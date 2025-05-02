@@ -100,9 +100,10 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
 
         if(index < 0) {
           index = (n + index);
-          index = MIN(0, index);
-          index = MAX((n - 1), index);
         }
+
+        index = MAX(0, index);
+        index = MIN((n - 1), index);
 
         uint32_t len = n - index;
 
