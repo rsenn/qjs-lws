@@ -14,7 +14,8 @@ typedef struct lws_client_connect_info LWSClientConnectInfo;
 
 typedef struct {
   JSContext* ctx;
-  JSValue callback, user;
+  JSObject* obj;
+  JSValue callback /*, user*/;
   JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1];
 } LWSProtocol;
 
@@ -160,7 +161,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
     argv[argi++] = JS_NewStringLen(ctx, in, len);
   } else if(in || len > 0) {
-    argv[argi++] = in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL;
+    BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
+
+    argv[argi++] = in ? (!is_ws || lws_frame_is_binary(wsi)) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
     argv[argi++] = JS_NewInt64(ctx, len);
   }
 
@@ -203,6 +206,8 @@ protocol_fromobj(JSContext* ctx, JSValueConst obj) {
     if((closure = js_mallocz(ctx, sizeof(LWSProtocol)))) {
       closure->ctx = ctx;
       closure->callback = JS_DupValue(ctx, value);
+      closure->obj = JS_VALUE_GET_OBJ(JS_DupValue(ctx, obj));
+
       /*closure->user = is_array ? JS_GetPropertyUint32(ctx, obj, 2) :JS_GetPropertyStr(ctx, obj, "user"); */
 
       pro.callback = protocol_callback;
@@ -239,7 +244,9 @@ protocol_free(JSRuntime* rt, LWSProtocols* pro) {
 
   if(closure) {
     JS_FreeValueRT(rt, closure->callback);
-    JS_FreeValueRT(rt, closure->user);
+
+    if(closure->obj)
+      JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, closure->obj));
 
     js_free_rt(rt, closure);
   }
@@ -596,6 +603,10 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   ci->protocol = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
 
+  value = JS_GetPropertyStr(ctx, obj, "method");
+  ci->method = value_to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+
   value = JS_GetPropertyStr(ctx, obj, "iface");
   ci->iface = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
@@ -637,6 +648,8 @@ client_connect_info_free(JSRuntime* rt, LWSClientConnectInfo* ci) {
     js_free_rt(rt, (char*)ci->origin);
   if(ci->protocol)
     js_free_rt(rt, (char*)ci->protocol);
+  if(ci->method)
+    js_free_rt(rt, (char*)ci->method);
   if(ci->iface)
     js_free_rt(rt, (char*)ci->iface);
   if(ci->local_protocol_name)
@@ -934,6 +947,7 @@ enum {
   ADOPT_SOCKET,
   ADOPT_SOCKET_READBUF,
   CLIENT_CONNECT,
+  GET_RANDOM,
 };
 
 static JSValue
@@ -1008,10 +1022,22 @@ lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
       if(JS_IsObject(argv[0]))
         client_connect_info_fromobj(ctx, argv[0], &cci);
 
+      cci.context = lc->ctx;
+
       if((wsi = lws_client_connect_via_info(&cci)))
         ret = js_socket_wrap(ctx, wsi);
 
       client_connect_info_free(JS_GetRuntime(ctx), &cci);
+      break;
+    }
+
+    case GET_RANDOM: {
+      size_t n;
+      uint8_t* p;
+
+      if((p = JS_GetArrayBuffer(ctx, &n, argv[0])))
+        lws_get_random(lc->ctx, p, n);
+
       break;
     }
   }
@@ -1097,6 +1123,7 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("adoptSocket", 1, lws_context_methods, ADOPT_SOCKET),
     JS_CFUNC_MAGIC_DEF("adoptSocketReadbuf", 2, lws_context_methods, ADOPT_SOCKET_READBUF),
     JS_CFUNC_MAGIC_DEF("clientConnect", 1, lws_context_methods, CLIENT_CONNECT),
+    JS_CFUNC_MAGIC_DEF("getRandom", 1, lws_context_methods, GET_RANDOM),
     JS_CGETSET_MAGIC_DEF("hostname", lws_context_get, 0, PROP_HOSTNAME),
     // JS_CGETSET_MAGIC_DEF("vhost", lws_context_get, 0, PROP_VHOST),
     JS_CGETSET_MAGIC_DEF("deprecated", lws_context_get, 0, PROP_DEPRECATED),

@@ -10,6 +10,8 @@ enum {
   FUNCTION_GET_CALLBACK_NAME = 0,
   FUNCTION_GET_CALLBACK_NUMBER,
   FUNCTION_LOG,
+  FUNCTION_PARSE_URI,
+  FUNCTION_VISIBLE,
 };
 
 static JSValue
@@ -55,6 +57,35 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
       JS_FreeCString(ctx, msg);
       break;
     }
+
+    case FUNCTION_PARSE_URI: {
+      const char* uri = value_to_string(ctx, argv[0]);
+      const char *protocol, *address, *path;
+      int port;
+
+      int r = lws_parse_uri((char*)uri, &protocol, &address, &port, &path);
+
+      ret = JS_NewObject(ctx);
+
+      if(protocol)
+        JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, protocol));
+      if(address)
+        JS_SetPropertyStr(ctx, ret, "address", JS_NewString(ctx, address));
+
+      JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, port));
+      if(path)
+        JS_SetPropertyStr(ctx, ret, "path", JS_NewString(ctx, path));
+
+      js_free(ctx, (char*)uri);
+      break;
+    }
+
+    case FUNCTION_VISIBLE: {
+      int32_t level = 0;
+      JS_ToInt32(ctx, &level, argv[0]);
+      ret = JS_NewBool(ctx, lwsl_visible(level));
+      break;
+    }
   }
 
   return ret;
@@ -64,6 +95,8 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getCallbackName", 1, lws_functions, FUNCTION_GET_CALLBACK_NAME),
     JS_CFUNC_MAGIC_DEF("getCallbackNumber", 1, lws_functions, FUNCTION_GET_CALLBACK_NUMBER),
     JS_CFUNC_MAGIC_DEF("log", 2, lws_functions, FUNCTION_LOG),
+    JS_CFUNC_MAGIC_DEF("parseUri", 1, lws_functions, FUNCTION_PARSE_URI),
+    JS_CFUNC_MAGIC_DEF("visible", 1, lws_functions, FUNCTION_VISIBLE),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),

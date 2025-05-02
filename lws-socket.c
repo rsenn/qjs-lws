@@ -401,11 +401,15 @@ lws_socket_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 enum {
   PROP_HEADERS = 0,
   PROP_ID,
+  PROP_TAG,
   PROP_TLS,
   PROP_PEER,
   PROP_FD,
   PROP_CONTEXT,
   PROP_PEER_WRITE_ALLOWANCE,
+  PROP_PARENT,
+  PROP_CHILD,
+  PROP_NETWORK,
 };
 
 static JSValue
@@ -424,6 +428,15 @@ lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
     case PROP_ID: {
       ret = JS_NewUint32(ctx, s->id);
+      break;
+    }
+
+    case PROP_TAG: {
+      const char* tag;
+
+      if((tag = lws_wsi_tag(s->wsi)))
+        ret = JS_NewString(ctx, tag);
+
       break;
     }
 
@@ -461,6 +474,33 @@ lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_NewInt32(ctx, lws_get_peer_write_allowance(s->wsi));
       break;
     }
+
+    case PROP_PARENT: {
+      struct lws* wsi = lws_get_parent(s->wsi);
+
+      if(wsi)
+        ret = wsi == s->wsi ? JS_DupValue(ctx, this_val) : js_socket_wrap(ctx, wsi);
+
+      break;
+    }
+
+    case PROP_CHILD: {
+      struct lws* wsi = lws_get_child(s->wsi);
+
+      if(wsi)
+        ret = wsi == s->wsi ? JS_DupValue(ctx, this_val) : js_socket_wrap(ctx, wsi);
+
+      break;
+    }
+
+    case PROP_NETWORK: {
+      struct lws* wsi = lws_get_network_wsi(s->wsi);
+
+      if(wsi)
+        ret = wsi == s->wsi ? JS_DupValue(ctx, this_val) : js_socket_wrap(ctx, wsi);
+
+      break;
+    }
   }
 
   return ret;
@@ -495,10 +535,14 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("write", 1, lws_socket_methods, METHOD_WRITE),
     JS_CFUNC_MAGIC_DEF("respond", 1, lws_socket_methods, METHOD_RESPOND),
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lws_socket_get, 0, PROP_ID, JS_PROP_ENUMERABLE),
+    JS_CGETSET_MAGIC_FLAGS_DEF("tag", lws_socket_get, 0, PROP_TAG, JS_PROP_CONFIGURABLE),
     JS_CGETSET_MAGIC_DEF("headers", lws_socket_get, 0, PROP_HEADERS),
     JS_CGETSET_MAGIC_DEF("tls", lws_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lws_socket_get, 0, PROP_PEER),
     JS_CGETSET_MAGIC_DEF("fd", lws_socket_get, 0, PROP_FD),
+    JS_CGETSET_MAGIC_DEF("parent", lws_socket_get, 0, PROP_PARENT),
+    JS_CGETSET_MAGIC_DEF("child", lws_socket_get, 0, PROP_CHILD),
+    JS_CGETSET_MAGIC_DEF("network", lws_socket_get, 0, PROP_NETWORK),
     JS_CGETSET_MAGIC_DEF("context", lws_socket_get, 0, PROP_CONTEXT),
     JS_CGETSET_MAGIC_DEF("peerWriteAllowance", lws_socket_get, 0, PROP_PEER_WRITE_ALLOWANCE),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
