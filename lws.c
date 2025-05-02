@@ -93,8 +93,16 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
       size_t n;
       uint8_t* p;
 
-      if((p = JS_GetArrayBuffer(ctx, &n, argv[0])))
-        ret = JS_NewStringLen(ctx, p, n);
+      if((p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
+        int32_t index = 0;
+        if(argc > 1)
+          JS_ToInt32(ctx, &index, argv[1]);
+
+        if(index < 0)
+          index = (n + index) % (n - 1);
+
+        ret = JS_NewStringLen(ctx, p + index, n - index);
+      }
 
       break;
     }
