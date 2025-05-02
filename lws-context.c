@@ -1010,13 +1010,13 @@ lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
 
     case CLIENT_CONNECT: {
       LWSClientConnectInfo cci = {0};
-      struct lws* wsi, *wsi2;
+      struct lws *wsi, *wsi2;
 
       if(JS_IsObject(argv[0]))
         client_connect_info_fromobj(ctx, argv[0], &cci);
 
       cci.context = lc->ctx;
-      cci.pwsi=&wsi2;
+      cci.pwsi = &wsi2;
 
       if((wsi = lws_client_connect_via_info(&cci)))
         ret = js_socket_wrap(ctx, wsi);
