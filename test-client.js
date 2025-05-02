@@ -46,7 +46,7 @@ let ctx = (globalThis.ctx = new LWSContext({
       },
       onReceiveClientHttp(wsi) {
         console.log('onReceiveClientHttp', C, wsi);
-        const ab = new ArrayBuffer(1024);
+        const ab = new ArrayBuffer(2048);
         let ret = wsi.httpClientRead(ab);
         console.log('onReceiveClientHttp', C, ret);
       },
