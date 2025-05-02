@@ -12,13 +12,6 @@ typedef struct lws_protocol_vhost_options LWSProtocolVHostOptions;
 typedef struct lws_context_creation_info LWSContextCreationInfo;
 typedef struct lws_client_connect_info LWSClientConnectInfo;
 
-typedef struct {
-  JSContext* ctx;
-  JSObject* obj;
-  JSValue callback /*, user*/;
-  JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1];
-} LWSProtocol;
-
 JSClassID lws_context_class_id;
 static JSValue lws_context_proto, lws_context_ctor;
 

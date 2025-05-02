@@ -1,4 +1,5 @@
 #include "lws-socket.h"
+#include "lws-context.h"
 #include "lws.h"
 #include <assert.h>
 
@@ -410,6 +411,7 @@ enum {
   PROP_PARENT,
   PROP_CHILD,
   PROP_NETWORK,
+  PROP_PROTOCOL,
 };
 
 static JSValue
@@ -501,6 +503,20 @@ lws_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       break;
     }
+
+    case PROP_PROTOCOL: {
+      const struct lws_protocols* p;
+
+      if((p = lws_get_protocol(s->wsi))) {
+        LWSProtocol* lwsp;
+
+        if((lwsp = p->user))
+          if(lwsp->obj)
+            ret = JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, lwsp->obj));
+      }
+
+      break;
+    }
   }
 
   return ret;
@@ -545,6 +561,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("network", lws_socket_get, 0, PROP_NETWORK),
     JS_CGETSET_MAGIC_DEF("context", lws_socket_get, 0, PROP_CONTEXT),
     JS_CGETSET_MAGIC_DEF("peerWriteAllowance", lws_socket_get, 0, PROP_PEER_WRITE_ALLOWANCE),
+    JS_CGETSET_MAGIC_DEF("protocol", lws_socket_get, 0, PROP_PROTOCOL),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 
