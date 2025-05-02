@@ -21,6 +21,9 @@ if(DEBUG_OUTPUT)
   add_definitions(-DDEBUG_OUTPUT)
 endif(DEBUG_OUTPUT)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
+
 #set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "PIC code")
 #set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
 
@@ -32,8 +35,6 @@ elseif(NOT DEFINED CMAKE_INSTALL_LIBDIR)
 endif()
 
 include(CheckFunctionExists)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildCURL.cmake)
@@ -443,7 +444,7 @@ message("CMAKE_REQUIRED_LIBRARIES: ${CMAKE_REQUIRED_LIBRARIES}")
 set(CMAKE_REQUIRED_LINK_DIRECTORIES "${OPENSSL_LIBRARY_DIR}")
 message("CMAKE_REQUIRED_LINK_DIRECTORIES: ${CMAKE_REQUIRED_LINK_DIRECTORIES}")
 
-dump(OPENSSL_LIBRARY)
+#dump(OPENSSL_LIBRARY)
 if(NOT HAVE_X509_self_signed)
   unset(HAVE_X509_self_signed)
 endif(NOT HAVE_X509_self_signed)
@@ -456,8 +457,8 @@ endif(NOT HAVE_X509_self_signed)
 
 unset(CMAKE_REQUIRED_LIBRARIES)
 unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
-dump(X509_self_signed)
-dump(X509_self_signed2)
+#dump(X509_self_signed)
+#dump(X509_self_signed2)
 
 message(
   "Library directories:\n\
