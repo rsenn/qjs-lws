@@ -1,4 +1,4 @@
-import { LWSContext, LWSSocket, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
+import { toString, toArrayBuffer, LWSContext, LWSSocket, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
@@ -13,10 +13,10 @@ let ctx = (globalThis.ctx = new LWSContext({
         console.log('onRawConnected', C, wsi);
       },
       onRawWriteable(wsi) {
-        wsi.write('blah\n');
+        wsi.write(toArrayBuffer('blah\n'));
       },
       onRawRx(wsi, data) {
-        data = [...new Uint8Array(data)].reduce((s, n) => s + String.fromCodePoint(n), '');
+        data = toString(data);
 
         console.log('onRawRx', C, wsi, data.trimEnd());
       },
