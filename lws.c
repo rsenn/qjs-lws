@@ -98,10 +98,22 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
         if(argc > 1)
           JS_ToInt32(ctx, &index, argv[1]);
 
-        if(index < 0)
-          index = (n + index) % (n - 1);
+        if(index < 0) {
+          index = (n + index);
+          index = MIN(0, index);
+          index = MAX((n - 1), index);
+        }
 
-        ret = JS_NewStringLen(ctx, p + index, n - index);
+        uint32_t len = n - index;
+
+        if(argc > 2) {
+          uint32_t l = 0;
+          JS_ToUint32(ctx, &l, argv[2]);
+
+          len = MIN(l, len);
+        }
+
+        ret = JS_NewStringLen(ctx, p + index, len);
       }
 
       break;
