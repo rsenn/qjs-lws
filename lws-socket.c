@@ -222,6 +222,7 @@ enum {
   METHOD_WANT_WRITE = 0,
   METHOD_WRITE,
   METHOD_RESPOND,
+  METHOD_HTTP_CLIENT_READ,
 };
 
 static JSValue
@@ -348,6 +349,23 @@ lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
           if(n < 0)
             return JS_ThrowInternalError(ctx, "lws_write");
         }*/
+
+      break;
+    }
+
+    case METHOD_HTTP_CLIENT_READ: {
+      size_t n;
+      uint8_t* p;
+      int l = n;
+
+      if((p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
+        int result = lws_http_client_read(s->wsi, (char**)&p, &l);
+
+        if(result == -1)
+          ret = JS_ThrowInternalError(ctx, "lws_http_client_read returned -1");
+        else
+          ret = JS_NewInt32(ctx, l);
+      }
 
       break;
     }
@@ -550,12 +568,13 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("wantWrite", 0, lws_socket_methods, METHOD_WANT_WRITE),
     JS_CFUNC_MAGIC_DEF("write", 1, lws_socket_methods, METHOD_WRITE),
     JS_CFUNC_MAGIC_DEF("respond", 1, lws_socket_methods, METHOD_RESPOND),
+    JS_CFUNC_MAGIC_DEF("httpClientRead", 1, lws_socket_methods, METHOD_HTTP_CLIENT_READ),
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lws_socket_get, 0, PROP_ID, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_FLAGS_DEF("tag", lws_socket_get, 0, PROP_TAG, JS_PROP_CONFIGURABLE),
     JS_CGETSET_MAGIC_DEF("headers", lws_socket_get, 0, PROP_HEADERS),
     JS_CGETSET_MAGIC_DEF("tls", lws_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lws_socket_get, 0, PROP_PEER),
-    JS_CGETSET_MAGIC_DEF("fd", lws_socket_get, 0, PROP_FD),
+    JS_CGETSET_MAGIC_FLAGS_DEF("fd", lws_socket_get, 0, PROP_FD, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_DEF("parent", lws_socket_get, 0, PROP_PARENT),
     JS_CGETSET_MAGIC_DEF("child", lws_socket_get, 0, PROP_CHILD),
     JS_CGETSET_MAGIC_DEF("network", lws_socket_get, 0, PROP_NETWORK),

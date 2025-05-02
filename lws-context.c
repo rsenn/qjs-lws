@@ -58,12 +58,15 @@ protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
 
 static int
 protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
-  struct lws_protocols const* pro = lws_get_protocol(wsi);
-  LWSProtocol* closure = pro->user;
-  JSContext* ctx = closure->ctx;
-  JSValue* cb = &closure->callback;
+  if(reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS || reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS)
+    return 0;
 
-  if(!js_is_null_or_undefined(closure->callbacks[reason])) {
+  struct lws_protocols const* pro = lws_get_protocol(wsi);
+  LWSProtocol* closure = pro ? pro->user : 0;
+  JSContext* ctx = closure ? closure->ctx : 0;
+  JSValue* cb = closure ? &closure->callback : 0;
+
+  if(closure && !js_is_null_or_undefined(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];
   } else
 
@@ -583,6 +586,12 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   ci->ssl_connection = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
 
+  if(js_has_property(ctx, obj, "ssl")) {
+    value = js_get_property(ctx, obj, "ssl");
+    ci->ssl_connection |= JS_ToBool(ctx, value) ? LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK : 0;
+    JS_FreeValue(ctx, value);
+  }
+
   value = JS_GetPropertyStr(ctx, obj, "path");
   ci->path = value_to_string(ctx, value);
   JS_FreeValue(ctx, value);
@@ -926,6 +935,7 @@ lws_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     context_creation_info_fromobj(ctx, argv[0], &lc->info);
 
   lc->info.user = JS_VALUE_GET_OBJ(obj);
+  lc->info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
   lc->ctx = lws_create_context(&lc->info);
 
   JS_SetOpaque(obj, lc);

@@ -3,6 +3,12 @@ import { toString, toArrayBuffer, LWSContext, LWSSocket, LWSSPA, getCallbackName
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
 let ctx = (globalThis.ctx = new LWSContext({
+  ssl_ca_filepath: '/etc/ssl/certs/ca-certificates.crt',
+  ssl_cert_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
+  ssl_private_key_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
+  client_ssl_ca_filepath: '/etc/ssl/certs/ca-certificates.crt',
+  client_ssl_cert_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
+  client_ssl_private_key_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
   protocols: [
     {
       name: 'raw',
@@ -13,7 +19,7 @@ let ctx = (globalThis.ctx = new LWSContext({
         console.log('onRawConnected', C, wsi);
       },
       onRawWriteable(wsi) {
-        wsi.write(toArrayBuffer('GET / HTTP/1.0\n'));
+        wsi.write(toArrayBuffer('GET / HTTP/1.0\r\n\r\n'));
       },
       onRawRx(wsi, data) {
         data = toString(data);
@@ -31,14 +37,30 @@ let ctx = (globalThis.ctx = new LWSContext({
     },
     {
       name: 'http',
+      onReceiveClientHttpRead(wsi, data) {
+        data = toString(data);
+        console.log('onReceiveClientHttpRead', C, data);
+      },
+      onCompletedClientHttp(wsi) {
+ console.log('onCompletedClientHttp', C, wsi);
+      },
+      onReceiveClientHttp(wsi) {
+        console.log('onReceiveClientHttp', C, wsi);
+        const ab = new ArrayBuffer(1024);
+        let ret = wsi.httpClientRead(ab);
+        console.log('onReceiveClientHttp', C, ret);
+      },
+      onClientConnectionError(wsi, msg, ...args) {
+        console.log('onClientConnectionError', C, toString(msg), args);
+      },
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
         console.log('http', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
         return 0;
       },
-    }
+    },
   ],
 }));
 
 //ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
-ctx.clientConnect({ address: 'localhost', port: 8000, local_protocol_name: 'http', method: 'GET' });
+ctx.clientConnect({ ssl: true, address: 'localhost', host: 'transistorisiert.ch', path: '/directory.js', port: 443, local_protocol_name: 'http', method: 'GET' });
