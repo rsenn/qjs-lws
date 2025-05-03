@@ -42,7 +42,7 @@ let ctx = (globalThis.ctx = new LWSContext({
         console.log('onReceiveClientHttpRead', C, data);
       },
       onCompletedClientHttp(wsi) {
- console.log('onCompletedClientHttp', C, wsi);
+        console.log('onCompletedClientHttp', C, wsi);
       },
       onReceiveClientHttp(wsi) {
         console.log('onReceiveClientHttp', C, wsi);
