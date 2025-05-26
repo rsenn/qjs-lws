@@ -1,11 +1,19 @@
 //import * as lws from 'lws';
-import { LWSSPA, getCallbackName, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext } from 'lws';
+import { LWSSPA, getCallbackName, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext } from 'lws';
 
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
 const spa = (globalThis.spa = new WeakMap());
 
 const protocols = [
+  {
+    name: 'raw-echo',
+    callback(wsi, reason, ...args) {
+      globalThis.wsi = wsi;
+      console.log('raw-echo', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+      return 0;
+    },
+  },
   {
     name: 'ws',
     onFilterHttpConnection(wsi, url) {
@@ -69,6 +77,9 @@ const protocols = [
 
 globalThis.ctx = new LWSContext({
   port: 8886,
+  options: LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
+  listenAcceptRole: 'raw-skt',
+  listenAcceptProtocol: 'raw-echo',
   /*httpProxyAddress: '127.0.0.1', httpProxyPort: 8123,
   socksProxyAddress: '127.0.0.1', socksProxyPort: 9050,*/
   protocols,

@@ -827,6 +827,15 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   value = JS_GetPropertyStr(ctx, obj, "options");
   ci->options = value_to_integer(ctx, value);
   JS_FreeValue(ctx, value);
+
+  if(ci->options & LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG) {
+    value = js_get_property(ctx, obj, "listen_accept_role");
+    ci->listen_accept_role = value_to_string(ctx, value);
+    JS_FreeValue(ctx, value);
+    value = js_get_property(ctx, obj, "listen_accept_protocol");
+    ci->listen_accept_protocol = value_to_string(ctx, value);
+    JS_FreeValue(ctx, value);
+  }
 }
 
 static void
@@ -911,6 +920,12 @@ context_creation_info_free(JSRuntime* rt, LWSContextCreationInfo* ci) {
   if(ci->socks_proxy_address)
     js_free_rt(rt, (char*)ci->socks_proxy_address);
 #endif
+
+  if(ci->listen_accept_role)
+    js_free_rt(rt, (char*)ci->listen_accept_role);
+
+  if(ci->listen_accept_protocol)
+    js_free_rt(rt, (char*)ci->listen_accept_protocol);
 }
 
 static JSValue
