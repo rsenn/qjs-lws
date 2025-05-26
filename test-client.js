@@ -37,15 +37,28 @@ let ctx = (globalThis.ctx = new LWSContext({
     },
     {
       name: 'http',
+      onEstablishedClientHttp(wsi, data) {
+        console.log('onEstablishedClientHttp', C, data);
+      },
+      onClientAppendHandshakeHeader(wsi, data, len) {
+        console.log('onClientAppendHandshakeHeader', C, { data, len });
+      },
+      onClientHttpWriteable(wsi) {
+        console.log('onClientHttpWriteable', C, wsi);
+      },
       onReceiveClientHttpRead(wsi, data, len) {
         data = toString(data);
         console.log('onReceiveClientHttpRead', C, { data, len });
       },
       onCompletedClientHttp(wsi) {
         console.log('onCompletedClientHttp', C, wsi);
+        wsi.context.cancelService();
+      },
+      onClosedClientHttp(wsi) {
+        console.log('onClosedClientHttp', C, wsi.context);
+        wsi.context.cancelService();
       },
       onReceiveClientHttp(wsi) {
-        console.log('onReceiveClientHttp', C, wsi);
         const ab = new ArrayBuffer(2048);
         let ret = wsi.httpClientRead(ab);
         console.log('onReceiveClientHttp', C, ret);

@@ -157,7 +157,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
   /*  argv[argi++] = (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL;*/
 
-  if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
+  if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP) {
+    argv[argi++] = JS_NewInt32(ctx, lws_http_client_http_response(wsi));
+  } else if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
     argv[argi++] = JS_NewStringLen(ctx, in, len);
   } else if(in || len > 0) {
     BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
@@ -1037,10 +1039,10 @@ lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
       break;
     }
 
-case CANCEL_SERVICE: {
-  lws_cancel_service(lc->ctx);
-  break;
-}
+    case CANCEL_SERVICE: {
+      lws_cancel_service(lc->ctx);
+      break;
+    }
 
     case CLIENT_CONNECT: {
       LWSClientConnectInfo cci = {0};

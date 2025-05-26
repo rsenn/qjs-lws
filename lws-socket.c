@@ -355,11 +355,18 @@ lws_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
 
     case METHOD_HTTP_CLIENT_READ: {
       size_t n;
-      uint8_t* p;
-      int l = n;
+      uint8_t *p, *q;
+      int l, result;
 
-      if((p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
-        int result = lws_http_client_read(s->wsi, (char**)&p, &l);
+      if((q = p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
+        if(n < LWS_PRE + 16)
+          return JS_ThrowInternalError(ctx, "ArrayBuffer is smaller (%d) than LWS_PRE (%d) + 16", (int)n, LWS_PRE);
+
+        p += LWS_PRE;
+        n -= LWS_PRE;
+
+        l = n;
+        result = lws_http_client_read(s->wsi, (char**)&p, &l);
 
         if(result == -1)
           ret = JS_ThrowInternalError(ctx, "lws_http_client_read returned -1");
