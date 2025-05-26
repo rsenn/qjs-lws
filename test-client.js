@@ -1,4 +1,4 @@
-import { toString, toArrayBuffer, LWSContext, LWSSocket, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
+import { toString, toArrayBuffer, LWSContext, LWSSocket,LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
@@ -59,9 +59,9 @@ let ctx = (globalThis.ctx = new LWSContext({
         wsi.context.cancelService();
       },
       onReceiveClientHttp(wsi) {
-        const ab = new ArrayBuffer(2048);
+        let ab = new ArrayBuffer(2048);
         let ret = wsi.httpClientRead(ab);
-        console.log('onReceiveClientHttp', C, ret);
+        console.log('onReceiveClientHttp', C, ret, new Uint8Array(ab, LWS_PRE));
       },
       onClientConnectionError(wsi, msg, ...args) {
         console.log('onClientConnectionError', C, toString(msg), args);
