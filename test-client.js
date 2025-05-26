@@ -37,9 +37,9 @@ let ctx = (globalThis.ctx = new LWSContext({
     },
     {
       name: 'http',
-      onReceiveClientHttpRead(wsi, data) {
+      onReceiveClientHttpRead(wsi, data, len) {
         data = toString(data);
-        console.log('onReceiveClientHttpRead', C, data);
+        console.log('onReceiveClientHttpRead', C, { data, len });
       },
       onCompletedClientHttp(wsi) {
         console.log('onCompletedClientHttp', C, wsi);
@@ -62,5 +62,5 @@ let ctx = (globalThis.ctx = new LWSContext({
   ],
 }));
 
-ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
-//ctx.clientConnect({ ssl: true, address: 'localhost', host: 'transistorisiert.ch', path: '/directory.js', port: 443, local_protocol_name: 'http', method: 'GET' });
+//ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
+ctx.clientConnect({ ssl: true, address: 'localhost', host: 'transistorisiert.ch', path: '/directory.js', port: 443, local_protocol_name: 'http', method: 'GET' });

@@ -967,6 +967,7 @@ enum {
   DESTROY = 0,
   ADOPT_SOCKET,
   ADOPT_SOCKET_READBUF,
+  CANCEL_SERVICE,
   CLIENT_CONNECT,
   GET_RANDOM,
 };
@@ -1035,6 +1036,11 @@ lws_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
 
       break;
     }
+
+case CANCEL_SERVICE: {
+  lws_cancel_service(lc->ctx);
+  break;
+}
 
     case CLIENT_CONNECT: {
       LWSClientConnectInfo cci = {0};
@@ -1144,6 +1150,7 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("destroy", 0, lws_context_methods, DESTROY),
     JS_CFUNC_MAGIC_DEF("adoptSocket", 1, lws_context_methods, ADOPT_SOCKET),
     JS_CFUNC_MAGIC_DEF("adoptSocketReadbuf", 2, lws_context_methods, ADOPT_SOCKET_READBUF),
+    JS_CFUNC_MAGIC_DEF("cancelService", 0, lws_context_methods, CANCEL_SERVICE),
     JS_CFUNC_MAGIC_DEF("clientConnect", 1, lws_context_methods, CLIENT_CONNECT),
     JS_CFUNC_MAGIC_DEF("getRandom", 1, lws_context_methods, GET_RANDOM),
     JS_CGETSET_MAGIC_DEF("hostname", lws_context_get, 0, PROP_HOSTNAME),
