@@ -14,12 +14,11 @@ typedef struct {
 typedef struct {
   JSContext* ctx;
   JSObject* obj;
-  JSValue callback;
-  JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1];
+  JSValue callback, callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1];
 } LWSProtocol;
 
 extern JSClassID lws_context_class_id;
 
-int lws_context_init(JSContext*, JSModuleDef*);
+int lwsjs_context_init(JSContext*, JSModuleDef*);
 
 #endif

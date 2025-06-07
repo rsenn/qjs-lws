@@ -25,8 +25,15 @@ typedef struct {
   SPACallbacks callbacks;
 } LWSSPA;
 
+static const char* const lws_spa_callback_names[] = {
+    "onContent",
+    "onFinalContent",
+    "onOpen",
+    "onClose",
+};
+
 static int
-lws_spa_callback(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
+lwsjs_spa_callback(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
   SPACallbacks* cb = data;
   int32_t ret = 0;
 
@@ -40,17 +47,16 @@ lws_spa_callback(void* data, const char* name, const char* filename, char* buf, 
   JSValue args[] = {
       cb->name,
       cb->filename,
-      (buf && len) ? JS_NewArrayBufferCopy(cb->ctx, buf, len) : JS_NULL,
+      (buf && len) ? JS_NewArrayBufferCopy(cb->ctx, (const uint8_t*)buf, len) : JS_NULL,
   };
 
   JSValue fn = cb->array[state - LWS_UFS_CONTENT];
-
   JSValue result = JS_Call(cb->ctx, fn, cb->this_obj, (buf && len) ? 3 : 2, args);
 
   if(JS_IsException(result))
     ret = -1;
   else
-    JS_ToInt32(cb->ctx, &ret, result);
+    ret = to_int32(cb->ctx, result);
 
   JS_FreeValue(cb->ctx, args[2]);
   JS_FreeValue(cb->ctx, result);
@@ -66,7 +72,7 @@ lws_spa_callback(void* data, const char* name, const char* filename, char* buf, 
 }
 
 static JSValue
-lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
+lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
   JSValue proto, obj;
   LWSSPA* s;
   LWSSocket* sock;
@@ -98,25 +104,18 @@ lws_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueCo
       .filename = JS_NULL,
   };
 
-  static const char* const callback_names[] = {
-      "onContent",
-      "onFinalContent",
-      "onOpen",
-      "onClose",
-  };
-
   if(argc > 1 && JS_IsObject(argv[1]))
-    for(size_t i = 0; i < countof(callback_names); ++i)
-      s->callbacks.array[i] = JS_GetPropertyStr(ctx, argv[1], callback_names[i]);
+    for(size_t i = 0; i < countof(lws_spa_callback_names); ++i)
+      s->callbacks.array[i] = JS_GetPropertyStr(ctx, argv[1], lws_spa_callback_names[i]);
 
-  if(js_is_null_or_undefined(s->callbacks.onfinalcontent) && !js_is_null_or_undefined(s->callbacks.oncontent))
+  if(is_null_or_undefined(s->callbacks.onfinalcontent) && !is_null_or_undefined(s->callbacks.oncontent))
     s->callbacks.onfinalcontent = JS_DupValue(ctx, s->callbacks.oncontent);
 
   s->info = (struct lws_spa_create_info){
       .param_names = js_mallocz(ctx, sizeof(char*) * 1024),
       .count_params = 0,
       .max_storage = 1024,
-      .opt_cb = &lws_spa_callback,
+      .opt_cb = &lwsjs_spa_callback,
       .opt_data = &s->callbacks,
   };
 
@@ -138,7 +137,7 @@ enum {
 };
 
 static JSValue
-lws_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
+lwsjs_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
   LWSSPA* s;
   JSValue ret = JS_UNDEFINED;
 
@@ -167,7 +166,7 @@ lws_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 }
 
 static JSValue
-lws_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSValueConst receiver) {
+lwsjs_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSValueConst receiver) {
   JSValue value = JS_UNDEFINED;
   //  JSValue key = JS_AtomToValue(ctx, prop);
 
@@ -197,7 +196,7 @@ lws_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSValue
 }
 
 static void
-lws_spa_finalizer(JSRuntime* rt, JSValue val) {
+lwsjs_spa_finalizer(JSRuntime* rt, JSValue val) {
   LWSSPA* s;
 
   if((s = JS_GetOpaque(val, lws_spa_class_id))) {
@@ -208,7 +207,7 @@ lws_spa_finalizer(JSRuntime* rt, JSValue val) {
     JS_FreeValueRT(rt, s->callbacks.this_obj);
 
     if(s->info.param_names) {
-      for(size_t i = 0; i < s->info.count_params; i++)
+      for(int i = 0; i < s->info.count_params; i++)
         if(s->info.param_names[i])
           js_free_rt(rt, (void*)s->info.param_names[i]);
 
@@ -223,29 +222,29 @@ lws_spa_finalizer(JSRuntime* rt, JSValue val) {
 }
 
 static JSClassExoticMethods lws_spa_exotic_methods = {
-    .get_property = lws_spa_get_property,
+    .get_property = lwsjs_spa_get_property,
 };
 
 static const JSClassDef lws_spa_class = {
     "LWSSPA",
-    .finalizer = lws_spa_finalizer,
+    .finalizer = lwsjs_spa_finalizer,
     .exotic = &lws_spa_exotic_methods,
 };
 
 static const JSCFunctionListEntry lws_spa_proto_funcs[] = {
-    JS_CFUNC_MAGIC_DEF("process", 1, lws_spa_methods, METHOD_PROCESS),
-    JS_CFUNC_MAGIC_DEF("finalize", 0, lws_spa_methods, METHOD_FINALIZE),
+    JS_CFUNC_MAGIC_DEF("process", 1, lwsjs_spa_methods, METHOD_PROCESS),
+    JS_CFUNC_MAGIC_DEF("finalize", 0, lwsjs_spa_methods, METHOD_FINALIZE),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSPA", JS_PROP_CONFIGURABLE),
 };
 
 int
-lws_spa_init(JSContext* ctx, JSModuleDef* m) {
+lwsjs_spa_init(JSContext* ctx, JSModuleDef* m) {
   JS_NewClassID(&lws_spa_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lws_spa_class_id, &lws_spa_class);
   lws_spa_proto = JS_NewObjectProto(ctx, JS_NULL);
   JS_SetPropertyFunctionList(ctx, lws_spa_proto, lws_spa_proto_funcs, countof(lws_spa_proto_funcs));
 
-  lws_spa_ctor = JS_NewCFunction2(ctx, lws_spa_constructor, "LWSSPA", 1, JS_CFUNC_constructor, 0);
+  lws_spa_ctor = JS_NewCFunction2(ctx, lwsjs_spa_constructor, "LWSSPA", 1, JS_CFUNC_constructor, 0);
   JS_SetConstructor(ctx, lws_spa_ctor, lws_spa_proto);
 
   if(m) {

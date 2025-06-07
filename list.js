@@ -48,7 +48,7 @@ export function list_empty(el) {
   return el.next == el;
 }
 
-export function* list_for_each(  head) {
+export function* list_for_each(head) {
   for(let el = head.next; el != head; el = el.next) yield el;
 }
 
@@ -60,6 +60,6 @@ export function* list_for_each_prev(head) {
   for(let el = head.prev; el != head; el = el.prev) yield el;
 }
 
-export function* list_for_each_prev_safe(  head) {
+export function* list_for_each_prev_safe(head) {
   for(let el = head.prev, el1 = el.prev; el != head; el = el1, el1 = el.prev) yield el;
 }

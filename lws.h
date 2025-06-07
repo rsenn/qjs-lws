@@ -6,12 +6,159 @@
 #include <cutils.h>
 #include <ctype.h>
 
+#if __SIZEOF_POINTER__ == 8
+#define intptr int64_t
+#elif __SIZEOF_POINTER__ == 4
+#define intptr int32_t
+#endif
+
+#if __SIZEOF_POINTER__ == 8
+static inline void*
+to_ptr(JSContext* ctx, JSValueConst val) {
+  int64_t i = -1;
+  JS_ToInt64(ctx, &i, val);
+  return (void*)i;
+}
+
+#define to_integer(ctx, val) to_int64(ctx, val)
+#define to_integerfree(ctx, val) to_int64free(ctx, val)
+#elif __SIZEOF_POINTER__ == 8
+static inline void*
+to_ptr(JSContext* ctx, JSValueConst val) {
+  int32_t i = -1;
+  JS_ToInt32(ctx, &i, val);
+  return (void*)i;
+}
+
+#define to_integer(ctx, val) to_int32(ctx, val)
+#define to_integerfree(ctx, val) to_int32free(ctx, val)
+#endif
+
+static inline BOOL
+is_null_or_undefined(JSValueConst val) {
+  return JS_IsNull(val) || JS_IsUndefined(val);
+}
+
+static inline int32_t
+to_int32(JSContext* ctx, JSValueConst val) {
+  int32_t i = -1;
+  JS_ToInt32(ctx, &i, val);
+  return i;
+}
+
+static inline int32_t
+to_int32free(JSContext* ctx, JSValueConst val) {
+  int32_t i = to_int32(ctx, val);
+  JS_FreeValue(ctx, val);
+  return i;
+}
+
+static inline uint32_t
+to_uint32(JSContext* ctx, JSValueConst val) {
+  uint32_t i = -1;
+  JS_ToUint32(ctx, &i, val);
+  return i;
+}
+
+static inline uint32_t
+to_uint32free(JSContext* ctx, JSValueConst val) {
+  uint32_t i = to_uint32(ctx, val);
+  JS_FreeValue(ctx, val);
+  return i;
+}
+
+static inline int64_t
+to_int64(JSContext* ctx, JSValueConst val) {
+  int64_t i = -1;
+  JS_ToInt64(ctx, &i, val);
+  return i;
+}
+
+static inline int64_t
+to_int64free(JSContext* ctx, JSValueConst val) {
+  int64_t i = to_int64(ctx, val);
+  JS_FreeValue(ctx, val);
+  return i;
+}
+
+static inline char*
+to_string(JSContext* ctx, JSValueConst value) {
+  if(is_null_or_undefined(value))
+    return 0;
+
+  const char* s = JS_ToCString(ctx, value);
+  char* x = js_strdup(ctx, s);
+  JS_FreeCString(ctx, s);
+  return x;
+}
+
+static inline char*
+to_stringfree(JSContext* ctx, JSValue value) {
+  char* s = to_string(ctx, value);
+  JS_FreeValue(ctx, value);
+  return s;
+}
+
+char** to_stringarray(JSContext*, JSValueConst);
+
+static inline char**
+to_stringarrayfree(JSContext* ctx, JSValue val) {
+  char** ret = to_stringarray(ctx, val);
+  JS_FreeValue(ctx, val);
+  return ret;
+}
+
+static inline BOOL
+to_boolfree(JSContext* ctx, JSValue value) {
+  BOOL b = JS_ToBool(ctx, value);
+  JS_FreeValue(ctx, value);
+  return b;
+}
+
+static inline JSValue
+global_get(JSContext* ctx, const char* name) {
+  JSValue global_obj = JS_GetGlobalObject(ctx);
+  JSValue ret = JS_GetPropertyStr(ctx, global_obj, name);
+  JS_FreeValue(ctx, global_obj);
+  return ret;
+}
+
+static inline JSValue
+iterator_get(JSContext* ctx, JSValueConst iterable) {
+  JSValue symbol = global_get(ctx, "Symbol");
+  JSValue symiter = JS_GetPropertyStr(ctx, symbol, "iterator");
+  JS_FreeValue(ctx, symbol);
+  JSAtom atom = JS_ValueToAtom(ctx, symiter);
+  JS_FreeValue(ctx, symiter);
+  JSValue ret = JS_GetProperty(ctx, iterable, atom);
+  JS_FreeAtom(ctx, atom);
+  return ret;
+}
+
 #define VISIBLE __attribute__((visibility("default")))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define WRAPAROUND(n, len) ((n) < 0 ? (n) + (len) : (n))
+
+#define JS_CONSTANT(c) JS_PROP_INT64_DEF((#c), (c), JS_PROP_ENUMERABLE)
+
+#define JS_CGETSET_MAGIC_FLAGS_DEF(prop_name, fgetter, fsetter, magic_num, flags) \
+  { \
+    .name = prop_name, .prop_flags = flags, .def_type = JS_DEF_CGETSET_MAGIC, .magic = magic_num, .u = {.getset = {.get = {.getter_magic = fgetter}, .set = {.setter_magic = fsetter}} } \
+  }
+
+static inline int
+clz(uint32_t i) {
+  int ret = 0;
+
+  for(ret = 0; !(i & 0x80000000); ++ret)
+    i <<= 1;
+
+  return ret;
+}
 
 static inline size_t
-str_chrs(const char* s, const char* set, size_t setlen) {
+find_charset(const char* s, const char* set, size_t setlen) {
   size_t i, j;
 
   for(i = 0; s[i]; ++i)
@@ -23,7 +170,7 @@ str_chrs(const char* s, const char* set, size_t setlen) {
 }
 
 static inline size_t
-str_camelize(char* dst, size_t dlen, const char* src) {
+camelize(char* dst, size_t dlen, const char* src) {
   size_t i, j;
 
   for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
@@ -41,7 +188,7 @@ str_camelize(char* dst, size_t dlen, const char* src) {
 }
 
 static inline size_t
-str_decamelize(char* dst, size_t dlen, const char* src) {
+decamelize(char* dst, size_t dlen, const char* src) {
   size_t i, j;
 
   for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
@@ -55,53 +202,19 @@ str_decamelize(char* dst, size_t dlen, const char* src) {
   return j;
 }
 
-static inline const int64_t
-value_to_integer(JSContext* ctx, JSValueConst value) {
+/*static inline int64_t
+to_integer(JSContext* ctx, JSValueConst value) {
   int64_t i = -1;
   JS_ToInt64(ctx, &i, value);
   return i;
-}
-
-static inline const char*
-value_to_string(JSContext* ctx, JSValueConst value) {
-  if(JS_IsUndefined(value) || JS_IsNull(value))
-    return 0;
-
-  const char* s = JS_ToCString(ctx, value);
-  char* x = js_strdup(ctx, s);
-  JS_FreeCString(ctx, s);
-  return x;
-}
-
-/*static inline const char*
-atom_to_string(JSContext* ctx, JSAtom a) {
-  char* x = 0;
-  JSValue v = JS_AtomToValue(ctx, a);
-
-  if(!(JS_IsUndefined(v) || JS_IsNull(v))) {
-    const char* s = JS_ToCString(ctx, v);
-    x = js_strdup(ctx, s);
-    JS_FreeCString(ctx, s);
-  }
-
-  JS_FreeValue(ctx, v);
-  return x;
 }*/
 
-static inline BOOL
-js_is_null_or_undefined(JSValueConst val) {
-  return JS_IsNull(val) || JS_IsUndefined(val);
-}
-#define JS_CGETSET_MAGIC_FLAGS_DEF(prop_name, fgetter, fsetter, magic_num, flags) \
-  { \
-    .name = prop_name, .prop_flags = flags, .def_type = JS_DEF_CGETSET_MAGIC, .magic = magic_num, .u = {.getset = {.get = {.getter_magic = fgetter}, .set = {.setter_magic = fsetter}} } \
-  }
-
-void js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1]);
-BOOL js_has_property(JSContext*, JSValue, const char*);
-JSValue js_get_property(JSContext*, JSValue, const char*);
-enum lws_callback_reasons lws_callback_find(const char* name);
-int lws_init(JSContext*, JSModuleDef*);
-JSModuleDef* js_init_module(JSContext*, const char*);
+void lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1]);
+BOOL lwsjs_has_property(JSContext*, JSValue, const char*);
+JSValue lwsjs_get_property(JSContext*, JSValue, const char*);
+enum lws_callback_reasons lwsjs_callback_find(const char* name);
+int lwsjs_init(JSContext*, JSModuleDef*);
+JSModuleDef* lwsjs_init_module(JSContext*, const char*);
+int lwsjs_spa_init(JSContext* ctx, JSModuleDef* m);
 
 #endif

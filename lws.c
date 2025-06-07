@@ -1,10 +1,9 @@
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws.h"
+#include <string.h>
 
-#define JS_CONSTANT(c) JS_PROP_INT64_DEF((#c), (c), JS_PROP_ENUMERABLE)
-
-static const char* lws_callback_name(enum lws_callback_reasons);
+static const char* lwsjs_callback_name(enum lws_callback_reasons);
 
 enum {
   FUNCTION_GET_CALLBACK_NAME = 0,
@@ -16,19 +15,58 @@ enum {
   FUNCTION_TO_ARRAYBUFFER,
 };
 
+JSValue
+lwsjs_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
+  JSValue fn = JS_GetPropertyStr(ctx, obj, "next");
+  JSValue result = JS_Call(ctx, fn, obj, 0, 0);
+  JS_FreeValue(ctx, fn);
+  *done_p = to_boolfree(ctx, JS_GetPropertyStr(ctx, result, "done"));
+  JSValue value = JS_GetPropertyStr(ctx, result, "value");
+  JS_FreeValue(ctx, result);
+  return value;
+}
+
+char**
+to_stringarray(JSContext* ctx, JSValueConst obj) {
+  JSValue iterator = iterator_get(ctx, obj);
+
+  if(JS_IsException(iterator)) {
+    JS_GetException(ctx);
+    return 0;
+  }
+
+  BOOL done = FALSE;
+  char** ret = 0;
+  uint32_t i;
+
+  for(i = 0;; ++i) {
+
+    JSValue value = lwsjs_iterator_next(ctx, iterator, &done);
+
+    if(done || !(ret = js_realloc(ctx, ret, (i + 2) * sizeof(char*)))) {
+      JS_FreeValue(ctx, value);
+      break;
+    }
+
+    ret[i] = to_stringfree(ctx, value);
+    ret[i + 1] = 0;
+  }
+
+  return ret;
+}
+
 static JSValue
-lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
+lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
   JSValue ret = JS_UNDEFINED;
 
   switch(magic) {
     case FUNCTION_GET_CALLBACK_NAME: {
-      int32_t reason = -1;
-      JS_ToInt32(ctx, &reason, argv[0]);
-      const char* name = lws_callback_name(reason);
+      int32_t reason = to_int32(ctx, argv[0]);
+      const char* name = lwsjs_callback_name(reason);
 
       if(name) {
         char buf[strlen(name) + 1];
-        str_camelize(buf, sizeof(buf), name);
+        camelize(buf, sizeof(buf), name);
         buf[0] = toupper(buf[0]);
 
         ret = JS_NewString(ctx, buf);
@@ -40,7 +78,7 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
     case FUNCTION_GET_CALLBACK_NUMBER: {
       const char* name = JS_ToCString(ctx, argv[0]);
 
-      enum lws_callback_reasons reason = lws_callback_find(name);
+      enum lws_callback_reasons reason = lwsjs_callback_find(name);
 
       ret = JS_NewInt32(ctx, reason);
       break;
@@ -48,11 +86,14 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
 
     case FUNCTION_LOG: {
       const char* msg;
-      int32_t level = -1;
-      JS_ToInt32(ctx, &level, argv[0]);
+      int32_t level = LLL_USER;
+      int i = 0;
 
-      if(!(msg = JS_ToCString(ctx, argv[1])))
-        return JS_ThrowTypeError(ctx, "argument 2 must be string");
+      if(argc > 1 && JS_IsNumber(argv[i]))
+        level = to_int32(ctx, argv[i++]);
+
+      if(!(msg = JS_ToCString(ctx, argv[i])))
+        return JS_ThrowTypeError(ctx, "argument %d must be string", i + 1);
 
       _lws_log(level, "%s", msg);
 
@@ -61,20 +102,22 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
     }
 
     case FUNCTION_PARSE_URI: {
-      const char* uri = value_to_string(ctx, argv[0]);
+      const char* uri = to_string(ctx, argv[0]);
       const char *protocol, *address, *path;
       int port;
 
-      int r = lws_parse_uri((char*)uri, &protocol, &address, &port, &path);
+      lws_parse_uri((char*)uri, &protocol, &address, &port, &path);
 
       ret = JS_NewObject(ctx);
 
       if(protocol)
         JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, protocol));
+
       if(address)
         JS_SetPropertyStr(ctx, ret, "address", JS_NewString(ctx, address));
 
       JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, port));
+
       if(path)
         JS_SetPropertyStr(ctx, ret, "path", JS_NewString(ctx, path));
 
@@ -83,8 +126,7 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
     }
 
     case FUNCTION_VISIBLE: {
-      int32_t level = 0;
-      JS_ToInt32(ctx, &level, argv[0]);
+      int32_t level = to_int32(ctx, argv[0]);
       ret = JS_NewBool(ctx, lwsl_visible(level));
       break;
     }
@@ -94,27 +136,21 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
       uint8_t* p;
 
       if((p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
-        int32_t index = 0;
-        if(argc > 1)
-          JS_ToInt32(ctx, &index, argv[1]);
+        int32_t index = argc > 1 ? to_int32(ctx, argv[1]) : 0;
 
-        if(index < 0) {
-          index = (n + index);
-        }
-
+        index = WRAPAROUND(index, (signed)n);
         index = MAX(0, index);
-        index = MIN((n - 1), index);
+        index = MIN((signed)(n - 1), index);
 
         uint32_t len = n - index;
 
         if(argc > 2) {
-          uint32_t l = 0;
-          JS_ToUint32(ctx, &l, argv[2]);
+          uint32_t l = to_uint32(ctx, argv[2]);
 
           len = MIN(l, len);
         }
 
-        ret = JS_NewStringLen(ctx, p + index, len);
+        ret = JS_NewStringLen(ctx, (const char*)p + index, len);
       }
 
       break;
@@ -128,7 +164,7 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
       if((p = JS_GetArrayBuffer(ctx, &n, argv[0])))
         ret = JS_DupValue(ctx, argv[0]);
       else if((s = JS_ToCStringLen(ctx, &n, argv[0]))) {
-        ret = JS_NewArrayBufferCopy(ctx, s, n);
+        ret = JS_NewArrayBufferCopy(ctx, (const uint8_t*)s, n);
 
         JS_FreeCString(ctx, s);
       }
@@ -141,13 +177,13 @@ lws_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv
 }
 
 static const JSCFunctionListEntry lws_funcs[] = {
-    JS_CFUNC_MAGIC_DEF("getCallbackName", 1, lws_functions, FUNCTION_GET_CALLBACK_NAME),
-    JS_CFUNC_MAGIC_DEF("getCallbackNumber", 1, lws_functions, FUNCTION_GET_CALLBACK_NUMBER),
-    JS_CFUNC_MAGIC_DEF("log", 2, lws_functions, FUNCTION_LOG),
-    JS_CFUNC_MAGIC_DEF("parseUri", 1, lws_functions, FUNCTION_PARSE_URI),
-    JS_CFUNC_MAGIC_DEF("visible", 1, lws_functions, FUNCTION_VISIBLE),
-    JS_CFUNC_MAGIC_DEF("toString", 1, lws_functions, FUNCTION_TO_STRING),
-    JS_CFUNC_MAGIC_DEF("toArrayBuffer", 1, lws_functions, FUNCTION_TO_ARRAYBUFFER),
+    JS_CFUNC_MAGIC_DEF("getCallbackName", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NAME),
+    JS_CFUNC_MAGIC_DEF("getCallbackNumber", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NUMBER),
+    JS_CFUNC_MAGIC_DEF("log", 2, lwsjs_functions, FUNCTION_LOG),
+    JS_CFUNC_MAGIC_DEF("parseUri", 1, lwsjs_functions, FUNCTION_PARSE_URI),
+    JS_CFUNC_MAGIC_DEF("visible", 1, lwsjs_functions, FUNCTION_VISIBLE),
+    JS_CFUNC_MAGIC_DEF("toString", 1, lwsjs_functions, FUNCTION_TO_STRING),
+    JS_CFUNC_MAGIC_DEF("toArrayBuffer", 1, lwsjs_functions, FUNCTION_TO_ARRAYBUFFER),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),
@@ -351,7 +387,7 @@ static const char* lws_callback_names[] = {
 };
 
 static const char*
-lws_callback_name(enum lws_callback_reasons reason) {
+lwsjs_callback_name(enum lws_callback_reasons reason) {
   if(reason >= 0 && reason < countof(lws_callback_names))
     return lws_callback_names[reason];
 
@@ -359,10 +395,10 @@ lws_callback_name(enum lws_callback_reasons reason) {
 }
 
 enum lws_callback_reasons
-lws_callback_find(const char* name) {
+lwsjs_callback_find(const char* name) {
   char buf[128];
 
-  str_decamelize(buf, sizeof(buf), name);
+  decamelize(buf, sizeof(buf), name);
 
   for(size_t i = 0; i <= LWS_CALLBACK_USER; i++)
     if(lws_callback_names[i])
@@ -373,7 +409,7 @@ lws_callback_find(const char* name) {
 }
 
 void
-js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1]) {
+lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1]) {
   for(size_t i = 0; i <= LWS_CALLBACK_MQTT_SHADOW_TIMEOUT; i++) {
     if(lws_callback_names[i]) {
       char buf[128];
@@ -381,7 +417,7 @@ js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CAL
       buf[0] = 'o';
       buf[1] = 'n';
 
-      str_camelize(&buf[2], sizeof(buf) - 2, lws_callback_names[i]);
+      camelize(&buf[2], sizeof(buf) - 2, lws_callback_names[i]);
       buf[2] = toupper(buf[2]);
 
       callbacks[i] = JS_GetPropertyStr(ctx, obj, buf);
@@ -393,7 +429,7 @@ js_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CAL
 }
 
 BOOL
-js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
+lwsjs_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
   JSAtom atom = JS_NewAtom(ctx, name);
   BOOL ret = JS_HasProperty(ctx, obj, atom);
   JS_FreeAtom(ctx, atom);
@@ -401,11 +437,11 @@ js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
 }
 
 JSValue
-js_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
-  if(!js_has_property(ctx, obj, name)) {
+lwsjs_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
+  if(!lwsjs_has_property(ctx, obj, name)) {
     char buf[strlen(name) + 1];
 
-    str_camelize(buf, sizeof(buf), name);
+    camelize(buf, sizeof(buf), name);
 
     return JS_GetPropertyStr(ctx, obj, buf);
   }
@@ -413,13 +449,46 @@ js_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
   return JS_GetPropertyStr(ctx, obj, name);
 }
 
-int lws_spa_init(JSContext* ctx, JSModuleDef* m);
+static const char* lwsjs_log_levels[] = {
+    "ERR",
+    "WARN",
+    "NOTICE",
+    "INFO",
+    "DEBUG",
+    "PARSER",
+    "HEADER",
+    "EXT",
+    "CLIENT",
+    "LATENCY",
+    "USER",
+    "THREAD",
+};
+
+static void
+lwsjs_log_callback(int level, const char* line) {
+  line = strstr(line, ": ");
+  line += 2;
+
+  if(!strncmp(line, ": ", 2))
+    line += 2;
+
+  while(isspace(*line))
+    ++line;
+
+  level = 31 - clz(level);
+
+  if(level >= (int)countof(lwsjs_log_levels))
+    fprintf(stderr, "level overflow: %i\n", level);
+
+  fprintf(stderr, "<%s> %s", lwsjs_log_levels[level], line);
+  fflush(stderr);
+}
 
 int
-lws_init(JSContext* ctx, JSModuleDef* m) {
-  lws_context_init(ctx, m);
-  lws_socket_init(ctx, m);
-  lws_spa_init(ctx, m);
+lwsjs_init(JSContext* ctx, JSModuleDef* m) {
+  lwsjs_context_init(ctx, m);
+  lwsjs_socket_init(ctx, m);
+  lwsjs_spa_init(ctx, m);
 
   if(m)
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
@@ -431,12 +500,15 @@ VISIBLE JSModuleDef*
 js_init_module(JSContext* ctx, const char* module_name) {
   JSModuleDef* m;
 
-  if((m = JS_NewCModule(ctx, module_name, lws_init))) {
+  if((m = JS_NewCModule(ctx, module_name, lwsjs_init))) {
     JS_AddModuleExport(ctx, m, "LWSContext");
     JS_AddModuleExport(ctx, m, "LWSSocket");
     JS_AddModuleExport(ctx, m, "LWSSPA");
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
   }
+
+  lws_set_log_level((LLL_USER << 1) - 1, 0);
+  // lws_set_log_level((LLL_USER << 1) - 1, &lwsjs_log_callback);
 
   return m;
 }

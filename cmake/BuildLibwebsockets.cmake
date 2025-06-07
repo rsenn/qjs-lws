@@ -298,7 +298,7 @@ macro(build_libwebsockets)
                -DLWS_WITH_STRUCT_JSON:BOOL=OFF
                -DLWS_WITH_STRUCT_SQLITE3:BOOL=OFF
                -DLWS_WITH_SUL_DEBUGGING:BOOL=OFF
-               -DLWS_WITH_SYS_ASYNC_DNS:BOOL=OFF
+               -DLWS_WITH_SYS_ASYNC_DNS:BOOL=ON
                -DLWS_WITH_SYS_DHCP_CLIENT:BOOL=OFF
                -DLWS_WITH_SYS_FAULT_INJECTION:BOOL=OFF
                -DLWS_WITH_SYS_METRICS:BOOL=OFF
