@@ -65,6 +65,14 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   JSContext* ctx = closure ? closure->ctx : 0;
   JSValue* cb = closure ? &closure->callback : 0;
 
+  if(!ctx) {
+    JSObject* obj = lws_context_user(lws_get_context(wsi));
+    LWSContext* lwsctx;
+
+    if((lwsctx = JS_GetOpaque(JS_MKPTR(JS_TAG_OBJECT, obj), lws_context_class_id)))
+      ctx = lwsctx->js;
+  }
+
   if(closure && !is_null_or_undefined(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];
   } else
@@ -154,7 +162,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   if(cb == &closure->callback)
     argv[argi++] = JS_NewInt32(ctx, reason);
 
-  /*  argv[argi++] = (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL;*/
+  /*argv[argi++] = (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL;*/
 
   if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP) {
     argv[argi++] = JS_NewInt32(ctx, lws_http_client_http_response(wsi));
@@ -191,34 +199,28 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
 static LWSProtocols
 protocol_fromobj(JSContext* ctx, JSValueConst obj) {
-  LWSProtocols pro;
+  LWSProtocols pro = LWS_PROTOCOL_LIST_TERM;
+  LWSProtocol* closure;
+
+  if(!(closure = js_mallocz(ctx, sizeof(LWSProtocol))))
+    return pro;
+
   BOOL is_array = JS_IsArray(ctx, obj);
   JSValue value = is_array ? JS_GetPropertyUint32(ctx, obj, 0) : JS_GetPropertyStr(ctx, obj, "name");
   pro.name = to_stringfree(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 1) : JS_GetPropertyStr(ctx, obj, "callback");
-  /*if(JS_IsFunction(ctx, value))*/ {
-    LWSProtocol* closure = 0;
 
-    if((closure = js_mallocz(ctx, sizeof(LWSProtocol)))) {
-      closure->ctx = ctx;
-      closure->callback = JS_DupValue(ctx, value);
-      closure->obj = JS_VALUE_GET_OBJ(JS_DupValue(ctx, obj));
+  closure->ctx = ctx;
+  closure->callback = value;
+  closure->obj = JS_VALUE_GET_OBJ(JS_DupValue(ctx, obj));
 
-      /*closure->user = is_array ? JS_GetPropertyUint32(ctx, obj, 2) :JS_GetPropertyStr(ctx, obj, "user"); */
+  pro.callback = protocol_callback;
+  pro.user = closure;
 
-      pro.callback = protocol_callback;
-      pro.user = closure;
+  lwsjs_get_lws_callbacks(ctx, obj, closure->callbacks);
 
-      lwsjs_get_lws_callbacks(ctx, obj, closure->callbacks);
-    }
-  }
-
-  JS_FreeValue(ctx, value);
-
-  // value = lwsjs_get_property(ctx, obj, "per_session_data_size");
-  pro.per_session_data_size = sizeof(JSValue); // to_integer(ctx, value);
-  // JS_FreeValue(ctx, value);
+  pro.per_session_data_size = sizeof(JSValue);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 2) : lwsjs_get_property(ctx, obj, "rx_buffer_size");
   pro.rx_buffer_size = to_integerfree(ctx, value);
@@ -627,6 +629,9 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   value = JS_GetPropertyStr(ctx, obj, "iface");
   ci->iface = to_stringfree(ctx, value);
 
+  value = JS_GetPropertyStr(ctx, obj, "vhost_name");
+  ci->vhost_name = to_stringfree(ctx, value);
+
   value = JS_GetPropertyStr(ctx, obj, "protocols");
   ci->protocols = protocols_fromarray(ctx, value);
   JS_FreeValue(ctx, value);
@@ -675,7 +680,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 
 #ifdef LWS_WITH_SYS_ASYNC_DNS
   value = lwsjs_get_property(ctx, obj, "async_dns_servers");
-  ci->async_dns_servers = to_stringarrayfree(ctx, value);
+  ci->async_dns_servers = (const char*)to_stringarrayfree(ctx, value);
 #endif
 
 #ifdef LWS_WITH_TLS
@@ -854,11 +859,14 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
   if(JS_IsObject(argv[0]))
     context_creation_info_fromobj(ctx, argv[0], &lc->info);
 
+  JS_SetOpaque(obj, lc);
+
+  lc->js = JS_DupContext(ctx);
   lc->info.user = JS_VALUE_GET_OBJ(obj);
   lc->info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-  lc->ctx = lws_create_context(&lc->info);
 
-  JS_SetOpaque(obj, lc);
+  /* This must be called last, because it can trigger callbacks already */
+  lc->ctx = lws_create_context(&lc->info);
 
   return obj;
 
@@ -1036,6 +1044,9 @@ lwsjs_context_finalizer(JSRuntime* rt, JSValue val) {
   if((lc = JS_GetOpaque(val, lws_context_class_id))) {
     lws_context_destroy(lc->ctx);
     lc->ctx = 0;
+
+    JS_FreeContext(lc->js);
+    lc->js = 0;
 
     context_creation_info_free(rt, &lc->info);
 

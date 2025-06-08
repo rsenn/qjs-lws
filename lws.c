@@ -85,19 +85,49 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     }
 
     case FUNCTION_LOG: {
-      const char* msg;
-      int32_t level = LLL_USER;
-      int i = 0;
+      const char* msg = NULL;
+      int32_t level = -1;
+      LWSSocket* ls = NULL;
+      LWSContext* lc = NULL;
+      uint8_t* buf = NULL;
+      size_t len;
+      int i;
 
-      if(argc > 1 && JS_IsNumber(argv[i]))
-        level = to_int32(ctx, argv[i++]);
+      for(i = 0; i < argc; ++i) {
+        if(argc > 1 && level == -1 && JS_IsNumber(argv[i]))
+          level = to_int32(ctx, argv[i]);
+        else if(argc > 1 && ls == NULL && (ls = JS_GetOpaque(argv[i], lws_socket_class_id)))
+          continue;
+        else if(argc > 1 && lc == NULL && (lc = JS_GetOpaque(argv[i], lws_context_class_id)))
+          continue;
+        else if(buf == NULL && (buf = JS_GetArrayBuffer(ctx, &len, argv[i])))
+          continue;
+        else if(msg == NULL && !(msg = JS_ToCString(ctx, argv[i])))
+          return JS_ThrowTypeError(ctx, "argument %d must be string", i + 1);
+      }
 
-      if(!(msg = JS_ToCString(ctx, argv[i])))
-        return JS_ThrowTypeError(ctx, "argument %d must be string", i + 1);
+      if(level == -1)
+        level = LLL_USER;
 
-      _lws_log(level, "%s", msg);
+      if(buf) {
+        if(lc)
+          lwsl_hexdump_context(lc->ctx, level, buf, len);
+        else if(ls)
+          lwsl_hexdump_wsi(ls->wsi, level, buf, len);
+        else
+          lwsl_hexdump_level(level, buf, len);
+      } else {
+        if(ls)
+          _lws_log_cx(lwsl_wsi_get_cx(ls->wsi), lws_log_prepend_wsi, ls->wsi, level, NULL, "%s", msg);
+        else if(lc)
+          _lws_log_cx(lwsl_context_get_cx(lc->ctx), lws_log_prepend_context, lc->ctx, level, NULL, "%s", msg);
+        //   lwsl_cx(lc->ctx, level, "%s", msg);
+        else
+          _lws_log(level, "%s", msg);
+      }
 
-      JS_FreeCString(ctx, msg);
+      if(msg)
+        JS_FreeCString(ctx, msg);
       break;
     }
 
@@ -409,7 +439,7 @@ lwsjs_callback_find(const char* name) {
 }
 
 void
-lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1]) {
+lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[]) {
   for(size_t i = 0; i <= LWS_CALLBACK_MQTT_SHADOW_TIMEOUT; i++) {
     if(lws_callback_names[i]) {
       char buf[128];
@@ -464,6 +494,21 @@ static const char* lwsjs_log_levels[] = {
     "THREAD",
 };
 
+static const char* const lwsjs_log_colours[] = {
+    "[31;1m", /* LLL_ERR */
+    "[36;1m", /* LLL_WARN */
+    "[35;1m", /* LLL_NOTICE */
+    "[32;1m", /* LLL_INFO */
+    "[34;1m", /* LLL_DEBUG */
+    "[33;1m", /* LLL_PARSER */
+    "[33m",   /* LLL_HEADER */
+    "[33m",   /* LLL_EXT */
+    "[33m",   /* LLL_CLIENT */
+    "[33;1m", /* LLL_LATENCY */
+    "[0;1m",  /* LLL_USER */
+    "[31m",   /* LLL_THREAD */
+};
+
 static void
 lwsjs_log_callback(int level, const char* line) {
   line = strstr(line, ": ");
@@ -480,7 +525,7 @@ lwsjs_log_callback(int level, const char* line) {
   if(level >= (int)countof(lwsjs_log_levels))
     fprintf(stderr, "level overflow: %i\n", level);
 
-  fprintf(stderr, "<%s> %s", lwsjs_log_levels[level], line);
+  fprintf(stderr, "<%s> \x1b%s%s\x1b[0m", lwsjs_log_levels[level], lwsjs_log_colours[level], line);
   fflush(stderr);
 }
 
@@ -507,8 +552,9 @@ js_init_module(JSContext* ctx, const char* module_name) {
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
   }
 
-  lws_set_log_level((LLL_USER << 1) - 1, 0);
+  // lws_set_log_level((LLL_USER << 1) - 1, 0);
   // lws_set_log_level((LLL_USER << 1) - 1, &lwsjs_log_callback);
+  lws_set_log_level(LLL_ERR | LLL_WARN, &lwsjs_log_callback);
 
   return m;
 }

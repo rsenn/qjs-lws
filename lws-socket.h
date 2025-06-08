@@ -12,18 +12,17 @@ typedef struct {
   uint32_t id;
   JSObject* obj;
   BOOL want_write, completed;
-  JSValue headers,write_handler;
+  JSValue headers, write_handler;
 } LWSSocket;
 
 extern JSClassID lws_socket_class_id;
 
 LWSSocket* lwsjs_socket_new(JSContext*, struct lws*);
-void lwsjs_socket_destroy( JSContext*, struct lws*);
+void lwsjs_socket_destroy(JSContext*, struct lws*);
 JSValue lwsjs_socket_wrap(JSContext*, struct lws*);
 JSValue lwsjs_socket_get_or_create(JSContext*, struct lws*);
 JSValue lwsjs_socket_headers(JSContext*, struct lws*);
 int lwsjs_socket_init(JSContext*, JSModuleDef*);
-JSValue    lwsjs_socket_get_by_fd(JSContext*, lws_sockfd_type);
- 
+JSValue lwsjs_socket_get_by_fd(JSContext*, lws_sockfd_type);
 
 #endif

@@ -77,12 +77,11 @@ const protocols = [
 
 globalThis.ctx = new LWSContext({
   port: 8886,
+  vhostName: 'transistorisiert.ch',
   options:
     LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG | LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT | LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS | LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER,
   listenAcceptRole: 'raw-skt',
   listenAcceptProtocol: 'raw-echo',
-  /*httpProxyAddress: '127.0.0.1', httpProxyPort: 8123,
-  socksProxyAddress: '127.0.0.1', socksProxyPort: 9050,*/
   protocols,
   mounts: [
     { mountpoint: '/ws', protocol: 'ws', originProtocol: LWSMPRO_NO_MOUNT },

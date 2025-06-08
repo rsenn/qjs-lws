@@ -209,7 +209,7 @@ to_integer(JSContext* ctx, JSValueConst value) {
   return i;
 }*/
 
-void lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1]);
+void lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[]);
 BOOL lwsjs_has_property(JSContext*, JSValue, const char*);
 JSValue lwsjs_get_property(JSContext*, JSValue, const char*);
 enum lws_callback_reasons lwsjs_callback_find(const char* name);
