@@ -71,11 +71,14 @@ const protocols = [
     onHttpWriteable(wsi) {
       console.log('onHttpWriteable', C, wsi);
       if(!wsi.responded) {
-        wsi.respond(200, 5, { 'content-type': 'text/html' /*, connection: 'close'*/ });
-        wsi.write('TEST\n', LWS_WRITE_HTTP); /*wsi.wantWrite();
+        wsi.str = JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n';
+        wsi.respond(200, wsi.str.length, { 'content-type': 'text/html' /*, connection: 'close'*/ });
+        wsi.wantWrite();
         wsi.responded = 1;
-        return 0;*/
-      } else wsi.write('TEST\n', LWS_WRITE_HTTP_FINAL);
+        return 0;
+      }
+
+      wsi.write(wsi.str, LWS_WRITE_HTTP_FINAL);
       return -1;
     },
     onHttp(wsi, buf, len) {
