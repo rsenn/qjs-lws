@@ -7,18 +7,14 @@ const spa = (globalThis.spa = new WeakMap());
 
 const protocols = [
   {
-    name: 'raw-echo',
-    callback(wsi, reason, ...args) {
-      globalThis.wsi = wsi;
-      console.log('raw-echo', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
-      return 0;
-    },
-  },
-  {
     name: 'ws',
     onFilterHttpConnection(wsi, url) {
       const { headers } = wsi;
+
+      globalThis.wsi = wsi;
+
       console.log('onFilterHttpConnection', C, wsi, url, headers);
+
       if(/multipart/.test(headers['content-type'])) {
         spa.set(
           wsi,
@@ -70,6 +66,14 @@ const protocols = [
     callback(wsi, reason, ...args) {
       globalThis.wsi = wsi;
       console.log('http', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+      return 0;
+    },
+  },
+  {
+    name: 'raw-echo',
+    callback(wsi, reason, ...args) {
+      globalThis.wsi = wsi;
+      console.log('raw-echo', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
       return 0;
     },
   },
