@@ -554,7 +554,7 @@ js_init_module(JSContext* ctx, const char* module_name) {
 
   // lws_set_log_level((LLL_USER << 1) - 1, 0);
   // lws_set_log_level((LLL_USER << 1) - 1, &lwsjs_log_callback);
-  lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, &lwsjs_log_callback);
+  lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN, &lwsjs_log_callback);
 
   return m;
 }

@@ -21,8 +21,6 @@ const protocols = [
     onFilterHttpConnection(wsi, url) {
       const { headers } = wsi;
 
-      globalThis.wsi = wsi;
-
       console.log('onFilterHttpConnection', C, wsi, url, headers);
 
       if(/multipart/.test(headers['content-type'])) {
@@ -43,7 +41,6 @@ const protocols = [
       }
     },
     callback(wsi, reason, ...args) {
-      globalThis.wsi = wsi;
       console.log('ws', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
       return 0;
     },
@@ -51,7 +48,6 @@ const protocols = [
   {
     name: 'raw-echo',
     callback(wsi, reason, ...args) {
-      globalThis.wsi = wsi;
       console.log('raw-echo', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
       return 0;
     },
@@ -76,11 +72,11 @@ const protocols = [
       console.log('onHttpWriteable', C, wsi);
       if(!wsi.responded) {
         wsi.respond(200, 5, { 'content-type': 'text/html' /*, connection: 'close'*/ });
-        wsi.wantWrite();
+        wsi.write('TEST\n', LWS_WRITE_HTTP); /*wsi.wantWrite();
         wsi.responded = 1;
-        return 0;
+        return 0;*/
       } else wsi.write('TEST\n', LWS_WRITE_HTTP_FINAL);
-      return 1;
+      return -1;
     },
     onHttp(wsi, buf, len) {
       console.log('onHttp', C, wsi, buf, len, wsi.write);
@@ -89,7 +85,6 @@ const protocols = [
       //wsi.wantWrite(wsi => (wsi.write('Output!\n', LWS_WRITE_HTTP_FINAL), 0));
     },
     callback(wsi, reason, ...args) {
-      globalThis.wsi = wsi;
       console.log('http', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
       return 0;
     },

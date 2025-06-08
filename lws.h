@@ -4,6 +4,7 @@
 #include <quickjs.h>
 #include <libwebsockets.h>
 #include <cutils.h>
+#include <list.h>
 #include <ctype.h>
 
 #if __SIZEOF_POINTER__ == 8
@@ -202,12 +203,15 @@ decamelize(char* dst, size_t dlen, const char* src) {
   return j;
 }
 
-/*static inline int64_t
-to_integer(JSContext* ctx, JSValueConst value) {
-  int64_t i = -1;
-  JS_ToInt64(ctx, &i, value);
+static inline int
+list_size(struct list_head* list) {
+  struct list_head* el;
+  int i = 0;
+
+  list_for_each(el, list) { ++i; }
+
   return i;
-}*/
+}
 
 void lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[]);
 BOOL lwsjs_has_property(JSContext*, JSValue, const char*);

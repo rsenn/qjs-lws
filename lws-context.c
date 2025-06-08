@@ -353,7 +353,8 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     if(fd != -1)
       lwsjs_clear_handlers(ctx, fd);
 
-    lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
+    lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
+    // lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
   }
 
   return i;
