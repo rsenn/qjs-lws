@@ -59,7 +59,7 @@ socket_get(struct lws* wsi) {
           break;
     }
 
-    lwsl_user("socket (%p) searched = (LWSSocket*) %p", wsi, sock);
+    lwsl_user("socket (wsi = %p) searched = (LWSSocket*) %p", wsi, sock);
   }
 
   // lwsl_user("socket_get(%p) = (LWSSocket*) %p", wsi, sock);
@@ -89,10 +89,6 @@ socket_get_by_fd(lws_sockfd_type fd) {
 static void
 socket_free(LWSSocket* sock, JSRuntime* rt) {
   if(--sock->ref_count == 0) {
-    if(sock->wsi) {
-      lws_set_opaque_user_data(sock->wsi, 0);
-      sock->wsi = 0;
-    }
 
     if(!JS_IsUndefined(sock->write_handler)) {
       JS_FreeValueRT(rt, sock->write_handler);
@@ -121,6 +117,11 @@ socket_delete(LWSSocket* sock, JSRuntime* rt) {
   if(sock->obj) {
     JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, sock->obj));
     sock->obj = 0;
+  }
+
+  if(sock->wsi) {
+    lws_set_opaque_user_data(sock->wsi, 0);
+    sock->wsi = 0;
   }
 
   socket_free(sock, rt);

@@ -40,8 +40,14 @@ lwsjs_set_handler(JSContext* ctx, int fd, JSValueConst handler, int write) {
   JS_FreeValue(ctx, fn);
 }
 
+static void
+lwsjs_clear_handlers(JSContext* ctx, int fd) {
+  lwsjs_set_handler(ctx, fd, JS_NULL, 0);
+  lwsjs_set_handler(ctx, fd, JS_NULL, 1);
+}
+
 static JSValue
-protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValue* func_data) {
+protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst func_data[]) {
   void* cptr = to_ptr(ctx, func_data[3]);
 
   struct lws_pollfd lpfd = {
@@ -50,6 +56,12 @@ protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* 
       .revents = JS_ToBool(ctx, func_data[2]) ? POLLOUT : POLLIN,
   };
 
+  /*JSValue obj = lwsjs_socket_get_by_fd(ctx, lpfd.fd);
+
+  if(!JS_IsObject(obj)) {
+    lwsl_user("WARNING: socket %d deleted", lpfd.fd);
+    lwsjs_clear_handlers(ctx, lpfd.fd);
+  } else*/
   lws_service_fd((struct lws_context*)cptr, &lpfd);
 
   return JS_UNDEFINED;
@@ -249,7 +261,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
   int argi = 1, buffer_index = -1;
   JSValue argv[5] = {
-      reason == LWS_CALLBACK_PROTOCOL_INIT ? JS_NULL : lwsjs_socket_get_or_create(ctx, wsi),
+      reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT ? JS_NULL : lwsjs_socket_get_or_create(ctx, wsi),
   };
 
   if(cb == &closure->callback)
@@ -324,7 +336,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
   int32_t i = to_int32free(ctx, ret);
 
-  if(reason != LWS_CALLBACK_PROTOCOL_INIT) {
+  if(reason != LWS_CALLBACK_PROTOCOL_INIT && reason != LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
@@ -335,8 +347,14 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JS_FreeValue(ctx, sock);
   }
 
-  if(i != 0)
+  if(i != 0) {
+    int fd = lws_get_socket_fd(wsi);
+
+    if(fd != -1)
+      lwsjs_clear_handlers(ctx, fd);
+
     lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
+  }
 
   return i;
 }
