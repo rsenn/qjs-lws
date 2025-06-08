@@ -96,9 +96,9 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       for(i = 0; i < argc; ++i) {
         if(argc > 1 && level == -1 && JS_IsNumber(argv[i]))
           level = to_int32(ctx, argv[i]);
-        else if(argc > 1 && ls == NULL && (ls = JS_GetOpaque(argv[i], lws_socket_class_id)))
+        else if(argc > 1 && ls == NULL && (ls = JS_GetOpaque(argv[i], lwsjs_socket_class_id)))
           continue;
-        else if(argc > 1 && lc == NULL && (lc = JS_GetOpaque(argv[i], lws_context_class_id)))
+        else if(argc > 1 && lc == NULL && (lc = JS_GetOpaque(argv[i], lwsjs_context_class_id)))
           continue;
         else if(buf == NULL && (buf = JS_GetArrayBuffer(ctx, &len, argv[i])))
           continue;
@@ -554,7 +554,7 @@ js_init_module(JSContext* ctx, const char* module_name) {
 
   // lws_set_log_level((LLL_USER << 1) - 1, 0);
   // lws_set_log_level((LLL_USER << 1) - 1, &lwsjs_log_callback);
-  lws_set_log_level(LLL_ERR | LLL_WARN, &lwsjs_log_callback);
+  lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, &lwsjs_log_callback);
 
   return m;
 }

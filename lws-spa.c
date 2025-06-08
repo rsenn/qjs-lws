@@ -4,8 +4,8 @@
 #include <libwebsockets.h>
 #include <assert.h>
 
-JSClassID lws_spa_class_id;
-static JSValue lws_spa_proto, lws_spa_ctor;
+JSClassID lwsjs_spa_class_id;
+static JSValue lwsjs_spa_proto, lwsjs_spa_ctor;
 
 typedef struct {
   JSContext* ctx;
@@ -77,7 +77,7 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
   LWSSPA* s;
   LWSSocket* sock;
 
-  if(!(sock = JS_GetOpaque(argv[0], lws_socket_class_id)))
+  if(!(sock = JS_GetOpaque(argv[0], lwsjs_socket_class_id)))
     return JS_ThrowTypeError(ctx, "argument 1 must be an LWSSocket");
 
   if(!(s = js_mallocz(ctx, sizeof(LWSSPA))))
@@ -86,9 +86,9 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
   /* using new_target to get the prototype is necessary when the class is extended. */
   proto = JS_GetPropertyStr(ctx, new_target, "prototype");
   if(JS_IsException(proto))
-    proto = JS_DupValue(ctx, lws_spa_proto);
+    proto = JS_DupValue(ctx, lwsjs_spa_proto);
 
-  obj = JS_NewObjectProtoClass(ctx, proto, lws_spa_class_id);
+  obj = JS_NewObjectProtoClass(ctx, proto, lwsjs_spa_class_id);
   JS_FreeValue(ctx, proto);
   if(JS_IsException(obj))
     goto fail;
@@ -141,7 +141,7 @@ lwsjs_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
   LWSSPA* s;
   JSValue ret = JS_UNDEFINED;
 
-  if(!(s = JS_GetOpaque2(ctx, this_val, lws_spa_class_id)))
+  if(!(s = JS_GetOpaque2(ctx, this_val, lwsjs_spa_class_id)))
     return JS_EXCEPTION;
 
   switch(magic) {
@@ -173,7 +173,7 @@ lwsjs_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSVal
   if(prop > 0x7fffffff) {
     LWSSPA* s;
 
-    if(!(s = JS_GetOpaque2(ctx, this_val, lws_spa_class_id)))
+    if(!(s = JS_GetOpaque2(ctx, this_val, lwsjs_spa_class_id)))
       return JS_EXCEPTION;
 
     int len = lws_spa_get_length(s->spa, prop & 0x7fffffff);
@@ -185,7 +185,7 @@ lwsjs_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSVal
     JSValue proto = JS_GetPrototype(ctx, this_val);
 
     if(!JS_IsObject(proto))
-      proto = JS_DupValue(ctx, lws_spa_proto);
+      proto = JS_DupValue(ctx, lwsjs_spa_proto);
 
     value = JS_GetProperty(ctx, proto, prop);
 
@@ -199,7 +199,7 @@ static void
 lwsjs_spa_finalizer(JSRuntime* rt, JSValue val) {
   LWSSPA* s;
 
-  if((s = JS_GetOpaque(val, lws_spa_class_id))) {
+  if((s = JS_GetOpaque(val, lwsjs_spa_class_id))) {
 
     for(size_t i = 0; i < countof(s->callbacks.array); i++)
       JS_FreeValueRT(rt, s->callbacks.array[i]);
@@ -239,16 +239,16 @@ static const JSCFunctionListEntry lws_spa_proto_funcs[] = {
 
 int
 lwsjs_spa_init(JSContext* ctx, JSModuleDef* m) {
-  JS_NewClassID(&lws_spa_class_id);
-  JS_NewClass(JS_GetRuntime(ctx), lws_spa_class_id, &lws_spa_class);
-  lws_spa_proto = JS_NewObjectProto(ctx, JS_NULL);
-  JS_SetPropertyFunctionList(ctx, lws_spa_proto, lws_spa_proto_funcs, countof(lws_spa_proto_funcs));
+  JS_NewClassID(&lwsjs_spa_class_id);
+  JS_NewClass(JS_GetRuntime(ctx), lwsjs_spa_class_id, &lws_spa_class);
+  lwsjs_spa_proto = JS_NewObjectProto(ctx, JS_NULL);
+  JS_SetPropertyFunctionList(ctx, lwsjs_spa_proto, lws_spa_proto_funcs, countof(lws_spa_proto_funcs));
 
-  lws_spa_ctor = JS_NewCFunction2(ctx, lwsjs_spa_constructor, "LWSSPA", 1, JS_CFUNC_constructor, 0);
-  JS_SetConstructor(ctx, lws_spa_ctor, lws_spa_proto);
+  lwsjs_spa_ctor = JS_NewCFunction2(ctx, lwsjs_spa_constructor, "LWSSPA", 1, JS_CFUNC_constructor, 0);
+  JS_SetConstructor(ctx, lwsjs_spa_ctor, lwsjs_spa_proto);
 
   if(m) {
-    JS_SetModuleExport(ctx, m, "LWSSPA", lws_spa_ctor);
+    JS_SetModuleExport(ctx, m, "LWSSPA", lwsjs_spa_ctor);
   }
 
   return 0;

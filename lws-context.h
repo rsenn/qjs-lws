@@ -19,7 +19,7 @@ typedef struct {
   JSValue callback, callbacks[LWS_CALLBACK_MQTT_SHADOW_TIMEOUT + 1];
 } LWSProtocol;
 
-extern JSClassID lws_context_class_id;
+extern JSClassID lwsjs_context_class_id;
 
 int lwsjs_context_init(JSContext*, JSModuleDef*);
 
