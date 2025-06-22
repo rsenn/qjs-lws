@@ -1,5 +1,6 @@
 //import * as lws from 'lws';
-import { LWSSPA, getCallbackName, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, log, } from 'lws';
+import { LWSSPA, getCallbackName, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, log, } from 'lws';
+import { setTimeout } from 'os';
 
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
@@ -71,14 +72,22 @@ const protocols = [
     onHttpWriteable(wsi) {
       console.log('onHttpWriteable', C, wsi);
       if(!wsi.responded) {
-        wsi.str = JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n';
-        wsi.respond(200, wsi.str.length, { 'content-type': 'text/html' /*, connection: 'close'*/ });
-        wsi.wantWrite();
+        wsi.lines = (JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n').split('\n');
+        wsi.respond(200, LWS_ILLEGAL_HTTP_CONTENT_LEN ?? wsi.str.length, { 'content-type': 'text/html' /*, connection: 'close'*/ });
+
+        wsi.index = 0;
+        setTimeout(() => wsi.wantWrite(), 0);
+
         wsi.responded = 1;
         return 0;
       }
 
-      wsi.write(wsi.str, LWS_WRITE_HTTP_FINAL);
+      wsi.write(wsi.lines[wsi.index] + '\n', wsi.lines[++wsi.index] ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL);
+      if(wsi.lines[wsi.index]) {
+        setTimeout(() => wsi.wantWrite(), 500);
+        return 0;
+      }
+
       return -1;
     },
     onHttp(wsi, buf, len) {
@@ -104,7 +113,8 @@ globalThis.ctx = new LWSContext({
     LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED |
     LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER |
     LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT |
-    LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
+    LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+    LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL,
   listenAcceptRole: 'raw-skt',
   listenAcceptProtocol: 'raw-echo',
   protocols,

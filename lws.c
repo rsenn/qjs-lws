@@ -295,6 +295,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CONSTANT(LWS_SERVER_OPTION_SDEVENT),
     JS_CONSTANT(LWS_SERVER_OPTION_ULOOP),
     JS_CONSTANT(LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE),
+    JS_CONSTANT(LWS_ILLEGAL_HTTP_CONTENT_LEN),
 };
 
 static const char* lws_callback_names[] = {
