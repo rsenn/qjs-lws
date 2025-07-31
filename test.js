@@ -6,6 +6,18 @@ const C = console.config({ compact: true, maxArrayLength: 8 });
 
 const spa = (globalThis.spa = new WeakMap());
 
+const wsi2obj = (globalThis.wsi2obj = (function () {
+  const m = new WeakMap();
+  return wsi => {
+    let obj = m.get(wsi);
+    if(!obj) {
+      obj = {};
+      m.set(wsi, obj);
+    }
+    return obj;
+  };
+})());
+
 const protocols = [
   {
     name: 'ws',
@@ -71,20 +83,22 @@ const protocols = [
     },
     onHttpWriteable(wsi) {
       console.log('onHttpWriteable', C, wsi);
-      if(!wsi.responded) {
-        wsi.lines = (JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n').split('\n');
-        wsi.respond(200, LWS_ILLEGAL_HTTP_CONTENT_LEN ?? wsi.str.length, { 'content-type': 'text/html' /*, connection: 'close'*/ });
+      const obj = wsi2obj(wsi);
 
-        wsi.index = 0;
+      if(!obj.responded) {
+        obj.lines = (JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n').split('\n');
+        wsi.respond(200, LWS_ILLEGAL_HTTP_CONTENT_LEN ?? obj.lines.length, { 'content-type': 'text/html' /*, connection: 'close'*/ });
+
+        obj.index = 0;
         setTimeout(() => wsi.wantWrite(), 0);
 
-        wsi.responded = 1;
+        obj.responded = 1;
         return 0;
       }
 
-      wsi.write(wsi.lines[wsi.index] + '\n', wsi.lines[++wsi.index] ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL);
-      
-      if(wsi.lines[wsi.index]) {
+      wsi.write(obj.lines[obj.index] + '\n', obj.lines[++obj.index] ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL);
+
+      if(obj.lines[obj.index]) {
         setTimeout(() => wsi.wantWrite(), 100);
         return 0;
       }
@@ -94,7 +108,7 @@ const protocols = [
     onHttp(wsi, buf, len) {
       console.log('onHttp', C, wsi, buf, len, wsi.write);
 
-globalThis.wsi =wsi;
+      globalThis.wsi = wsi;
 
       wsi.wantWrite();
       //wsi.wantWrite(wsi => (wsi.write('Output!\n', LWS_WRITE_HTTP_FINAL), 0));

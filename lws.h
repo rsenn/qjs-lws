@@ -27,6 +27,18 @@ to_ptr(JSContext* ctx, JSValueConst val) {
 #define DEBUG(x...)
 #endif
 
+#define VISIBLE __attribute__((visibility("default")))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define WRAPAROUND(n, len) ((n) < 0 ? (n) + (len) : (n))
+
+#define JS_CONSTANT(c) JS_PROP_INT64_DEF((#c), (c), JS_PROP_ENUMERABLE)
+
+#define JS_CGETSET_MAGIC_FLAGS_DEF(prop_name, fgetter, fsetter, magic_num, flags) \
+  { \
+    .name = prop_name, .prop_flags = flags, .def_type = JS_DEF_CGETSET_MAGIC, .magic = magic_num, .u = {.getset = {.get = {.getter_magic = fgetter}, .set = {.setter_magic = fsetter}} } \
+  }
+
 #define to_integer(ctx, val) to_int64(ctx, val)
 #define to_integerfree(ctx, val) to_int64free(ctx, val)
 #elif __SIZEOF_POINTER__ == 8
@@ -140,6 +152,39 @@ obj_free(JSRuntime* rt, JSObject* obj) {
   JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, obj));
 }
 
+static inline void*
+get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
+  size_t n;
+  uint8_t* p;
+
+  if((p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
+    int64_t offset = 0, size = n;
+
+    if(argc > 1) {
+      offset = to_int64(ctx, argv[1]);
+      offset = WRAPAROUND(offset, (int64_t)n);
+      offset = MAX(offset, 0);
+      offset = MIN(offset, (int64_t)n);
+
+      if(argc > 2)
+        if((size = to_int64(ctx, argv[2])) < 0)
+          size = WRAPAROUND(size, (int64_t)n);
+    }
+
+    if(offset > 0) {
+      p += offset;
+      n -= offset;
+    }
+
+    n = MAX(size, 0);
+    n = MIN(size, (int64_t)n);
+
+    *lenp = n;
+  }
+
+  return p;
+}
+
 JSValue ptr_obj(JSContext* ctx, JSObject* obj);
 
 static inline JSValue
@@ -153,18 +198,6 @@ iterator_get(JSContext* ctx, JSValueConst iterable) {
   JS_FreeAtom(ctx, atom);
   return ret;
 }
-
-#define VISIBLE __attribute__((visibility("default")))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define WRAPAROUND(n, len) ((n) < 0 ? (n) + (len) : (n))
-
-#define JS_CONSTANT(c) JS_PROP_INT64_DEF((#c), (c), JS_PROP_ENUMERABLE)
-
-#define JS_CGETSET_MAGIC_FLAGS_DEF(prop_name, fgetter, fsetter, magic_num, flags) \
-  { \
-    .name = prop_name, .prop_flags = flags, .def_type = JS_DEF_CGETSET_MAGIC, .magic = magic_num, .u = {.getset = {.get = {.getter_magic = fgetter}, .set = {.setter_magic = fsetter}} } \
-  }
 
 static inline int
 clz(uint32_t i) {

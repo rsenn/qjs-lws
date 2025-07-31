@@ -43,7 +43,7 @@ static const char* const method_names[] = {
 
 static BOOL
 is_uri(enum lws_token_indexes ti) {
-  for(int i = 0; i < countof(method_tokens); i++)
+  for(size_t i = 0; i < countof(method_tokens); i++)
     if(method_tokens[i] == ti)
       return TRUE;
 
@@ -144,10 +144,9 @@ socket_get_by_fd(lws_sockfd_type fd) {
 
 static void
 socket_free(LWSSocket* sock, JSRuntime* rt) {
-  // lwsl_user("free LWSSocket: %p (ref = %d)", sock, sock->ref_count);
+  DEBUG("free LWSSocket: %p (ref = %d)", sock, sock->ref_count);
 
   if(--sock->ref_count == 0) {
-
     if(!JS_IsUndefined(sock->write_handler)) {
       JS_FreeValueRT(rt, sock->write_handler);
       sock->write_handler = JS_UNDEFINED;
@@ -339,6 +338,9 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "%s (magic=%d) s->wsi == NULL", __func__, magic);
+
   switch(magic) {
     case METHOD_WANT_WRITE: {
       if(!s->want_write) {
@@ -475,7 +477,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       uint8_t *p, *q;
       int l, result;
 
-      if((q = p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
+      if((q = p = get_buffer(ctx, argc, argv, &n))) {
         if(n < LWS_PRE + 16)
           return JS_ThrowInternalError(ctx, "ArrayBuffer is smaller (%d) than LWS_PRE (%d) + 16", (int)n, LWS_PRE);
 

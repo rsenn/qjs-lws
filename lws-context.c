@@ -243,16 +243,16 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
   struct lws_protocols const* pro = lws_get_protocol(wsi);
   LWSProtocol* closure = pro ? pro->user : 0;
-  JSContext* ctx = wsi_to_js_ctx(wsi);
   JSValue* cb = closure ? &closure->callback : 0;
   LWSContext* lc = wsi ? lwsjs_socket_context(wsi) : 0;
+  JSContext* ctx = wsi_to_js_ctx(wsi);
 
   if(closure && !is_null_or_undefined(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];
   } else
 
     switch(reason) {
-      case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+      // case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
       case LWS_CALLBACK_LOCK_POLL:
       case LWS_CALLBACK_UNLOCK_POLL: return 0;
 
@@ -288,11 +288,8 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       default: break;
     }
 
-  if(((int32_t*)wsi)[58] & 2) {
-    // struct lws_vhost* vh = lws_get_vhost(lws_get_parent(wsi));
-
+  if(((int32_t*)wsi)[58] & 2)
     return lws_callback_http_dummy(wsi, reason, user, in, len);
-  }
 
   if(is_null_or_undefined(*cb))
     return 0;
@@ -306,14 +303,12 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         s->want_write = FALSE;
 
         if(!JS_IsUndefined(s->write_handler)) {
-          JSValue args[1] = {sock};
-          JSValue ret = JS_Call(ctx, s->write_handler, JS_UNDEFINED, countof(args), args);
+          JSValue ret = JS_Call(ctx, s->write_handler, JS_UNDEFINED, 1, &sock);
           JS_FreeValue(ctx, ret);
         }
       }
 
     JS_FreeValue(ctx, sock);
-
   } else if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
@@ -1277,7 +1272,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       size_t n;
       uint8_t* p;
 
-      if((p = JS_GetArrayBuffer(ctx, &n, argv[0])))
+      if((p = get_buffer(ctx, argc, argv, &n)))
         lws_get_random(lc->ctx, p, n);
 
       break;

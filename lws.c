@@ -211,23 +211,8 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       size_t n;
       uint8_t* p;
 
-      if((p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
-        int32_t index = argc > 1 ? to_int32(ctx, argv[1]) : 0;
-
-        index = WRAPAROUND(index, (signed)n);
-        index = MAX(0, index);
-        index = MIN((signed)(n - 1), index);
-
-        uint32_t len = n - index;
-
-        if(argc > 2) {
-          uint32_t l = to_uint32(ctx, argv[2]);
-
-          len = MIN(l, len);
-        }
-
-        ret = JS_NewStringLen(ctx, (const char*)p + index, len);
-      }
+      if((p = get_buffer(ctx, argc, argv, &n)))
+        ret = JS_NewStringLen(ctx, (const char*)p, n);
 
       break;
     }
