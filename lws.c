@@ -35,6 +35,11 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
     return 0;
   }
 
+  JSValue tmp = JS_Call(ctx, iterator, JS_NULL, 0, NULL);
+
+  JS_FreeValue(ctx, iterator);
+  iterator = tmp;
+
   BOOL done = FALSE;
   char** ret = 0;
   uint32_t i;
