@@ -65,7 +65,7 @@ let ctx = (globalThis.ctx = new LWSContext({
       },
       onClosedClientHttp(wsi) {
         verbose('onClosedClientHttp', C, wsi.context);
-        wsi.context.cancelService();
+        ctx.cancelService();
       },
       onReceiveClientHttpRead(wsi, data, len) {
         data = toString(data);

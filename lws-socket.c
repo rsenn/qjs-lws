@@ -61,7 +61,7 @@ socket_method(LWSSocket* sock) {
   return 0;
 }
 
-static JSValue
+/*static JSValue
 socket_headers(LWSSocket* sock, JSContext* ctx) {
   int i;
   JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
@@ -78,7 +78,7 @@ socket_headers(LWSSocket* sock, JSContext* ctx) {
   }
 
   return ret;
-}
+}*/
 
 static LWSSocket*
 socket_alloc(JSContext* ctx) {
@@ -311,7 +311,7 @@ JSValue
 lwsjs_socket_headers(JSContext* ctx, struct lws* wsi) {
   JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
 
-  for(int i = WSI_TOKEN_GET_URI; i < WSI_INIT_TOKEN_MUXURL; ++i) {
+  for(int i = WSI_TOKEN_GET_URI; i < WSI_TOKEN_COUNT; ++i) {
     size_t len = lws_hdr_total_length(wsi, i);
 
     if(len > 0) {
@@ -494,10 +494,10 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
         l = n;
         result = lws_http_client_read(s->wsi, (char**)&p, &l);
 
-        if(result == -1)
-          ret = JS_ThrowInternalError(ctx, "lws_http_client_read returned -1");
-        else
+        if(result != -1)
           ret = JS_NewInt32(ctx, l);
+        /*else
+          ret = JS_ThrowInternalError(ctx, "lws_http_client_read returned -1");*/
       }
 
       break;
@@ -576,8 +576,8 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
   switch(magic) {
     case PROP_HEADERS: {
 
-      if(JS_IsUndefined(s->headers))
-        s->headers = socket_headers(s, ctx);
+      /* if(JS_IsUndefined(s->headers))
+         s->headers = socket_headers(s, ctx);*/
 
       ret = JS_DupValue(ctx, s->headers);
       break;

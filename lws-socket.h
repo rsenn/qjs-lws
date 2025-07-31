@@ -15,11 +15,11 @@ typedef enum {
 typedef struct {
   struct list_head link;
   int ref_count;
- struct lws* wsi;
+  struct lws* wsi;
   uint32_t id;
   LWSSocketType type;
   JSObject* obj;
-  BOOL client:1, want_write:1, completed:1;
+  BOOL client : 1, want_write : 1, completed : 1;
   JSValue headers, write_handler;
 } LWSSocket;
 
@@ -39,7 +39,8 @@ lwsjs_socket_data(JSValueConst value) {
 }
 
 static inline LWSSocket*
-lwsjs_socket_data2(JSContext*ctx, JSValueConst value) {
+lwsjs_socket_data2(JSContext* ctx, JSValueConst value) {
   return JS_GetOpaque2(ctx, value, lwsjs_socket_class_id);
 }
+
 #endif

@@ -7,9 +7,17 @@
 #include <libwebsockets.h>
 
 typedef struct {
+  struct list_head link;
+  int fd;
+  BOOL write;
+} HandlerFunction;
+
+typedef struct {
   struct lws_context* ctx;
   struct lws_context_creation_info info;
   JSContext* js;
+  struct list_head handlers;
+  JSValue iohandler_functions[2];
 } LWSContext;
 
 typedef struct {
@@ -38,6 +46,18 @@ lws_context_data(JSValueConst value) {
 
   if((lwsctx = lwsjs_context_data(value)))
     return lwsctx->ctx;
+
+  return 0;
+}
+
+static inline LWSContext*
+lwsjs_socket_context(struct lws* wsi) {
+  struct lws_context* lws;
+  if((lws = lws_get_context(wsi))) {
+    JSObject* obj = lws_context_user(lws);
+
+    return lwsjs_context_data(JS_MKPTR(JS_TAG_OBJECT, obj));
+  }
 
   return 0;
 }
