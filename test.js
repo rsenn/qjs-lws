@@ -10,26 +10,16 @@ function debug(name, ...args) {
   if(process.env.DEBUG) console.log(name.padEnd(32), ...args);
 }
 
-function weakMapper(createFn, map = new WeakMap(), hitFn) {
-  let self = function(obj, ...args) {
-    let ret;
-
-    if(map.has(obj)) {
-      ret = map.get(obj);
-      if(typeof hitFn == 'function') hitFn(obj, ret);
-    } else {
-      ret = createFn(obj, ...args);
-      map.set(obj, ret);
-    }
-
-    return ret;
-  };
-
-  self.set = (k, v) => map.set(k, v);
-  self.get = k => map.get(k);
-  self.map = map;
-
-  return self;
+function weakMapper(create, map = new WeakMap()) {
+  return Object.assign(
+    function(obj, ...args) {
+      let r;
+      if(map.has(obj)) r = map.get(obj);
+      else map.set(obj, (r = create(obj, ...args)));
+      return r;
+    },
+    { set: (k, v) => map.set(k, v), get: k => map.get(k), map, create },
+  );
 }
 
 const C = console.config({ compact: true, maxArrayLength: 8 });
@@ -37,15 +27,15 @@ const C = console.config({ compact: true, maxArrayLength: 8 });
 const spa = (globalThis.spa = weakMapper(
   () =>
     new LWSSPA(wsi, {
-    maxStorage: 32 * 1024,
+      maxStorage: 1 << 17,
       onOpen(name, filename) {
-        verbose('spa.onOpen', C, { name, filename });
+        verbose('spa.onOpen', C, { [name]: filename });
       },
       onContent(name, filename, buf) {
-        verbose('spa.onContent', C, { name, filename, buf });
+        verbose('spa.onContent', C, { [name]: filename, buf });
       },
       onClose(name, filename) {
-        verbose('spa.onClose', C, { name, filename });
+        verbose('spa.onClose', C, { [name]: filename });
       },
     }),
   new WeakMap(),
@@ -81,22 +71,7 @@ const protocols = [
 
       verbose('onFilterHttpConnection', C, wsi, url, headers);
 
-      if(/multipart/.test(headers['content-type'])) {
-        spa(
-          wsi,
-          new LWSSPA(wsi, {
-            onContent(name, filename, buf) {
-              verbose('onContent', C, { name, filename, buf });
-            },
-            onOpen(name, filename) {
-              verbose('onOpen', C, { name, filename });
-            },
-            onClose(name, filename) {
-              verbose('onClose', C, { name, filename });
-            },
-          }),
-        );
-      }
+      if(/multipart/.test(headers['content-type'])) spa(wsi);
     },
     callback(wsi, reason, ...args) {
       verbose('ws ' + getCallbackName(reason), C, wsi, args);
@@ -117,7 +92,7 @@ const protocols = [
 
       debug('onHttpBody', C, s, buf);
 
-      s.process(buf);
+      s.process(buf, 0, buf.byteLength);
     },
     onHttpBodyCompletion(wsi) {
       verbose('onHttpBodyCompletion', C, wsi);

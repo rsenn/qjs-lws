@@ -115,12 +115,11 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
     s->callbacks.on.finalcontent = JS_DupValue(ctx, s->callbacks.on.content);
 
   uint32_t count_params = to_uint32free_default(ctx, lwsjs_get_property(ctx, this_val, "count_params"), 1024);
-  uint32_t storage = to_uint32free_default(ctx, lwsjs_get_property(ctx, this_val, "max_storage"), 512);
 
   s->info = (struct lws_spa_create_info){
       .param_names = count_params ? js_mallocz(ctx, sizeof(char*) * (count_params + 1)) : 0,
       .count_params = count_params,
-      .max_storage = storage + 1,
+      .max_storage = to_uint32free_default(ctx, lwsjs_get_property(ctx, this_val, "max_storage"), 512) + 1,
       .opt_cb = &lwsjs_spa_callback,
       .opt_data = s,
       .ac_chunk_size = to_uint32free(ctx, lwsjs_get_property(ctx, this_val, "ac_chunk_size")),
