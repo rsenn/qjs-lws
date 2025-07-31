@@ -21,8 +21,6 @@ static LWSProtocolVHostOptions* vhost_options_fromarrayfree(JSContext*, JSValue)
 
 static void vhost_options_free(JSRuntime*, LWSProtocolVHostOptions*);
 
-// static struct list_head handlers;
-
 static JSValue
 iohandler_function(JSContext* ctx, BOOL write) {
   JSValue glob = JS_GetGlobalObject(ctx);
@@ -37,14 +35,11 @@ static HandlerFunction*
 iohandler_find(LWSContext* lc, int fd, BOOL write) {
   struct list_head* el;
 
-  if(lc->handlers.next == NULL)
-    init_list_head(&lc->handlers);
-
   list_for_each(el, &lc->handlers) {
-    HandlerFunction* h = list_entry(el, HandlerFunction, link);
+    HandlerFunction* hf = list_entry(el, HandlerFunction, link);
 
-    if(h->fd == fd && h->write == write)
-      return h;
+    if(hf->fd == fd && hf->write == write)
+      return hf;
   }
 
   return NULL;
@@ -52,20 +47,19 @@ iohandler_find(LWSContext* lc, int fd, BOOL write) {
 
 static HandlerFunction*
 iohandler_add(LWSContext* lc, int fd, BOOL write) {
-  JSContext* ctx = lc->js;
-  HandlerFunction* h;
+  HandlerFunction* hf;
 
-  if((h = iohandler_find(lc, fd, write)))
-    return h;
+  if((hf = iohandler_find(lc, fd, write)))
+    return hf;
 
-  if((h = js_malloc(ctx, sizeof(HandlerFunction)))) {
-    h->fd = fd;
-    h->write = write;
+  if((hf = js_malloc(lc->js, sizeof(HandlerFunction)))) {
+    hf->fd = fd;
+    hf->write = write;
 
-    lwsl_user("%s %d %s", __func__, fd, write ? "write" : "read");
+    DEBUG("%s %d %s", __func__, fd, write ? "write" : "read");
 
-    list_add(&h->link, &lc->handlers);
-    return h;
+    list_add(&hf->link, &lc->handlers);
+    return hf;
   }
 
   return 0;
@@ -73,12 +67,11 @@ iohandler_add(LWSContext* lc, int fd, BOOL write) {
 
 static BOOL
 iohandler_remove(LWSContext* lc, int fd, BOOL write) {
-  JSContext* ctx = lc->js;
-  HandlerFunction* h;
+  HandlerFunction* hf;
 
-  if((h = iohandler_find(lc, fd, write))) {
-    list_del(&h->link);
-    js_free(ctx, h);
+  if((hf = iohandler_find(lc, fd, write))) {
+    list_del(&hf->link);
+    js_free(lc->js, hf);
     return TRUE;
   }
 
@@ -87,24 +80,23 @@ iohandler_remove(LWSContext* lc, int fd, BOOL write) {
 
 static void
 iohandler_set(LWSContext* lc, int fd, JSValueConst handler, BOOL write) {
-  JSContext* ctx = lc->js;
-  JSValue fn = iohandler_function(ctx, write);
+  JSValue fn = iohandler_function(lc->js, write);
   JSValue args[2] = {
-      JS_NewInt32(ctx, fd),
+      JS_NewInt32(lc->js, fd),
       handler,
   };
-  BOOL add = JS_IsFunction(ctx, handler);
+  BOOL add = JS_IsFunction(lc->js, handler);
 
-  lwsl_notice("%s %d %s", write ? "os.setWriteHandler" : "os.setReadHandler", fd, add ? "[function]" : "NULL");
+  // DEBUG("%s %d %s", write ? "os.setWriteHandler" : "os.setReadHandler", fd, add ? "[function]" : "NULL");
 
   if(add)
     iohandler_add(lc, fd, write);
   else
     iohandler_remove(lc, fd, write);
 
-  JSValue ret = JS_Call(ctx, fn, JS_NULL, 2, args);
-  JS_FreeValue(ctx, ret);
-  JS_FreeValue(ctx, fn);
+  JSValue ret = JS_Call(lc->js, fn, JS_NULL, 2, args);
+  JS_FreeValue(lc->js, ret);
+  JS_FreeValue(lc->js, fn);
 }
 
 static void
@@ -115,17 +107,14 @@ iohandler_clear(LWSContext* lc, int fd) {
 
 static void
 iohandler_cleanup(LWSContext* lc) {
-  struct list_head *el, *el1;
+  struct list_head *el, *next;
 
-  if(lc->handlers.next == NULL)
-    init_list_head(&lc->handlers);
+  list_for_each_safe(el, next, &lc->handlers) {
+    HandlerFunction* hf = list_entry(el, HandlerFunction, link);
 
-  list_for_each_safe(el, el1, &lc->handlers) {
-    HandlerFunction* h = list_entry(el, HandlerFunction, link);
+    DEBUG("delete handler (fd = %d, %s)", hf->fd, hf->write ? "write" : "read");
 
-    lwsl_user("delete handler (fd = %d, %s)", h->fd, h->write ? "write" : "read");
-
-    iohandler_set(lc, h->fd, JS_NULL, h->write);
+    iohandler_set(lc, hf->fd, JS_NULL, hf->write);
   }
 }
 
@@ -154,8 +143,8 @@ static int
 pollfd_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   struct lws_protocols const* pro = lws_get_protocol(wsi);
   LWSProtocol* closure = pro ? pro->user : 0;
-  JSContext* ctx = closure ? closure->ctx : 0;
   LWSContext* lc = wsi ? lwsjs_socket_context(wsi) : 0;
+  JSContext* ctx = closure && closure->ctx ? closure->ctx : lc ? lc->js : 0;
 
   if(!ctx) {
     JSObject* obj = lws_context_user(lws_get_context(wsi));
@@ -217,11 +206,10 @@ wsi_to_js_ctx(struct lws* wsi) {
   JSContext* ctx = closure ? closure->ctx : 0;
 
   if(!ctx) {
-    JSObject* obj = lws_context_user(lws_get_context(wsi));
-    LWSContext* lwsctx;
+    LWSContext* lc;
 
-    if((lwsctx = JS_GetOpaque(JS_MKPTR(JS_TAG_OBJECT, obj), lwsjs_context_class_id)))
-      ctx = lwsctx->js;
+    if((lc = lwsjs_socket_context(wsi)))
+      ctx = lc->js;
   }
 
   return ctx;
@@ -1111,12 +1099,44 @@ context_creation_info_free(JSRuntime* rt, LWSContextCreationInfo* ci) {
     js_free_rt(rt, (char*)ci->listen_accept_protocol);
 }
 
+static LWSContext*
+context_new(JSContext* ctx) {
+  LWSContext* lc;
+
+  if((lc = js_mallocz(ctx, sizeof(LWSContext))))
+    init_list_head(&lc->handlers);
+
+  return lc;
+}
+
+static void
+context_free(JSRuntime* rt, LWSContext* lc) {
+  if(lc->js) {
+    JS_FreeContext(lc->js);
+    lc->js = NULL;
+  }
+
+  if(lc->info.user) {
+    obj_free(rt, lc->info.user);
+    lc->info.user = NULL;
+  }
+
+  if(lc->ctx) {
+    lws_context_destroy(lc->ctx);
+    lc->ctx = NULL;
+  }
+
+  context_creation_info_free(rt, &lc->info);
+
+  js_free_rt(rt, lc);
+}
+
 static JSValue
 lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
   JSValue proto, obj;
   LWSContext* lc;
 
-  if(!(lc = js_mallocz(ctx, sizeof(LWSContext))))
+  if(!(lc = context_new(ctx)))
     return JS_EXCEPTION;
 
   /* using new_target to get the prototype is necessary when the class is extended. */
@@ -1326,20 +1346,8 @@ static void
 lwsjs_context_finalizer(JSRuntime* rt, JSValue val) {
   LWSContext* lc;
 
-  if((lc = lwsjs_context_data(val))) {
-    lws_context_destroy(lc->ctx);
-    lc->ctx = 0;
-
-    JS_FreeContext(lc->js);
-    lc->js = 0;
-
-    if(lc->info.user)
-      obj_free(rt, lc->info.user);
-
-    context_creation_info_free(rt, &lc->info);
-
-    js_free_rt(rt, lc);
-  }
+  if((lc = lwsjs_context_data(val)))
+    context_free(rt, lc);
 }
 
 static const JSClassDef lws_context_class = {

@@ -21,6 +21,12 @@ to_ptr(JSContext* ctx, JSValueConst val) {
   return (void*)i;
 }
 
+#ifdef DEBUG_OUTPUT
+#define DEBUG(x...) lwsl_user(x)
+#else
+#define DEBUG(x...)
+#endif
+
 #define to_integer(ctx, val) to_int64(ctx, val)
 #define to_integerfree(ctx, val) to_int64free(ctx, val)
 #elif __SIZEOF_POINTER__ == 8
