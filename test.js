@@ -83,8 +83,9 @@ const protocols = [
       }
 
       wsi.write(wsi.lines[wsi.index] + '\n', wsi.lines[++wsi.index] ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL);
+      
       if(wsi.lines[wsi.index]) {
-        setTimeout(() => wsi.wantWrite(), 500);
+        setTimeout(() => wsi.wantWrite(), 100);
         return 0;
       }
 
@@ -92,6 +93,8 @@ const protocols = [
     },
     onHttp(wsi, buf, len) {
       console.log('onHttp', C, wsi, buf, len, wsi.write);
+
+globalThis.wsi =wsi;
 
       wsi.wantWrite();
       //wsi.wantWrite(wsi => (wsi.write('Output!\n', LWS_WRITE_HTTP_FINAL), 0));

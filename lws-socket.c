@@ -41,6 +41,15 @@ static const char* const method_names[] = {
 #endif
 };
 
+static BOOL
+is_uri(enum lws_token_indexes ti) {
+  for(int i = 0; i < countof(method_tokens); i++)
+    if(method_tokens[i] == ti)
+      return TRUE;
+
+  return FALSE;
+}
+
 static const char*
 socket_method(LWSSocket* sock) {
   char* uri_ptr;
@@ -60,25 +69,6 @@ socket_method(LWSSocket* sock) {
 
   return 0;
 }
-
-/*static JSValue
-socket_headers(LWSSocket* sock, JSContext* ctx) {
-  int i;
-  JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
-
-  for(i = 0; i < WSI_TOKEN_COUNT; i++) {
-    size_t len = lws_hdr_total_length(sock->wsi, i);
-
-    if(len > 0) {
-      char buf[len + 1];
-
-      if(lws_hdr_copy(sock->wsi, buf, len + 1, i) > 0)
-        JS_SetPropertyStr(ctx, ret, (char*)lws_token_to_string(i), JS_NewStringLen(ctx, buf, len));
-    }
-  }
-
-  return ret;
-}*/
 
 static LWSSocket*
 socket_alloc(JSContext* ctx) {
@@ -283,15 +273,14 @@ lwsjs_socket_destroy(JSContext* ctx, struct lws* wsi) {
 }
 
 typedef struct {
-  JSObject* obj;
+  JSValue obj;
   JSContext* ctx;
   struct lws* wsi;
-} LWSCustomHeaders;
+} CustomHeaders;
 
 static void
 custom_headers_callback(const char* name, int nlen, void* opaque) {
-  LWSCustomHeaders* ch = opaque;
-  JSValue obj = JS_MKPTR(JS_TAG_OBJECT, ch->obj);
+  CustomHeaders* ch = opaque;
   int namelen = nlen;
   int len = lws_hdr_custom_length(ch->wsi, name, nlen);
 
@@ -303,7 +292,7 @@ custom_headers_callback(const char* name, int nlen, void* opaque) {
 
   int r = lws_hdr_custom_copy(ch->wsi, buf, len + 1, name, nlen);
 
-  JS_SetProperty(ch->ctx, obj, prop, JS_NewStringLen(ch->ctx, buf, r));
+  JS_SetProperty(ch->ctx, ch->obj, prop, JS_NewStringLen(ch->ctx, buf, r));
   JS_FreeAtom(ch->ctx, prop);
 }
 
@@ -312,21 +301,23 @@ lwsjs_socket_headers(JSContext* ctx, struct lws* wsi) {
   JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
 
   for(int i = WSI_TOKEN_GET_URI; i < WSI_TOKEN_COUNT; ++i) {
-    size_t len = lws_hdr_total_length(wsi, i);
+    if(!is_uri(i)) {
+      size_t len = lws_hdr_total_length(wsi, i);
 
-    if(len > 0) {
-      const char* name = (const char*)lws_token_to_string(i);
-      size_t namelen = find_charset(name, ": ", 2);
-      JSAtom prop = JS_NewAtomLen(ctx, name, namelen);
-      char buf[len + 1];
-      int r = lws_hdr_copy(wsi, buf, len + 1, i);
+      if(len > 0) {
+        const char* name = (const char*)lws_token_to_string(i);
+        size_t namelen = find_charset(name, ": ", 2);
+        JSAtom prop = JS_NewAtomLen(ctx, name, namelen);
+        char buf[len + 1];
+        int r = lws_hdr_copy(wsi, buf, len + 1, i);
 
-      JS_SetProperty(ctx, ret, prop, JS_NewStringLen(ctx, buf, r));
-      JS_FreeAtom(ctx, prop);
+        JS_SetProperty(ctx, ret, prop, JS_NewStringLen(ctx, buf, r));
+        JS_FreeAtom(ctx, prop);
+      }
     }
   }
 
-  LWSCustomHeaders c = {JS_VALUE_GET_OBJ(ret), ctx, wsi};
+  CustomHeaders c = {ret, ctx, wsi};
 
   lws_hdr_custom_name_foreach(wsi, custom_headers_callback, &c);
 

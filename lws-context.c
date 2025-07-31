@@ -314,7 +314,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
     JS_FreeValue(ctx, sock);
 
-  } else if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
+  } else if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
