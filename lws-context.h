@@ -51,10 +51,12 @@ lws_context_data(JSValueConst value) {
 static inline LWSContext*
 lwsjs_socket_context(struct lws* wsi) {
   struct lws_context* lws;
-  if((lws = lws_get_context(wsi))) {
-    JSObject* obj = lws_context_user(lws);
 
-    return lwsjs_context_data(JS_MKPTR(JS_TAG_OBJECT, obj));
+  if((lws = lws_get_context(wsi))) {
+    JSObject* obj;
+
+    if((obj = lws_context_user(lws)))
+      return lwsjs_context_data(JS_MKPTR(JS_TAG_OBJECT, obj));
   }
 
   return 0;
