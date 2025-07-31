@@ -3,6 +3,7 @@ import { toString, toArrayBuffer, LWSContext, LWSSocket, LWS_PRE, LWSSPA, getCal
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
 let ctx = (globalThis.ctx = new LWSContext({
+  async_dns_servers: ['8.8.8.8'],
   ssl_ca_filepath: '/etc/ssl/certs/ca-certificates.crt',
   ssl_cert_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
   ssl_private_key_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
@@ -78,7 +79,6 @@ let ctx = (globalThis.ctx = new LWSContext({
 //ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
 ctx.clientConnect({
   ssl: true,
-  asyncDnsServers: '8.8.8.8',
   //address: 'blog.fefe.de',
   host: 'blog.fefe.de',
   path: '/',
