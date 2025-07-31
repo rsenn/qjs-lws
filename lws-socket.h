@@ -15,11 +15,11 @@ typedef enum {
 typedef struct {
   struct list_head link;
   int ref_count;
-  struct lws* wsi;
+ struct lws* wsi;
   uint32_t id;
   LWSSocketType type;
   JSObject* obj;
-  BOOL want_write, completed;
+  BOOL client:1, want_write:1, completed:1;
   JSValue headers, write_handler;
 } LWSSocket;
 
@@ -33,4 +33,13 @@ JSValue lwsjs_socket_headers(JSContext*, struct lws*);
 int lwsjs_socket_init(JSContext*, JSModuleDef*);
 JSValue lwsjs_socket_get_by_fd(JSContext*, lws_sockfd_type);
 
+static inline LWSSocket*
+lwsjs_socket_data(JSValueConst value) {
+  return JS_GetOpaque(value, lwsjs_socket_class_id);
+}
+
+static inline LWSSocket*
+lwsjs_socket_data2(JSContext*ctx, JSValueConst value) {
+  return JS_GetOpaque2(ctx, value, lwsjs_socket_class_id);
+}
 #endif

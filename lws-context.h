@@ -22,4 +22,14 @@ extern JSClassID lwsjs_context_class_id;
 
 int lwsjs_context_init(JSContext*, JSModuleDef*);
 
+static inline LWSContext*
+lwsjs_context_data(JSValueConst value) {
+  return JS_GetOpaque(value, lwsjs_context_class_id);
+}
+
+static inline LWSContext*
+lwsjs_context_data2(JSContext* ctx, JSValueConst value) {
+  return JS_GetOpaque2(ctx, value, lwsjs_context_class_id);
+}
+
 #endif

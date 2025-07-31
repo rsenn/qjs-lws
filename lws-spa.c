@@ -32,6 +32,16 @@ static const char* const lws_spa_callback_names[] = {
     "onClose",
 };
 
+static inline LWSSPA*
+lwsjs_spa_data(JSValueConst value) {
+  return JS_GetOpaque(value, lwsjs_spa_class_id);
+}
+
+static inline LWSSPA*
+lwsjs_spa_data2(JSContext* ctx, JSValueConst value) {
+  return JS_GetOpaque2(ctx, value, lwsjs_spa_class_id);
+}
+
 static int
 lwsjs_spa_callback(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
   SPACallbacks* cb = data;
@@ -77,7 +87,7 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
   LWSSPA* s;
   LWSSocket* sock;
 
-  if(!(sock = JS_GetOpaque(argv[0], lwsjs_socket_class_id)))
+  if(!(sock = lwsjs_socket_data(argv[0])))
     return JS_ThrowTypeError(ctx, "argument 1 must be an LWSSocket");
 
   if(!(s = js_mallocz(ctx, sizeof(LWSSPA))))
@@ -141,7 +151,7 @@ lwsjs_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
   LWSSPA* s;
   JSValue ret = JS_UNDEFINED;
 
-  if(!(s = JS_GetOpaque2(ctx, this_val, lwsjs_spa_class_id)))
+  if(!(s = lwsjs_spa_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   switch(magic) {
@@ -173,7 +183,7 @@ lwsjs_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSVal
   if(prop > 0x7fffffff) {
     LWSSPA* s;
 
-    if(!(s = JS_GetOpaque2(ctx, this_val, lwsjs_spa_class_id)))
+    if(!(s = lwsjs_spa_data2(ctx, this_val)))
       return JS_EXCEPTION;
 
     int len = lws_spa_get_length(s->spa, prop & 0x7fffffff);
@@ -199,7 +209,7 @@ static void
 lwsjs_spa_finalizer(JSRuntime* rt, JSValue val) {
   LWSSPA* s;
 
-  if((s = JS_GetOpaque(val, lwsjs_spa_class_id))) {
+  if((s = lwsjs_spa_data(val))) {
 
     for(size_t i = 0; i < countof(s->callbacks.array); i++)
       JS_FreeValueRT(rt, s->callbacks.array[i]);

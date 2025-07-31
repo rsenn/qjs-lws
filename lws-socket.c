@@ -29,6 +29,18 @@ static const char* const method_names[] = {
     "PUT",
 };
 
+static const char*
+socket_method(struct lws* wsi) {
+  for(size_t i = 0; i < countof(method_tokens); i++) {
+    enum lws_token_indexes tok = method_tokens[i];
+
+    if(lws_hdr_total_length(wsi, tok))
+      return method_names[i];
+  }
+
+  return 0;
+}
+
 static LWSSocket*
 socket_alloc(JSContext* ctx) {
   LWSSocket* sock;
@@ -294,7 +306,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
   LWSSocket* s;
   JSValue ret = JS_UNDEFINED;
 
-  if(!(s = JS_GetOpaque2(ctx, this_val, lwsjs_socket_class_id)))
+  if(!(s = js_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   switch(magic) {
@@ -518,7 +530,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
   LWSSocket* s;
   JSValue ret = JS_UNDEFINED;
 
-  if(!(s = JS_GetOpaque2(ctx, this_val, lwsjs_socket_class_id)))
+  if(!(s = js_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   switch(magic) {
@@ -618,14 +630,10 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_METHOD: {
-      for(size_t i = 0; i < countof(method_tokens); i++) {
-        enum lws_token_indexes tok = method_tokens[i];
+      const char* method;
 
-        if(lws_hdr_total_length(s->wsi, tok)) {
-          ret = JS_NewString(ctx, method_names[i]);
-          break;
-        }
-      }
+      if((method = socket_method(s->wsi)))
+        ret = JS_NewString(ctx, method);
 
       break;
     }
@@ -638,7 +646,7 @@ static void
 lwsjs_socket_finalizer(JSRuntime* rt, JSValue val) {
   LWSSocket* s;
 
-  if((s = JS_GetOpaque(val, lwsjs_socket_class_id))) {
+  if((s = js_socket_data(val))) {
 
     socket_free(s, rt);
   }
