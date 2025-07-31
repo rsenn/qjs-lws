@@ -91,6 +91,7 @@ const protocols = [
 
       if(!obj.responded) {
         obj.lines = (JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n').split('\n');
+
         wsi.respond(200, LWS_ILLEGAL_HTTP_CONTENT_LEN ?? obj.lines.length, { 'content-type': 'text/html' /*, connection: 'close'*/ });
 
         obj.index = 0;
@@ -115,7 +116,6 @@ const protocols = [
       globalThis.wsi = wsi;
 
       wsi.wantWrite();
-      //wsi.wantWrite(wsi => (wsi.write('Output!\n', LWS_WRITE_HTTP_FINAL), 0));
     },
     callback(wsi, reason, ...args) {
       verbose('http ' + getCallbackName(reason), C, wsi, args);
@@ -128,9 +128,7 @@ globalThis.ctx = new LWSContext({
   port: 8886,
   vhostName: 'localhost.transistorisiert.ch',
   options:
-    /*LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG |
-    LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS |*/
-    LWS_SERVER_OPTION_IGNORE_MISSING_CERT |
+     LWS_SERVER_OPTION_IGNORE_MISSING_CERT |
     LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED |
     LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER |
     LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT |
@@ -142,10 +140,7 @@ globalThis.ctx = new LWSContext({
   sslCaFilepath: 'ca.crt',
   sslCertFilepath: 'localhost.crt',
   sslPrivateKeyFilepath: 'localhost.key',
-  /*clientSslCaFilepath: 'ca.crt',
-  clientSslCertFilepath: 'localhost.crt',
-  clientSslPrivateKeyFilepath: 'localhost.key',*/
-  mounts: [
+    mounts: [
     { mountpoint: '/ws', protocol: 'ws', originProtocol: LWSMPRO_NO_MOUNT },
     { mountpoint: '/test', protocol: 'http', originProtocol: LWSMPRO_CALLBACK },
     //{ mountpoint: '/', origin: '127.0.0.1:8000/warmcat/', def: 'index.html', originProtocol: LWSMPRO_HTTP },
