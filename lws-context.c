@@ -21,7 +21,7 @@ static LWSProtocolVHostOptions* vhost_options_fromarrayfree(JSContext*, JSValue)
 
 static void vhost_options_free(JSRuntime*, LWSProtocolVHostOptions*);
 
-static struct list_head handlers;
+// static struct list_head handlers;
 
 static JSValue
 iohandler_function(JSContext* ctx, BOOL write) {
@@ -34,13 +34,13 @@ iohandler_function(JSContext* ctx, BOOL write) {
 }
 
 static HandlerFunction*
-iohandler_find(int fd, BOOL write) {
+iohandler_find(LWSContext* lc, int fd, BOOL write) {
   struct list_head* el;
 
-  if(handlers.next == NULL)
-    init_list_head(&handlers);
+  if(lc->handlers.next == NULL)
+    init_list_head(&lc->handlers);
 
-  list_for_each(el, &handlers) {
+  list_for_each(el, &lc->handlers) {
     HandlerFunction* h = list_entry(el, HandlerFunction, link);
 
     if(h->fd == fd && h->write == write)
@@ -51,17 +51,20 @@ iohandler_find(int fd, BOOL write) {
 }
 
 static HandlerFunction*
-iohandler_add(JSContext* ctx, int fd, BOOL write) {
+iohandler_add(LWSContext* lc, int fd, BOOL write) {
+  JSContext* ctx = lc->js;
   HandlerFunction* h;
 
-  if((h = iohandler_find(fd, write)))
+  if((h = iohandler_find(lc, fd, write)))
     return h;
 
   if((h = js_malloc(ctx, sizeof(HandlerFunction)))) {
     h->fd = fd;
     h->write = write;
 
-    list_add(&h->link, &handlers);
+    lwsl_user("%s %d %s", __func__, fd, write ? "write" : "read");
+
+    list_add(&h->link, &lc->handlers);
     return h;
   }
 
@@ -69,10 +72,11 @@ iohandler_add(JSContext* ctx, int fd, BOOL write) {
 }
 
 static BOOL
-iohandler_remove(JSContext* ctx, int fd, BOOL write) {
+iohandler_remove(LWSContext* lc, int fd, BOOL write) {
+  JSContext* ctx = lc->js;
   HandlerFunction* h;
 
-  if((h = iohandler_find(fd, write))) {
+  if((h = iohandler_find(lc, fd, write))) {
     list_del(&h->link);
     js_free(ctx, h);
     return TRUE;
@@ -82,7 +86,8 @@ iohandler_remove(JSContext* ctx, int fd, BOOL write) {
 }
 
 static void
-iohandler_set(JSContext* ctx, int fd, JSValueConst handler, BOOL write) {
+iohandler_set(LWSContext* lc, int fd, JSValueConst handler, BOOL write) {
+  JSContext* ctx = lc->js;
   JSValue fn = iohandler_function(ctx, write);
   JSValue args[2] = {
       JS_NewInt32(ctx, fd),
@@ -93,9 +98,9 @@ iohandler_set(JSContext* ctx, int fd, JSValueConst handler, BOOL write) {
   lwsl_notice("%s %d %s", write ? "os.setWriteHandler" : "os.setReadHandler", fd, add ? "[function]" : "NULL");
 
   if(add)
-    iohandler_add(ctx, fd, write);
+    iohandler_add(lc, fd, write);
   else
-    iohandler_remove(ctx, fd, write);
+    iohandler_remove(lc, fd, write);
 
   JSValue ret = JS_Call(ctx, fn, JS_NULL, 2, args);
   JS_FreeValue(ctx, ret);
@@ -103,24 +108,24 @@ iohandler_set(JSContext* ctx, int fd, JSValueConst handler, BOOL write) {
 }
 
 static void
-iohandler_clear(JSContext* ctx, int fd) {
-  iohandler_set(ctx, fd, JS_NULL, FALSE);
-  iohandler_set(ctx, fd, JS_NULL, TRUE);
+iohandler_clear(LWSContext* lc, int fd) {
+  iohandler_set(lc, fd, JS_NULL, FALSE);
+  iohandler_set(lc, fd, JS_NULL, TRUE);
 }
 
 static void
-iohandler_cleanup(JSContext* ctx) {
+iohandler_cleanup(LWSContext* lc) {
   struct list_head *el, *el1;
 
-  if(handlers.next == NULL)
-    init_list_head(&handlers);
+  if(lc->handlers.next == NULL)
+    init_list_head(&lc->handlers);
 
-  list_for_each_safe(el, el1, &handlers) {
+  list_for_each_safe(el, el1, &lc->handlers) {
     HandlerFunction* h = list_entry(el, HandlerFunction, link);
 
     lwsl_user("delete handler (fd = %d, %s)", h->fd, h->write ? "write" : "read");
 
-    iohandler_set(ctx, h->fd, JS_NULL, h->write);
+    iohandler_set(lc, h->fd, JS_NULL, h->write);
   }
 }
 
@@ -150,6 +155,7 @@ pollfd_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
   struct lws_protocols const* pro = lws_get_protocol(wsi);
   LWSProtocol* closure = pro ? pro->user : 0;
   JSContext* ctx = closure ? closure->ctx : 0;
+  LWSContext* lc = wsi ? lwsjs_socket_context(wsi) : 0;
 
   if(!ctx) {
     JSObject* obj = lws_context_user(lws_get_context(wsi));
@@ -168,8 +174,8 @@ pollfd_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
     case LWS_CALLBACK_DEL_POLL_FD: {
       struct lws_pollargs* x = in;
 
-      iohandler_set(ctx, x->fd, JS_NULL, 0);
-      iohandler_set(ctx, x->fd, JS_NULL, 1);
+      iohandler_set(lc, x->fd, JS_NULL, 0);
+      iohandler_set(lc, x->fd, JS_NULL, 1);
       return 0;
     }
 
@@ -190,9 +196,9 @@ pollfd_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
       JSValue fn = JS_NewCFunctionData(ctx, protocol_handler, 0, 0, countof(data), data);
 
       if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
-        iohandler_set(ctx, x->fd, JS_NULL, !write);
+        iohandler_set(lc, x->fd, JS_NULL, !write);
 
-      iohandler_set(ctx, x->fd, fn, write);
+      iohandler_set(lc, x->fd, fn, write);
 
       JS_FreeValue(ctx, fn);
       return 0;
@@ -251,6 +257,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   LWSProtocol* closure = pro ? pro->user : 0;
   JSContext* ctx = wsi_to_js_ctx(wsi);
   JSValue* cb = closure ? &closure->callback : 0;
+  LWSContext* lc = wsi ? lwsjs_socket_context(wsi) : 0;
 
   if(closure && !is_null_or_undefined(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];
@@ -264,8 +271,8 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       case LWS_CALLBACK_DEL_POLL_FD: {
         struct lws_pollargs* x = in;
 
-        iohandler_set(ctx, x->fd, JS_NULL, 0);
-        iohandler_set(ctx, x->fd, JS_NULL, 1);
+        iohandler_set(lc, x->fd, JS_NULL, 0);
+        iohandler_set(lc, x->fd, JS_NULL, 1);
         return 0;
       }
 
@@ -282,9 +289,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         JSValue fn = JS_NewCFunctionData(ctx, protocol_handler, 0, 0, countof(data), data);
 
         if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
-          iohandler_set(ctx, x->fd, JS_NULL, !write);
+          iohandler_set(lc, x->fd, JS_NULL, !write);
 
-        iohandler_set(ctx, x->fd, fn, write);
+        iohandler_set(lc, x->fd, fn, write);
 
         JS_FreeValue(ctx, fn);
         return 0;
@@ -431,7 +438,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     int fd = lws_get_socket_fd(wsi);
 
     if(fd != -1)
-      iohandler_clear(ctx, fd);
+      iohandler_clear(lc, fd);
 
     lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
     // lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
@@ -1217,7 +1224,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
     case CANCEL_SERVICE: {
       lws_cancel_service(lc->ctx);
 
-      iohandler_cleanup(ctx);
+      iohandler_cleanup(lc);
       break;
     }
 
