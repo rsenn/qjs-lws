@@ -309,8 +309,13 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         s->want_write = FALSE;
 
         if(!JS_IsUndefined(s->write_handler)) {
-          JSValue ret = JS_Call(ctx, s->write_handler, JS_UNDEFINED, 1, &sock);
-          JS_FreeValue(ctx, ret);
+          JSValue fn = s->write_handler;
+          s->write_handler = JS_UNDEFINED;
+          JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 1, &sock);
+          int32_t ret = to_int32(ctx, result);
+          JS_FreeValue(ctx, result);
+          JS_FreeValue(ctx, fn);
+          return ret;
         }
       }
 

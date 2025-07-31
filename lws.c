@@ -9,6 +9,7 @@ static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR | LLL_WARN /*| LLL_INFO | LL
 enum {
   FUNCTION_GET_CALLBACK_NAME = 0,
   FUNCTION_GET_CALLBACK_NUMBER,
+  FUNCTION_GET_TOKEN_NAME,
   FUNCTION_LOG,
   FUNCTION_PARSE_URI,
   FUNCTION_VISIBLE,
@@ -130,6 +131,23 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       break;
     }
 
+    case FUNCTION_GET_TOKEN_NAME: {
+      enum lws_token_indexes ti = to_int32(ctx, argv[0]);
+
+      if(ti >= WSI_TOKEN_GET_URI && ti < WSI_TOKEN_COUNT) {
+        const char* str = (const char*)lws_token_to_string(ti);
+        size_t i;
+
+        for(i = 0; str[i]; i++)
+          if(str[i] == ' ' || str[i] == ':')
+            break;
+
+        ret = JS_NewStringLen(ctx, str, i);
+      }
+
+      break;
+    }
+
     case FUNCTION_LOG: {
       const char* msg = NULL;
       int32_t level = -1;
@@ -229,7 +247,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
           ret = JS_DupValue(ctx, argv[0]);
         else
           ret = JS_NewArrayBufferCopy(ctx, ptr + ofs, len);
-      } else if((s = JS_ToCStringLen(ctx, &len, argv[0]))) {
+      } else if((s = JS_ToCStringLen(ctx, &maxlen, argv[0]))) {
         ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
 
         ret = JS_NewArrayBufferCopy(ctx, (const uint8_t*)s + ofs, len);
@@ -259,6 +277,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getCallbackName", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NAME),
     JS_CFUNC_MAGIC_DEF("getCallbackNumber", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NUMBER),
+    JS_CFUNC_MAGIC_DEF("getTokenName", 1, lwsjs_functions, FUNCTION_GET_TOKEN_NAME),
     JS_CFUNC_MAGIC_DEF("log", 2, lwsjs_functions, FUNCTION_LOG),
     JS_CFUNC_MAGIC_DEF("loglevel", 0, lwsjs_functions, FUNCTION_LOGLEVEL),
     JS_CFUNC_MAGIC_DEF("parseUri", 1, lwsjs_functions, FUNCTION_PARSE_URI),
@@ -667,6 +686,19 @@ lwsjs_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
   JSAtom atom = JS_NewAtom(ctx, name);
   BOOL ret = JS_HasProperty(ctx, obj, atom);
   JS_FreeAtom(ctx, atom);
+
+  /*if(!ret) {
+    char buf[strlen(name) + 1];
+
+    camelize(buf, sizeof(buf), name);
+
+    if(strcmp(name, buf)) {
+      atom = JS_NewAtom(ctx, buf);
+      ret = JS_HasProperty(ctx, obj, atom);
+      JS_FreeAtom(ctx, atom);
+    }
+  }*/
+
   return ret;
 }
 
@@ -676,6 +708,9 @@ lwsjs_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
     char buf[strlen(name) + 1];
 
     camelize(buf, sizeof(buf), name);
+
+    /*if(!lwsjs_has_property(ctx, obj, buf))
+      return JS_EXCEPTION;*/
 
     return JS_GetPropertyStr(ctx, obj, buf);
   }

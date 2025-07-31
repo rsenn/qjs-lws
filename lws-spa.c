@@ -8,21 +8,18 @@ JSClassID lwsjs_spa_class_id;
 static JSValue lwsjs_spa_proto, lwsjs_spa_ctor;
 
 typedef struct {
+  struct {
+    JSValue content, finalcontent, open, close;
+  } on;
   JSContext* ctx;
   JSValue this_obj;
-  union {
-    struct {
-      JSValue oncontent, onfinalcontent, onopen, onclose;
-    };
-    JSValue array[4];
-  };
-  JSValue name, filename;
 } SPACallbacks;
 
 typedef struct {
   struct lws_spa* spa;
-  struct lws_spa_create_info info;
   SPACallbacks callbacks;
+  JSValue name, filename;
+  struct lws_spa_create_info info;
 } LWSSPA;
 
 static const char* const lws_spa_callback_names[] = {
@@ -33,48 +30,43 @@ static const char* const lws_spa_callback_names[] = {
 };
 
 static inline LWSSPA*
-lwsjs_spa_data(JSValueConst value) {
-  return JS_GetOpaque(value, lwsjs_spa_class_id);
-}
-
-static inline LWSSPA*
 lwsjs_spa_data2(JSContext* ctx, JSValueConst value) {
   return JS_GetOpaque2(ctx, value, lwsjs_spa_class_id);
 }
 
 static int
 lwsjs_spa_callback(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
-  SPACallbacks* cb = data;
+  LWSSPA* s = data;
+  SPACallbacks* cb = &s->callbacks;
 
   if(state == LWS_UFS_OPEN) {
-    JS_FreeValue(cb->ctx, cb->name);
-    cb->name = JS_NewString(cb->ctx, name);
+    JS_FreeValue(cb->ctx, s->name);
+    s->name = JS_NewString(cb->ctx, name);
 
-    JS_FreeValue(cb->ctx, cb->filename);
-    cb->filename = JS_NewString(cb->ctx, filename);
+    JS_FreeValue(cb->ctx, s->filename);
+    s->filename = JS_NewString(cb->ctx, filename);
   }
 
   JSValue args[] = {
-      cb->name,
-      cb->filename,
+      s->name,
+      s->filename,
       (buf && len) ? JS_NewArrayBufferCopy(cb->ctx, (const uint8_t*)buf, len) : JS_NULL,
   };
 
-  JSValue fn = cb->array[state - LWS_UFS_CONTENT];
-  JSValue result = JS_Call(cb->ctx, fn, cb->this_obj, (buf && len) ? 3 : 2, args);
+  JSValue* fn = &((JSValue*)cb)[state - LWS_UFS_CONTENT];
+  JSValue result = JS_Call(cb->ctx, *fn, cb->this_obj, (buf && len) ? 3 : 2, args);
 
   int32_t ret = JS_IsException(result) ? -1 : to_int32(cb->ctx, result);
 
   JS_FreeValue(cb->ctx, result);
   JS_FreeValue(cb->ctx, args[2]);
-  JS_FreeValue(cb->ctx, fn);
 
   if(state == LWS_UFS_CLOSE) {
-    JS_FreeValue(cb->ctx, cb->name);
-    cb->name = JS_NULL;
+    JS_FreeValue(cb->ctx, s->name);
+    s->name = JS_NULL;
 
-    JS_FreeValue(cb->ctx, cb->filename);
-    cb->filename = JS_NULL;
+    JS_FreeValue(cb->ctx, s->filename);
+    s->filename = JS_NULL;
   }
 
   return ret;
@@ -101,30 +93,37 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
   if(JS_IsException(obj))
     goto fail;
 
+  JSValue this_val = argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_UNDEFINED;
+
   s->callbacks = (SPACallbacks){
+      .on =
+          {
+              .content = JS_NULL,
+              .finalcontent = JS_NULL,
+              .open = JS_NULL,
+              .close = JS_NULL,
+          },
       .ctx = ctx,
-      .this_obj = (argc > 1 && JS_IsObject(argv[1])) ? JS_DupValue(ctx, argv[1]) : JS_UNDEFINED,
-      .oncontent = JS_NULL,
-      .onfinalcontent = JS_NULL,
-      .onopen = JS_NULL,
-      .onclose = JS_NULL,
-      .name = JS_NULL,
-      .filename = JS_NULL,
+      .this_obj = this_val,
   };
 
-  if(argc > 1 && JS_IsObject(argv[1]))
+  if(!JS_IsUndefined(this_val))
     for(size_t i = 0; i < countof(lws_spa_callback_names); ++i)
-      s->callbacks.array[i] = JS_GetPropertyStr(ctx, argv[1], lws_spa_callback_names[i]);
+      ((JSValue*)&s->callbacks)[i] = JS_GetPropertyStr(ctx, this_val, lws_spa_callback_names[i]);
 
-  if(is_null_or_undefined(s->callbacks.onfinalcontent) && !is_null_or_undefined(s->callbacks.oncontent))
-    s->callbacks.onfinalcontent = JS_DupValue(ctx, s->callbacks.oncontent);
+  if(!JS_IsFunction(ctx, s->callbacks.on.finalcontent) && JS_IsFunction(ctx, s->callbacks.on.content))
+    s->callbacks.on.finalcontent = JS_DupValue(ctx, s->callbacks.on.content);
+
+  uint32_t count_params = to_uint32free_default(ctx, lwsjs_get_property(ctx, this_val, "count_params"), 1024);
+  uint32_t storage = to_uint32free_default(ctx, lwsjs_get_property(ctx, this_val, "max_storage"), 512);
 
   s->info = (struct lws_spa_create_info){
-      .param_names = js_mallocz(ctx, sizeof(char*) * 1024),
-      .count_params = 0,
-      .max_storage = 1024,
+      .param_names = count_params ? js_mallocz(ctx, sizeof(char*) * (count_params + 1)) : 0,
+      .count_params = count_params,
+      .max_storage = storage + 1,
       .opt_cb = &lwsjs_spa_callback,
-      .opt_data = &s->callbacks,
+      .opt_data = s,
+      .ac_chunk_size = to_uint32free(ctx, lwsjs_get_property(ctx, this_val, "ac_chunk_size")),
   };
 
   s->spa = lws_spa_create_via_info(sock->wsi, &s->info);
@@ -204,10 +203,10 @@ static void
 lwsjs_spa_finalizer(JSRuntime* rt, JSValue val) {
   LWSSPA* s;
 
-  if((s = lwsjs_spa_data(val))) {
+  if((s = JS_GetOpaque(val, lwsjs_spa_class_id))) {
 
-    for(size_t i = 0; i < countof(s->callbacks.array); i++)
-      JS_FreeValueRT(rt, s->callbacks.array[i]);
+    for(size_t i = 0; i < (sizeof(s->callbacks.on) / sizeof(JSValue)); i++)
+      JS_FreeValueRT(rt, ((JSValue*)&s->callbacks)[i]);
 
     JS_FreeValueRT(rt, s->callbacks.this_obj);
 

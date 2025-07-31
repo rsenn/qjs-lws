@@ -23,8 +23,10 @@ to_ptr(JSContext* ctx, JSValueConst val) {
 
 #ifdef DEBUG_OUTPUT
 #define DEBUG(x...) lwsl_user(x)
+#define DEBUG_WSI(wsi, x...) lwsl_wsi_user(wsi, x)
 #else
 #define DEBUG(x...)
+#define DEBUG_WSI(wsi, x...)
 #endif
 
 #define VISIBLE __attribute__((visibility("default")))
@@ -86,6 +88,14 @@ to_uint32free(JSContext* ctx, JSValueConst val) {
   uint32_t i = to_uint32(ctx, val);
   JS_FreeValue(ctx, val);
   return i;
+}
+
+static inline uint32_t
+to_uint32free_default(JSContext* ctx, JSValueConst val, uint32_t def) {
+  if(JS_IsNumber(val))
+    return to_uint32free(ctx, val);
+  JS_FreeValue(ctx, val);
+  return def;
 }
 
 static inline int64_t
@@ -176,15 +186,16 @@ get_offset_length(JSContext* ctx, int argc, JSValueConst argv[], size_t maxlen, 
 
 static inline void*
 get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
-  size_t len;
+  size_t maxlen;
   uint8_t* ptr;
 
-  if((ptr = JS_GetArrayBuffer(ctx, &len, argv[0]))) {
-    size_t ofs = 0;
+  if((ptr = JS_GetArrayBuffer(ctx, &maxlen, argv[0]))) {
+    size_t ofs = 0, len = maxlen;
 
     if(argc > 1)
-      ofs = get_offset_length(ctx, argc - 1, argv + 1, len, lenp);
+      ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
 
+    *lenp = len;
     ptr += ofs;
   }
 

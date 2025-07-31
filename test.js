@@ -1,14 +1,55 @@
 //import * as lws from 'lws';
-import { LWSSPA, getCallbackName, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, log, } from 'lws';
+import { LWSSPA, getCallbackName, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, log, toArrayBuffer, } from 'lws';
 import { setTimeout } from 'os';
 
 function verbose(name, ...args) {
   console.log(name.padEnd(32), ...args);
 }
 
+function debug(name, ...args) {
+  if(process.env.DEBUG) console.log(name.padEnd(32), ...args);
+}
+
+function weakMapper(createFn, map = new WeakMap(), hitFn) {
+  let self = function(obj, ...args) {
+    let ret;
+
+    if(map.has(obj)) {
+      ret = map.get(obj);
+      if(typeof hitFn == 'function') hitFn(obj, ret);
+    } else {
+      ret = createFn(obj, ...args);
+      map.set(obj, ret);
+    }
+
+    return ret;
+  };
+
+  self.set = (k, v) => map.set(k, v);
+  self.get = k => map.get(k);
+  self.map = map;
+
+  return self;
+}
+
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
-const spa = (globalThis.spa = new WeakMap());
+const spa = (globalThis.spa = weakMapper(
+  () =>
+    new LWSSPA(wsi, {
+    maxStorage: 32 * 1024,
+      onOpen(name, filename) {
+        verbose('spa.onOpen', C, { name, filename });
+      },
+      onContent(name, filename, buf) {
+        verbose('spa.onContent', C, { name, filename, buf });
+      },
+      onClose(name, filename) {
+        verbose('spa.onClose', C, { name, filename });
+      },
+    }),
+  new WeakMap(),
+));
 
 const wsi2obj = (globalThis.wsi2obj = (() => {
   const m = new WeakMap();
@@ -41,7 +82,7 @@ const protocols = [
       verbose('onFilterHttpConnection', C, wsi, url, headers);
 
       if(/multipart/.test(headers['content-type'])) {
-        spa.set(
+        spa(
           wsi,
           new LWSSPA(wsi, {
             onContent(name, filename, buf) {
@@ -72,18 +113,28 @@ const protocols = [
   {
     name: 'http',
     onHttpBody(wsi, buf, len) {
-      const s = spa.get(wsi);
+      const s = spa(wsi);
 
-      verbose('onHttpBody', C, s, buf);
+      debug('onHttpBody', C, s, buf);
 
-      s.process(buf, len);
+      s.process(buf);
     },
     onHttpBodyCompletion(wsi) {
-      const s = spa.get(wsi);
+      verbose('onHttpBodyCompletion', C, wsi);
+      const s = spa(wsi);
 
       s.finalize();
 
-      wsi.wantWrite();
+      wsi.wantWrite(() => {
+        verbose('respond.onHttpBodyCompletion', C, wsi);
+
+        const b = toArrayBuffer('POST completed!\r\n');
+
+        wsi.respond(200, { 'content-type': 'text/html', test: 'blah' }, b.byteLength);
+        wsi.write(b, LWS_WRITE_HTTP_FINAL);
+
+        return -1;
+      });
     },
     onHttpWriteable(wsi) {
       verbose('onHttpWriteable', C, wsi);
@@ -110,12 +161,13 @@ const protocols = [
 
       return -1;
     },
-    onHttp(wsi, buf, len) {
-      verbose('onHttp', C, wsi, buf, len, wsi.write);
+    onHttp(wsi, buf) {
+      const { protocol, method, uri, headers } = wsi;
+      verbose('onHttp', C, wsi, { protocol: protocol.name, method, uri }, console.config({ compact: false }), headers);
 
       globalThis.wsi = wsi;
 
-      wsi.wantWrite();
+      if(method != 'POST') wsi.wantWrite();
     },
     callback(wsi, reason, ...args) {
       verbose('http ' + getCallbackName(reason), C, wsi, args);
@@ -128,7 +180,7 @@ globalThis.ctx = new LWSContext({
   port: 8886,
   vhostName: 'localhost.transistorisiert.ch',
   options:
-     LWS_SERVER_OPTION_IGNORE_MISSING_CERT |
+    LWS_SERVER_OPTION_IGNORE_MISSING_CERT |
     LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED |
     LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER |
     LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT |
@@ -140,7 +192,7 @@ globalThis.ctx = new LWSContext({
   sslCaFilepath: 'ca.crt',
   sslCertFilepath: 'localhost.crt',
   sslPrivateKeyFilepath: 'localhost.key',
-    mounts: [
+  mounts: [
     { mountpoint: '/ws', protocol: 'ws', originProtocol: LWSMPRO_NO_MOUNT },
     { mountpoint: '/test', protocol: 'http', originProtocol: LWSMPRO_CALLBACK },
     //{ mountpoint: '/', origin: '127.0.0.1:8000/warmcat/', def: 'index.html', originProtocol: LWSMPRO_HTTP },
