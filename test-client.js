@@ -1,23 +1,35 @@
-import { toString, toArrayBuffer, LWSContext, LWSSocket, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
+import { toString, toArrayBuffer, LWSContext, LWSSocket, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
+function verbose(name, ...args) {
+  console.log(name.padEnd(32), ...args);
+}
+
 let ctx = (globalThis.ctx = new LWSContext({
-  async_dns_servers: ['8.8.8.8'],
-  ssl_ca_filepath: '/etc/ssl/certs/ca-certificates.crt',
-  ssl_cert_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
-  ssl_private_key_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
-  client_ssl_ca_filepath: '/etc/ssl/certs/ca-certificates.crt',
-  client_ssl_cert_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
-  client_ssl_private_key_filepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
+  asyncDnsServers: ['8.8.8.8', '8.8.4.4', '4.2.2.1'],
+  options:
+    LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+    LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX |
+    LWS_SERVER_OPTION_IGNORE_MISSING_CERT |
+    LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED |
+    LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT |
+    LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+    LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX,
+  sslCaFilepath: '/etc/ssl/certs/ca-certificates.crt',
+  sslCertFilepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
+  sslPrivateKeyFilepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
+  clientSslCaFilepath: '/etc/ssl/certs/ca-certificates.crt',
+  clientSslCertFilepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
+  clientSslPrivateKeyFilepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
   protocols: [
     {
       name: 'raw',
       onConnecting(wsi) {
-        console.log('onConnecting', C, wsi);
+        verbose('onConnecting', C, wsi);
       },
       onRawConnected(wsi) {
-        console.log('onRawConnected', C, wsi);
+        verbose('onRawConnected', C, wsi);
       },
       onRawWriteable(wsi) {
         wsi.write(toArrayBuffer('GET / HTTP/1.0\r\n\r\n'));
@@ -25,51 +37,59 @@ let ctx = (globalThis.ctx = new LWSContext({
       onRawRx(wsi, data) {
         data = toString(data);
 
-        console.log('onRawRx', C, wsi, data.trimEnd());
+        verbose('onRawRx', C, wsi, data.trimEnd());
       },
       onRawClose(wsi) {
-        console.log('onRawClose', C, wsi);
+        verbose('onRawClose', C, wsi);
       } /*,
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
-        console.log('raw', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+        verbose('raw', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
         return 0;
       },*/,
     },
     {
       name: 'http',
       onEstablishedClientHttp(wsi, data) {
-        console.log('onEstablishedClientHttp', C, data);
+        verbose('onEstablishedClientHttp', C, data);
       },
       onClientAppendHandshakeHeader(wsi, data, len) {
-        console.log('onClientAppendHandshakeHeader', C, { data, len });
+        verbose('onClientAppendHandshakeHeader', C, { data, len });
       },
       onClientHttpWriteable(wsi) {
-        console.log('onClientHttpWriteable', C, wsi);
+        verbose('onClientHttpWriteable', C, wsi);
       },
       onReceiveClientHttpRead(wsi, data, len) {
         data = toString(data);
-        console.log('onReceiveClientHttpRead', C, { data, len });
+        verbose('onReceiveClientHttpRead', C, { data, len });
       },
       onCompletedClientHttp(wsi) {
-        console.log('onCompletedClientHttp', C, wsi);
-        wsi.context.cancelService();
+        verbose('onCompletedClientHttp', C, wsi);
+        //wsi.context.cancelService();
       },
       onClosedClientHttp(wsi) {
-        console.log('onClosedClientHttp', C, wsi.context);
+        verbose('onClosedClientHttp', C, wsi.context);
         wsi.context.cancelService();
       },
-      onReceiveClientHttp(wsi) {
-        let ab = new ArrayBuffer(2048);
-        let ret = wsi.httpClientRead(ab);
-        console.log('onReceiveClientHttp', C, ret, new Uint8Array(ab, LWS_PRE));
+      onReceiveClientHttp(wsi, ...rest) {
+        verbose('onReceiveClientHttp(1)', C, { wsi, rest });
+        
+        let ret,ab = new ArrayBuffer(2048);
+        
+        try {
+          ret = wsi.httpClientRead(ab);
+        } catch(e) {
+          console.log('exception', e);
+        }
+        
+        verbose('onReceiveClientHttp(2)', C, ret, new Uint8Array(ab, LWS_PRE));
       },
       onClientConnectionError(wsi, msg, ...args) {
-        console.log('onClientConnectionError', C, toString(msg), args);
+        verbose('onClientConnectionError', C, toString(msg), args);
       },
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
-        console.log('http', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+        verbose('http ' + getCallbackName(reason), C, wsi, args);
         return 0;
       },
     },
@@ -77,9 +97,9 @@ let ctx = (globalThis.ctx = new LWSContext({
 }));
 
 //ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
-ctx.clientConnect({
+globalThis.client = ctx.clientConnect({
   ssl: true,
-  //address: 'blog.fefe.de',
+  address: '31.15.64.162',
   host: 'blog.fefe.de',
   path: '/',
   port: 443,

@@ -10,7 +10,6 @@ typedef struct {
   struct lws_context* ctx;
   struct lws_context_creation_info info;
   JSContext* js;
-  JSObject* obj;
 } LWSContext;
 
 typedef struct {

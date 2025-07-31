@@ -4,6 +4,7 @@
 #include <string.h>
 
 static const char* lwsjs_callback_name(enum lws_callback_reasons);
+static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR | LLL_WARN /*| LLL_INFO | LLL_NOTICE*/;
 
 enum {
   FUNCTION_GET_CALLBACK_NAME = 0,
@@ -13,7 +14,15 @@ enum {
   FUNCTION_VISIBLE,
   FUNCTION_TO_STRING,
   FUNCTION_TO_ARRAYBUFFER,
+  FUNCTION_LOGLEVEL,
 };
+
+static void lwsjs_log_callback(int, const char*);
+
+JSValue
+ptr_obj(JSContext* ctx, JSObject* obj) {
+  return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
+}
 
 JSValue
 lwsjs_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
@@ -35,8 +44,7 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
     return 0;
   }
 
-  JSValue tmp = JS_Call(ctx, iterator, JS_NULL, 0, NULL);
-
+  JSValue tmp = JS_Call(ctx, iterator, obj, 0, NULL);
   JS_FreeValue(ctx, iterator);
   iterator = tmp;
 
@@ -58,6 +66,40 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
 
   return ret;
 }
+
+/*enum {
+  PROP_LOGLEVEL,
+};
+
+static JSValue
+lwsjs_get(JSContext* ctx, JSValueConst this_val, int magic) {
+  JSValue ret = JS_UNDEFINED;
+
+  switch(magic) {
+    case PROP_LOGLEVEL: {
+      ret = JS_NewUint32(ctx, lwsjs_loglevel);
+      break;
+    }
+  }
+
+  return ret;
+}
+
+static JSValue
+lwsjs_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, int magic) {
+  JSValue ret = JS_UNDEFINED;
+
+  switch(magic) {
+    case PROP_LOGLEVEL: {
+      lwsjs_loglevel = to_uint32(ctx, value);
+
+      lws_set_log_level(lwsjs_loglevel, &lwsjs_log_callback);
+      break;
+    }
+  }
+
+  return ret;
+}*/
 
 static JSValue
 lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
@@ -205,6 +247,18 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       break;
     }
+
+    case FUNCTION_LOGLEVEL: {
+      if(argc > 0) {
+        lwsjs_loglevel = to_uint32(ctx, argv[0]);
+
+        lws_set_log_level(lwsjs_loglevel, &lwsjs_log_callback);
+      } else {
+        ret = JS_NewUint32(ctx, lwsjs_loglevel);
+      }
+
+      break;
+    }
   }
 
   return ret;
@@ -214,6 +268,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getCallbackName", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NAME),
     JS_CFUNC_MAGIC_DEF("getCallbackNumber", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NUMBER),
     JS_CFUNC_MAGIC_DEF("log", 2, lwsjs_functions, FUNCTION_LOG),
+    JS_CFUNC_MAGIC_DEF("loglevel", 0, lwsjs_functions, FUNCTION_LOGLEVEL),
     JS_CFUNC_MAGIC_DEF("parseUri", 1, lwsjs_functions, FUNCTION_PARSE_URI),
     JS_CFUNC_MAGIC_DEF("visible", 1, lwsjs_functions, FUNCTION_VISIBLE),
     JS_CFUNC_MAGIC_DEF("toString", 1, lwsjs_functions, FUNCTION_TO_STRING),
@@ -300,6 +355,147 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CONSTANT(LWS_SERVER_OPTION_ULOOP),
     JS_CONSTANT(LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE),
     JS_CONSTANT(LWS_ILLEGAL_HTTP_CONTENT_LEN),
+
+    JS_CONSTANT(WSI_TOKEN_GET_URI),
+    JS_CONSTANT(WSI_TOKEN_POST_URI),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_OPTIONS_URI),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HOST),
+    JS_CONSTANT(WSI_TOKEN_CONNECTION),
+    JS_CONSTANT(WSI_TOKEN_UPGRADE),
+    JS_CONSTANT(WSI_TOKEN_ORIGIN),
+#if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_DRAFT),
+#endif
+    JS_CONSTANT(WSI_TOKEN_CHALLENGE),
+#if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_EXTENSIONS),
+    JS_CONSTANT(WSI_TOKEN_KEY1),
+    JS_CONSTANT(WSI_TOKEN_KEY2),
+    JS_CONSTANT(WSI_TOKEN_PROTOCOL),
+    JS_CONSTANT(WSI_TOKEN_ACCEPT),
+    JS_CONSTANT(WSI_TOKEN_NONCE),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP),
+#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP2_SETTINGS),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_AC_REQUEST_HEADERS),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_MODIFIED_SINCE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_NONE_MATCH),
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT_ENCODING),
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT_LANGUAGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_PRAGMA),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CACHE_CONTROL),
+    JS_CONSTANT(WSI_TOKEN_HTTP_AUTHORIZATION),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COOKIE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_LENGTH),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_TYPE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_DATE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_RANGE),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_REFERER),
+#endif
+#if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_KEY),
+    JS_CONSTANT(WSI_TOKEN_VERSION),
+    JS_CONSTANT(WSI_TOKEN_SWORIGIN),
+#endif
+#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_AUTHORITY),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_METHOD),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_PATH),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_SCHEME),
+    JS_CONSTANT(WSI_TOKEN_HTTP_COLON_STATUS),
+#endif
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT_CHARSET),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCEPT_RANGES),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_ACCESS_CONTROL_ALLOW_ORIGIN),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_AGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_ALLOW),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_DISPOSITION),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_ENCODING),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_LANGUAGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_LOCATION),
+    JS_CONSTANT(WSI_TOKEN_HTTP_CONTENT_RANGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_ETAG),
+    JS_CONSTANT(WSI_TOKEN_HTTP_EXPECT),
+    JS_CONSTANT(WSI_TOKEN_HTTP_EXPIRES),
+    JS_CONSTANT(WSI_TOKEN_HTTP_FROM),
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_MATCH),
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_RANGE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_IF_UNMODIFIED_SINCE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_LAST_MODIFIED),
+    JS_CONSTANT(WSI_TOKEN_HTTP_LINK),
+    JS_CONSTANT(WSI_TOKEN_HTTP_LOCATION),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_MAX_FORWARDS),
+    JS_CONSTANT(WSI_TOKEN_HTTP_PROXY_AUTHENTICATE),
+    JS_CONSTANT(WSI_TOKEN_HTTP_PROXY_AUTHORIZATION),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_REFRESH),
+    JS_CONSTANT(WSI_TOKEN_HTTP_RETRY_AFTER),
+    JS_CONSTANT(WSI_TOKEN_HTTP_SERVER),
+    JS_CONSTANT(WSI_TOKEN_HTTP_SET_COOKIE),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_STRICT_TRANSPORT_SECURITY),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_TRANSFER_ENCODING),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_HTTP_USER_AGENT),
+    JS_CONSTANT(WSI_TOKEN_HTTP_VARY),
+    JS_CONSTANT(WSI_TOKEN_HTTP_VIA),
+    JS_CONSTANT(WSI_TOKEN_HTTP_WWW_AUTHENTICATE),
+#endif
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_PATCH_URI),
+    JS_CONSTANT(WSI_TOKEN_PUT_URI),
+    JS_CONSTANT(WSI_TOKEN_DELETE_URI),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP_URI_ARGS),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_PROXY),
+    JS_CONSTANT(WSI_TOKEN_HTTP_X_REAL_IP),
+#endif
+    JS_CONSTANT(WSI_TOKEN_HTTP1_0),
+    JS_CONSTANT(WSI_TOKEN_X_FORWARDED_FOR),
+    JS_CONSTANT(WSI_TOKEN_CONNECT),
+    JS_CONSTANT(WSI_TOKEN_HEAD_URI),
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_TE),
+    JS_CONSTANT(WSI_TOKEN_REPLAY_NONCE),
+#endif
+#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_COLON_PROTOCOL),
+#endif
+    JS_CONSTANT(WSI_TOKEN_X_AUTH_TOKEN),
+    JS_CONSTANT(WSI_TOKEN_DSS_SIGNATURE),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_SENT_PROTOCOLS),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_PEER_ADDRESS),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_URI),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_HOST),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_ORIGIN),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_METHOD),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_IFACE),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_LOCALPORT),
+    JS_CONSTANT(_WSI_TOKEN_CLIENT_ALPN),
+    JS_CONSTANT(WSI_TOKEN_COUNT),
+    JS_CONSTANT(WSI_TOKEN_NAME_PART),
+#if defined(LWS_WITH_CUSTOM_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
+    JS_CONSTANT(WSI_TOKEN_UNKNOWN_VALUE_PART),
+#endif
+    JS_CONSTANT(WSI_TOKEN_SKIPPING),
+    JS_CONSTANT(WSI_TOKEN_SKIPPING_SAW_CR),
+    JS_CONSTANT(WSI_PARSING_COMPLETE),
+    JS_CONSTANT(WSI_INIT_TOKEN_MUXURL),
 };
 
 static const char* lws_callback_names[] = {
@@ -559,7 +755,7 @@ js_init_module(JSContext* ctx, const char* module_name) {
 
   // lws_set_log_level((LLL_USER << 1) - 1, 0);
   // lws_set_log_level((LLL_USER << 1) - 1, &lwsjs_log_callback);
-  lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN, &lwsjs_log_callback);
+  lws_set_log_level(lwsjs_loglevel, &lwsjs_log_callback);
 
   return m;
 }

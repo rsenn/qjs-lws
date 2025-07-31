@@ -124,6 +124,18 @@ global_get(JSContext* ctx, const char* name) {
   return ret;
 }
 
+static inline JSObject*
+obj_ptr(JSContext* ctx, JSValueConst obj) {
+  return JS_VALUE_GET_OBJ(JS_DupValue(ctx, obj));
+}
+
+static inline void
+obj_free(JSRuntime* rt, JSObject* obj) {
+  JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, obj));
+}
+
+JSValue ptr_obj(JSContext* ctx, JSObject* obj);
+
 static inline JSValue
 iterator_get(JSContext* ctx, JSValueConst iterable) {
   JSValue symbol = global_get(ctx, "Symbol");
