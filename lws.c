@@ -40,7 +40,6 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
   uint32_t i;
 
   for(i = 0;; ++i) {
-
     JSValue value = lwsjs_iterator_next(ctx, iterator, &done);
 
     if(done || !(ret = js_realloc(ctx, ret, (i + 2) * sizeof(char*)))) {

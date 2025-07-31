@@ -2,6 +2,7 @@
 #include <cutils.h>
 #include <list.h>
 #include <libwebsockets.h>
+#include <lws_config.h>
 #include <assert.h>
 #include "lws-socket.h"
 #include "lws-context.h"
@@ -862,8 +863,14 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 #endif
 
 #ifdef LWS_WITH_SYS_ASYNC_DNS
+#warning LWS_WITH_SYS_ASYNC_DNS
+
   value = lwsjs_get_property(ctx, obj, "async_dns_servers");
+    printf("async_dns_servers: %s\n", JS_ToCString(ctx, value));
+
   ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);
+  if(ci->async_dns_servers)
+    printf("async_dns_servers: %s\n", ci->async_dns_servers[0]);
 #endif
 
 #ifdef LWS_WITH_TLS
