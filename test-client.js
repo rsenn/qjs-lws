@@ -59,10 +59,6 @@ let ctx = (globalThis.ctx = new LWSContext({
       onClientHttpWriteable(wsi) {
         verbose('onClientHttpWriteable', C, wsi);
       },
-      onReceiveClientHttpRead(wsi, data, len) {
-        data = toString(data);
-        verbose('onReceiveClientHttpRead', C, { data, len });
-      },
       onCompletedClientHttp(wsi) {
         verbose('onCompletedClientHttp', C, wsi);
         //wsi.context.cancelService();
@@ -71,17 +67,22 @@ let ctx = (globalThis.ctx = new LWSContext({
         verbose('onClosedClientHttp', C, wsi.context);
         wsi.context.cancelService();
       },
+      onReceiveClientHttpRead(wsi, data, len) {
+        data = toString(data);
+        verbose('onReceiveClientHttpRead', C, { data, len });
+      },
       onReceiveClientHttp(wsi, ...rest) {
         verbose('onReceiveClientHttp(1)', C, { wsi, rest });
-        
-        let ret,ab = new ArrayBuffer(2048);
-        
+
+        let ret,
+          ab = new ArrayBuffer(2048);
+
         try {
           ret = wsi.httpClientRead(ab);
         } catch(e) {
           console.log('exception', e);
         }
-        
+
         verbose('onReceiveClientHttp(2)', C, ret, new Uint8Array(ab, LWS_PRE));
       },
       onClientConnectionError(wsi, msg, ...args) {

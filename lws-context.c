@@ -312,7 +312,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
-    if((s = js_socket_data(sock)))
+    if((s = lwsjs_socket_data(sock)))
       if(s->want_write) {
         s->want_write = FALSE;
 
@@ -329,7 +329,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
-    if((s = js_socket_data(sock)))
+    if((s = lwsjs_socket_data(sock)))
       if(JS_IsUndefined(s->headers))
         s->headers = lwsjs_socket_headers(ctx, s->wsi);
 
@@ -359,7 +359,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
-    if((s = js_socket_data(sock)))
+    if((s = lwsjs_socket_data(sock)))
       if(!strcmp(in, "websocket"))
         s->type = SOCKET_WS;
   }
@@ -368,7 +368,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
-    if((s = js_socket_data(sock)))
+    if((s = lwsjs_socket_data(sock)))
       if(!strcmp(in, "ws"))
         s->type = SOCKET_WS;
   }
@@ -377,7 +377,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
-    if((s = js_socket_data(sock)))
+    if((s = lwsjs_socket_data(sock)))
       s->type = SOCKET_WS;
   }
 
@@ -426,7 +426,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
-    if((s = js_socket_data(sock)))
+    if((s = lwsjs_socket_data(sock)))
       if(s->completed)
         i = -1;
 
@@ -814,7 +814,7 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   JSValue value;
 
   value = JS_GetPropertyStr(ctx, obj, "context");
-  ci->context = js_context_data(value);
+  ci->context = lws_context_data(value);
   JS_FreeValue(ctx, value);
 
   value = JS_GetPropertyStr(ctx, obj, "address");
@@ -1163,7 +1163,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
   LWSContext* lc;
   JSValue ret = JS_UNDEFINED;
 
-  if(!(lc = js_context_data2(ctx, this_val)))
+  if(!(lc = lwsjs_context_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   switch(magic) {
@@ -1240,6 +1240,11 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       if((wsi = lws_client_connect_via_info(&cci))) {
         ret = lwsjs_socket_wrap(ctx, wsi);
 
+        LWSSocket* sock;
+
+        if((sock = lwsjs_socket_data(ret)))
+          sock->client = TRUE;
+
         JS_DefinePropertyValueStr(ctx, ret, "info", JS_DupValue(ctx, argv[0]), JS_PROP_CONFIGURABLE);
       }
 
@@ -1274,7 +1279,7 @@ lwsjs_context_get(JSContext* ctx, JSValueConst this_val, int magic) {
   LWSContext* lc;
   JSValue ret = JS_UNDEFINED;
 
-  if(!(lc = js_context_data2(ctx, this_val)))
+  if(!(lc = lwsjs_context_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   switch(magic) {
@@ -1320,7 +1325,7 @@ static void
 lwsjs_context_finalizer(JSRuntime* rt, JSValue val) {
   LWSContext* lc;
 
-  if((lc = js_context_data(val))) {
+  if((lc = lwsjs_context_data(val))) {
     lws_context_destroy(lc->ctx);
     lc->ctx = 0;
 

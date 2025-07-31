@@ -32,4 +32,14 @@ lwsjs_context_data2(JSContext* ctx, JSValueConst value) {
   return JS_GetOpaque2(ctx, value, lwsjs_context_class_id);
 }
 
+static inline struct lws_context*
+lws_context_data(JSValueConst value) {
+  LWSContext* lwsctx;
+
+  if((lwsctx = lwsjs_context_data(value)))
+    return lwsctx->ctx;
+
+  return 0;
+}
+
 #endif
