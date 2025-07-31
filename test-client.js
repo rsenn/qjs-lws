@@ -78,14 +78,15 @@ let ctx = (globalThis.ctx = new LWSContext({
 //ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
 ctx.clientConnect({
   ssl: true,
-  address: 'localhost',
-  host: 'transistorisiert.ch',
-  path: '/directory.js',
+  asyncDnsServers: '8.8.8.8',
+  //address: 'blog.fefe.de',
+  host: 'blog.fefe.de',
+  path: '/',
   port: 443,
   local_protocol_name: 'http',
   method: 'GET',
-  httpProxyAddress: '127.0.0.1',
+  /*httpProxyAddress: '127.0.0.1',
   httpProxyPort: 8123,
   socksProxyAddress: '127.0.0.1',
-  socksProxyPort: 9050,
+  socksProxyPort: 9050,*/
 });
