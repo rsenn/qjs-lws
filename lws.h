@@ -39,6 +39,8 @@ to_ptr(JSContext* ctx, JSValueConst val) {
     .name = prop_name, .prop_flags = flags, .def_type = JS_DEF_CGETSET_MAGIC, .magic = magic_num, .u = {.getset = {.get = {.getter_magic = fgetter}, .set = {.setter_magic = fsetter}} } \
   }
 
+#define JS_ATOM_MAX_INT ((1u << 31) - 1)
+
 #define to_integer(ctx, val) to_int64(ctx, val)
 #define to_integerfree(ctx, val) to_int64free(ctx, val)
 #elif __SIZEOF_POINTER__ == 8

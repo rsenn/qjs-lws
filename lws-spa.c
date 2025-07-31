@@ -45,11 +45,11 @@ lwsjs_spa_data2(JSContext* ctx, JSValueConst value) {
 static int
 lwsjs_spa_callback(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
   SPACallbacks* cb = data;
-  int32_t ret = 0;
 
   if(state == LWS_UFS_OPEN) {
     JS_FreeValue(cb->ctx, cb->name);
     cb->name = JS_NewString(cb->ctx, name);
+
     JS_FreeValue(cb->ctx, cb->filename);
     cb->filename = JS_NewString(cb->ctx, filename);
   }
@@ -63,17 +63,16 @@ lwsjs_spa_callback(void* data, const char* name, const char* filename, char* buf
   JSValue fn = cb->array[state - LWS_UFS_CONTENT];
   JSValue result = JS_Call(cb->ctx, fn, cb->this_obj, (buf && len) ? 3 : 2, args);
 
-  if(JS_IsException(result))
-    ret = -1;
-  else
-    ret = to_int32(cb->ctx, result);
+  int32_t ret = JS_IsException(result) ? -1 : to_int32(cb->ctx, result);
 
-  JS_FreeValue(cb->ctx, args[2]);
   JS_FreeValue(cb->ctx, result);
+  JS_FreeValue(cb->ctx, args[2]);
+  JS_FreeValue(cb->ctx, fn);
 
   if(state == LWS_UFS_CLOSE) {
     JS_FreeValue(cb->ctx, cb->name);
     cb->name = JS_NULL;
+
     JS_FreeValue(cb->ctx, cb->filename);
     cb->filename = JS_NULL;
   }
@@ -83,7 +82,6 @@ lwsjs_spa_callback(void* data, const char* name, const char* filename, char* buf
 
 static JSValue
 lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
-  JSValue proto, obj;
   LWSSPA* s;
   LWSSocket* sock;
 
@@ -94,11 +92,11 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
     return JS_EXCEPTION;
 
   /* using new_target to get the prototype is necessary when the class is extended. */
-  proto = JS_GetPropertyStr(ctx, new_target, "prototype");
+  JSValue proto = JS_GetPropertyStr(ctx, new_target, "prototype");
   if(JS_IsException(proto))
     proto = JS_DupValue(ctx, lwsjs_spa_proto);
 
-  obj = JS_NewObjectProtoClass(ctx, proto, lwsjs_spa_class_id);
+  JSValue obj = JS_NewObjectProtoClass(ctx, proto, lwsjs_spa_class_id);
   JS_FreeValue(ctx, proto);
   if(JS_IsException(obj))
     goto fail;
@@ -159,7 +157,7 @@ lwsjs_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
       size_t n;
       uint8_t* p;
 
-      if(!(p = JS_GetArrayBuffer(ctx, &n, argv[0])))
+      if(!(p = get_buffer(ctx, argc, argv, &n)))
         return JS_ThrowTypeError(ctx, "argument 1 must be ArrayBuffer");
 
       ret = JS_NewInt32(ctx, lws_spa_process(s->spa, (const char*)p, n));
@@ -178,19 +176,16 @@ lwsjs_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
 static JSValue
 lwsjs_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSValueConst receiver) {
   JSValue value = JS_UNDEFINED;
-  //  JSValue key = JS_AtomToValue(ctx, prop);
 
-  if(prop > 0x7fffffff) {
+  if(prop > JS_ATOM_MAX_INT) {
     LWSSPA* s;
+    const char* str;
 
     if(!(s = lwsjs_spa_data2(ctx, this_val)))
       return JS_EXCEPTION;
 
-    int len = lws_spa_get_length(s->spa, prop & 0x7fffffff);
-    const char* str = lws_spa_get_string(s->spa, prop & 0x7fffffff);
-
-    if(str)
-      value = JS_NewStringLen(ctx, str, len);
+    if((str = lws_spa_get_string(s->spa, prop & JS_ATOM_MAX_INT)))
+      value = JS_NewStringLen(ctx, str, lws_spa_get_length(s->spa, prop & JS_ATOM_MAX_INT));
   } else {
     JSValue proto = JS_GetPrototype(ctx, this_val);
 
@@ -251,7 +246,9 @@ int
 lwsjs_spa_init(JSContext* ctx, JSModuleDef* m) {
   JS_NewClassID(&lwsjs_spa_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lwsjs_spa_class_id, &lws_spa_class);
+
   lwsjs_spa_proto = JS_NewObjectProto(ctx, JS_NULL);
+
   JS_SetPropertyFunctionList(ctx, lwsjs_spa_proto, lws_spa_proto_funcs, countof(lws_spa_proto_funcs));
 
   lwsjs_spa_ctor = JS_NewCFunction2(ctx, lwsjs_spa_constructor, "LWSSPA", 1, JS_CFUNC_constructor, 0);
