@@ -21,12 +21,6 @@ static LWSProtocolVHostOptions* vhost_options_fromarrayfree(JSContext*, JSValue)
 
 static void vhost_options_free(JSRuntime*, LWSProtocolVHostOptions*);
 
-typedef struct {
-  struct list_head link;
-  int fd;
-  BOOL write;
-} HandlerFunction;
-
 static struct list_head handlers;
 
 static JSValue

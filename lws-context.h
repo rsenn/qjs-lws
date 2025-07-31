@@ -16,8 +16,6 @@ typedef struct {
   struct lws_context* ctx;
   struct lws_context_creation_info info;
   JSContext* js;
-  struct list_head handlers;
-  JSValue iohandler_functions[2];
 } LWSContext;
 
 typedef struct {
