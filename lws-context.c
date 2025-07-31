@@ -645,7 +645,7 @@ http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
 static LWSProtocolVHostOptions*
 vhost_option_fromobj(JSContext* ctx, JSValueConst obj) {
   LWSProtocolVHostOptions* vho;
-  JSValue name, value, options, next = JS_UNDEFINED;
+  JSValue name = JS_UNDEFINED, value = JS_UNDEFINED, options = JS_UNDEFINED, next = JS_UNDEFINED;
 
   if(JS_IsArray(ctx, obj)) {
     name = JS_GetPropertyUint32(ctx, obj, 0);
@@ -863,7 +863,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 
 #ifdef LWS_WITH_SYS_ASYNC_DNS
   value = lwsjs_get_property(ctx, obj, "async_dns_servers");
-  ci->async_dns_servers = (const char*)to_stringarrayfree(ctx, value);
+  ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);
 #endif
 
 #ifdef LWS_WITH_TLS
