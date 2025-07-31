@@ -2,18 +2,22 @@
 import { LWSSPA, getCallbackName, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, log, } from 'lws';
 import { setTimeout } from 'os';
 
+function verbose(name, ...args) {
+  console.log(name.padEnd(32), ...args);
+}
+
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
 const spa = (globalThis.spa = new WeakMap());
 
-const wsi2obj = (globalThis.wsi2obj = (function () {
+const wsi2obj = (globalThis.wsi2obj = (() => {
   const m = new WeakMap();
+
   return wsi => {
-    let obj = m.get(wsi);
-    if(!obj) {
-      obj = {};
-      m.set(wsi, obj);
-    }
+    let obj;
+
+    if(!(obj = m.get(wsi))) m.set(wsi, (obj = {}));
+
     return obj;
   };
 })());
@@ -22,11 +26,11 @@ const protocols = [
   {
     name: 'ws',
     onOpensslPerformServerCertVerification(wsi, ssl, preverify_ok) {
-      console.log('onOpensslPerformServerCertVerification', C, wsi, '0x' + ssl.toString(16), preverify_ok);
+      verbose('onOpensslPerformServerCertVerification', C, wsi, '0x' + ssl.toString(16), preverify_ok);
       return 0;
     },
     onHttpConfirmUpgrade(wsi, type) {
-      console.log('onHttpConfirmUpgrade', C, wsi, type, wsi.protocol);
+      verbose('onHttpConfirmUpgrade', C, wsi, type, wsi.protocol);
     },
     onReceive(wsi, data, len) {
       wsi.write(data);
@@ -34,34 +38,34 @@ const protocols = [
     onFilterHttpConnection(wsi, url) {
       const { headers } = wsi;
 
-      console.log('onFilterHttpConnection', C, wsi, url, headers);
+      verbose('onFilterHttpConnection', C, wsi, url, headers);
 
       if(/multipart/.test(headers['content-type'])) {
         spa.set(
           wsi,
           new LWSSPA(wsi, {
             onContent(name, filename, buf) {
-              console.log('onContent', C, { name, filename, buf });
+              verbose('onContent', C, { name, filename, buf });
             },
             onOpen(name, filename) {
-              console.log('onOpen', C, { name, filename });
+              verbose('onOpen', C, { name, filename });
             },
             onClose(name, filename) {
-              console.log('onClose', C, { name, filename });
+              verbose('onClose', C, { name, filename });
             },
           }),
         );
       }
     },
     callback(wsi, reason, ...args) {
-      console.log('ws', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+      verbose('ws ' + getCallbackName(reason), C, wsi, args);
       return 0;
     },
   },
   {
     name: 'raw-echo',
     callback(wsi, reason, ...args) {
-      console.log('raw-echo', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+      verbose('raw-echo ' + getCallbackName(reason), C, wsi, args);
       return 0;
     },
   },
@@ -70,7 +74,7 @@ const protocols = [
     onHttpBody(wsi, buf, len) {
       const s = spa.get(wsi);
 
-      console.log('onHttpBody', C, s, buf);
+      verbose('onHttpBody', C, s, buf);
 
       s.process(buf, len);
     },
@@ -82,7 +86,7 @@ const protocols = [
       wsi.wantWrite();
     },
     onHttpWriteable(wsi) {
-      console.log('onHttpWriteable', C, wsi);
+      verbose('onHttpWriteable', C, wsi);
       const obj = wsi2obj(wsi);
 
       if(!obj.responded) {
@@ -106,7 +110,7 @@ const protocols = [
       return -1;
     },
     onHttp(wsi, buf, len) {
-      console.log('onHttp', C, wsi, buf, len, wsi.write);
+      verbose('onHttp', C, wsi, buf, len, wsi.write);
 
       globalThis.wsi = wsi;
 
@@ -114,7 +118,7 @@ const protocols = [
       //wsi.wantWrite(wsi => (wsi.write('Output!\n', LWS_WRITE_HTTP_FINAL), 0));
     },
     callback(wsi, reason, ...args) {
-      console.log('http', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+      verbose('http ' + getCallbackName(reason), C, wsi, args);
       return 0;
     },
   },

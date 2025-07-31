@@ -21,6 +21,12 @@ static LWSProtocolVHostOptions* vhost_options_fromarrayfree(JSContext*, JSValue)
 
 static void vhost_options_free(JSRuntime*, LWSProtocolVHostOptions*);
 
+typedef struct {
+  struct list_head link;
+  int fd;
+  BOOL write;
+} HandlerFunction;
+
 static JSValue
 iohandler_function(JSContext* ctx, BOOL write) {
   JSValue glob = JS_GetGlobalObject(ctx);

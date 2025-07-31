@@ -152,37 +152,41 @@ obj_free(JSRuntime* rt, JSObject* obj) {
   JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, obj));
 }
 
-static inline void*
-get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
-  size_t n;
-  uint8_t* p;
+static inline size_t
+get_offset_length(JSContext* ctx, int argc, JSValueConst argv[], size_t maxlen, size_t* lenp) {
+  int64_t ofs = 0, len = maxlen;
 
-  if((p = JS_GetArrayBuffer(ctx, &n, argv[0]))) {
-    int64_t offset = 0, size = n;
+  if(argc > 0) {
+    if((ofs = to_int64(ctx, argv[0])) < 0)
+      ofs = WRAPAROUND(ofs, (int64_t)maxlen);
+    ofs = MAX(0, MIN(ofs, (int64_t)maxlen));
 
-    if(argc > 1) {
-      offset = to_int64(ctx, argv[1]);
-      offset = WRAPAROUND(offset, (int64_t)n);
-      offset = MAX(offset, 0);
-      offset = MIN(offset, (int64_t)n);
-
-      if(argc > 2)
-        if((size = to_int64(ctx, argv[2])) < 0)
-          size = WRAPAROUND(size, (int64_t)n);
-    }
-
-    if(offset > 0) {
-      p += offset;
-      n -= offset;
-    }
-
-    n = MAX(size, 0);
-    n = MIN(size, (int64_t)n);
-
-    *lenp = n;
+    if(argc > 1)
+      if((len = to_int64(ctx, argv[1])) < 0)
+        len = WRAPAROUND(len, (int64_t)maxlen);
   }
 
-  return p;
+  maxlen -= ofs;
+  *lenp = MAX(0, MIN(len, (int64_t)maxlen));
+
+  return ofs;
+}
+
+static inline void*
+get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
+  size_t len;
+  uint8_t* ptr;
+
+  if((ptr = JS_GetArrayBuffer(ctx, &len, argv[0]))) {
+    size_t ofs = 0;
+
+    if(argc > 1)
+      ofs = get_offset_length(ctx, argc - 1, argv + 1, len, lenp);
+
+    ptr += ofs;
+  }
+
+  return ptr;
 }
 
 JSValue ptr_obj(JSContext* ctx, JSObject* obj);

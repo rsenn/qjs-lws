@@ -7,12 +7,6 @@
 #include <libwebsockets.h>
 
 typedef struct {
-  struct list_head link;
-  int fd;
-  BOOL write;
-} HandlerFunction;
-
-typedef struct {
   struct lws_context* ctx;
   struct lws_context_creation_info info;
   JSContext* js;

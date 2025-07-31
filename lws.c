@@ -218,14 +218,21 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     }
 
     case FUNCTION_TO_ARRAYBUFFER: {
-      size_t n;
-      uint8_t* p;
+      size_t maxlen, len, ofs;
+      uint8_t* ptr;
       const char* s;
 
-      if((p = JS_GetArrayBuffer(ctx, &n, argv[0])))
-        ret = JS_DupValue(ctx, argv[0]);
-      else if((s = JS_ToCStringLen(ctx, &n, argv[0]))) {
-        ret = JS_NewArrayBufferCopy(ctx, (const uint8_t*)s, n);
+      if((ptr = JS_GetArrayBuffer(ctx, &maxlen, argv[0]))) {
+        ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
+
+        if(ofs == 0 && maxlen == len)
+          ret = JS_DupValue(ctx, argv[0]);
+        else
+          ret = JS_NewArrayBufferCopy(ctx, ptr + ofs, len);
+      } else if((s = JS_ToCStringLen(ctx, &len, argv[0]))) {
+        ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
+
+        ret = JS_NewArrayBufferCopy(ctx, (const uint8_t*)s + ofs, len);
 
         JS_FreeCString(ctx, s);
       }
