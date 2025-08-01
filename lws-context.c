@@ -834,7 +834,7 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   ci->context = lws_context_data(value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "address");
+  value = JS_GetPropertyStr(ctx, obj, lwsjs_has_property(ctx, obj, "address") ? "address" : "host");
   ci->address = to_stringfree(ctx, value);
 
   value = lwsjs_get_property(ctx, obj, "port");

@@ -229,19 +229,22 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     }
 
     case FUNCTION_PARSE_URI: {
-      const char* uri = to_string(ctx, argv[0]);
-      const char *protocol, *address, *path;
+      const char *protocol, *host, *path, *uri = to_string(ctx, argv[0]);
       int port;
 
-      lws_parse_uri((char*)uri, &protocol, &address, &port, &path);
+      lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
 
       ret = JS_NewObject(ctx);
 
-      if(protocol)
+      if(protocol) {
         JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, protocol));
 
-      if(address)
-        JS_SetPropertyStr(ctx, ret, "address", JS_NewString(ctx, address));
+        if(!strcmp(protocol, "https"))
+          JS_SetPropertyStr(ctx, ret, "ssl", JS_NewBool(ctx, TRUE));
+      }
+
+      if(host)
+        JS_SetPropertyStr(ctx, ret, "host", JS_NewString(ctx, host));
 
       JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, port));
 

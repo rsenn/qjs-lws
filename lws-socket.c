@@ -479,11 +479,11 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       int l, result;
 
       if((q = p = get_buffer(ctx, argc, argv, &n))) {
-        if(n < LWS_PRE + 16)
+        /*if(n < LWS_PRE + 16)
           return JS_ThrowInternalError(ctx, "ArrayBuffer is smaller (%d) than LWS_PRE (%d) + 16", (int)n, LWS_PRE);
 
         p += LWS_PRE;
-        n -= LWS_PRE;
+        n -= LWS_PRE;*/
 
         l = n;
         result = lws_http_client_read(s->wsi, (char**)&p, &l);

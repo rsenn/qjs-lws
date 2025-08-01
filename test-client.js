@@ -1,4 +1,4 @@
-import { toString, toArrayBuffer, LWSContext, LWSSocket, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
+import { parseUri, toString, toArrayBuffer, LWSContext, LWSSocket, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
@@ -72,7 +72,7 @@ let ctx = (globalThis.ctx = new LWSContext({
         verbose('onReceiveClientHttpRead', C, { data, len });
       },
       onReceiveClientHttp(wsi, ...rest) {
-        verbose('onReceiveClientHttp(1)', C, { wsi, rest });
+        //verbose('onReceiveClientHttp(1)', C, { wsi, rest });
 
         let ret,
           ab = new ArrayBuffer(2048);
@@ -83,7 +83,7 @@ let ctx = (globalThis.ctx = new LWSContext({
           console.log('exception', e);
         }
 
-        verbose('onReceiveClientHttp(2)', C, ret, new Uint8Array(ab, LWS_PRE));
+        if(ret) this.onReceiveClientHttpRead(wsi, ab, len); //  verbose('onReceiveClientHttp(2)', C, ret, ab);
       },
       onClientConnectionError(wsi, msg, ...args) {
         verbose('onClientConnectionError', C, toString(msg), args);
@@ -99,15 +99,7 @@ let ctx = (globalThis.ctx = new LWSContext({
 
 //ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
 globalThis.client = ctx.clientConnect({
-  ssl: true,
-  address: '31.15.64.162',
-  host: 'blog.fefe.de',
-  path: '/',
-  port: 443,
+  ...parseUri('https://blog.fefe.de/'),
   local_protocol_name: 'http',
   method: 'GET',
-  /*httpProxyAddress: '127.0.0.1',
-  httpProxyPort: 8123,
-  socksProxyAddress: '127.0.0.1',
-  socksProxyPort: 9050,*/
 });
