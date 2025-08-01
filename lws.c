@@ -4,7 +4,7 @@
 #include <string.h>
 
 static const char* lwsjs_callback_name(enum lws_callback_reasons);
-static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR | LLL_WARN /*| LLL_INFO | LLL_NOTICE*/;
+static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
 enum {
   FUNCTION_GET_CALLBACK_NAME = 0,
@@ -312,7 +312,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getCallbackNumber", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NUMBER),
     JS_CFUNC_MAGIC_DEF("getTokenName", 1, lwsjs_functions, FUNCTION_GET_TOKEN_NAME),
     JS_CFUNC_MAGIC_DEF("log", 2, lwsjs_functions, FUNCTION_LOG),
-    JS_CFUNC_MAGIC_DEF("loglevel", 0, lwsjs_functions, FUNCTION_LOGLEVEL),
+    JS_CFUNC_MAGIC_DEF("logLevel", 0, lwsjs_functions, FUNCTION_LOGLEVEL),
     JS_CFUNC_MAGIC_DEF("parseUri", 1, lwsjs_functions, FUNCTION_PARSE_URI),
     JS_CFUNC_MAGIC_DEF("visible", 1, lwsjs_functions, FUNCTION_VISIBLE),
     JS_CFUNC_MAGIC_DEF("toString", 1, lwsjs_functions, FUNCTION_TO_STRING),

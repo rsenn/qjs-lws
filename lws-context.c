@@ -342,7 +342,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
   int argi = 1, buffer_index = -1;
   JSValue argv[5] = {
-      reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT ? JS_NULL : lwsjs_socket_get_or_create(ctx, wsi),
+      reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT || reason == LWS_CALLBACK_PROTOCOL_DESTROY ? JS_NULL : lwsjs_socket_get_or_create(ctx, wsi),
   };
 
   if(cb == &closure->callback)

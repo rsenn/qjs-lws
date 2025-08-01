@@ -101,7 +101,7 @@ socket_dup(LWSSocket* s) {
 static LWSSocket*
 socket_get(struct lws* wsi) {
   struct list_head* n;
-  LWSSocket* sock;
+  LWSSocket* sock = 0;
 
   if(wsi == 0)
     return 0;
@@ -111,11 +111,11 @@ socket_get(struct lws* wsi) {
   assert(socket_list.next);
   assert(socket_list.prev);
 
-  if(!(sock = lws_get_opaque_user_data(wsi))) {
+  /* if(!(sock = lws_get_opaque_user_data(wsi)))*/ {
     list_for_each(n, &socket_list) {
       if((sock = list_entry(n, LWSSocket, link)))
         if(sock->wsi == wsi)
-          break;
+          return sock;
     }
   }
 
@@ -169,7 +169,7 @@ socket_delete(LWSSocket* sock, JSRuntime* rt) {
 
   list_del(&sock->link);
 
-  // lwsl_user("delete LWSSocket: %p (wsi = %p, n = %d, ref = %d)", sock, sock->wsi, list_size(&socket_list), sock->ref_count);
+  DEBUG("delete LWSSocket: %p (wsi = %p, n = %d, ref = %d)", sock, sock->wsi, list_size(&socket_list), sock->ref_count);
 
   if(sock->obj) {
     obj_free(rt, sock->obj);
@@ -204,10 +204,10 @@ lwsjs_socket_new(JSContext* ctx, struct lws* wsi) {
   if(!(sock = socket_get(wsi)) || sock == (void*)-1) {
     sock = socket_alloc(ctx);
     sock->wsi = wsi;
-    // lwsl_user("new LWSSocket: %p (wsi = %p, n = %d)", sock, wsi, list_size(&socket_list));
+    DEBUG("new LWSSocket: %p (wsi = %p, n = %d)", sock, wsi, list_size(&socket_list));
   } else {
     assert(sock->wsi == wsi);
-    // lwsl_user("recycled LWSSocket: %p (wsi = %p, n = %d)", sock, wsi, list_size(&socket_list));
+    DEBUG("recycled LWSSocket: %p (wsi = %p, n = %d)", sock, wsi, list_size(&socket_list));
   }
 
   lws_set_opaque_user_data(wsi, sock);
@@ -239,7 +239,7 @@ lwsjs_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
   if((sock = socket_get(wsi)))
     return socket_js(sock, ctx);
 
-  // lwsl_user("get or create LWSSocket for wsi = %p", wsi);
+  DEBUG("get or create LWSSocket (wsi = %p)", wsi);
 
   return lwsjs_socket_wrap(ctx, wsi);
 }
@@ -718,7 +718,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("headers", lwsjs_socket_get, 0, PROP_HEADERS),
     JS_CGETSET_MAGIC_DEF("tls", lwsjs_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lwsjs_socket_get, 0, PROP_PEER),
-    JS_CGETSET_MAGIC_DEF("fd", lwsjs_socket_get, 0, PROP_FD),
+    JS_CGETSET_MAGIC_FLAGS_DEF("fd", lwsjs_socket_get, 0, PROP_FD, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_DEF("parent", lwsjs_socket_get, 0, PROP_PARENT),
     JS_CGETSET_MAGIC_DEF("child", lwsjs_socket_get, 0, PROP_CHILD),
     JS_CGETSET_MAGIC_DEF("network", lwsjs_socket_get, 0, PROP_NETWORK),
