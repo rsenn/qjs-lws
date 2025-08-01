@@ -21,6 +21,7 @@ typedef struct {
   JSObject* obj;
   BOOL client : 1, want_write : 1, completed : 1;
   JSValue headers, write_handler;
+  int response_code;
 } LWSSocket;
 
 extern JSClassID lwsjs_socket_class_id;

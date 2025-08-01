@@ -398,7 +398,11 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
     argv[argi++] = JS_NewInt32(ctx, len);
   } else if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP) {
-    argv[argi++] = JS_NewInt32(ctx, lws_http_client_http_response(wsi));
+    LWSSocket* sock = socket_get(wsi);
+
+    sock->response_code = lws_http_client_http_response(wsi);
+
+    argv[argi++] = JS_NewInt32(ctx, sock->response_code);
   } else if(reason == LWS_CALLBACK_CONNECTING) {
     argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
   } else if(reason == LWS_CALLBACK_WS_PEER_INITIATED_CLOSE) {
