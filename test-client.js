@@ -91,8 +91,8 @@ let ctx = (globalThis.ctx = new LWSContext({
 
         if(ret) this.onReceiveClientHttpRead(wsi, ab);
       },
-      onClientConnectionError(wsi, msg, ...args) {
-        verbose('onClientConnectionError', toString(msg), args);
+      onClientConnectionError(wsi, msg) {
+        verbose('onClientConnectionError', { msg });
       },
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
