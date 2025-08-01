@@ -16,8 +16,8 @@ typedef struct lws_client_connect_info LWSClientConnectInfo;
 JSClassID lwsjs_context_class_id;
 static JSValue lwsjs_context_proto, lwsjs_context_ctor;
 
-static LWSProtocolVHostOptions* vhost_options_fromarray(JSContext*, JSValueConst);
-static LWSProtocolVHostOptions* vhost_options_fromarrayfree(JSContext*, JSValue);
+static LWSProtocolVHostOptions* vhost_options_from(JSContext*, JSValueConst);
+static LWSProtocolVHostOptions* vhost_options_fromfree(JSContext*, JSValue);
 
 static void vhost_options_free(JSRuntime*, LWSProtocolVHostOptions*);
 
@@ -442,7 +442,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 }
 
 static LWSProtocols
-protocol_fromobj(JSContext* ctx, JSValueConst obj) {
+protocol_from(JSContext* ctx, JSValueConst obj) {
   LWSProtocols pro = LWS_PROTOCOL_LIST_TERM;
   LWSProtocol* closure;
 
@@ -499,35 +499,30 @@ protocol_free(JSRuntime* rt, LWSProtocols* pro) {
 
 static const LWSProtocols*
 protocols_fromarray(JSContext* ctx, JSValueConst value) {
-  if(JS_IsArray(ctx, value)) {
-    int32_t len = to_int32free(ctx, JS_GetPropertyStr(ctx, value, "length"));
+  size_t len;
+  JSValue* values = to_valuearray(ctx, value, &len);
+  LWSProtocols* pro = js_mallocz(ctx, (len + 2) * sizeof(LWSProtocols));
 
-    if(len > 0) {
-      LWSProtocols* pro = js_mallocz(ctx, (len + 2) * sizeof(LWSProtocols));
+  pro[0] = (struct lws_protocols){
+      "http-only",
+      http_callback,
+      0,
+      0,
+      0,
+      NULL,
+      0,
+  };
 
-      pro[0] = (struct lws_protocols){
-          "http-only",
-          http_callback,
-          0,
-          0,
-          0,
-          NULL,
-          0,
-      };
+  for(size_t i = 0; i < len; i++) {
+    pro[i + 1] = protocol_from(ctx, values[i]);
 
-      for(int32_t i = 0; i < len; i++) {
-        JSValue protocol = JS_GetPropertyUint32(ctx, value, i);
-
-        pro[i + 1] = protocol_fromobj(ctx, protocol);
-
-        JS_FreeValue(ctx, protocol);
-      }
-
-      return pro;
-    }
+    JS_FreeValue(ctx, values[i]);
   }
 
-  return 0;
+  if(values)
+    js_free(ctx, values);
+
+  return pro;
 }
 
 static void
@@ -541,7 +536,7 @@ protocols_free(JSRuntime* rt, LWSProtocols* pro) {
 }
 
 static struct lws_http_mount*
-http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
+http_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
   struct lws_http_mount* mnt;
   JSValue value;
 
@@ -590,13 +585,13 @@ http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
     mnt->protocol = to_stringfree(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "cgienv");
-    mnt->cgienv = vhost_options_fromarrayfree(ctx, value);
+    mnt->cgienv = vhost_options_fromfree(ctx, value);
 
     value = lwsjs_get_property(ctx, obj, "extra_mimetypes");
-    mnt->extra_mimetypes = vhost_options_fromarrayfree(ctx, value);
+    mnt->extra_mimetypes = vhost_options_fromfree(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "interpret");
-    mnt->interpret = vhost_options_fromarrayfree(ctx, value);
+    mnt->interpret = vhost_options_fromfree(ctx, value);
 
     value = lwsjs_get_property(ctx, obj, "cgi_timeout");
     mnt->cgi_timeout = to_integerfree(ctx, value);
@@ -630,7 +625,7 @@ http_mount_fromobj(JSContext* ctx, JSValueConst obj, const char* name) {
 }
 
 static const struct lws_http_mount*
-http_mounts_fromarray(JSContext* ctx, JSValueConst value) {
+http_mounts_from(JSContext* ctx, JSValueConst value) {
   const struct lws_http_mount *mnt = 0, **ptr = &mnt, *tmp;
 
   if(JS_IsArray(ctx, value)) {
@@ -642,7 +637,7 @@ http_mounts_fromarray(JSContext* ctx, JSValueConst value) {
       for(int32_t i = 0; i < len; i++) {
         JSValue mount = JS_GetPropertyUint32(ctx, value, i);
 
-        if((*ptr = tmp = http_mount_fromobj(ctx, mount, 0)))
+        if((*ptr = tmp = http_mount_from(ctx, mount, 0)))
           ptr = (const struct lws_http_mount**)&(*ptr)->mount_next;
 
         JS_FreeValue(ctx, mount);
@@ -660,7 +655,7 @@ http_mounts_fromarray(JSContext* ctx, JSValueConst value) {
         const char* name = JS_AtomToCString(ctx, tmp_tab[i].atom);
         JSValue mount = JS_GetProperty(ctx, value, tmp_tab[i].atom);
 
-        if((*ptr = tmp = http_mount_fromobj(ctx, mount, name)))
+        if((*ptr = tmp = http_mount_from(ctx, mount, name)))
           ptr = (const struct lws_http_mount**)&(*ptr)->mount_next;
 
         JS_FreeCString(ctx, name);
@@ -721,7 +716,7 @@ http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
 }
 
 static LWSProtocolVHostOptions*
-vhost_option_fromobj(JSContext* ctx, JSValueConst obj) {
+vhost_option_from(JSContext* ctx, JSValueConst obj) {
   LWSProtocolVHostOptions* vho;
   JSValue name = JS_UNDEFINED, value = JS_UNDEFINED, options = JS_UNDEFINED, next = JS_UNDEFINED;
 
@@ -741,8 +736,8 @@ vhost_option_fromobj(JSContext* ctx, JSValueConst obj) {
   if((vho = js_malloc(ctx, sizeof(LWSProtocolVHostOptions)))) {
     vho->name = to_string(ctx, name);
     vho->value = to_string(ctx, value);
-    vho->options = vhost_options_fromarray(ctx, options);
-    vho->next = JS_IsObject(next) ? vhost_option_fromobj(ctx, next) : NULL;
+    vho->options = vhost_options_from(ctx, options);
+    vho->next = JS_IsObject(next) ? vhost_option_from(ctx, next) : NULL;
   }
 
   JS_FreeValue(ctx, name);
@@ -753,7 +748,7 @@ vhost_option_fromobj(JSContext* ctx, JSValueConst obj) {
 }
 
 static LWSProtocolVHostOptions*
-vhost_options_fromarray(JSContext* ctx, JSValueConst value) {
+vhost_options_from(JSContext* ctx, JSValueConst value) {
   LWSProtocolVHostOptions *vho = 0, **ptr = &vho, *tmp;
 
   if(JS_IsArray(ctx, value)) {
@@ -763,7 +758,7 @@ vhost_options_fromarray(JSContext* ctx, JSValueConst value) {
       for(int32_t i = 0; i < len; i++) {
         JSValue option = JS_GetPropertyUint32(ctx, value, i);
 
-        if((*ptr = tmp = vhost_option_fromobj(ctx, option))) {
+        if((*ptr = tmp = vhost_option_from(ctx, option))) {
           do
             ptr = (LWSProtocolVHostOptions**)&(*ptr)->next;
           while(*ptr);
@@ -776,15 +771,15 @@ vhost_options_fromarray(JSContext* ctx, JSValueConst value) {
       }
     }
   } else if(JS_IsObject(value)) {
-    vho = vhost_option_fromobj(ctx, value);
+    vho = vhost_option_from(ctx, value);
   }
 
   return vho;
 }
 
 static LWSProtocolVHostOptions*
-vhost_options_fromarrayfree(JSContext* ctx, JSValue value) {
-  LWSProtocolVHostOptions* vho = vhost_options_fromarray(ctx, value);
+vhost_options_fromfree(JSContext* ctx, JSValue value) {
+  LWSProtocolVHostOptions* vho = vhost_options_from(ctx, value);
   JS_FreeValue(ctx, value);
   return vho;
 }
@@ -914,20 +909,20 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   ci->http_proxy_address = to_stringfree(ctx, value);
 
   value = JS_GetPropertyStr(ctx, obj, "headers");
-  ci->headers = vhost_options_fromarrayfree(ctx, value);
+  ci->headers = vhost_options_fromfree(ctx, value);
 
   value = lwsjs_get_property(ctx, obj, "reject_service_keywords");
-  ci->reject_service_keywords = vhost_options_fromarray(ctx, value);
+  ci->reject_service_keywords = vhost_options_from(ctx, value);
   JS_FreeValue(ctx, value);
 
   value = JS_GetPropertyStr(ctx, obj, "pvo");
-  ci->pvo = vhost_options_fromarrayfree(ctx, value);
+  ci->pvo = vhost_options_fromfree(ctx, value);
 
   value = lwsjs_get_property(ctx, obj, "log_filepath");
   ci->log_filepath = to_stringfree(ctx, value);
 
   value = JS_GetPropertyStr(ctx, obj, "mounts");
-  ci->mounts = http_mounts_fromarray(ctx, value);
+  ci->mounts = http_mounts_from(ctx, value);
   JS_FreeValue(ctx, value);
 
   value = lwsjs_get_property(ctx, obj, "server_string");

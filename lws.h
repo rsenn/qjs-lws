@@ -131,6 +131,7 @@ to_stringfree(JSContext* ctx, JSValue value) {
 }
 
 char** to_stringarray(JSContext*, JSValueConst);
+JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
 
 static inline char**
 to_stringarrayfree(JSContext* ctx, JSValue val) {

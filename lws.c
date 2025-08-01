@@ -36,6 +36,39 @@ lwsjs_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
   return value;
 }
 
+JSValue*
+to_valuearray(JSContext* ctx, JSValueConst obj, size_t* lenp) {
+  JSValue iterator = iterator_get(ctx, obj);
+
+  if(JS_IsException(iterator)) {
+    JS_GetException(ctx);
+    return 0;
+  }
+
+  JSValue tmp = JS_Call(ctx, iterator, obj, 0, NULL);
+  JS_FreeValue(ctx, iterator);
+  iterator = tmp;
+
+  BOOL done = FALSE;
+  JSValue* ret = NULL;
+  uint32_t i;
+
+  for(i = 0;; ++i) {
+    JSValue value = lwsjs_iterator_next(ctx, iterator, &done);
+
+    if(done || !(ret = js_realloc(ctx, ret, (i + 1) * sizeof(JSValue)))) {
+      JS_FreeValue(ctx, value);
+      break;
+    }
+
+    ret[i] = value;
+  }
+
+  *lenp = i;
+
+  return ret;
+}
+
 char**
 to_stringarray(JSContext* ctx, JSValueConst obj) {
   JSValue iterator = iterator_get(ctx, obj);
