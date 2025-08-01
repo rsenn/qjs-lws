@@ -115,6 +115,8 @@ const protocols = [
       if(method != 'POST') wsi.wantWrite();
     },
     onAddHeaders(wsi, buf, len) {
+      wsi.addHeader('test', 'blah', buf, len);
+
       verbose('onAddHeaders', C, wsi, { buf, len });
     },
     callback(wsi, reason, ...args) {

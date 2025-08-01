@@ -329,6 +329,7 @@ enum {
   METHOD_WRITE,
   METHOD_RESPOND,
   METHOD_HTTP_CLIENT_READ,
+  METHOD_ADD_HEADER,
 };
 
 static JSValue
@@ -493,6 +494,45 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
           ret = JS_ThrowInternalError(ctx, "lws_http_client_read returned -1");*/
       }
 
+      break;
+    }
+
+    case METHOD_ADD_HEADER: {
+      const char *name, *value;
+      size_t vlen, blen;
+      unsigned char *buf, *ptr;
+      int64_t len = 0;
+
+      if(!(name = JS_ToCString(ctx, argv[0]))) {
+        ret = JS_ThrowTypeError(ctx, "argument 1 must be name");
+        break;
+      }
+      if(!(value = JS_ToCStringLen(ctx, &vlen, argv[1]))) {
+        ret = JS_ThrowTypeError(ctx, "argument 2 must be value");
+        JS_FreeCString(ctx, name);
+        break;
+      }
+
+      if(!(buf = JS_GetArrayBuffer(ctx, &blen, argv[2]))) {
+        ret = JS_ThrowTypeError(ctx, "argument 3 must be ArrayBuffer");
+        JS_FreeCString(ctx, name);
+        JS_FreeCString(ctx, value);
+        break;
+      }
+
+      len = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[3], 0));
+      len = MIN(MAX(0, len), (int64_t)blen);
+
+      ptr = buf + len;
+
+      int r = lws_add_http_header_by_name(s->wsi, (const unsigned char*)name, (const unsigned char*)value, vlen, &ptr, buf + blen);
+
+      JS_SetPropertyUint32(ctx, argv[3], 0, JS_NewUint32(ctx, ptr - buf));
+
+      ret = JS_NewInt32(ctx, r);
+
+      JS_FreeCString(ctx, name);
+      JS_FreeCString(ctx, value);
       break;
     }
   }
@@ -713,6 +753,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("write", 1, lwsjs_socket_methods, METHOD_WRITE),
     JS_CFUNC_MAGIC_DEF("respond", 1, lwsjs_socket_methods, METHOD_RESPOND),
     JS_CFUNC_MAGIC_DEF("httpClientRead", 1, lwsjs_socket_methods, METHOD_HTTP_CLIENT_READ),
+    JS_CFUNC_MAGIC_DEF("addHeader", 4, lwsjs_socket_methods, METHOD_ADD_HEADER),
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lwsjs_socket_get, 0, PROP_ID, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_FLAGS_DEF("tag", lwsjs_socket_get, 0, PROP_TAG, JS_PROP_CONFIGURABLE),
     JS_CGETSET_MAGIC_DEF("headers", lwsjs_socket_get, 0, PROP_HEADERS),
