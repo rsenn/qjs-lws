@@ -864,7 +864,7 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   ci->protocol = to_stringfree(ctx, value);
 
   value = JS_GetPropertyStr(ctx, obj, "method");
-  ci->method = to_stringfree(ctx, value);
+  ci->method = to_stringfree_default(ctx, value, "GET");
 
   value = JS_GetPropertyStr(ctx, obj, "iface");
   ci->iface = to_stringfree(ctx, value);
@@ -1279,8 +1279,15 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       LWSClientConnectInfo cci = {0};
       struct lws *wsi, *wsi2;
 
-      if(JS_IsObject(argv[0]))
-        client_connect_info_fromobj(ctx, argv[0], &cci);
+      JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
+
+      if(argc > 1 && JS_IsString(argv[0])) {
+        char* uri = to_string(ctx, argv[0]);
+        lwsjs_parse_uri(ctx, uri, obj);
+        js_free(ctx, uri);
+      }
+
+      client_connect_info_fromobj(ctx, obj, &cci);
 
       cci.context = lc->ctx;
       cci.pwsi = &wsi2;
@@ -1293,10 +1300,11 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         if((sock = lwsjs_socket_data(ret)))
           sock->client = TRUE;
 
-        JS_DefinePropertyValueStr(ctx, ret, "info", JS_DupValue(ctx, argv[0]), JS_PROP_CONFIGURABLE);
+        JS_DefinePropertyValueStr(ctx, ret, "info", JS_DupValue(ctx, obj), JS_PROP_CONFIGURABLE);
       }
 
       client_connect_info_free(JS_GetRuntime(ctx), &cci);
+      JS_FreeValue(ctx, obj);
       break;
     }
 

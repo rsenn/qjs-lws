@@ -98,7 +98,4 @@ let ctx = (globalThis.ctx = new LWSContext({
 }));
 
 //ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
-globalThis.client = ctx.clientConnect({
-  ...parseUri('https://blog.fefe.de/'),
-  method: 'GET',
-});
+globalThis.client = ctx.clientConnect('https://blog.fefe.de/'/*, { method: 'GET' }*/);

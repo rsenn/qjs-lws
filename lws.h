@@ -130,6 +130,14 @@ to_stringfree(JSContext* ctx, JSValue value) {
   return s;
 }
 
+static inline char*
+to_stringfree_default(JSContext* ctx, JSValue value, const char* def) {
+  if(JS_IsUndefined(value) || JS_IsNull(value) || JS_IsException(value) || JS_IsUninitialized(value))
+    return js_strdup(ctx, def);
+
+  return to_stringfree(ctx, value);
+}
+
 char** to_stringarray(JSContext*, JSValueConst);
 JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
 
@@ -282,6 +290,7 @@ list_size(struct list_head* list) {
   return i;
 }
 
+void lwsjs_parse_uri(JSContext*, const char*, JSValueConst);
 void lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[]);
 BOOL lwsjs_has_property(JSContext*, JSValue, const char*);
 JSValue lwsjs_get_property(JSContext*, JSValue, const char*);

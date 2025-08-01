@@ -135,6 +135,32 @@ lwsjs_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, int magic) 
   return ret;
 }*/
 
+void
+lwsjs_parse_uri(JSContext* ctx, const char* uri, JSValueConst obj) {
+  const char *protocol, *host, *path;
+  int port;
+
+  lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
+
+  if(protocol) {
+    size_t len = strlen(protocol);
+    BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
+
+    JS_SetPropertyStr(ctx, obj, "localProtocolName", ssl ? JS_NewStringLen(ctx, protocol, len - 1) : JS_NewString(ctx, protocol));
+
+    if(ssl)
+      JS_SetPropertyStr(ctx, obj, "ssl", JS_NewBool(ctx, TRUE));
+  }
+
+  if(host)
+    JS_SetPropertyStr(ctx, obj, "host", JS_NewString(ctx, host));
+
+  JS_SetPropertyStr(ctx, obj, "port", JS_NewInt32(ctx, port));
+
+  if(path)
+    JS_SetPropertyStr(ctx, obj, "path", JS_NewString(ctx, path));
+}
+
 static JSValue
 lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
   JSValue ret = JS_UNDEFINED;
@@ -229,30 +255,11 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     }
 
     case FUNCTION_PARSE_URI: {
-      const char *protocol, *host, *path, *uri = to_string(ctx, argv[0]);
-      int port;
+      char* uri = to_string(ctx, argv[0]);
 
-      lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
+      ret = argc > 1 ? JS_DupValue(ctx, argv[1]) : JS_NewObjectProto(ctx, JS_NULL);
 
-      ret = JS_NewObject(ctx);
-
-      if(protocol) {
-        size_t len = strlen(protocol);
-        BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
-
-        JS_SetPropertyStr(ctx, ret, "localProtocolName", ssl ? JS_NewStringLen(ctx, protocol, len - 1) : JS_NewString(ctx, protocol));
-
-        if(ssl)
-          JS_SetPropertyStr(ctx, ret, "ssl", JS_NewBool(ctx, TRUE));
-      }
-
-      if(host)
-        JS_SetPropertyStr(ctx, ret, "host", JS_NewString(ctx, host));
-
-      JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, port));
-
-      if(path)
-        JS_SetPropertyStr(ctx, ret, "path", JS_NewString(ctx, path));
+      lwsjs_parse_uri(ctx, uri, ret);
 
       js_free(ctx, (char*)uri);
       break;
