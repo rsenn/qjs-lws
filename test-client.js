@@ -51,7 +51,9 @@ let ctx = (globalThis.ctx = new LWSContext({
         verbose('onEstablishedClientHttp', data);
       },
       onClientAppendHandshakeHeader(wsi, data, len) {
-        verbose('onClientAppendHandshakeHeader', { data, len });
+        wsi.addHeader('cookie', 'test', data, len);
+
+        verbose('onClientAppendHandshakeHeader', { data: toString(data, 0, len[0]), len: len[0] });
       },
       onClientHttpWriteable(wsi) {
         verbose('onClientHttpWriteable', wsi);
