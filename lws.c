@@ -237,9 +237,12 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       ret = JS_NewObject(ctx);
 
       if(protocol) {
-        JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, protocol));
+        size_t len = strlen(protocol);
+        BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
 
-        if(!strcmp(protocol, "https"))
+        JS_SetPropertyStr(ctx, ret, "localProtocolName", ssl ? JS_NewStringLen(ctx, protocol, len - 1) : JS_NewString(ctx, protocol));
+
+        if(ssl)
           JS_SetPropertyStr(ctx, ret, "ssl", JS_NewBool(ctx, TRUE));
       }
 
