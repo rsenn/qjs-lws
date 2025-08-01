@@ -2,26 +2,6 @@
 import { LWSSPA, getCallbackName, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, log, toArrayBuffer, } from 'lws';
 import { setTimeout } from 'os';
 
-function verbose(name, ...args) {
-  console.log(name.padEnd(32), ...args);
-}
-
-function debug(name, ...args) {
-  if(process.env.DEBUG) console.log(name.padEnd(32), ...args);
-}
-
-function weakMapper(create, map = new WeakMap()) {
-  return Object.assign(
-    function(obj, ...args) {
-      let r;
-      if(map.has(obj)) r = map.get(obj);
-      else map.set(obj, (r = create(obj, ...args)));
-      return r;
-    },
-    { set: (k, v) => map.set(k, v), get: k => map.get(k), map, create },
-  );
-}
-
 const C = console.config({ compact: true, maxArrayLength: 8 });
 
 const spa = (globalThis.spa = weakMapper(
@@ -38,20 +18,9 @@ const spa = (globalThis.spa = weakMapper(
         verbose('spa.onClose', C, { [name]: filename });
       },
     }),
-  new WeakMap(),
 ));
 
-const wsi2obj = (globalThis.wsi2obj = (() => {
-  const m = new WeakMap();
-
-  return wsi => {
-    let obj;
-
-    if(!(obj = m.get(wsi))) m.set(wsi, (obj = {}));
-
-    return obj;
-  };
-})());
+const wsi2obj = (globalThis.wsi2obj = weakMapper(() => ({})));
 
 const protocols = [
   {
@@ -170,8 +139,40 @@ globalThis.ctx = new LWSContext({
   mounts: [
     { mountpoint: '/ws', protocol: 'ws', originProtocol: LWSMPRO_NO_MOUNT },
     { mountpoint: '/test', protocol: 'http', originProtocol: LWSMPRO_CALLBACK },
-    //{ mountpoint: '/', origin: '127.0.0.1:8000/warmcat/', def: 'index.html', originProtocol: LWSMPRO_HTTP },
-    { mountpoint: '/', origin: 'warmcat.com/', def: 'index.html', originProtocol: LWSMPRO_HTTP },
-    //{ mountpoint: '/', origin: '.', def: 'index.html', originProtocol: LWSMPRO_FILE },
+    { mountpoint: '/warmcat', origin: 'warmcat.com/', def: 'index.html', originProtocol: LWSMPRO_HTTP },
+    //{ mountpoint: '/', origin: 'warmcat.com/', def: 'index.html', originProtocol: LWSMPRO_HTTP },
+    {
+      mountpoint: '/',
+      origin: '.',
+      def: 'README.md',
+      originProtocol: LWSMPRO_FILE,
+      extraMimetypes: [
+        ['.diff', 'text/x-diff'],
+        ['.patch', 'text/x-diff  '],
+        ['.c', 'text/x-c'],
+        ['.h', 'text/x-c'],
+        ['.md', 'text/markdown'],
+      ],
+    },
   ],
 });
+
+function verbose(name, ...args) {
+  console.log(name.padEnd(32), ...args);
+}
+
+function debug(name, ...args) {
+  if(process.env.DEBUG) console.log(name.padEnd(32), ...args);
+}
+
+function weakMapper(create, map = new WeakMap()) {
+  return Object.assign(
+    (obj, ...args) => {
+      let ret;
+      if(map.has(obj)) ret = map.get(obj);
+      else map.set(obj, (ret = create(obj, ...args)));
+      return ret;
+    },
+    { set: (k, v) => map.set(k, v), get: k => map.get(k), map, create },
+  );
+}
