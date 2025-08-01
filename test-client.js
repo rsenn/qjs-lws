@@ -77,7 +77,7 @@ let ctx = (globalThis.ctx = new LWSContext({
         //verbose('onReceiveClientHttp(1)', { wsi, rest });
 
         let ret,
-          ab = new ArrayBuffer(2048);
+          ab = new ArrayBuffer(0xff0);
 
         try {
           ret = wsi.httpClientRead(ab);
@@ -85,7 +85,7 @@ let ctx = (globalThis.ctx = new LWSContext({
           console.log('exception', e);
         }
 
-        if(ret) this.onReceiveClientHttpRead(wsi, ab, len); //verbose('onReceiveClientHttp(2)', ret, ab);
+        if(ret) this.onReceiveClientHttpRead(wsi, ab);
       },
       onClientConnectionError(wsi, msg, ...args) {
         verbose('onClientConnectionError', toString(msg), args);

@@ -88,7 +88,9 @@ const protocols = [
       if(!obj.responded) {
         obj.lines = (JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n').split('\n');
 
-        wsi.respond(200, LWS_ILLEGAL_HTTP_CONTENT_LEN ?? obj.lines.length, { 'content-type': 'text/html' /*, connection: 'close'*/ });
+        wsi.respond(200, LWS_ILLEGAL_HTTP_CONTENT_LEN ?? obj.lines.length, {
+          'content-type': 'text/html' /*, connection: 'close'*/,
+        });
 
         obj.index = 0;
         setTimeout(() => wsi.wantWrite(), 0);
