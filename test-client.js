@@ -1,5 +1,7 @@
 import { parseUri, toString, toPointer, toArrayBuffer, LWSContext, LWSSocket, WSI_TOKEN_HTTP_ALLOW, WSI_TOKEN_HTTP_ACCEPT, WSI_TOKEN_HTTP_COOKIE, WSI_TOKEN_HTTP_USER_AGENT, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
+const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92, maxArrayLength: 8 });
+
 const wsi2obj = weakMapper(() => ({}));
 
 let ctx = (globalThis.ctx = new LWSContext({
@@ -94,6 +96,10 @@ let ctx = (globalThis.ctx = new LWSContext({
       onClientConnectionError(wsi, msg) {
         verbose('onClientConnectionError', { msg });
       },
+      onClientHttpDropProtocol(wsi) {
+        verbose('onClientHttpDropProtocol', wsi);
+        ctx.cancelService();
+      },
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
         verbose('http ' + getCallbackName(reason), wsi, args);
@@ -120,8 +126,6 @@ function weakMapper(create, map = new WeakMap()) {
     { set: (k, v) => map.set(k, v), get: k => map.get(k), map, create },
   );
 }
-
-const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92, maxArrayLength: 8 });
 
 function verbose(name, ...args) {
   console.log('\r' + name.padEnd(32), C, ...args);
