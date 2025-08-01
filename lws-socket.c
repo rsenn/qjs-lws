@@ -502,15 +502,19 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     case METHOD_ADD_HEADER: {
-      const char *name, *value;
+      const char *name = 0, *value;
       size_t vlen, blen;
       unsigned char *buf, *ptr;
       int64_t len = 0;
+      enum lws_token_indexes token = -1;
 
-      if(!(name = JS_ToCString(ctx, argv[0]))) {
+      if(JS_IsNumber(argv[0])) {
+        token = to_int32(ctx, argv[0]);
+      } else if(!(name = JS_ToCString(ctx, argv[0]))) {
         ret = JS_ThrowTypeError(ctx, "argument 1 must be name");
         break;
       }
+
       if(!(value = JS_ToCStringLen(ctx, &vlen, argv[1]))) {
         ret = JS_ThrowTypeError(ctx, "argument 2 must be value");
         JS_FreeCString(ctx, name);
@@ -529,7 +533,8 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
       ptr = buf + len;
 
-      int r = lws_add_http_header_by_name(s->wsi, (const unsigned char*)name, (const unsigned char*)value, vlen, &ptr, buf + blen);
+      int r = name ? lws_add_http_header_by_name(s->wsi, (const unsigned char*)name, (const unsigned char*)value, vlen, &ptr, buf + blen)
+                   : lws_add_http_header_by_token(s->wsi, token, (const unsigned char*)value, vlen, &ptr, buf + blen);
 
       JS_SetPropertyUint32(ctx, argv[3], 0, JS_NewUint32(ctx, ptr - buf));
 

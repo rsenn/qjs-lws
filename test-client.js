@@ -1,4 +1,4 @@
-import { parseUri, toString, toArrayBuffer, LWSContext, LWSSocket, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
+import { parseUri, toString, toArrayBuffer, LWSContext, LWSSocket,WSI_TOKEN_HTTP_ALLOW,WSI_TOKEN_HTTP_ACCEPT, WSI_TOKEN_HTTP_COOKIE,WSI_TOKEN_HTTP_USER_AGENT, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
 const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92, maxArrayLength: 8 });
 
@@ -51,7 +51,10 @@ let ctx = (globalThis.ctx = new LWSContext({
         verbose('onEstablishedClientHttp', data);
       },
       onClientAppendHandshakeHeader(wsi, data, len) {
-        wsi.addHeader('cookie', 'test', data, len);
+        wsi.addHeader(WSI_TOKEN_HTTP_ALLOW, 'GET, POST, HEAD', data, len);
+        wsi.addHeader(WSI_TOKEN_HTTP_ACCEPT, '*/*', data, len);
+        wsi.addHeader(WSI_TOKEN_HTTP_COOKIE, 'test=1234;', data, len);
+        wsi.addHeader(WSI_TOKEN_HTTP_USER_AGENT, 'QuickJS', data, len);
 
         verbose('onClientAppendHandshakeHeader', { data: toString(data, 0, len[0]), len: len[0] });
       },
