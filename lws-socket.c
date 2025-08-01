@@ -305,6 +305,10 @@ lwsjs_socket_headers(JSContext* ctx, struct lws* wsi) {
 
       if(len > 0) {
         const char* name = (const char*)lws_token_to_string(i);
+
+        if(name == NULL)
+          continue;
+
         size_t namelen = find_charset(name, ": ", 2);
         // JSAtom prop = JS_NewAtomUInt32(ctx, i);
         JSAtom prop = JS_NewAtomLen(ctx, name, namelen);
@@ -583,6 +587,7 @@ enum {
   PROP_HEADERS = 0,
   PROP_ID,
   PROP_CLIENT,
+  PROP_RESPONSE_CODE,
   PROP_TAG,
   PROP_TLS,
   PROP_PEER,
@@ -605,15 +610,11 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
-  if(!s->wsi && magic > PROP_CLIENT)
-    return JS_UNDEFINED; // JS_ThrowInternalError(ctx, "%s (magic=%d) s->wsi == NULL", __func__, magic);
+  if(!s->wsi && magic > PROP_RESPONSE_CODE)
+    return JS_UNINITIALIZED;
 
   switch(magic) {
     case PROP_HEADERS: {
-
-      /* if(JS_IsUndefined(s->headers))
-         s->headers = socket_headers(s, ctx);*/
-
       ret = JS_DupValue(ctx, s->headers);
       break;
     }
@@ -625,6 +626,13 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
     case PROP_CLIENT: {
       ret = JS_NewBool(ctx, s->client);
+      break;
+    }
+
+    case PROP_RESPONSE_CODE: {
+      if(s->client && s->response_code > 0)
+        ret = JS_NewInt32(ctx, s->response_code);
+
       break;
     }
 
@@ -772,6 +780,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("method", lwsjs_socket_get, 0, PROP_METHOD),
     JS_CGETSET_MAGIC_DEF("uri", lwsjs_socket_get, 0, PROP_URI),
     JS_CGETSET_MAGIC_DEF("client", lwsjs_socket_get, 0, PROP_CLIENT),
+    JS_CGETSET_MAGIC_DEF("response", lwsjs_socket_get, 0, PROP_RESPONSE_CODE),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 

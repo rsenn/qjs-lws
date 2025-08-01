@@ -398,7 +398,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
     argv[argi++] = JS_NewInt32(ctx, len);
   } else if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP) {
-    LWSSocket* sock = socket_get(wsi);
+    LWSSocket* sock = lwsjs_socket_new(ctx, wsi);
 
     sock->response_code = lws_http_client_http_response(wsi);
 
@@ -425,6 +425,12 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     argv[argi++] = JS_NewInt64(ctx, len);
   } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
     argv[argi++] = JS_NewString(ctx, in);
+  }
+
+  if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
+    LWSSocket* sock = lwsjs_socket_new(ctx, wsi);
+
+    sock->headers = lwsjs_socket_headers(ctx, wsi);
   }
 
   JSValue ret = JS_Call(ctx, *cb, JS_NULL, argi, argv);
