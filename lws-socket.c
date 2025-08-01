@@ -582,6 +582,7 @@ lwsjs_socket_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueC
 enum {
   PROP_HEADERS = 0,
   PROP_ID,
+  PROP_CLIENT,
   PROP_TAG,
   PROP_TLS,
   PROP_PEER,
@@ -594,7 +595,6 @@ enum {
   PROP_PROTOCOL,
   PROP_METHOD,
   PROP_URI,
-  PROP_CLIENT,
 };
 
 static JSValue
@@ -604,6 +604,9 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
+
+  if(!s->wsi && magic > PROP_CLIENT)
+    return JS_UNDEFINED; // JS_ThrowInternalError(ctx, "%s (magic=%d) s->wsi == NULL", __func__, magic);
 
   switch(magic) {
     case PROP_HEADERS: {
@@ -617,6 +620,11 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
     case PROP_ID: {
       ret = JS_NewUint32(ctx, s->id);
+      break;
+    }
+
+    case PROP_CLIENT: {
+      ret = JS_NewBool(ctx, s->client);
       break;
     }
 
@@ -723,11 +731,6 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_NewStringLen(ctx, uri_ptr, uri_len);
       break;
     }
-
-    case PROP_CLIENT: {
-      ret = JS_NewBool(ctx, s->client);
-      break;
-    }
   }
 
   return ret;
@@ -759,7 +762,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("headers", lwsjs_socket_get, 0, PROP_HEADERS),
     JS_CGETSET_MAGIC_DEF("tls", lwsjs_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lwsjs_socket_get, 0, PROP_PEER),
-    JS_CGETSET_MAGIC_FLAGS_DEF("fd", lwsjs_socket_get, 0, PROP_FD, JS_PROP_ENUMERABLE),
+    JS_CGETSET_MAGIC_DEF("fd", lwsjs_socket_get, 0, PROP_FD),
     JS_CGETSET_MAGIC_DEF("parent", lwsjs_socket_get, 0, PROP_PARENT),
     JS_CGETSET_MAGIC_DEF("child", lwsjs_socket_get, 0, PROP_CHILD),
     JS_CGETSET_MAGIC_DEF("network", lwsjs_socket_get, 0, PROP_NETWORK),

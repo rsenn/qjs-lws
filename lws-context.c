@@ -294,8 +294,8 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       default: break;
     }
 
-  if(((int32_t*)wsi)[58] & 2)
-    return lws_callback_http_dummy(wsi, reason, user, in, len);
+  /*if(((int32_t*)wsi)[58] & 2)
+    return lws_callback_http_dummy(wsi, reason, user, in, len);*/
 
   if(is_null_or_undefined(*cb))
     return 0;
@@ -1281,7 +1281,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
       JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
 
-      if(argc > 1 && JS_IsString(argv[0])) {
+      if(argc > 0 && JS_IsString(argv[0])) {
         char* uri = to_string(ctx, argv[0]);
         lwsjs_parse_uri(ctx, uri, obj);
         js_free(ctx, uri);

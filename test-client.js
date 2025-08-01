@@ -1,9 +1,9 @@
 import { parseUri, toString, toArrayBuffer, LWSContext, LWSSocket, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
-const C = console.config({ compact: true, maxArrayLength: 8 });
+const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92,  maxArrayLength: 8 });
 
 function verbose(name, ...args) {
-  console.log(name.padEnd(32), ...args);
+  console.log('\r'+name.padEnd(32), C, ...args);
 }
 
 let ctx = (globalThis.ctx = new LWSContext({
@@ -16,20 +16,17 @@ let ctx = (globalThis.ctx = new LWSContext({
     LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT |
     LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
     LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX,
-  sslCaFilepath: '/etc/ssl/certs/ca-certificates.crt',
-  sslCertFilepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
-  sslPrivateKeyFilepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
-  clientSslCaFilepath: '/etc/ssl/certs/ca-certificates.crt',
-  clientSslCertFilepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.cer',
-  clientSslPrivateKeyFilepath: '/home/roman/.acme.sh/transistorisiert.ch_ecc/transistorisiert.ch.key',
+  clientSslCaFilepath: 'ca.crt',
+  clientSslCertFilepath: 'localhost.crt',
+  clientSslPrivateKeyFilepath: 'localhost.key',
   protocols: [
     {
       name: 'raw',
       onConnecting(wsi) {
-        verbose('onConnecting', C, wsi);
+        verbose('onConnecting', wsi);
       },
       onRawConnected(wsi) {
-        verbose('onRawConnected', C, wsi);
+        verbose('onRawConnected', wsi);
       },
       onRawWriteable(wsi) {
         wsi.write(toArrayBuffer('GET / HTTP/1.0\r\n\r\n'));
@@ -37,42 +34,42 @@ let ctx = (globalThis.ctx = new LWSContext({
       onRawRx(wsi, data) {
         data = toString(data);
 
-        verbose('onRawRx', C, wsi, data.trimEnd());
+        verbose('onRawRx', wsi, data.trimEnd());
       },
       onRawClose(wsi) {
-        verbose('onRawClose', C, wsi);
-      } /*,
+        verbose('onRawClose', wsi);
+      },
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
-        verbose('raw', C, wsi, reason, getCallbackName(reason).padEnd(29, ' '), args);
+        verbose('raw ' + getCallbackName(reason), wsi, args);
         return 0;
-      },*/,
+      },
     },
     {
       name: 'http',
       onEstablishedClientHttp(wsi, data) {
-        verbose('onEstablishedClientHttp', C, data);
+        verbose('onEstablishedClientHttp', data);
       },
       onClientAppendHandshakeHeader(wsi, data, len) {
-        verbose('onClientAppendHandshakeHeader', C, { data, len });
+        verbose('onClientAppendHandshakeHeader', { data, len });
       },
       onClientHttpWriteable(wsi) {
-        verbose('onClientHttpWriteable', C, wsi);
+        verbose('onClientHttpWriteable', wsi);
       },
       onCompletedClientHttp(wsi) {
-        verbose('onCompletedClientHttp', C, wsi);
+        verbose('onCompletedClientHttp', wsi);
         //wsi.context.cancelService();
       },
       onClosedClientHttp(wsi) {
-        verbose('onClosedClientHttp', C, wsi.context);
+        verbose('onClosedClientHttp', wsi.context);
         ctx.cancelService();
       },
       onReceiveClientHttpRead(wsi, data, len) {
         data = toString(data);
-        verbose('onReceiveClientHttpRead', C, { data, len });
+        verbose('onReceiveClientHttpRead', { data, len });
       },
       onReceiveClientHttp(wsi, ...rest) {
-        //verbose('onReceiveClientHttp(1)', C, { wsi, rest });
+        //verbose('onReceiveClientHttp(1)', { wsi, rest });
 
         let ret,
           ab = new ArrayBuffer(2048);
@@ -83,14 +80,14 @@ let ctx = (globalThis.ctx = new LWSContext({
           console.log('exception', e);
         }
 
-        if(ret) this.onReceiveClientHttpRead(wsi, ab, len); //  verbose('onReceiveClientHttp(2)', C, ret, ab);
+        if(ret) this.onReceiveClientHttpRead(wsi, ab, len); //  verbose('onReceiveClientHttp(2)', ret, ab);
       },
       onClientConnectionError(wsi, msg, ...args) {
-        verbose('onClientConnectionError', C, toString(msg), args);
+        verbose('onClientConnectionError', toString(msg), args);
       },
       callback(wsi, reason, ...args) {
         globalThis.wsi = wsi;
-        verbose('http ' + getCallbackName(reason), C, wsi, args);
+        verbose('http ' + getCallbackName(reason), wsi, args);
         return 0;
       },
     },
@@ -98,4 +95,7 @@ let ctx = (globalThis.ctx = new LWSContext({
 }));
 
 //ctx.clientConnect({ address: 'localhost', port: 22, local_protocol_name: 'raw', method: 'RAW' });
-globalThis.client = ctx.clientConnect('https://blog.fefe.de/'/*, { method: 'GET' }*/);
+
+globalThis.client = ctx.clientConnect('https://blog.fefe.de/');
+
+os.kill(os.getpid(), os.SIGUSR1);
