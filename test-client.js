@@ -1,9 +1,9 @@
 import { parseUri, toString, toArrayBuffer, LWSContext, LWSSocket, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
-const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92,  maxArrayLength: 8 });
+const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92, maxArrayLength: 8 });
 
 function verbose(name, ...args) {
-  console.log('\r'+name.padEnd(32), C, ...args);
+  console.log('\r' + name.padEnd(32), C, ...args);
 }
 
 let ctx = (globalThis.ctx = new LWSContext({
