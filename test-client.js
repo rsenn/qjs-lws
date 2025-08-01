@@ -76,7 +76,7 @@ let ctx = (globalThis.ctx = new LWSContext({
 
         verbose('onReceiveClientHttpRead', { len, str });
 
-       //obj.offset += len;
+        //obj.offset += len;
       },
       onReceiveClientHttp(wsi, ...rest) {
         const obj = wsi2obj(wsi);
