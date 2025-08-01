@@ -160,6 +160,8 @@ globalThis.ctx = new LWSContext({
         ['.c', 'text/x-c'],
         ['.h', 'text/x-c'],
         ['.md', 'text/markdown'],
+        ['.crt', 'text/plain'],
+        ['.sublime-workspace', 'text/plain'],
       ],
     },
   ],

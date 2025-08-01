@@ -14,6 +14,7 @@ enum {
   FUNCTION_PARSE_URI,
   FUNCTION_VISIBLE,
   FUNCTION_TO_STRING,
+  FUNCTION_TO_POINTER,
   FUNCTION_TO_ARRAYBUFFER,
   FUNCTION_LOGLEVEL,
 };
@@ -281,6 +282,19 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       break;
     }
 
+    case FUNCTION_TO_POINTER: {
+      size_t n;
+      uint8_t* p;
+
+      if((p = get_buffer(ctx, argc, argv, &n))) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%p", p);
+        ret = JS_NewString(ctx, buf);
+      }
+
+      break;
+    }
+
     case FUNCTION_TO_ARRAYBUFFER: {
       size_t maxlen, len, ofs;
       uint8_t* ptr;
@@ -330,6 +344,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("visible", 1, lwsjs_functions, FUNCTION_VISIBLE),
     JS_CFUNC_MAGIC_DEF("toString", 1, lwsjs_functions, FUNCTION_TO_STRING),
     JS_CFUNC_MAGIC_DEF("toArrayBuffer", 1, lwsjs_functions, FUNCTION_TO_ARRAYBUFFER),
+    JS_CFUNC_MAGIC_DEF("toPointer", 1, lwsjs_functions, FUNCTION_TO_POINTER),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),

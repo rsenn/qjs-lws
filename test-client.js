@@ -1,10 +1,12 @@
-import { parseUri, toString, toArrayBuffer, LWSContext, LWSSocket, WSI_TOKEN_HTTP_ALLOW, WSI_TOKEN_HTTP_ACCEPT, WSI_TOKEN_HTTP_COOKIE, WSI_TOKEN_HTTP_USER_AGENT, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
+import { parseUri, toString, toPointer, toArrayBuffer, LWSContext, LWSSocket, WSI_TOKEN_HTTP_ALLOW, WSI_TOKEN_HTTP_ACCEPT, WSI_TOKEN_HTTP_COOKIE, WSI_TOKEN_HTTP_USER_AGENT, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
 
 const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92, maxArrayLength: 8 });
 
 function verbose(name, ...args) {
   console.log('\r' + name.padEnd(32), C, ...args);
 }
+
+const wsi2obj = weakMapper(() => ({}));
 
 let ctx = (globalThis.ctx = new LWSContext({
   asyncDnsServers: ['8.8.8.8', '8.8.4.4', '4.2.2.1'],
@@ -63,27 +65,35 @@ let ctx = (globalThis.ctx = new LWSContext({
       },
       onCompletedClientHttp(wsi) {
         verbose('onCompletedClientHttp', wsi);
-        //wsi.context.cancelService();
       },
       onClosedClientHttp(wsi) {
         verbose('onClosedClientHttp', wsi.context);
         ctx.cancelService();
       },
       onReceiveClientHttpRead(wsi, data, len) {
-        data = toString(data);
-        verbose('onReceiveClientHttpRead', { data, len });
+        const obj = wsi2obj(wsi);
+        const str = toString(data, 0, len);
+
+        verbose('onReceiveClientHttpRead', { len, str });
+
+       //obj.offset += len;
       },
       onReceiveClientHttp(wsi, ...rest) {
-        //verbose('onReceiveClientHttp(1)', { wsi, rest });
+        const obj = wsi2obj(wsi);
 
-        let ret,
-          ab = new ArrayBuffer(0xff0);
+        obj.offset ??= 0;
+
+        const ab = (obj.buffer ??= new ArrayBuffer(0xff0 * 16));
+
+        let ret;
 
         try {
-          ret = wsi.httpClientRead(ab);
+          ret = wsi.httpClientRead(ab, obj.offset);
         } catch(e) {
           console.log('exception', e);
         }
+
+        //verbose('onReceiveClientHttp(1)', { ptr: toPointer(ab), offset: obj.offset, ret });
 
         if(ret) this.onReceiveClientHttpRead(wsi, ab);
       },
@@ -104,3 +114,15 @@ let ctx = (globalThis.ctx = new LWSContext({
 globalThis.client = ctx.clientConnect('https://blog.fefe.de/');
 
 os.kill(os.getpid(), os.SIGUSR1);
+
+function weakMapper(create, map = new WeakMap()) {
+  return Object.assign(
+    (obj, ...args) => {
+      let ret;
+      if(map.has(obj)) ret = map.get(obj);
+      else map.set(obj, (ret = create(obj, ...args)));
+      return ret;
+    },
+    { set: (k, v) => map.set(k, v), get: k => map.get(k), map, create },
+  );
+}
