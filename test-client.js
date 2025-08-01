@@ -80,7 +80,7 @@ let ctx = (globalThis.ctx = new LWSContext({
           console.log('exception', e);
         }
 
-        if(ret) this.onReceiveClientHttpRead(wsi, ab, len); //  verbose('onReceiveClientHttp(2)', ret, ab);
+        if(ret) this.onReceiveClientHttpRead(wsi, ab, len); //verbose('onReceiveClientHttp(2)', ret, ab);
       },
       onClientConnectionError(wsi, msg, ...args) {
         verbose('onClientConnectionError', toString(msg), args);
