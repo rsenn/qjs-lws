@@ -902,8 +902,8 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   JS_FreeValue(ctx, value);
 
 #ifdef LWS_ROLE_WS
-
 #endif
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
   value = lwsjs_get_property(ctx, obj, "http_proxy_address");
   ci->http_proxy_address = to_stringfree(ctx, value);
@@ -1134,18 +1134,17 @@ context_free(JSRuntime* rt, LWSContext* lc) {
 
 static JSValue
 lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
-  JSValue proto, obj;
   LWSContext* lc;
 
   if(!(lc = context_new(ctx)))
     return JS_EXCEPTION;
 
   /* using new_target to get the prototype is necessary when the class is extended. */
-  proto = JS_GetPropertyStr(ctx, new_target, "prototype");
+  JSValue proto = JS_GetPropertyStr(ctx, new_target, "prototype");
   if(JS_IsException(proto))
     proto = JS_DupValue(ctx, lwsjs_context_proto);
 
-  obj = JS_NewObjectProtoClass(ctx, proto, lwsjs_context_class_id);
+  JSValue obj = JS_NewObjectProtoClass(ctx, proto, lwsjs_context_class_id);
   JS_FreeValue(ctx, proto);
   if(JS_IsException(obj))
     goto fail;
@@ -1172,7 +1171,7 @@ fail:
 }
 
 enum {
-  DESTROY = 0,
+  DESTROY,
   ADOPT_SOCKET,
   ADOPT_SOCKET_READBUF,
   CANCEL_SERVICE,
@@ -1192,7 +1191,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
     case DESTROY: {
       if(lc->ctx) {
         lws_context_destroy(lc->ctx);
-        lc->ctx = 0;
+        lc->ctx = NULL;
         ret = JS_TRUE;
       }
 
@@ -1204,7 +1203,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       struct lws* wsi;
       LWSSocket* s;
 
-      if((s = lws_get_opaque_user_data(wsi_from_fd(lc->ctx, arg))))
+      if((wsi = wsi_from_fd(lc->ctx, arg)) && (s = lws_get_opaque_user_data(wsi)))
         ret = JS_DupValue(ctx, lwsjs_socket_wrap(ctx, s->wsi));
       else if((wsi = lws_adopt_socket(lc->ctx, arg)))
         ret = JS_DupValue(ctx, lwsjs_socket_wrap(ctx, wsi));
@@ -1290,7 +1289,6 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
 enum {
   PROP_HOSTNAME = 0,
-  PROP_VHOST,
   PROP_DEPRECATED,
   PROP_EUID,
   PROP_EGID,
@@ -1313,15 +1311,6 @@ lwsjs_context_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       break;
     }
-
-      /* case PROP_VHOST: {
-           const char*s;
-
-           if((s=lws_get_vhost_name(lc->ctx)))
-             ret=JS_NewString(ctx, s);
-
-           break;
-         }*/
 
     case PROP_DEPRECATED: {
       ret = JS_NewBool(ctx, lws_context_is_deprecated(lc->ctx));
