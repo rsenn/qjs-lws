@@ -376,7 +376,15 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       s->type = SOCKET_WS;
   }
 
-  if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
+  BOOL process_html_args = reason == LWS_CALLBACK_ADD_HEADERS || reason == LWS_CALLBACK_CHECK_ACCESS_RIGHTS || reason == LWS_CALLBACK_PROCESS_HTML;
+
+  if(process_html_args) {
+    struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
+
+    argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
+    argv[argi++] = JS_NewUint32(ctx, pha->len);
+
+  } else if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
     argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
   } else if(reason == LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION) {
     argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
