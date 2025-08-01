@@ -381,11 +381,19 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   if(process_html_args) {
     struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
 
-    argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
-    argv[argi++] = JS_NewUint32(ctx, pha->len);
+    if(pha->len < pha->max_len)
+      memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
 
+    argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
+    argv[argi] = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
+    argi++;
   } else if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
+    memset(*(uint8_t**)in, 0, len);
     argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
+    argv[argi] = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, 0));
+    argi++;
   } else if(reason == LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION) {
     argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
     argv[argi++] = JS_NewInt32(ctx, len);
@@ -416,6 +424,17 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   }
 
   JSValue ret = JS_Call(ctx, *cb, JS_NULL, argi, argv);
+
+  if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
+    int32_t n = to_int32(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
+
+    *(uint8_t**)in += MAX(0, MIN(n, (int32_t)len));
+  } else if(process_html_args) {
+    struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
+    int32_t n = to_int32(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
+
+    pha->p += MAX(0, MIN(n, (int32_t)(pha->max_len - pha->len)));
+  }
 
   for(int i = 0; i < argi; i++) {
     if(buffer_index == argi)
