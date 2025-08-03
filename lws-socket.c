@@ -382,6 +382,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
     case METHOD_WRITE: {
       DynBuf dbuf = {0};
+      BOOL is_ws = s->type == SOCKET_WS;
 
       if(lws_partial_buffered(s->wsi)) {
         ret = JS_ThrowInternalError(ctx, "I/O error: partially buffered lws_write()");
@@ -393,7 +394,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
         break;
       }*/
 
-      if(s->type == SOCKET_WS) {
+      if(is_ws) {
         dbuf_init2(&dbuf, 0, 0);
         dbuf_put(&dbuf, (const void*)"XXXXXXXXXXXXXXXXXXXX", LWS_PRE);
       }
@@ -402,9 +403,9 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       size_t len;
       void* ptr = text ? (void*)JS_ToCStringLen(ctx, &len, argv[0]) : JS_GetArrayBuffer(ctx, &len, argv[0]);
       size_t n = len;
-      enum lws_write_protocol proto = s->type == SOCKET_HTTP ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
+      enum lws_write_protocol proto = (!is_ws) ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
 
-      if(s->type == SOCKET_WS)
+      if(is_ws)
         dbuf_put(&dbuf, ptr, n);
 
       if(argc > 2)
@@ -414,7 +415,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
         proto = to_int32(ctx, argv[argc > 2 ? 2 : 1]);
 
       if(ptr) {
-        int r = lws_write(s->wsi, s->type == SOCKET_WS ? dbuf.buf + LWS_PRE : ptr, MIN(n, len), proto);
+        int r = lws_write(s->wsi, is_ws ? dbuf.buf + LWS_PRE : ptr, MIN(n, len), proto);
 
         DEBUG_WSI(s->wsi, "wrote data (%d)", r);
 
@@ -431,7 +432,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       if(JS_IsString(argv[0]))
         JS_FreeCString(ctx, ptr);
 
-      // if(s->type == SOCKET_WS)
+      // if(is_ws)
       if(dbuf.buf)
         free(dbuf.buf);
 
