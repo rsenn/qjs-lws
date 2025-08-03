@@ -5,7 +5,7 @@
 			"path": ".",
       "file_exclude_patterns": [
         "*.log",
-        "*.ts*"
+        "*.ts?*"
       ]
 		}
 	],
