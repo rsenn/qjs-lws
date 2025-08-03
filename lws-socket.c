@@ -3,6 +3,9 @@
 #include "lws.h"
 #include <assert.h>
 
+#include "libwebsockets/lib/core/private-lib-core.h"
+//#include "libwebsockets/lib/roles/private-lib-roles.h"
+
 JSClassID lwsjs_socket_class_id;
 static JSValue lwsjs_socket_proto, lwsjs_socket_ctor;
 
@@ -96,6 +99,17 @@ static LWSSocket*
 socket_dup(LWSSocket* s) {
   ++s->ref_count;
   return s;
+}
+
+LWSSocketType
+socket_type(struct lws* wsi) {
+  if(lwsi_role_ws(wsi))
+    return SOCKET_WS;
+  if(lwsi_role_h1(wsi))
+    return SOCKET_HTTP;
+  if(lwsi_role_h2(wsi))
+    return SOCKET_HTTP;
+  return SOCKET_OTHER;
 }
 
 static LWSSocket*
@@ -332,6 +346,7 @@ enum {
   METHOD_WANT_WRITE = 0,
   METHOD_WRITE,
   METHOD_RESPOND,
+  METHOD_CLOSE,
   METHOD_HTTP_CLIENT_READ,
   METHOD_ADD_HEADER,
 };
@@ -474,6 +489,35 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       }
 
       ret = JS_NewUint32(ctx, written);
+      break;
+    }
+
+    case METHOD_CLOSE: {
+      uint32_t reason = 1000;
+
+      if(argc > 0)
+        reason = to_uint32(ctx, argv[0]);
+
+      if(socket_type(s->wsi) == SOCKET_WS) {
+        size_t n = 0;
+        uint8_t* p = NULL;
+
+        if(argc > 1)
+          p = get_buffer(ctx, argc - 1, argv + 1, &n);
+
+        lws_close_reason(s->wsi, reason, p, n);
+      } else {
+        const char* caller = NULL;
+
+        if(argc > 1)
+          caller = JS_ToCString(ctx, argv[1]);
+
+        lws_close_free_wsi(s->wsi, reason, caller);
+
+        if(caller)
+          JS_FreeCString(ctx, caller);
+      }
+
       break;
     }
 
@@ -760,6 +804,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("wantWrite", 0, lwsjs_socket_methods, METHOD_WANT_WRITE),
     JS_CFUNC_MAGIC_DEF("write", 1, lwsjs_socket_methods, METHOD_WRITE),
     JS_CFUNC_MAGIC_DEF("respond", 1, lwsjs_socket_methods, METHOD_RESPOND),
+    JS_CFUNC_MAGIC_DEF("close", 0, lwsjs_socket_methods, METHOD_CLOSE),
     JS_CFUNC_MAGIC_DEF("httpClientRead", 1, lwsjs_socket_methods, METHOD_HTTP_CLIENT_READ),
     JS_CFUNC_MAGIC_DEF("addHeader", 4, lwsjs_socket_methods, METHOD_ADD_HEADER),
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lwsjs_socket_get, 0, PROP_ID, JS_PROP_ENUMERABLE),

@@ -2,7 +2,6 @@
 #define QJS_LWS_H
 
 #include <quickjs.h>
-#include <libwebsockets.h>
 #include <cutils.h>
 #include <list.h>
 #include <ctype.h>

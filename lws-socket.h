@@ -4,7 +4,6 @@
 #include <quickjs.h>
 #include <cutils.h>
 #include <list.h>
-#include <libwebsockets.h>
 
 typedef enum {
   SOCKET_OTHER = 0,
@@ -32,7 +31,8 @@ JSValue lwsjs_socket_wrap(JSContext*, struct lws*);
 JSValue lwsjs_socket_get_or_create(JSContext*, struct lws*);
 JSValue lwsjs_socket_headers(JSContext*, struct lws*);
 int lwsjs_socket_init(JSContext*, JSModuleDef*);
-JSValue lwsjs_socket_get_by_fd(JSContext*, lws_sockfd_type);
+JSValue lwsjs_socket_get_by_fd(JSContext*, int);
+LWSSocketType socket_type(struct lws* wsi);
 
 static inline LWSSocket*
 lwsjs_socket_data(JSValueConst value) {
