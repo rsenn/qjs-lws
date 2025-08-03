@@ -53,6 +53,16 @@ is_uri(enum lws_token_indexes ti) {
   return FALSE;
 }
 
+int
+method_index(const char* method) {
+  for(int i = 0; i < countof(method_names); ++i)
+    if(method_names[i])
+      if(!strcasecmp(method, method_names[i]))
+        return i;
+
+  return -1;
+}
+
 static const char*
 socket_method(LWSSocket* sock) {
   if(!sock->client) {

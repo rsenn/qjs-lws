@@ -20,7 +20,7 @@ typedef struct {
   JSObject* obj;
   BOOL client, want_write, completed, closed, post;
   JSValue headers, write_handler;
-  int response_code, body_pending;
+  int response_code, body_pending, method;
 } LWSSocket;
 
 extern JSClassID lwsjs_socket_class_id;
@@ -34,6 +34,7 @@ int lwsjs_socket_init(JSContext*, JSModuleDef*);
 JSValue lwsjs_socket_get_by_fd(JSContext*, int);
 LWSSocketType socket_type(struct lws* wsi);
 LWSSocket* socket_get(struct lws* wsi);
+int method_index(const char* method);
 
 static inline LWSSocket*
 lwsjs_socket_data(JSValueConst value) {
