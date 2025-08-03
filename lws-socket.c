@@ -115,7 +115,7 @@ socket_type(struct lws* wsi) {
 LWSSocket*
 socket_get(struct lws* wsi) {
   struct list_head* n;
-  LWSSocket* sock = 0;
+  LWSSocket* sock;
 
   if(wsi == 0)
     return 0;
@@ -125,15 +125,13 @@ socket_get(struct lws* wsi) {
   assert(socket_list.next);
   assert(socket_list.prev);
 
-  /* if(!(sock = lws_get_opaque_user_data(wsi)))*/ {
-    list_for_each(n, &socket_list) {
-      if((sock = list_entry(n, LWSSocket, link)))
-        if(sock->wsi == wsi)
-          return sock;
-    }
+  list_for_each(n, &socket_list) {
+    if((sock = list_entry(n, LWSSocket, link)))
+      if(sock->wsi == wsi)
+        return sock;
   }
 
-  return sock;
+  return 0;
 }
 
 static LWSSocket*
