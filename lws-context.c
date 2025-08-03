@@ -1331,15 +1331,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
         if((sock = lwsjs_socket_data(ret))) {
           sock->client = TRUE;
-
-          if(cci.local_protocol_name) {
-            if(!strncmp(cci.local_protocol_name, "http", 4))
-              sock->type = SOCKET_HTTP;
-            else if(!strncmp(cci.local_protocol_name, "ws", 2))
-              sock->type = SOCKET_WS;
-            else
-              sock->type = SOCKET_OTHER;
-          }
+          sock->type = cci.method ? SOCKET_HTTP : SOCKET_WS;
         }
 
         JS_DefinePropertyValueStr(ctx, ret, "info", JS_DupValue(ctx, obj), JS_PROP_CONFIGURABLE);

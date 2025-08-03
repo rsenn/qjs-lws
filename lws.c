@@ -146,8 +146,12 @@ lwsjs_parse_uri(JSContext* ctx, const char* uri, JSValueConst obj) {
   if(protocol) {
     size_t len = strlen(protocol);
     BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
+    BOOL http = !strncmp(protocol, "http", 4);
 
-    JS_SetPropertyStr(ctx, obj, "protocol", ssl ? JS_NewStringLen(ctx, protocol, len - 1) : JS_NewString(ctx, protocol));
+    if(http)
+      JS_SetPropertyStr(ctx, obj, "method", JS_NewString(ctx, "GET"));
+
+    // JS_SetPropertyStr(ctx, obj, "protocol", ssl ? JS_NewStringLen(ctx, protocol, len - 1) : JS_NewString(ctx, protocol));
 
     if(ssl)
       JS_SetPropertyStr(ctx, obj, "ssl", JS_NewBool(ctx, TRUE));
