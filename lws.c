@@ -319,6 +319,8 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
         JS_FreeCString(ctx, s);
       }
 
+      if(ptr == 0)
+        JS_GetException(ctx);
       break;
     }
 
