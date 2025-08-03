@@ -727,7 +727,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_RESPONSE_CODE: {
-      if(s->client && s->response_code > 0)
+      if(s->response_code != 0)
         ret = JS_NewInt32(ctx, s->response_code);
 
       break;
@@ -821,7 +821,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     case PROP_METHOD: {
       const char* method;
 
-      if((method = socket_method(s)))
+      if((method = lwsjs_method_name(s->method)))
         ret = JS_NewString(ctx, method);
 
       break;

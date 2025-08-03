@@ -18,7 +18,7 @@ typedef struct {
   uint32_t id;
   LWSSocketType type;
   JSObject* obj;
-  BOOL client, want_write, completed, closed, post;
+  BOOL client, want_write, completed, closed;
   JSValue headers, write_handler;
   int response_code, body_pending, method;
 } LWSSocket;
