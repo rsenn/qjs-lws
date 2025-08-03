@@ -1298,7 +1298,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
           sock->client = TRUE;
           sock->type = info.method ? SOCKET_HTTP : SOCKET_WS;
           sock->post = info.method && !strcasecmp(info.method, "post");
-          sock->method = info.method ? method_index(info.method) : 0;
+          sock->method = info.method ? lwsjs_method_index(info.method) : 0;
         }
 
         JS_DefinePropertyValueStr(ctx, ret, "info", JS_DupValue(ctx, obj), JS_PROP_CONFIGURABLE);

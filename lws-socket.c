@@ -12,7 +12,7 @@ static JSValue lwsjs_socket_proto, lwsjs_socket_ctor;
 static struct list_head socket_list;
 static uint32_t socket_id;
 
-static const enum lws_token_indexes method_tokens[] = {
+static const enum lws_token_indexes lwsjs_method_tokens[] = {
     WSI_TOKEN_GET_URI,
     WSI_TOKEN_POST_URI,
 #ifdef LWS_WITH_HTTP_UNCOMMON_HEADERS
@@ -28,7 +28,7 @@ static const enum lws_token_indexes method_tokens[] = {
 #endif
 };
 
-static const char* const method_names[] = {
+static const char* const lwsjs_method_names[] = {
     "GET",
     "POST",
 #ifdef LWS_WITH_HTTP_UNCOMMON_HEADERS
@@ -46,21 +46,29 @@ static const char* const method_names[] = {
 
 static BOOL
 is_uri(enum lws_token_indexes ti) {
-  for(size_t i = 0; i < countof(method_tokens); i++)
-    if(method_tokens[i] == ti)
+  for(size_t i = 0; i < countof(lwsjs_method_tokens); i++)
+    if(lwsjs_method_tokens[i] == ti)
       return TRUE;
 
   return FALSE;
 }
 
 int
-method_index(const char* method) {
-  for(int i = 0; i < countof(method_names); ++i)
-    if(method_names[i])
-      if(!strcasecmp(method, method_names[i]))
+lwsjs_method_index(const char* method) {
+  for(int i = 0; i < countof(lwsjs_method_names); ++i)
+    if(lwsjs_method_names[i])
+      if(!strcasecmp(method, lwsjs_method_names[i]))
         return i;
 
   return -1;
+}
+
+const char*
+lwsjs_method_name(int i) {
+  if(i >= 0 && i < countof(lwsjs_method_names))
+    return lwsjs_method_names[i];
+
+  return 0;
 }
 
 static const char*
@@ -71,15 +79,15 @@ socket_method(LWSSocket* sock) {
 
     method = lws_http_get_uri_and_method(sock->wsi, &uri_ptr, &uri_len);
 
-    if(method >= 0 && method < (int)countof(method_names))
-      return method_names[method];
+    if(method >= 0 && method < (int)countof(lwsjs_method_names))
+      return lwsjs_method_names[method];
   }
 
-  for(size_t i = 0; i < countof(method_tokens); i++) {
-    enum lws_token_indexes tok = method_tokens[i];
+  for(size_t i = 0; i < countof(lwsjs_method_tokens); i++) {
+    enum lws_token_indexes tok = lwsjs_method_tokens[i];
 
     if(lws_hdr_total_length(sock->wsi, tok))
-      return method_names[i];
+      return lwsjs_method_names[i];
   }
 
   return 0;
