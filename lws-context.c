@@ -858,7 +858,7 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
     JS_FreeValue(ctx, value);
   }
 
-  str_property(&ci->path, ctx, obj, "address");
+  str_property(&ci->address, ctx, obj, "address");
 
   if(lwsjs_has_property(ctx, obj, "port"))
     ci->port = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "port"));
@@ -887,8 +887,8 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   str_property(&ci->local_protocol_name, ctx, obj, "local_protocol_name");
   str_property(&ci->alpn, ctx, obj, "alpn");
 
-  value = lwsjs_get_property(ctx, obj, "keep_warm_secs");
-  ci->keep_warm_secs = to_integerfree(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "keep_warm_secs"))
+    ci->keep_warm_secs = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "keep_warm_secs"));
 
   str_property(&ci->auth_username, ctx, obj, "auth_username");
   str_property(&ci->auth_password, ctx, obj, "auth_password");
