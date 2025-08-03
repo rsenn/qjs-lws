@@ -363,6 +363,11 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
   if(!s->wsi)
     return JS_ThrowInternalError(ctx, "%s (magic=%d) s->wsi == NULL", __func__, magic);
 
+  BOOL is_ws = lwsi_role_ws(s->wsi), is_http = lwsi_role_http(s->wsi);
+
+  if(!is_http && (magic == METHOD_ADD_HEADER || magic == METHOD_HTTP_CLIENT_READ))
+    return JS_ThrowInternalError(ctx, "%s (magic=%d) wsi is not HTTP", __func__, magic);
+
   switch(magic) {
     case METHOD_WANT_WRITE: {
       if(!s->want_write) {
@@ -382,7 +387,6 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
     case METHOD_WRITE: {
       DynBuf dbuf = {0};
-      BOOL is_ws = s->type == SOCKET_WS;
 
       if(lws_partial_buffered(s->wsi)) {
         ret = JS_ThrowInternalError(ctx, "I/O error: partially buffered lws_write()");
@@ -398,7 +402,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       size_t len;
       void* ptr = text ? (void*)JS_ToCStringLen(ctx, &len, argv[0]) : JS_GetArrayBuffer(ctx, &len, argv[0]);
       size_t n = len;
-      enum lws_write_protocol proto = (!is_ws) ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
+      enum lws_write_protocol proto = is_http ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
 
       if(is_ws) {
         dbuf_init2(&dbuf, 0, 0);
