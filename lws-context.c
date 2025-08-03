@@ -489,8 +489,8 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     // lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
   }
 
-  if(i == 0)
-    return lws_callback_http_dummy(wsi, reason, user, in, len);
+  /*if(i == 0)
+    return lws_callback_http_dummy(wsi, reason, user, in, len);*/
 
   return i;
 }
