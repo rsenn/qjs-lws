@@ -394,19 +394,17 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
         break;
       }*/
 
-      if(is_ws) {
-        dbuf_init2(&dbuf, 0, 0);
-        dbuf_put(&dbuf, (const void*)"XXXXXXXXXXXXXXXXXXXX", LWS_PRE);
-      }
-
       BOOL text = JS_IsString(argv[0]);
       size_t len;
       void* ptr = text ? (void*)JS_ToCStringLen(ctx, &len, argv[0]) : JS_GetArrayBuffer(ctx, &len, argv[0]);
       size_t n = len;
       enum lws_write_protocol proto = (!is_ws) ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
 
-      if(is_ws)
+      if(is_ws) {
+        dbuf_init2(&dbuf, 0, 0);
+        dbuf_put(&dbuf, (const void*)"XXXXXXXXXXXXXXXXXXXX", LWS_PRE);
         dbuf_put(&dbuf, ptr, n);
+      }
 
       if(argc > 2)
         n = to_int32(ctx, argv[1]);
