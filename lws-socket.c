@@ -430,7 +430,6 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       if(JS_IsString(argv[0]))
         JS_FreeCString(ctx, ptr);
 
-      // if(is_ws)
       if(dbuf.buf)
         free(dbuf.buf);
 
