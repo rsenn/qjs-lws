@@ -464,6 +464,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
         uint32_t tmp_len;
 
         if(!JS_GetOwnPropertyNames(ctx, &tmp_tab, &tmp_len, argv[hidx], JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)) {
+
           for(uint32_t j = 0; j < tmp_len; j++) {
             JSValue key = JS_AtomToValue(ctx, tmp_tab[j].atom);
             const char* name = JS_ToCString(ctx, key);
