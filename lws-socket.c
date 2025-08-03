@@ -105,10 +105,13 @@ LWSSocketType
 socket_type(struct lws* wsi) {
   if(lwsi_role_ws(wsi))
     return SOCKET_WS;
+
   if(lwsi_role_h1(wsi))
     return SOCKET_HTTP;
+
   if(lwsi_role_h2(wsi))
     return SOCKET_HTTP;
+
   return SOCKET_OTHER;
 }
 
@@ -380,6 +383,16 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     case METHOD_WRITE: {
       DynBuf dbuf = {0};
 
+      if(lws_partial_buffered(s->wsi)) {
+        ret = JS_ThrowInternalError(ctx, "I/O error: partially buffered lws_write()");
+        break;
+      }
+
+      /*if(!lws_send_pipe_choked(s->wsi)) {
+        ret = JS_ThrowInternalError(ctx, "I/O error: send pipe choked lws_write()");
+        break;
+      }*/
+
       if(s->type == SOCKET_WS) {
         dbuf_init2(&dbuf, 0, 0);
         dbuf_put(&dbuf, (const void*)"XXXXXXXXXXXXXXXXXXXX", LWS_PRE);
@@ -389,7 +402,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       size_t len;
       void* ptr = text ? (void*)JS_ToCStringLen(ctx, &len, argv[0]) : JS_GetArrayBuffer(ctx, &len, argv[0]);
       size_t n = len;
-      enum lws_write_protocol proto = s->type == SOCKET_WS ? (text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY) : LWS_WRITE_HTTP;
+      enum lws_write_protocol proto = s->type == SOCKET_HTTP ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
 
       if(s->type == SOCKET_WS)
         dbuf_put(&dbuf, ptr, n);
@@ -411,6 +424,8 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
           if(proto == LWS_WRITE_HTTP_FINAL)
             if(lws_http_transaction_completed(s->wsi))
               s->completed = TRUE;
+
+        printf("send pipe choked: %d partially buffered: %d\n", lws_send_pipe_choked(s->wsi), lws_partial_buffered(s->wsi));
       }
 
       if(JS_IsString(argv[0]))
