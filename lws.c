@@ -102,46 +102,37 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
   return ret;
 }
 
-/*enum {
-  PROP_LOGLEVEL,
-};
-
-static JSValue
-lwsjs_get(JSContext* ctx, JSValueConst this_val, int magic) {
-  JSValue ret = JS_UNDEFINED;
-
-  switch(magic) {
-    case PROP_LOGLEVEL: {
-      ret = JS_NewUint32(ctx, lwsjs_loglevel);
-      break;
-    }
-  }
-
-  return ret;
-}
-
-static JSValue
-lwsjs_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, int magic) {
-  JSValue ret = JS_UNDEFINED;
-
-  switch(magic) {
-    case PROP_LOGLEVEL: {
-      lwsjs_loglevel = to_uint32(ctx, value);
-
-      lws_set_log_level(lwsjs_loglevel, &lwsjs_log_callback);
-      break;
-    }
-  }
-
-  return ret;
-}*/
-
 void
-lwsjs_parse_uri(JSContext* ctx, const char* uri, JSValueConst obj) {
+lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
   const char *protocol, *host, *path;
   int port;
+  int r = lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
 
-  lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
+  if(protocol) {
+    BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
+    BOOL http = !strncmp(protocol, "http", 4);
+
+    if(http)
+      str_replace(ctx, &info->method, js_strdup(ctx, "GET"));
+
+    if(ssl)
+      info->ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+  }
+
+  if(host)
+    str_replace(ctx, &info->host, js_strdup(ctx, host));
+
+  info->port = port;
+
+  if(path)
+    str_replace(ctx, &info->path, js_strdup(ctx, path));
+}
+
+void
+lwsjs_uri_toobj(JSContext* ctx, char* uri, JSValueConst obj) {
+  const char *protocol, *host, *path;
+  int port;
+  int r = lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
 
   if(protocol) {
     size_t len = strlen(protocol);
@@ -264,7 +255,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       ret = argc > 1 ? JS_DupValue(ctx, argv[1]) : JS_NewObjectProto(ctx, JS_NULL);
 
-      lwsjs_parse_uri(ctx, uri, ret);
+      lwsjs_uri_toobj(ctx, uri, ret);
 
       js_free(ctx, (char*)uri);
       break;

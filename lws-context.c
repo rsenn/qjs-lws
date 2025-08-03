@@ -8,11 +8,6 @@
 #include "lws-context.h"
 #include "lws.h"
 
-typedef struct lws_protocols LWSProtocols;
-typedef struct lws_protocol_vhost_options LWSProtocolVHostOptions;
-typedef struct lws_context_creation_info LWSContextCreationInfo;
-typedef struct lws_client_connect_info LWSClientConnectInfo;
-
 JSClassID lwsjs_context_class_id;
 static JSValue lwsjs_context_proto, lwsjs_context_ctor;
 
@@ -861,14 +856,14 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   ci->context = lws_context_data(value);
   JS_FreeValue(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, lwsjs_has_property(ctx, obj, "address") ? "address" : "host");
-  ci->address = to_stringfree(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "address"))
+    str_replace(ctx, &ci->address, to_stringfree(ctx, JS_GetPropertyStr(ctx, obj, "address")));
 
-  value = lwsjs_get_property(ctx, obj, "port");
-  ci->port = to_integerfree(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "port"))
+    ci->port = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "port"));
 
-  value = lwsjs_get_property(ctx, obj, "ssl_connection");
-  ci->ssl_connection = to_integerfree(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "ssl_connection"))
+    ci->ssl_connection = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "ssl_connection"));
 
   if(lwsjs_has_property(ctx, obj, "ssl")) {
     value = lwsjs_get_property(ctx, obj, "ssl");
@@ -878,43 +873,40 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
     JS_FreeValue(ctx, value);
   }
 
-  value = JS_GetPropertyStr(ctx, obj, "path");
-  ci->path = to_stringfree(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "path"))
+    str_replace(ctx, &ci->path, to_stringfree(ctx, JS_GetPropertyStr(ctx, obj, "path")));
 
-  value = JS_GetPropertyStr(ctx, obj, "host");
-  ci->host = to_stringfree(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "host"))
+    str_replace(ctx, &ci->host, to_stringfree(ctx, JS_GetPropertyStr(ctx, obj, "host")));
 
-  value = JS_GetPropertyStr(ctx, obj, "origin");
-  ci->origin = to_stringfree(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "origin"))
+    str_replace(ctx, &ci->origin, to_stringfree(ctx, JS_GetPropertyStr(ctx, obj, "origin")));
 
   value = JS_GetPropertyStr(ctx, obj, "protocol");
-  ci->protocol = to_stringfree(ctx, value);
+  str_replace(ctx, &ci->protocol, to_stringfree(ctx, value));
 
   if(lwsjs_has_property(ctx, obj, "method")) {
     value = JS_GetPropertyStr(ctx, obj, "method");
-    ci->method = to_stringfree(ctx, value);
+    str_replace(ctx, &ci->method, to_stringfree(ctx, value));
   }
 
   value = JS_GetPropertyStr(ctx, obj, "iface");
-  ci->iface = to_stringfree(ctx, value);
+  str_replace(ctx, &ci->iface, to_stringfree(ctx, value));
 
   value = lwsjs_get_property(ctx, obj, "local_port");
   ci->local_port = to_integerfree(ctx, value);
 
-  value = lwsjs_get_property(ctx, obj, "local_protocol_name");
-  ci->local_protocol_name = to_stringfree(ctx, value);
+  str_property(&ci->local_protocol_name, ctx, obj, "local_protocol_name");
 
   value = JS_GetPropertyStr(ctx, obj, "alpn");
-  ci->alpn = to_stringfree(ctx, value);
+  str_replace(ctx, &ci->alpn, to_stringfree(ctx, value));
 
   value = lwsjs_get_property(ctx, obj, "keep_warm_secs");
   ci->keep_warm_secs = to_integerfree(ctx, value);
 
-  value = lwsjs_get_property(ctx, obj, "auth_username");
-  ci->auth_username = to_stringfree(ctx, value);
+  str_property(&ci->auth_username, ctx, obj, "auth_username");
 
-  value = lwsjs_get_property(ctx, obj, "auth_password");
-  ci->auth_password = to_stringfree(ctx, value);
+  str_property(&ci->auth_password, ctx, obj, "auth_password");
 }
 
 static void
@@ -948,10 +940,9 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   JSValue value;
 
   value = JS_GetPropertyStr(ctx, obj, "iface");
-  ci->iface = to_stringfree(ctx, value);
+  str_replace(ctx, &ci->iface, to_stringfree(ctx, value));
 
-  value = lwsjs_get_property(ctx, obj, "vhost_name");
-  ci->vhost_name = to_stringfree(ctx, value);
+  str_property(&ci->vhost_name, ctx, obj, "vhost_name");
 
   value = JS_GetPropertyStr(ctx, obj, "protocols");
   ci->protocols = protocols_fromarray(ctx, value);
@@ -961,8 +952,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-  value = lwsjs_get_property(ctx, obj, "http_proxy_address");
-  ci->http_proxy_address = to_stringfree(ctx, value);
+  str_property(&ci->http_proxy_address, ctx, obj, "http_proxy_address");
 
   value = JS_GetPropertyStr(ctx, obj, "headers");
   ci->headers = vhost_options_fromfree(ctx, value);
@@ -974,18 +964,15 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   value = JS_GetPropertyStr(ctx, obj, "pvo");
   ci->pvo = vhost_options_fromfree(ctx, value);
 
-  value = lwsjs_get_property(ctx, obj, "log_filepath");
-  ci->log_filepath = to_stringfree(ctx, value);
+  str_property(&ci->log_filepath, ctx, obj, "log_filepath");
 
   value = JS_GetPropertyStr(ctx, obj, "mounts");
   ci->mounts = http_mounts_from(ctx, value);
   JS_FreeValue(ctx, value);
 
-  value = lwsjs_get_property(ctx, obj, "server_string");
-  ci->server_string = to_stringfree(ctx, value);
+  str_property(&ci->server_string, ctx, obj, "server_string");
 
-  value = lwsjs_get_property(ctx, obj, "error_document_404");
-  ci->error_document_404 = to_stringfree(ctx, value);
+  str_property(&ci->error_document_404, ctx, obj, "error_document_404");
 
   value = JS_GetPropertyStr(ctx, obj, "port");
   ci->port = to_integerfree(ctx, value);
@@ -1003,46 +990,22 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 #endif
 
 #ifdef LWS_WITH_TLS
-  value = lwsjs_get_property(ctx, obj, "ssl_private_key_password");
-  ci->ssl_private_key_password = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "ssl_cert_filepath");
-  ci->ssl_cert_filepath = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "ssl_private_key_filepath");
-  ci->ssl_private_key_filepath = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "ssl_ca_filepath");
-  ci->ssl_ca_filepath = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "ssl_cipher_list");
-  ci->ssl_cipher_list = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "tls1_3_plus_cipher_list");
-  ci->tls1_3_plus_cipher_list = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "client_ssl_private_key_password");
-  ci->client_ssl_private_key_password = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "client_ssl_cert_filepath");
-  ci->client_ssl_cert_filepath = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "client_ssl_private_key_filepath");
-  ci->client_ssl_private_key_filepath = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "client_ssl_ca_filepath");
-  ci->client_ssl_ca_filepath = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "client_ssl_cipher_list");
-  ci->client_ssl_cipher_list = to_stringfree(ctx, value);
-
-  value = lwsjs_get_property(ctx, obj, "client_tls_1_3_plus_cipher_list");
-  ci->client_tls_1_3_plus_cipher_list = to_stringfree(ctx, value);
+  str_property(&ci->ssl_private_key_password, ctx, obj, "ssl_private_key_password");
+  str_property(&ci->ssl_cert_filepath, ctx, obj, "ssl_cert_filepath");
+  str_property(&ci->ssl_private_key_filepath, ctx, obj, "ssl_private_key_filepath");
+  str_property(&ci->ssl_ca_filepath, ctx, obj, "ssl_ca_filepath");
+  str_property(&ci->ssl_cipher_list, ctx, obj, "ssl_cipher_list");
+  str_property(&ci->tls1_3_plus_cipher_list, ctx, obj, "tls1_3_plus_cipher_list");
+  str_property(&ci->client_ssl_private_key_password, ctx, obj, "client_ssl_private_key_password");
+  str_property(&ci->client_ssl_cert_filepath, ctx, obj, "client_ssl_cert_filepath");
+  str_property(&ci->client_ssl_private_key_filepath, ctx, obj, "client_ssl_private_key_filepath");
+  str_property(&ci->client_ssl_ca_filepath, ctx, obj, "client_ssl_ca_filepath");
+  str_property(&ci->client_ssl_cipher_list, ctx, obj, "client_ssl_cipher_list");
+  str_property(&ci->client_tls_1_3_plus_cipher_list, ctx, obj, "client_tls_1_3_plus_cipher_list");
 #endif
 
 #ifdef LWS_WITH_SOCKS5
-  value = lwsjs_get_property(ctx, obj, "socks_proxy_address");
-  ci->socks_proxy_address = to_stringfree(ctx, value);
+  str_property(&ci->socks_proxy_address, ctx, obj, "socks_proxy_address");
 
   value = lwsjs_get_property(ctx, obj, "socks_proxy_port");
   ci->socks_proxy_port = to_integerfree(ctx, value);
@@ -1058,11 +1021,9 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   ci->options = to_integerfree(ctx, value);
 
   if(ci->options & LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG) {
-    value = lwsjs_get_property(ctx, obj, "listen_accept_role");
-    ci->listen_accept_role = to_stringfree(ctx, value);
+    str_property(&ci->listen_accept_role, ctx, obj, "listen_accept_role");
 
-    value = lwsjs_get_property(ctx, obj, "listen_accept_protocol");
-    ci->listen_accept_protocol = to_stringfree(ctx, value);
+    str_property(&ci->listen_accept_protocol, ctx, obj, "listen_accept_protocol");
   }
 }
 
@@ -1314,9 +1275,12 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
 
       if(argc > 0 && JS_IsString(argv[0])) {
-        char* uri = to_string(ctx, argv[0]);
-        lwsjs_parse_uri(ctx, uri, obj);
-        js_free(ctx, uri);
+        char* uri;
+
+        if((uri = to_string(ctx, argv[0]))) {
+          lwsjs_uri_toconnectinfo(ctx, uri, &cci);
+          js_free(ctx, uri);
+        }
       }
 
       client_connect_info_fromobj(ctx, obj, &cci);

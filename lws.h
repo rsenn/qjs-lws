@@ -6,6 +6,11 @@
 #include <list.h>
 #include <ctype.h>
 
+typedef struct lws_protocols LWSProtocols;
+typedef struct lws_protocol_vhost_options LWSProtocolVHostOptions;
+typedef struct lws_context_creation_info LWSContextCreationInfo;
+typedef struct lws_client_connect_info LWSClientConnectInfo;
+
 #if __SIZEOF_POINTER__ == 8
 #define intptr int64_t
 #elif __SIZEOF_POINTER__ == 4
@@ -41,6 +46,20 @@ to_ptr(JSContext* ctx, JSValueConst val) {
   }
 
 #define JS_ATOM_MAX_INT ((1u << 31) - 1)
+
+int lwsjs_spa_init(JSContext*, JSModuleDef*);
+JSValue ptr_obj(JSContext*, JSObject*);
+JSValue lwsjs_iterator_next(JSContext*, JSValue, BOOL*);
+JSValue* to_valuearray(JSContext*, JSValue, size_t*);
+char** to_stringarray(JSContext*, JSValue);
+void lwsjs_uri_toconnectinfo(JSContext*, char*, LWSClientConnectInfo*);
+void lwsjs_uri_toobj(JSContext*, char*, JSValue);
+enum lws_callback_reasons lwsjs_callback_find(const char*);
+void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);
+BOOL lwsjs_has_property(JSContext*, JSValue, const char*);
+JSValue lwsjs_get_property(JSContext*, JSValue, const char*);
+int lwsjs_init(JSContext*, JSModuleDef*);
+JSModuleDef* js_init_module(JSContext*, const char*);
 
 #define to_integer(ctx, val) to_int64(ctx, val)
 #define to_integerfree(ctx, val) to_int64free(ctx, val)
@@ -160,6 +179,27 @@ global_get(JSContext* ctx, const char* name) {
   JSValue ret = JS_GetPropertyStr(ctx, global_obj, name);
   JS_FreeValue(ctx, global_obj);
   return ret;
+}
+
+static inline void
+str_free(JSContext* ctx, char** pptr) {
+  if(*pptr) {
+    js_free(ctx, *pptr);
+    *pptr = 0;
+  }
+}
+
+static inline void
+str_replace(JSContext* ctx, const char** pptr, char* str) {
+  char** pp = (char**)pptr;
+  str_free(ctx, pp);
+  *pp = str;
+}
+
+static inline void
+str_property(const char** pptr, JSContext* ctx, JSValueConst obj, const char* name) {
+  if(lwsjs_has_property(ctx, obj, name))
+    str_replace(ctx, pptr, to_stringfree(ctx, lwsjs_get_property(ctx, obj, name)));
 }
 
 static inline JSObject*
@@ -288,14 +328,5 @@ list_size(struct list_head* list) {
 
   return i;
 }
-
-void lwsjs_parse_uri(JSContext*, const char*, JSValueConst);
-void lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[], size_t);
-BOOL lwsjs_has_property(JSContext*, JSValue, const char*);
-JSValue lwsjs_get_property(JSContext*, JSValue, const char*);
-enum lws_callback_reasons lwsjs_callback_find(const char* name);
-int lwsjs_init(JSContext*, JSModuleDef*);
-JSModuleDef* lwsjs_init_module(JSContext*, const char*);
-int lwsjs_spa_init(JSContext* ctx, JSModuleDef* m);
 
 #endif
