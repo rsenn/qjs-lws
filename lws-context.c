@@ -247,7 +247,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   JSValue* cb = closure ? &closure->callback : 0;
   LWSContext* lc = wsi ? lwsjs_socket_context(wsi) : 0;
   JSContext* ctx = wsi_to_js_ctx(wsi);
-  int32_t i = 0;
+  int32_t ret = 0;
 
   if(closure && countof(closure->callbacks) > reason && !is_nullish(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];
@@ -305,7 +305,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
           JSValue fn = s->write_handler;
           s->write_handler = JS_UNDEFINED;
           JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 1, &sock);
-          int32_t ret = to_int32(ctx, result);
+          ret = to_int32(ctx, result);
           JS_FreeValue(ctx, result);
           JS_FreeValue(ctx, fn);
           return ret;
@@ -435,12 +435,22 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       sock->headers = lwsjs_socket_headers(ctx, wsi);
     }
 
-    JSValue ret = JS_Call(ctx, *cb, JS_NULL, argi, argv);
+    JSValue result = JS_Call(ctx, *cb, JS_NULL, argi, argv);
+
+    if(JS_IsException(result)) {
+      char* error = to_stringfree(ctx, JS_GetException(ctx));
+
+      fprintf(stderr, "\x1b[1;31mEXCEPTION\x1b[0: %s\n", error);
+      js_free(ctx, error);
+
+      return -1;
+    }
 
     if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
       int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
 
       *(uint8_t**)in += MIN(MAX(0, n), (int64_t)len);
+
     } else if(process_html_args) {
       struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
       int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
@@ -448,13 +458,13 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       pha->p += MIN(MAX(0, n), (int64_t)(pha->max_len - pha->len));
     }
 
-    for(int i = 0; i < argi; i++) {
+    for(int j = 0; j < argi; j++) {
       if(buffer_index == argi)
-        JS_DetachArrayBuffer(ctx, argv[i]);
-      JS_FreeValue(ctx, argv[i]);
+        JS_DetachArrayBuffer(ctx, argv[j]);
+      JS_FreeValue(ctx, argv[j]);
     }
 
-    i = to_int32free(ctx, ret);
+    ret = to_int32free(ctx, result);
   }
 
   LWSSocket* sock;
@@ -463,18 +473,26 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     if(sock->closed)
       return -1;
 
+  /* if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER)
+     if(sock->post)
+       if(!lws_http_is_redirected_to_get(wsi)) {
+         lwsl_user("%s: doing POST flow\n", __func__);
+         lws_client_http_body_pending(wsi, 1);
+         lws_callback_on_writable(wsi);
+       }*/
+
   if(reason != LWS_CALLBACK_PROTOCOL_INIT && reason != LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
     if((s = lwsjs_socket_data(sock)))
       if(s->completed)
-        i = -1;
+        ret = -1;
 
     JS_FreeValue(ctx, sock);
   }
 
-  if(i != 0) {
+  if(ret != 0) {
     int fd = lws_get_socket_fd(wsi);
 
     if(fd != -1)
@@ -484,10 +502,10 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     // lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
   }
 
-  /*if(i == 0)
+  /*if(ret == 0)
     return lws_callback_http_dummy(wsi, reason, user, in, len);*/
 
-  return i;
+  return ret;
 }
 
 static LWSProtocols
@@ -1252,7 +1270,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
     }
 
     case CLIENT_CONNECT: {
-      LWSClientConnectInfo cci = {0};
+      LWSClientConnectInfo info = {0};
       struct lws *wsi, *wsi2;
 
       JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
@@ -1261,30 +1279,31 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         char* uri;
 
         if((uri = to_string(ctx, argv[0]))) {
-          lwsjs_uri_toconnectinfo(ctx, uri, &cci);
+          lwsjs_uri_toconnectinfo(ctx, uri, &info);
           js_free(ctx, uri);
         }
       }
 
-      client_connect_info_fromobj(ctx, obj, &cci);
+      client_connect_info_fromobj(ctx, obj, &info);
 
-      cci.context = lc->ctx;
-      cci.pwsi = &wsi2;
+      info.context = lc->ctx;
+      info.pwsi = &wsi2;
 
-      if((wsi = lws_client_connect_via_info(&cci))) {
+      if((wsi = lws_client_connect_via_info(&info))) {
         ret = lwsjs_socket_wrap(ctx, wsi);
 
         LWSSocket* sock;
 
         if((sock = lwsjs_socket_data(ret))) {
           sock->client = TRUE;
-          sock->type = cci.method ? SOCKET_HTTP : SOCKET_WS;
+          sock->type = info.method ? SOCKET_HTTP : SOCKET_WS;
+          sock->post = info.method && !strcasecmp(info.method, "post");
         }
 
         JS_DefinePropertyValueStr(ctx, ret, "info", JS_DupValue(ctx, obj), JS_PROP_CONFIGURABLE);
       }
 
-      client_connect_info_free(JS_GetRuntime(ctx), &cci);
+      client_connect_info_free(JS_GetRuntime(ctx), &info);
       JS_FreeValue(ctx, obj);
       break;
     }

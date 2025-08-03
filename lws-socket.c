@@ -55,13 +55,15 @@ is_uri(enum lws_token_indexes ti) {
 
 static const char*
 socket_method(LWSSocket* sock) {
-  char* uri_ptr;
-  int method, uri_len;
+  if(!sock->client) {
+    char* uri_ptr;
+    int method, uri_len;
 
-  method = lws_http_get_uri_and_method(sock->wsi, &uri_ptr, &uri_len);
+    method = lws_http_get_uri_and_method(sock->wsi, &uri_ptr, &uri_len);
 
-  if(method >= 0 && method < (int)countof(method_names))
-    return method_names[method];
+    if(method >= 0 && method < (int)countof(method_names))
+      return method_names[method];
+  }
 
   for(size_t i = 0; i < countof(method_tokens); i++) {
     enum lws_token_indexes tok = method_tokens[i];
@@ -655,7 +657,29 @@ enum {
   PROP_PROTOCOL,
   PROP_METHOD,
   PROP_URI,
+  PROP_BODY_PENDING,
 };
+
+static JSValue
+lwsjs_socket_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, int magic) {
+  LWSSocket* s;
+  JSValue ret = JS_UNDEFINED;
+
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
+    return JS_EXCEPTION;
+
+  if(!s->wsi)
+    return JS_UNINITIALIZED;
+
+  switch(magic) {
+    case PROP_BODY_PENDING: {
+      lws_client_http_body_pending(s->wsi, (s->body_pending = to_int32(ctx, value)));
+      break;
+    }
+  }
+
+  return ret;
+}
 
 static JSValue
 lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
@@ -794,6 +818,11 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_NewStringLen(ctx, uri_ptr, uri_len);
       break;
     }
+
+    case PROP_BODY_PENDING: {
+      ret = JS_NewInt32(ctx, s->body_pending);
+      break;
+    }
   }
 
   return ret;
@@ -837,6 +866,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("uri", lwsjs_socket_get, 0, PROP_URI),
     JS_CGETSET_MAGIC_DEF("client", lwsjs_socket_get, 0, PROP_CLIENT),
     JS_CGETSET_MAGIC_DEF("response", lwsjs_socket_get, 0, PROP_RESPONSE_CODE),
+    JS_CGETSET_MAGIC_DEF("bodyPending", lwsjs_socket_get, lwsjs_socket_set, PROP_BODY_PENDING),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 
