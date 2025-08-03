@@ -249,7 +249,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   JSContext* ctx = wsi_to_js_ctx(wsi);
   int32_t i = 0;
 
-  if(closure && countof(closure->callbacks) > reason && !is_null_or_undefined(closure->callbacks[reason])) {
+  if(closure && countof(closure->callbacks) > reason && !is_nullish(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];
   } else
 
@@ -333,7 +333,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
   }
 
-  if(!is_null_or_undefined(*cb)) {
+  if(!is_nullish(*cb)) {
     int argi = 1, buffer_index = -1;
     JSValue argv[5] = {
         reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT || reason == LWS_CALLBACK_PROTOCOL_DESTROY ? JS_NULL : lwsjs_socket_get_or_create(ctx, wsi),
@@ -377,7 +377,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       int code = (int)(((uint8_t*)in)[0]) << 8 | ((uint8_t*)in)[1];
 
       reason = LWS_CALLBACK_WS_PEER_INITIATED_CLOSE;
-      cb = is_null_or_undefined(closure->callbacks[reason]) ? &closure->callback : &closure->callbacks[reason];
+      cb = is_nullish(closure->callbacks[reason]) ? &closure->callback : &closure->callbacks[reason];
 
       if(!has_reason && cb == &closure->callback)
         argv[argi++] = JS_NewInt32(ctx, reason);
@@ -852,12 +852,13 @@ static void
 client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectInfo* ci) {
   JSValue value;
 
-  value = JS_GetPropertyStr(ctx, obj, "context");
-  ci->context = lws_context_data(value);
-  JS_FreeValue(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "context")) {
+    value = JS_GetPropertyStr(ctx, obj, "context");
+    ci->context = lws_context_data(value);
+    JS_FreeValue(ctx, value);
+  }
 
-  if(lwsjs_has_property(ctx, obj, "address"))
-    str_replace(ctx, &ci->address, to_stringfree(ctx, JS_GetPropertyStr(ctx, obj, "address")));
+  str_property(&ci->path, ctx, obj, "address");
 
   if(lwsjs_has_property(ctx, obj, "port"))
     ci->port = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "port"));
@@ -873,39 +874,23 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
     JS_FreeValue(ctx, value);
   }
 
-  if(lwsjs_has_property(ctx, obj, "path"))
-    str_replace(ctx, &ci->path, to_stringfree(ctx, JS_GetPropertyStr(ctx, obj, "path")));
+  str_property(&ci->path, ctx, obj, "path");
+  str_property(&ci->host, ctx, obj, "host");
+  str_property(&ci->origin, ctx, obj, "origin");
+  str_property(&ci->protocol, ctx, obj, "protocol");
+  str_property(&ci->method, ctx, obj, "method");
+  str_property(&ci->iface, ctx, obj, "iface");
 
-  if(lwsjs_has_property(ctx, obj, "host"))
-    str_replace(ctx, &ci->host, to_stringfree(ctx, JS_GetPropertyStr(ctx, obj, "host")));
-
-  if(lwsjs_has_property(ctx, obj, "origin"))
-    str_replace(ctx, &ci->origin, to_stringfree(ctx, JS_GetPropertyStr(ctx, obj, "origin")));
-
-  value = JS_GetPropertyStr(ctx, obj, "protocol");
-  str_replace(ctx, &ci->protocol, to_stringfree(ctx, value));
-
-  if(lwsjs_has_property(ctx, obj, "method")) {
-    value = JS_GetPropertyStr(ctx, obj, "method");
-    str_replace(ctx, &ci->method, to_stringfree(ctx, value));
-  }
-
-  value = JS_GetPropertyStr(ctx, obj, "iface");
-  str_replace(ctx, &ci->iface, to_stringfree(ctx, value));
-
-  value = lwsjs_get_property(ctx, obj, "local_port");
-  ci->local_port = to_integerfree(ctx, value);
+  if(lwsjs_has_property(ctx, obj, "local_port"))
+    ci->local_port = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "local_port"));
 
   str_property(&ci->local_protocol_name, ctx, obj, "local_protocol_name");
-
-  value = JS_GetPropertyStr(ctx, obj, "alpn");
-  str_replace(ctx, &ci->alpn, to_stringfree(ctx, value));
+  str_property(&ci->alpn, ctx, obj, "alpn");
 
   value = lwsjs_get_property(ctx, obj, "keep_warm_secs");
   ci->keep_warm_secs = to_integerfree(ctx, value);
 
   str_property(&ci->auth_username, ctx, obj, "auth_username");
-
   str_property(&ci->auth_password, ctx, obj, "auth_password");
 }
 
@@ -939,9 +924,7 @@ static void
 context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreationInfo* ci) {
   JSValue value;
 
-  value = JS_GetPropertyStr(ctx, obj, "iface");
-  str_replace(ctx, &ci->iface, to_stringfree(ctx, value));
-
+  str_property(&ci->iface, ctx, obj, "iface");
   str_property(&ci->vhost_name, ctx, obj, "vhost_name");
 
   value = JS_GetPropertyStr(ctx, obj, "protocols");

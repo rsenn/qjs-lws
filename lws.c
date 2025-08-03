@@ -128,7 +128,7 @@ lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
     str_replace(ctx, &info->path, js_strdup(ctx, path));
 }
 
-void
+/*void
 lwsjs_uri_toobj(JSContext* ctx, char* uri, JSValueConst obj) {
   const char *protocol, *host, *path;
   int port;
@@ -142,9 +142,7 @@ lwsjs_uri_toobj(JSContext* ctx, char* uri, JSValueConst obj) {
     if(http)
       JS_SetPropertyStr(ctx, obj, "method", JS_NewString(ctx, "GET"));
 
-    // JS_SetPropertyStr(ctx, obj, "protocol", ssl ? JS_NewStringLen(ctx, protocol, len - 1) : JS_NewString(ctx, protocol));
-
-    if(ssl)
+      if(ssl)
       JS_SetPropertyStr(ctx, obj, "ssl", JS_NewBool(ctx, TRUE));
   }
 
@@ -155,7 +153,7 @@ lwsjs_uri_toobj(JSContext* ctx, char* uri, JSValueConst obj) {
 
   if(path)
     JS_SetPropertyStr(ctx, obj, "path", JS_NewString(ctx, path));
-}
+}*/
 
 static JSValue
 lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
@@ -251,13 +249,18 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     }
 
     case FUNCTION_PARSE_URI: {
-      char* uri = to_string(ctx, argv[0]);
+      char* uri;
 
-      ret = argc > 1 ? JS_DupValue(ctx, argv[1]) : JS_NewObjectProto(ctx, JS_NULL);
+      if((uri = to_string(ctx, argv[0]))) {
+        LWSClientConnectInfo info = {0};
 
-      lwsjs_uri_toobj(ctx, uri, ret);
+        // ret = argc > 1 ? JS_DupValue(ctx, argv[1]) : JS_NewObjectProto(ctx, JS_NULL);
 
-      js_free(ctx, (char*)uri);
+        lwsjs_uri_toconnectinfo(ctx, uri, &info);
+
+        js_free(ctx, (char*)uri);
+      }
+
       break;
     }
 

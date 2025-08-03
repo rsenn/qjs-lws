@@ -49,15 +49,15 @@ to_ptr(JSContext* ctx, JSValueConst val) {
 
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
 JSValue ptr_obj(JSContext*, JSObject*);
-JSValue lwsjs_iterator_next(JSContext*, JSValue, BOOL*);
-JSValue* to_valuearray(JSContext*, JSValue, size_t*);
-char** to_stringarray(JSContext*, JSValue);
+JSValue lwsjs_iterator_next(JSContext*, JSValueConst, BOOL*);
+JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
+char** to_stringarray(JSContext*, JSValueConst);
 void lwsjs_uri_toconnectinfo(JSContext*, char*, LWSClientConnectInfo*);
-void lwsjs_uri_toobj(JSContext*, char*, JSValue);
+// void lwsjs_uri_toobj(JSContext*, char*, JSValueConst);
 enum lws_callback_reasons lwsjs_callback_find(const char*);
 void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);
-BOOL lwsjs_has_property(JSContext*, JSValue, const char*);
-JSValue lwsjs_get_property(JSContext*, JSValue, const char*);
+BOOL lwsjs_has_property(JSContext*, JSValueConst, const char*);
+JSValue lwsjs_get_property(JSContext*, JSValueConst, const char*);
 int lwsjs_init(JSContext*, JSModuleDef*);
 JSModuleDef* js_init_module(JSContext*, const char*);
 
@@ -76,7 +76,7 @@ to_ptr(JSContext* ctx, JSValueConst val) {
 #endif
 
 static inline BOOL
-is_null_or_undefined(JSValueConst val) {
+is_nullish(JSValueConst val) {
   return JS_IsNull(val) || JS_IsUndefined(val);
 }
 
@@ -132,7 +132,7 @@ to_int64free(JSContext* ctx, JSValueConst val) {
 
 static inline char*
 to_string(JSContext* ctx, JSValueConst value) {
-  if(is_null_or_undefined(value))
+  if(is_nullish(value))
     return 0;
 
   const char* s = JS_ToCString(ctx, value);
