@@ -1266,6 +1266,9 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       info.context = lc->ctx;
       info.pwsi = &wsi2;
 
+      if(info.address == 0 && info.host)
+        info.address = js_strdup(ctx, info.host);
+
       if((wsi = lws_client_connect_via_info(&info))) {
         ret = lwsjs_socket_wrap(ctx, wsi);
 
