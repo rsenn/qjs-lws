@@ -293,8 +293,12 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   /*if(((int32_t*)wsi)[58] & 2)
     return lws_callback_http_dummy(wsi, reason, user, in, len);*/
 
+  JSValue sock = JS_UNDEFINED;
+
+  if(wsi)
+    sock = lwsjs_socket_get_or_create(ctx, wsi);
+
   if(reason == LWS_CALLBACK_HTTP_WRITEABLE) {
-    JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
     if((s = lwsjs_socket_data(sock)))
@@ -312,16 +316,12 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         }
       }
 
-    JS_FreeValue(ctx, sock);
   } else if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
-    JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
     if((s = lwsjs_socket_data(sock)))
       if(JS_IsUndefined(s->headers))
         s->headers = lwsjs_socket_headers(ctx, s->wsi);
-
-    JS_FreeValue(ctx, sock);
   }
 
   if(user && pro->per_session_data_size == sizeof(JSValue)) {
@@ -345,7 +345,6 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     /*argv[argi++] = (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL;*/
 
     if(reason == LWS_CALLBACK_HTTP_CONFIRM_UPGRADE) {
-      JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
       LWSSocket* s;
 
       if((s = lwsjs_socket_data(sock)))
@@ -354,7 +353,6 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
 
     if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
-      JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
       LWSSocket* s;
 
       if((s = lwsjs_socket_data(sock)))
@@ -363,7 +361,6 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
 
     if(reason == LWS_CALLBACK_CLIENT_ESTABLISHED || reason == LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION) {
-      JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
       LWSSocket* s;
 
       if((s = lwsjs_socket_data(sock)))
@@ -406,11 +403,11 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
       argv[argi++] = JS_NewInt32(ctx, len);
     } else if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP) {
-      LWSSocket* sock = lwsjs_socket_new(ctx, wsi);
+      LWSSocket* s = lwsjs_socket_new(ctx, wsi);
 
-      sock->response_code = lws_http_client_http_response(wsi);
+      s->response_code = lws_http_client_http_response(wsi);
 
-      argv[argi++] = JS_NewInt32(ctx, sock->response_code);
+      argv[argi++] = JS_NewInt32(ctx, s->response_code);
     } else if(reason == LWS_CALLBACK_CONNECTING) {
       argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
     } else if(reason == LWS_CALLBACK_WS_PEER_INITIATED_CLOSE) {
@@ -430,9 +427,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
 
     if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
-      LWSSocket* sock = lwsjs_socket_new(ctx, wsi);
+      LWSSocket* s = lwsjs_socket_new(ctx, wsi);
 
-      sock->headers = lwsjs_socket_headers(ctx, wsi);
+      s->headers = lwsjs_socket_headers(ctx, wsi);
     }
 
     JSValue result = JS_Call(ctx, *cb, JS_NULL, argi, argv);
@@ -467,11 +464,11 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     ret = to_int32free(ctx, result);
   }
 
-  LWSSocket* sock;
+  LWSSocket* s;
 
-  if((sock = socket_get(wsi)))
-    if(sock->closed)
-      return -1;
+  if((s = socket_get(wsi)))
+    if(s->closed)
+      ret = -1;
 
   /* if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER)
      if(sock->post)
@@ -482,14 +479,12 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
        }*/
 
   if(reason != LWS_CALLBACK_PROTOCOL_INIT && reason != LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
-    JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
+    // JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
 
     if((s = lwsjs_socket_data(sock)))
       if(s->completed)
         ret = -1;
-
-    JS_FreeValue(ctx, sock);
   }
 
   if(ret != 0) {
@@ -501,6 +496,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
     // lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
   }
+  JS_FreeValue(ctx, sock);
 
   /*if(ret == 0)
     return lws_callback_http_dummy(wsi, reason, user, in, len);*/
