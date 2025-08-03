@@ -475,6 +475,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     // lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
   }
 
+  if(i == 0)
+    return lws_callback_http_dummy(wsi, reason, user, in, len);
+
   return i;
 }
 
@@ -873,8 +876,10 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   value = JS_GetPropertyStr(ctx, obj, "protocol");
   ci->protocol = to_stringfree(ctx, value);
 
-  value = JS_GetPropertyStr(ctx, obj, "method");
-  ci->method = to_stringfree_default(ctx, value, "GET");
+  if(lwsjs_has_property(ctx, obj, "method")) {
+    value = JS_GetPropertyStr(ctx, obj, "method");
+    ci->method = to_stringfree(ctx, value);
+  }
 
   value = JS_GetPropertyStr(ctx, obj, "iface");
   ci->iface = to_stringfree(ctx, value);
@@ -1193,6 +1198,9 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
 
   lc->js = JS_DupContext(ctx);
   lc->info.user = obj_ptr(ctx, obj);
+
+  if(!lwsjs_has_property(ctx, argv[0], "port"))
+    lc->info.port = CONTEXT_PORT_NO_LISTEN;
 
   /* This must be called last, because it can trigger callbacks already */
   lc->ctx = lws_create_context(&lc->info);
