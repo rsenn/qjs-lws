@@ -377,7 +377,21 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
     BOOL process_html_args = reason == LWS_CALLBACK_ADD_HEADERS || reason == LWS_CALLBACK_CHECK_ACCESS_RIGHTS || reason == LWS_CALLBACK_PROCESS_HTML;
 
-    if(process_html_args) {
+    if(reason == LWS_CALLBACK_CLIENT_RECEIVE && (((char*)in)[-2] & 0x7f) == 8) {
+      BOOL has_reason = cb == &closure->callback;
+      int code = (int)(((uint8_t*)in)[0]) << 8 | ((uint8_t*)in)[1];
+
+      reason = LWS_CALLBACK_WS_PEER_INITIATED_CLOSE;
+      cb = is_null_or_undefined(closure->callbacks[reason]) ? &closure->callback : &closure->callbacks[reason];
+
+      if(!has_reason && cb == &closure->callback)
+        argv[argi++] = JS_NewInt32(ctx, reason);
+
+      argv[argi++] = JS_NewInt32(ctx, code);
+
+      if(len > 2)
+        argv[argi++] = JS_NewStringLen(ctx, (char*)in + 2, len - 2);
+    } else if(process_html_args) {
       struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
 
       if(pha->len < pha->max_len)
@@ -413,12 +427,6 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
     } else if(in && (len > 0 || reason == LWS_CALLBACK_ADD_HEADERS) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
       BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
-
-      if(reason == LWS_CALLBACK_ADD_HEADERS) {
-        struct lws_process_html_args* args = in;
-
-        len = args->max_len;
-      }
 
       argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
       argv[argi++] = JS_NewInt64(ctx, len);
