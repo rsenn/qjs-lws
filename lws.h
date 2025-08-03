@@ -290,7 +290,7 @@ list_size(struct list_head* list) {
 }
 
 void lwsjs_parse_uri(JSContext*, const char*, JSValueConst);
-void lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[]);
+void lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[], size_t);
 BOOL lwsjs_has_property(JSContext*, JSValue, const char*);
 JSValue lwsjs_get_property(JSContext*, JSValue, const char*);
 enum lws_callback_reasons lwsjs_callback_find(const char* name);

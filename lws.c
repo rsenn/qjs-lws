@@ -714,7 +714,7 @@ lwsjs_callback_find(const char* name) {
 
   decamelize(buf, sizeof(buf), name);
 
-  for(size_t i = 0; i <= LWS_CALLBACK_USER; i++)
+  for(size_t i = 0; i < countof(lws_callback_names); i++)
     if(lws_callback_names[i])
       if(!strcmp(lws_callback_names[i], buf))
         return i;
@@ -723,8 +723,8 @@ lwsjs_callback_find(const char* name) {
 }
 
 void
-lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[]) {
-  for(size_t i = 0; i <= LWS_CALLBACK_MQTT_SHADOW_TIMEOUT; i++) {
+lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[], size_t callback_count) {
+  for(size_t i = 0; i < callback_count; i++) {
     if(lws_callback_names[i]) {
       char buf[128];
 

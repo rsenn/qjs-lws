@@ -112,7 +112,7 @@ socket_type(struct lws* wsi) {
   return SOCKET_OTHER;
 }
 
-static LWSSocket*
+LWSSocket*
 socket_get(struct lws* wsi) {
   struct list_head* n;
   LWSSocket* sock = 0;
@@ -501,23 +501,21 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       if(socket_type(s->wsi) == SOCKET_WS) {
         size_t n = 0;
         uint8_t* p = NULL;
+        const char* str = 0;
 
-        if(argc > 1)
-          p = get_buffer(ctx, argc - 1, argv + 1, &n);
+        if(argc > 1) {
+          if(!(p = get_buffer(ctx, argc - 1, argv + 1, &n)))
+            p = (uint8_t*)(str = JS_ToCStringLen(ctx, &n, argv[1]));
+        }
 
         lws_close_reason(s->wsi, reason, p, n);
-      } else {
-        const char* caller = NULL;
 
-        if(argc > 1)
-          caller = JS_ToCString(ctx, argv[1]);
-
-        lws_close_free_wsi(s->wsi, reason, caller);
-
-        if(caller)
-          JS_FreeCString(ctx, caller);
+        if(str)
+          JS_FreeCString(ctx, str);
       }
 
+      lws_close_free_wsi(s->wsi, reason, __func__);
+      // lws_wsi_close(s->wsi, LWS_TO_KILL_SYNC);
       break;
     }
 

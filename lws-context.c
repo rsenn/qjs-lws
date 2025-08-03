@@ -252,8 +252,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   JSValue* cb = closure ? &closure->callback : 0;
   LWSContext* lc = wsi ? lwsjs_socket_context(wsi) : 0;
   JSContext* ctx = wsi_to_js_ctx(wsi);
+  int32_t i = 0;
 
-  if(closure && !is_null_or_undefined(closure->callbacks[reason])) {
+  if(closure && countof(closure->callbacks) > reason && !is_null_or_undefined(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];
   } else
 
@@ -297,9 +298,6 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   /*if(((int32_t*)wsi)[58] & 2)
     return lws_callback_http_dummy(wsi, reason, user, in, len);*/
 
-  if(is_null_or_undefined(*cb))
-    return 0;
-
   if(reason == LWS_CALLBACK_HTTP_WRITEABLE) {
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
     LWSSocket* s;
@@ -340,119 +338,127 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
   }
 
-  int argi = 1, buffer_index = -1;
-  JSValue argv[5] = {
-      reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT || reason == LWS_CALLBACK_PROTOCOL_DESTROY ? JS_NULL : lwsjs_socket_get_or_create(ctx, wsi),
-  };
+  if(!is_null_or_undefined(*cb)) {
+    int argi = 1, buffer_index = -1;
+    JSValue argv[5] = {
+        reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT || reason == LWS_CALLBACK_PROTOCOL_DESTROY ? JS_NULL : lwsjs_socket_get_or_create(ctx, wsi),
+    };
 
-  if(cb == &closure->callback)
-    argv[argi++] = JS_NewInt32(ctx, reason);
+    if(cb == &closure->callback)
+      argv[argi++] = JS_NewInt32(ctx, reason);
 
-  /*argv[argi++] = (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL;*/
+    /*argv[argi++] = (user && pro->per_session_data_size == sizeof(JSValue) && (JS_VALUE_GET_OBJ(*(JSValue*)user) && JS_VALUE_GET_TAG(*(JSValue*)user) == JS_TAG_OBJECT)) ? *(JSValue*)user : JS_NULL;*/
 
-  if(reason == LWS_CALLBACK_HTTP_CONFIRM_UPGRADE) {
-    JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
-    LWSSocket* s;
+    if(reason == LWS_CALLBACK_HTTP_CONFIRM_UPGRADE) {
+      JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
+      LWSSocket* s;
 
-    if((s = lwsjs_socket_data(sock)))
-      if(!strcmp(in, "websocket"))
-        s->type = SOCKET_WS;
-  }
-
-  if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
-    JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
-    LWSSocket* s;
-
-    if((s = lwsjs_socket_data(sock)))
-      if(!strcmp(in, "ws"))
-        s->type = SOCKET_WS;
-  }
-
-  if(reason == LWS_CALLBACK_CLIENT_ESTABLISHED || reason == LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION) {
-    JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
-    LWSSocket* s;
-
-    if((s = lwsjs_socket_data(sock)))
-      s->type = SOCKET_WS;
-  }
-
-  BOOL process_html_args = reason == LWS_CALLBACK_ADD_HEADERS || reason == LWS_CALLBACK_CHECK_ACCESS_RIGHTS || reason == LWS_CALLBACK_PROCESS_HTML;
-
-  if(process_html_args) {
-    struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
-
-    if(pha->len < pha->max_len)
-      memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
-
-    argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
-    argv[argi] = JS_NewArray(ctx);
-    JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
-    argi++;
-  } else if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
-    memset(*(uint8_t**)in, 0, len);
-    argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
-    argv[argi] = JS_NewArray(ctx);
-    JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, 0));
-    argi++;
-  } else if(reason == LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION) {
-    argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
-    argv[argi++] = JS_NewInt32(ctx, len);
-  } else if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP) {
-    LWSSocket* sock = lwsjs_socket_new(ctx, wsi);
-
-    sock->response_code = lws_http_client_http_response(wsi);
-
-    argv[argi++] = JS_NewInt32(ctx, sock->response_code);
-  } else if(reason == LWS_CALLBACK_CONNECTING) {
-    argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
-  } else if(reason == LWS_CALLBACK_WS_PEER_INITIATED_CLOSE) {
-    if(len >= 2)
-      argv[argi++] = JS_NewInt32(ctx, ntohs(*(uint16_t*)in));
-
-    if(len > 2)
-      argv[argi++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
-
-  } else if(in && (len > 0 || reason == LWS_CALLBACK_ADD_HEADERS) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
-    BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
-
-    if(reason == LWS_CALLBACK_ADD_HEADERS) {
-      struct lws_process_html_args* args = in;
-
-      len = args->max_len;
+      if((s = lwsjs_socket_data(sock)))
+        if(!strcmp(in, "websocket"))
+          s->type = SOCKET_WS;
     }
 
-    argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
-    argv[argi++] = JS_NewInt64(ctx, len);
-  } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
-    argv[argi++] = JS_NewString(ctx, in);
+    if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION) {
+      JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
+      LWSSocket* s;
+
+      if((s = lwsjs_socket_data(sock)))
+        if(!strcmp(in, "ws"))
+          s->type = SOCKET_WS;
+    }
+
+    if(reason == LWS_CALLBACK_CLIENT_ESTABLISHED || reason == LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION) {
+      JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
+      LWSSocket* s;
+
+      if((s = lwsjs_socket_data(sock)))
+        s->type = SOCKET_WS;
+    }
+
+    BOOL process_html_args = reason == LWS_CALLBACK_ADD_HEADERS || reason == LWS_CALLBACK_CHECK_ACCESS_RIGHTS || reason == LWS_CALLBACK_PROCESS_HTML;
+
+    if(process_html_args) {
+      struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
+
+      if(pha->len < pha->max_len)
+        memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
+
+      argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
+      argv[argi] = JS_NewArray(ctx);
+      JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
+      argi++;
+    } else if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
+      memset(*(uint8_t**)in, 0, len);
+      argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
+      argv[argi] = JS_NewArray(ctx);
+      JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, 0));
+      argi++;
+    } else if(reason == LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION) {
+      argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
+      argv[argi++] = JS_NewInt32(ctx, len);
+    } else if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP) {
+      LWSSocket* sock = lwsjs_socket_new(ctx, wsi);
+
+      sock->response_code = lws_http_client_http_response(wsi);
+
+      argv[argi++] = JS_NewInt32(ctx, sock->response_code);
+    } else if(reason == LWS_CALLBACK_CONNECTING) {
+      argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
+    } else if(reason == LWS_CALLBACK_WS_PEER_INITIATED_CLOSE) {
+      if(len >= 2)
+        argv[argi++] = JS_NewInt32(ctx, ntohs(*(uint16_t*)in));
+
+      if(len > 2)
+        argv[argi++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
+
+    } else if(in && (len > 0 || reason == LWS_CALLBACK_ADD_HEADERS) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
+      BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
+
+      if(reason == LWS_CALLBACK_ADD_HEADERS) {
+        struct lws_process_html_args* args = in;
+
+        len = args->max_len;
+      }
+
+      argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
+      argv[argi++] = JS_NewInt64(ctx, len);
+    } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
+      argv[argi++] = JS_NewString(ctx, in);
+    }
+
+    if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
+      LWSSocket* sock = lwsjs_socket_new(ctx, wsi);
+
+      sock->headers = lwsjs_socket_headers(ctx, wsi);
+    }
+
+    JSValue ret = JS_Call(ctx, *cb, JS_NULL, argi, argv);
+
+    if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
+      int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
+
+      *(uint8_t**)in += MIN(MAX(0, n), (int64_t)len);
+    } else if(process_html_args) {
+      struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
+      int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
+
+      pha->p += MIN(MAX(0, n), (int64_t)(pha->max_len - pha->len));
+    }
+
+    for(int i = 0; i < argi; i++) {
+      if(buffer_index == argi)
+        JS_DetachArrayBuffer(ctx, argv[i]);
+      JS_FreeValue(ctx, argv[i]);
+    }
+
+    i = to_int32free(ctx, ret);
   }
 
-  if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
-    LWSSocket* sock = lwsjs_socket_new(ctx, wsi);
+  LWSSocket* sock;
 
-    sock->headers = lwsjs_socket_headers(ctx, wsi);
-  }
-
-  JSValue ret = JS_Call(ctx, *cb, JS_NULL, argi, argv);
-
-  if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
-    int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
-
-    *(uint8_t**)in += MIN(MAX(0, n), (int64_t)len);
-  } else if(process_html_args) {
-    struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
-    int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
-
-    pha->p += MIN(MAX(0, n), (int64_t)(pha->max_len - pha->len));
-  }
-
-  for(int i = 0; i < argi; i++) {
-    if(buffer_index == argi)
-      JS_DetachArrayBuffer(ctx, argv[i]);
-    JS_FreeValue(ctx, argv[i]);
-  }
-
-  int32_t i = to_int32free(ctx, ret);
+  if((sock = socket_get(wsi)))
+    if(sock->closed)
+      return -1;
 
   if(reason != LWS_CALLBACK_PROTOCOL_INIT && reason != LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
     JSValue sock = lwsjs_socket_get_or_create(ctx, wsi);
@@ -483,7 +489,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
 static LWSProtocols
 protocol_from(JSContext* ctx, JSValueConst obj) {
-  LWSProtocols pro = LWS_PROTOCOL_LIST_TERM;
+  LWSProtocols pro = {0};
   LWSProtocol* closure;
 
   if(!(closure = js_mallocz(ctx, sizeof(LWSProtocol))))
@@ -502,7 +508,7 @@ protocol_from(JSContext* ctx, JSValueConst obj) {
   pro.callback = protocol_callback;
   pro.user = closure;
 
-  lwsjs_get_lws_callbacks(ctx, obj, closure->callbacks);
+  lwsjs_get_lws_callbacks(ctx, obj, closure->callbacks, countof(closure->callbacks));
 
   pro.per_session_data_size = sizeof(JSValue);
 
@@ -651,8 +657,8 @@ http_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
     value = lwsjs_get_property(ctx, obj, "cache_intermediaries");
     mnt->cache_intermediaries = to_boolfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "cache_no");
-    mnt->cache_no = to_boolfree(ctx, value);
+    /*value = lwsjs_get_property(ctx, obj, "cache_no");
+    mnt->cache_no = to_boolfree(ctx, value);*/
 
     value = lwsjs_get_property(ctx, obj, "origin_protocol");
     mnt->origin_protocol = to_integerfree(ctx, value);
