@@ -414,7 +414,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
         proto = to_int32(ctx, argv[argc > 2 ? 2 : 1]);
 
       if(ptr) {
-        int r = lws_write(s->wsi, /*s->type == SOCKET_WS*/ dbuf.buf ? dbuf.buf + LWS_PRE : ptr, MIN(n, len), proto);
+        int r = lws_write(s->wsi, s->type == SOCKET_WS ? dbuf.buf + LWS_PRE : ptr, MIN(n, len), proto);
 
         DEBUG_WSI(s->wsi, "wrote data (%d)", r);
 
