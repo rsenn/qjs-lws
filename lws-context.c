@@ -122,19 +122,12 @@ iohandler_cleanup(LWSContext* lc) {
 static JSValue
 protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst func_data[]) {
   void* cptr = to_ptr(ctx, func_data[3]);
-
   struct lws_pollfd lpfd = {
       .fd = to_int32(ctx, func_data[0]),
       .events = to_int32(ctx, func_data[1]),
       .revents = JS_ToBool(ctx, func_data[2]) ? POLLOUT : POLLIN,
   };
 
-  /*JSValue obj = lwsjs_socket_get_by_fd(ctx, lpfd.fd);
-
-  if(!JS_IsObject(obj)) {
-    lwsl_user("WARNING: socket %d deleted", lpfd.fd);
-    iohandler_clear(ctx, lpfd.fd);
-  } else*/
   lws_service_fd((struct lws_context*)cptr, &lpfd);
 
   return JS_UNDEFINED;
@@ -222,7 +215,13 @@ http_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, voi
   if(pollfd_callback(wsi, reason, user, in, len) == 0)
     return 0;
 
-  int ret = lws_callback_http_dummy(wsi, reason, user, in, len);
+  LWSSocket* sock;
+  BOOL client = FALSE;
+
+  if((sock = socket_get(wsi)))
+    client = sock->client;
+
+  int ret = client ? 0 : lws_callback_http_dummy(wsi, reason, user, in, len);
 
   if(reason == LWS_CALLBACK_WSI_DESTROY) {
     JSContext* ctx;
@@ -293,7 +292,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   /*if(((int32_t*)wsi)[58] & 2)
     return lws_callback_http_dummy(wsi, reason, user, in, len);*/
 
-  JSValue sock = wsi ? lwsjs_socket_get_or_create(ctx, wsi) : JS_UNDEFINED;
+  JSValue sock = wsi ? lwsjs_socket_get_or_create(ctx, reason == LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL ? 0 : wsi) : JS_UNDEFINED;
   LWSSocket* s = lwsjs_socket_data(sock);
 
   if(reason == LWS_CALLBACK_HTTP_WRITEABLE || reason == LWS_CALLBACK_CLIENT_HTTP_WRITEABLE) {
@@ -328,7 +327,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   if(!is_nullish(*cb)) {
     int argi = 1, buffer_index = -1;
     JSValue argv[5] = {
-        reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT || reason == LWS_CALLBACK_PROTOCOL_DESTROY ? JS_NULL : lwsjs_socket_get_or_create(ctx, wsi),
+        /*reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT || reason == LWS_CALLBACK_PROTOCOL_DESTROY ? JS_NULL :*/ JS_DupValue(ctx, sock),
     };
 
     if(cb == &closure->callback)
@@ -412,8 +411,6 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
 
     if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
-      LWSSocket* s = lwsjs_socket_new(ctx, wsi);
-
       s->headers = lwsjs_socket_headers(ctx, wsi);
     }
 
@@ -1199,12 +1196,12 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
     case ADOPT_SOCKET: {
       int32_t arg = to_int32(ctx, argv[0]);
       struct lws* wsi;
-      LWSSocket* s;
 
-      if((wsi = wsi_from_fd(lc->ctx, arg)) && (s = lws_get_opaque_user_data(wsi)))
-        ret = JS_DupValue(ctx, lwsjs_socket_wrap(ctx, s->wsi));
-      else if((wsi = lws_adopt_socket(lc->ctx, arg)))
-        ret = JS_DupValue(ctx, lwsjs_socket_wrap(ctx, wsi));
+      if(wsi_from_fd(lc->ctx, arg))
+        return JS_ThrowInternalError(ctx, "socket %" PRIi32 " already adopted", arg);
+
+      if((wsi = lws_adopt_socket(lc->ctx, arg)))
+        ret = lwsjs_socket_create(ctx, wsi);
 
       break;
     }
@@ -1214,9 +1211,8 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       struct lws* wsi;
       size_t len;
       uint8_t* buf;
-      LWSSocket* s;
 
-      if((s = lws_get_opaque_user_data(wsi_from_fd(lc->ctx, arg))))
+      if(wsi_from_fd(lc->ctx, arg))
         return JS_ThrowInternalError(ctx, "socket %" PRIi32 " already adopted", arg);
 
       if(!(buf = JS_GetArrayBuffer(ctx, &len, argv[1])))
@@ -1229,12 +1225,8 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
           len = l;
       }
 
-      if((wsi = lws_adopt_socket_readbuf(lc->ctx, arg, (const char*)buf, len))) {
-        LWSSocket* s;
-
-        if((s = lwsjs_socket_new(ctx, wsi)))
-          ret = ptr_obj(ctx, s->obj);
-      }
+      if((wsi = lws_adopt_socket_readbuf(lc->ctx, arg, (const char*)buf, len)))
+        ret = lwsjs_socket_create(ctx, wsi);
 
       break;
     }
@@ -1263,14 +1255,25 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
       client_connect_info_fromobj(ctx, obj, &info);
 
+      LWSSocket* sock = socket_alloc(ctx);
+
+      sock->client = TRUE;
+      sock->type = info.method ? SOCKET_HTTP : SOCKET_WS;
+      sock->method = info.method ? lwsjs_method_index(info.method) : 0;
+
+      ret = lwsjs_socket_wrap(ctx, sock);
+
       info.context = lc->ctx;
-      info.pwsi = &wsi2;
+      info.pwsi = &sock->wsi;
+      info.opaque_user_data = obj_ptr(ctx, ret);
 
       if(info.address == 0 && info.host)
         info.address = js_strdup(ctx, info.host);
 
-      if((wsi = lws_client_connect_via_info(&info))) {
-        ret = lwsjs_socket_wrap(ctx, wsi);
+      lws_client_connect_via_info(&info);
+
+      /*if((wsi = lws_client_connect_via_info(&info))) {
+        ret = lwsjs_socket_create(ctx, wsi);
 
         LWSSocket* sock;
 
@@ -1281,7 +1284,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         }
 
         JS_DefinePropertyValueStr(ctx, ret, "info", JS_DupValue(ctx, obj), JS_PROP_CONFIGURABLE);
-      }
+      }*/
 
       client_connect_info_free(JS_GetRuntime(ctx), &info);
       JS_FreeValue(ctx, obj);

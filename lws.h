@@ -26,7 +26,7 @@ to_ptr(JSContext* ctx, JSValueConst val) {
 }
 
 #ifdef DEBUG_OUTPUT
-#define DEBUG(x...) lwsl_user(x)
+#define DEBUG(x...) lwsl_user("\x1b[0m" x)
 #define DEBUG_WSI(wsi, x...) lwsl_wsi_user(wsi, x)
 #else
 #define DEBUG(x...)
@@ -57,6 +57,7 @@ void lwsjs_uri_toconnectinfo(JSContext*, char*, LWSClientConnectInfo*);
 enum lws_callback_reasons lwsjs_callback_find(const char*);
 void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);
 BOOL lwsjs_has_property(JSContext*, JSValueConst, const char*);
+BOOL lwsjs_has_property2(JSContext*, JSValueConst, const char*);
 JSValue lwsjs_get_property(JSContext*, JSValueConst, const char*);
 int lwsjs_init(JSContext*, JSModuleDef*);
 JSModuleDef* js_init_module(JSContext*, const char*);
@@ -198,7 +199,7 @@ str_replace(JSContext* ctx, const char** pptr, char* str) {
 
 static inline void
 str_property(const char** pptr, JSContext* ctx, JSValueConst obj, const char* name) {
-  if(lwsjs_has_property(ctx, obj, name))
+  if(lwsjs_has_property2(ctx, obj, name))
     str_replace(ctx, pptr, to_stringfree(ctx, lwsjs_get_property(ctx, obj, name)));
 }
 

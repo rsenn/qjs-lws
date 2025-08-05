@@ -15,7 +15,7 @@ typedef struct {
   struct list_head link;
   int ref_count;
   struct lws* wsi;
-  uint32_t id;
+  int id;
   LWSSocketType type;
   JSObject* obj;
   BOOL client, want_write, completed, closed;
@@ -25,15 +25,14 @@ typedef struct {
 
 extern JSClassID lwsjs_socket_class_id;
 
-LWSSocketType socket_type(struct lws* wsi);
 LWSSocket* socket_get(struct lws* wsi);
-LWSSocket* lwsjs_socket_new(JSContext*, struct lws*);
+LWSSocket* socket_alloc(JSContext* ctx);
 void lwsjs_socket_destroy(JSContext*, struct lws*);
-JSValue lwsjs_socket_wrap(JSContext*, struct lws*);
+JSValue lwsjs_socket_wrap(JSContext*, LWSSocket*);
+JSValue lwsjs_socket_create(JSContext*, struct lws*);
 JSValue lwsjs_socket_get_or_create(JSContext*, struct lws*);
 JSValue lwsjs_socket_headers(JSContext*, struct lws*);
 int lwsjs_socket_init(JSContext*, JSModuleDef*);
-JSValue lwsjs_socket_get_by_fd(JSContext*, int);
 int lwsjs_method_index(const char* method);
 const char* lwsjs_method_name(int index);
 

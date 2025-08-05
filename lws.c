@@ -763,15 +763,26 @@ lwsjs_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
   return ret;
 }
 
+BOOL
+lwsjs_has_property2(JSContext* ctx, JSValueConst obj, const char* name) {
+
+  if(!lwsjs_has_property(ctx, obj, name)) {
+    char buf[strlen(name) + 1];
+
+    camelize(buf, sizeof(buf), name);
+
+    return lwsjs_has_property(ctx, obj, buf);
+}
+
+return TRUE;
+}
+
 JSValue
 lwsjs_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
   if(!lwsjs_has_property(ctx, obj, name)) {
     char buf[strlen(name) + 1];
 
     camelize(buf, sizeof(buf), name);
-
-    /*if(!lwsjs_has_property(ctx, obj, buf))
-      return JS_EXCEPTION;*/
 
     return JS_GetPropertyStr(ctx, obj, buf);
   }
