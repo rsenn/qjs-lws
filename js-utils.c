@@ -20,7 +20,7 @@ ptr_obj(JSContext* ctx, JSObject* obj) {
 }
 
 JSValue
-lwsjs_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
+js_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
   JSValue fn = JS_GetPropertyStr(ctx, obj, "next");
   JSValue result = JS_Call(ctx, fn, obj, 0, 0);
   JS_FreeValue(ctx, fn);
@@ -48,7 +48,7 @@ to_valuearray(JSContext* ctx, JSValueConst obj, size_t* lenp) {
   uint32_t i;
 
   for(i = 0;; ++i) {
-    JSValue value = lwsjs_iterator_next(ctx, iterator, &done);
+    JSValue value = js_iterator_next(ctx, iterator, &done);
 
     if(done || !(ret = js_realloc(ctx, ret, (i + 1) * sizeof(JSValue)))) {
       JS_FreeValue(ctx, value);
@@ -81,7 +81,7 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
   uint32_t i;
 
   for(i = 0;; ++i) {
-    JSValue value = lwsjs_iterator_next(ctx, iterator, &done);
+    JSValue value = js_iterator_next(ctx, iterator, &done);
 
     if(done || !(ret = js_realloc(ctx, ret, (i + 2) * sizeof(char*)))) {
       JS_FreeValue(ctx, value);
@@ -95,7 +95,7 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
   return ret;
 }
 BOOL
-lwsjs_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
+js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
   JSAtom atom = JS_NewAtom(ctx, name);
   BOOL ret = JS_HasProperty(ctx, obj, atom);
   JS_FreeAtom(ctx, atom);
@@ -116,22 +116,22 @@ lwsjs_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
 }
 
 BOOL
-lwsjs_has_property2(JSContext* ctx, JSValueConst obj, const char* name) {
+js_has_property2(JSContext* ctx, JSValueConst obj, const char* name) {
 
-  if(!lwsjs_has_property(ctx, obj, name)) {
+  if(!js_has_property(ctx, obj, name)) {
     char buf[strlen(name) + 1];
 
     camelize(buf, sizeof(buf), name);
 
-    return lwsjs_has_property(ctx, obj, buf);
+    return js_has_property(ctx, obj, buf);
   }
 
   return TRUE;
 }
 
 JSValue
-lwsjs_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
-  if(!lwsjs_has_property(ctx, obj, name)) {
+js_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
+  if(!js_has_property(ctx, obj, name)) {
     char buf[strlen(name) + 1];
 
     camelize(buf, sizeof(buf), name);

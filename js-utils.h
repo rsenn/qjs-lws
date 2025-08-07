@@ -23,12 +23,12 @@
 typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
 
 JSValue ptr_obj(JSContext*, JSObject*);
-JSValue lwsjs_iterator_next(JSContext*, JSValueConst, BOOL*);
+JSValue js_iterator_next(JSContext*, JSValueConst, BOOL*);
 JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
 char** to_stringarray(JSContext*, JSValueConst);
-BOOL lwsjs_has_property(JSContext*, JSValueConst, const char*);
-BOOL lwsjs_has_property2(JSContext*, JSValueConst, const char*);
-JSValue lwsjs_get_property(JSContext*, JSValueConst, const char*);
+BOOL js_has_property(JSContext*, JSValueConst, const char*);
+BOOL js_has_property2(JSContext*, JSValueConst, const char*);
+JSValue js_get_property(JSContext*, JSValueConst, const char*);
 JSValue js_function_cclosure(JSContext*, CClosureFunc* func, int length, int magic, void* opaque, void (*opaque_finalize)(void*));
 
 static inline size_t
@@ -208,8 +208,8 @@ str_replace(JSContext* ctx, const char** pptr, char* str) {
 
 static inline void
 str_property(const char** pptr, JSContext* ctx, JSValueConst obj, const char* name) {
-  if(lwsjs_has_property2(ctx, obj, name))
-    str_replace(ctx, pptr, to_stringfree(ctx, lwsjs_get_property(ctx, obj, name)));
+  if(js_has_property2(ctx, obj, name))
+    str_replace(ctx, pptr, to_stringfree(ctx, js_get_property(ctx, obj, name)));
 }
 
 static inline JSObject*

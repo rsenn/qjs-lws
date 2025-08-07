@@ -592,13 +592,13 @@ protocol_from(JSContext* ctx, JSValueConst obj) {
 
   pro.per_session_data_size = sizeof(JSValue);
 
-  value = is_array ? JS_GetPropertyUint32(ctx, obj, 2) : lwsjs_get_property(ctx, obj, "rx_buffer_size");
+  value = is_array ? JS_GetPropertyUint32(ctx, obj, 2) : js_get_property(ctx, obj, "rx_buffer_size");
   pro.rx_buffer_size = to_integerfree(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 3) : JS_GetPropertyStr(ctx, obj, "id");
   pro.id = to_integerfree(ctx, value);
 
-  value = is_array ? JS_GetPropertyUint32(ctx, obj, 4) : lwsjs_get_property(ctx, obj, "tx_packet_size");
+  value = is_array ? JS_GetPropertyUint32(ctx, obj, 4) : js_get_property(ctx, obj, "tx_packet_size");
   pro.tx_packet_size = to_integerfree(ctx, value);
 
   return pro;
@@ -745,37 +745,37 @@ http_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
     value = JS_GetPropertyStr(ctx, obj, "cgienv");
     mnt->cgienv = vhost_options_fromfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "extra_mimetypes");
+    value = js_get_property(ctx, obj, "extra_mimetypes");
     mnt->extra_mimetypes = vhost_options_fromfree(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "interpret");
     mnt->interpret = vhost_options_fromfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "cgi_timeout");
+    value = js_get_property(ctx, obj, "cgi_timeout");
     mnt->cgi_timeout = to_integerfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "cache_max_age");
+    value = js_get_property(ctx, obj, "cache_max_age");
     mnt->cache_max_age = to_integerfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "auth_mask");
+    value = js_get_property(ctx, obj, "auth_mask");
     mnt->auth_mask = to_integerfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "cache_reusable");
+    value = js_get_property(ctx, obj, "cache_reusable");
     mnt->cache_reusable = to_boolfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "cache_revalidate");
+    value = js_get_property(ctx, obj, "cache_revalidate");
     mnt->cache_revalidate = to_boolfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "cache_intermediaries");
+    value = js_get_property(ctx, obj, "cache_intermediaries");
     mnt->cache_intermediaries = to_boolfree(ctx, value);
 
-    /*value = lwsjs_get_property(ctx, obj, "cache_no");
+    /*value = js_get_property(ctx, obj, "cache_no");
     mnt->cache_no = to_boolfree(ctx, value);*/
 
-    value = lwsjs_get_property(ctx, obj, "origin_protocol");
+    value = js_get_property(ctx, obj, "origin_protocol");
     mnt->origin_protocol = to_integerfree(ctx, value);
 
-    value = lwsjs_get_property(ctx, obj, "basic_auth_login_file");
+    value = js_get_property(ctx, obj, "basic_auth_login_file");
     mnt->basic_auth_login_file = to_stringfree(ctx, value);
   }
 
@@ -887,7 +887,7 @@ vhost_option_from(JSContext* ctx, JSValueConst obj) {
     value = JS_GetPropertyStr(ctx, obj, "value");
     options = JS_GetPropertyStr(ctx, obj, "options");
 
-    if(lwsjs_has_property(ctx, obj, "next"))
+    if(js_has_property(ctx, obj, "next"))
       next = JS_GetPropertyStr(ctx, obj, "next");
   }
 
@@ -961,7 +961,7 @@ static void
 client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectInfo* ci) {
   JSValue value;
 
-  if(lwsjs_has_property(ctx, obj, "context")) {
+  if(js_has_property(ctx, obj, "context")) {
     value = JS_GetPropertyStr(ctx, obj, "context");
     ci->context = lws_context_data(value);
     JS_FreeValue(ctx, value);
@@ -969,14 +969,14 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
 
   str_property(&ci->address, ctx, obj, "address");
 
-  if(lwsjs_has_property(ctx, obj, "port"))
-    ci->port = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "port"));
+  if(js_has_property(ctx, obj, "port"))
+    ci->port = to_integerfree(ctx, js_get_property(ctx, obj, "port"));
 
-  if(lwsjs_has_property(ctx, obj, "ssl_connection"))
-    ci->ssl_connection = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "ssl_connection"));
+  if(js_has_property(ctx, obj, "ssl_connection"))
+    ci->ssl_connection = to_integerfree(ctx, js_get_property(ctx, obj, "ssl_connection"));
 
-  if(lwsjs_has_property(ctx, obj, "ssl")) {
-    value = lwsjs_get_property(ctx, obj, "ssl");
+  if(js_has_property(ctx, obj, "ssl")) {
+    value = js_get_property(ctx, obj, "ssl");
     ci->ssl_connection |= JS_IsBool(value)
                               ? (JS_ToBool(ctx, value) ? LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK : 0)
                               : to_uint32(ctx, value);
@@ -990,14 +990,14 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
   str_property(&ci->method, ctx, obj, "method");
   str_property(&ci->iface, ctx, obj, "iface");
 
-  if(lwsjs_has_property(ctx, obj, "local_port"))
-    ci->local_port = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "local_port"));
+  if(js_has_property(ctx, obj, "local_port"))
+    ci->local_port = to_integerfree(ctx, js_get_property(ctx, obj, "local_port"));
 
   str_property(&ci->local_protocol_name, ctx, obj, "local_protocol_name");
   str_property(&ci->alpn, ctx, obj, "alpn");
 
-  if(lwsjs_has_property(ctx, obj, "keep_warm_secs"))
-    ci->keep_warm_secs = to_integerfree(ctx, lwsjs_get_property(ctx, obj, "keep_warm_secs"));
+  if(js_has_property(ctx, obj, "keep_warm_secs"))
+    ci->keep_warm_secs = to_integerfree(ctx, js_get_property(ctx, obj, "keep_warm_secs"));
 
   str_property(&ci->auth_username, ctx, obj, "auth_username");
   str_property(&ci->auth_password, ctx, obj, "auth_password");
@@ -1049,7 +1049,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   value = JS_GetPropertyStr(ctx, obj, "headers");
   ci->headers = vhost_options_fromfree(ctx, value);
 
-  value = lwsjs_get_property(ctx, obj, "reject_service_keywords");
+  value = js_get_property(ctx, obj, "reject_service_keywords");
   ci->reject_service_keywords = vhost_options_from(ctx, value);
   JS_FreeValue(ctx, value);
 
@@ -1069,15 +1069,15 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   value = JS_GetPropertyStr(ctx, obj, "port");
   ci->port = to_integerfree(ctx, value);
 
-  value = lwsjs_get_property(ctx, obj, "http_proxy_port");
+  value = js_get_property(ctx, obj, "http_proxy_port");
   ci->http_proxy_port = to_integerfree(ctx, value);
 
-  value = lwsjs_get_property(ctx, obj, "keepalive_timeout");
+  value = js_get_property(ctx, obj, "keepalive_timeout");
   ci->keepalive_timeout = to_integerfree(ctx, value);
 #endif
 
 #ifdef LWS_WITH_SYS_ASYNC_DNS
-  value = lwsjs_get_property(ctx, obj, "async_dns_servers");
+  value = js_get_property(ctx, obj, "async_dns_servers");
   ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);
 #endif
 
@@ -1099,14 +1099,14 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 #ifdef LWS_WITH_SOCKS5
   str_property(&ci->socks_proxy_address, ctx, obj, "socks_proxy_address");
 
-  value = lwsjs_get_property(ctx, obj, "socks_proxy_port");
+  value = js_get_property(ctx, obj, "socks_proxy_port");
   ci->socks_proxy_port = to_integerfree(ctx, value);
 #endif
 
-  value = lwsjs_get_property(ctx, obj, "default_loglevel");
+  value = js_get_property(ctx, obj, "default_loglevel");
   ci->default_loglevel = to_integerfree(ctx, value);
 
-  value = lwsjs_get_property(ctx, obj, "vh_listen_sockfd");
+  value = js_get_property(ctx, obj, "vh_listen_sockfd");
   ci->vh_listen_sockfd = to_integerfree(ctx, value);
 
   value = JS_GetPropertyStr(ctx, obj, "options");
@@ -1266,7 +1266,7 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
   lc->js = JS_DupContext(ctx);
   lc->info.user = obj_ptr(ctx, obj);
 
-  if(!lwsjs_has_property(ctx, argv[0], "port"))
+  if(!js_has_property(ctx, argv[0], "port"))
     lc->info.port = CONTEXT_PORT_NO_LISTEN;
 
   /* This must be called last, because it can trigger callbacks already */
