@@ -363,7 +363,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   JSValue sock = wsi ? lwsjs_socket_get_or_create(ctx, reason == LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL ? 0 : wsi) : JS_UNDEFINED;
   LWSSocket* s = lwsjs_socket_data(sock);
 
-  if(reason == LWS_CALLBACK_HTTP_WRITEABLE || reason == LWS_CALLBACK_CLIENT_HTTP_WRITEABLE) {
+  if(reason == LWS_CALLBACK_HTTP_WRITEABLE || reason == LWS_CALLBACK_CLIENT_HTTP_WRITEABLE || reason == LWS_CALLBACK_SERVER_WRITEABLE || reason == LWS_CALLBACK_CLIENT_WRITEABLE ||
+     reason == LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE || reason == LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE || reason == LWS_CALLBACK_RAW_WRITEABLE || reason == LWS_CALLBACK_RAW_WRITEABLE_FILE ||
+     reason == LWS_CALLBACK_MQTT_CLIENT_WRITEABLE) {
     if(s && s->want_write) {
       s->want_write = FALSE;
 
