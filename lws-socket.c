@@ -217,6 +217,16 @@ socket_get_or_create(JSContext* ctx, struct lws* wsi) {
   return sock;
 }
 
+struct lws*
+lwsjs_socket_wsi(JSValueConst value) {
+  LWSSocket* sock;
+
+  if((sock = lwsjs_socket_data(value)))
+    return sock->wsi;
+
+  return 0;
+}
+
 JSValue
 lwsjs_socket_wrap(JSContext* ctx, LWSSocket* sock) {
   JSValue obj = JS_NewObjectProtoClass(ctx, lwsjs_socket_proto, lwsjs_socket_class_id);

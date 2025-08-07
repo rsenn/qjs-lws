@@ -27,6 +27,7 @@ extern JSClassID lwsjs_socket_class_id;
 
 LWSSocket* socket_get(struct lws* wsi);
 LWSSocket* socket_alloc(JSContext* ctx);
+struct lws* lwsjs_socket_wsi(JSValueConst);
 void lwsjs_socket_destroy(JSContext*, struct lws*);
 JSValue lwsjs_socket_wrap(JSContext*, LWSSocket*);
 JSValue lwsjs_socket_create(JSContext*, struct lws*);
@@ -46,13 +47,4 @@ lwsjs_socket_data2(JSContext* ctx, JSValueConst value) {
   return JS_GetOpaque2(ctx, value, lwsjs_socket_class_id);
 }
 
-static inline struct lws*
-lwsjs_socket_wsi(JSValueConst value) {
-  LWSSocket* sock;
-
-  if((sock = lwsjs_socket_data(value)))
-    return sock->wsi;
-
-  return 0;
-}
 #endif
