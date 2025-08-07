@@ -33,6 +33,7 @@ int lwsjs_spa_init(JSContext*, JSModuleDef*);
 void lwsjs_uri_toconnectinfo(JSContext*, char*, LWSClientConnectInfo*);
 // void lwsjs_uri_toobj(JSContext*, char*, JSValueConst);
 enum lws_callback_reasons lwsjs_callback_find(const char*);
+const char* lwsjs_callback_name(enum lws_callback_reasons);
 void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);
 
 int lwsjs_init(JSContext*, JSModuleDef*);
@@ -59,7 +60,6 @@ find_charset(const char* s, const char* set, size_t setlen) {
 
   return i;
 }
-
 
 static inline int
 list_size(struct list_head* list) {

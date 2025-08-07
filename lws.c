@@ -3,7 +3,6 @@
 #include "lws.h"
 #include "js-utils.h"
 
-static const char* lwsjs_callback_name(enum lws_callback_reasons);
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
 enum {
@@ -20,7 +19,6 @@ enum {
 };
 
 static void lwsjs_log_callback(int, const char*);
-
 
 void
 lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
@@ -620,7 +618,7 @@ static const char* lws_callback_names[] = {
     [LWS_CALLBACK_USER] = "USER",
 };
 
-static const char*
+const char*
 lwsjs_callback_name(enum lws_callback_reasons reason) {
   if(reason >= 0 && reason < countof(lws_callback_names))
     return lws_callback_names[reason];

@@ -9,7 +9,7 @@
 #include "lws.h"
 #include "js-utils.h"
 
-#define LWS_PLUGIN_STATIC 
+#define LWS_PLUGIN_STATIC
 
 #ifdef PLUGIN_PROTOCOL_DEADDROP
 #include "libwebsockets/plugins/deaddrop/protocol_lws_deaddrop.c"
@@ -244,10 +244,48 @@ wsi_to_js_ctx(struct lws* wsi) {
 }
 
 static int
-http_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+js_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+  if(reason == LWS_CALLBACK_WSI_CREATE || reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL ||
+     reason == LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL || reason == LWS_CALLBACK_RAW_PROXY_CLI_BIND_PROTOCOL || reason == LWS_CALLBACK_RAW_PROXY_SRV_BIND_PROTOCOL ||
+     reason == LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL || reason == LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL) {
+    struct lws_protocols const* pro = lws_get_protocol(wsi);
 
-  if(pollfd_callback(wsi, reason, user, in, len) == 0)
-    return 0;
+    if(user && pro->per_session_data_size == sizeof(JSValue)) {
+      JSValue* jsval = user;
+      JSContext* ctx = wsi_to_js_ctx(wsi);
+
+      if(JS_VALUE_GET_TAG(*jsval) == 0 && JS_VALUE_GET_PTR(*jsval) == 0)
+        *jsval = JS_NewObjectProto(ctx, JS_NULL);
+
+      return 0;
+    }
+  }
+
+  if(reason == LWS_CALLBACK_WSI_DESTROY) {
+    struct lws_protocols const* pro = lws_get_protocol(wsi);
+
+    if(user && pro->per_session_data_size == sizeof(JSValue)) {
+      JSValue* jsval = user;
+      JSContext* ctx = wsi_to_js_ctx(wsi);
+
+      if(JS_IsObject(*jsval)) {
+        JS_FreeValue(ctx, *jsval);
+        *jsval = JS_MKPTR(0, 0);
+      }
+
+      lwsjs_socket_destroy(ctx, wsi);
+      return 0;
+    }
+  }
+
+  return -1;
+}
+
+static int
+http_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+  if(js_callback(wsi, reason, user, in, len) != 0)
+    if(pollfd_callback(wsi, reason, user, in, len) == 0)
+      return 0;
 
   LWSSocket* sock;
   BOOL client = FALSE;
@@ -257,13 +295,6 @@ http_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, voi
 
   int ret = client ? 0 : lws_callback_http_dummy(wsi, reason, user, in, len);
 
-  if(reason == LWS_CALLBACK_WSI_DESTROY) {
-    JSContext* ctx;
-
-    if((ctx = wsi_to_js_ctx(wsi)))
-      lwsjs_socket_destroy(ctx, wsi);
-  }
-
   return ret;
 }
 
@@ -272,8 +303,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   if(reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS || reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS)
     return 0;
 
-  if(pollfd_callback(wsi, reason, user, in, len) == 0)
-    return 0;
+  if(js_callback(wsi, reason, user, in, len) != 0)
+    if(pollfd_callback(wsi, reason, user, in, len) == 0)
+      return 0;
 
   struct lws_protocols const* pro = lws_get_protocol(wsi);
   LWSProtocol* closure = pro ? pro->user : 0;
@@ -281,6 +313,10 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   LWSContext* lc = wsi ? lwsjs_socket_context(wsi) : 0;
   JSContext* ctx = wsi_to_js_ctx(wsi);
   int32_t ret = 0;
+
+  JSValue *jsval = user  && pro->per_session_data_size==sizeof(JSValue) && JS_IsObject(*(JSValue*)user) ? user : 0;
+
+  DEBUG("%s() %-32s %s", __func__, lwsjs_callback_name(reason), lws_wsi_tag(wsi));
 
   if(closure && countof(closure->callbacks) > reason && !is_nullish(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];
@@ -349,14 +385,14 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       s->headers = lwsjs_socket_headers(ctx, s->wsi);
   }
 
-  if(user && pro->per_session_data_size == sizeof(JSValue)) {
+  /*if(user && pro->per_session_data_size == sizeof(JSValue)) {
     if(reason == LWS_CALLBACK_WSI_DESTROY) {
       JS_FreeValue(ctx, *(JSValue*)user);
       *(JSValue*)user = JS_MKPTR(0, 0);
     } else if(reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
       *(JSValue*)user = JS_NewObjectProto(ctx, JS_NULL);
     }
-  }
+  }*/
 
   if(!is_nullish(*cb)) {
     int argi = 1, buffer_index = -1;
@@ -448,7 +484,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       s->headers = lwsjs_socket_headers(ctx, wsi);
     }
 
-    JSValue result = JS_Call(ctx, *cb, JS_NULL, argi, argv);
+    JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, argi, argv);
 
     if(JS_IsException(result)) {
       char* error = to_stringfree(ctx, JS_GetException(ctx));
@@ -548,8 +584,8 @@ static JSValue
 protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
   JSValue ret = JS_UNDEFINED;
 
-  if(proto->user)
-    return ptr_obj(ctx, ((LWSProtocol*)proto->user)->obj);
+  /*if(proto->user)
+    return ptr_obj(ctx, ((LWSProtocol*)proto->user)->obj);*/
 
   ret = JS_NewObjectProto(ctx, JS_NULL);
 
