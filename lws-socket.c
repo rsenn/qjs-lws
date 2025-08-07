@@ -417,7 +417,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
             if(lws_http_transaction_completed(s->wsi))
               s->completed = TRUE;
 
-        printf("send pipe choked: %d partially buffered: %d\n", lws_send_pipe_choked(s->wsi), lws_partial_buffered(s->wsi));
+        DEBUG_WSI(s->wsi, "send pipe choked: %d partially buffered: %d", lws_send_pipe_choked(s->wsi), lws_partial_buffered(s->wsi));
       }
 
       if(JS_IsString(argv[0]))

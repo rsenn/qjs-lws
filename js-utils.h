@@ -152,6 +152,22 @@ to_string(JSContext* ctx, JSValueConst value) {
 }
 
 static inline char*
+to_stringlen(JSContext* ctx, size_t* lenp, JSValueConst value) {
+  if(is_nullish(value))
+    return 0;
+
+  size_t len = 0;
+  const char* s = JS_ToCStringLen(ctx, &len, value);
+  char* x = js_strndup(ctx, s, len);
+  JS_FreeCString(ctx, s);
+
+  if(lenp)
+    *lenp = len;
+
+  return x;
+}
+
+static inline char*
 to_stringfree(JSContext* ctx, JSValue value) {
   char* s = to_string(ctx, value);
   JS_FreeValue(ctx, value);
