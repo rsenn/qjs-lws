@@ -1,7 +1,7 @@
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws.h"
-#include <string.h>
+#include "js-utils.h"
 
 static const char* lwsjs_callback_name(enum lws_callback_reasons);
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
@@ -21,86 +21,6 @@ enum {
 
 static void lwsjs_log_callback(int, const char*);
 
-JSValue
-ptr_obj(JSContext* ctx, JSObject* obj) {
-  return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
-}
-
-JSValue
-lwsjs_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
-  JSValue fn = JS_GetPropertyStr(ctx, obj, "next");
-  JSValue result = JS_Call(ctx, fn, obj, 0, 0);
-  JS_FreeValue(ctx, fn);
-  *done_p = to_boolfree(ctx, JS_GetPropertyStr(ctx, result, "done"));
-  JSValue value = JS_GetPropertyStr(ctx, result, "value");
-  JS_FreeValue(ctx, result);
-  return value;
-}
-
-JSValue*
-to_valuearray(JSContext* ctx, JSValueConst obj, size_t* lenp) {
-  JSValue iterator = iterator_get(ctx, obj);
-
-  if(JS_IsException(iterator)) {
-    JS_GetException(ctx);
-    return 0;
-  }
-
-  JSValue tmp = JS_Call(ctx, iterator, obj, 0, NULL);
-  JS_FreeValue(ctx, iterator);
-  iterator = tmp;
-
-  BOOL done = FALSE;
-  JSValue* ret = NULL;
-  uint32_t i;
-
-  for(i = 0;; ++i) {
-    JSValue value = lwsjs_iterator_next(ctx, iterator, &done);
-
-    if(done || !(ret = js_realloc(ctx, ret, (i + 1) * sizeof(JSValue)))) {
-      JS_FreeValue(ctx, value);
-      break;
-    }
-
-    ret[i] = value;
-  }
-
-  *lenp = i;
-
-  return ret;
-}
-
-char**
-to_stringarray(JSContext* ctx, JSValueConst obj) {
-  JSValue iterator = iterator_get(ctx, obj);
-
-  if(JS_IsException(iterator)) {
-    JS_GetException(ctx);
-    return 0;
-  }
-
-  JSValue tmp = JS_Call(ctx, iterator, obj, 0, NULL);
-  JS_FreeValue(ctx, iterator);
-  iterator = tmp;
-
-  BOOL done = FALSE;
-  char** ret = 0;
-  uint32_t i;
-
-  for(i = 0;; ++i) {
-    JSValue value = lwsjs_iterator_next(ctx, iterator, &done);
-
-    if(done || !(ret = js_realloc(ctx, ret, (i + 2) * sizeof(char*)))) {
-      JS_FreeValue(ctx, value);
-      break;
-    }
-
-    ret[i] = to_stringfree(ctx, value);
-    ret[i + 1] = 0;
-  }
-
-  return ret;
-}
 
 void
 lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
@@ -740,54 +660,6 @@ lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[], s
 
     callbacks[i] = JS_NULL;
   }
-}
-
-BOOL
-lwsjs_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
-  JSAtom atom = JS_NewAtom(ctx, name);
-  BOOL ret = JS_HasProperty(ctx, obj, atom);
-  JS_FreeAtom(ctx, atom);
-
-  /*if(!ret) {
-    char buf[strlen(name) + 1];
-
-    camelize(buf, sizeof(buf), name);
-
-    if(strcmp(name, buf)) {
-      atom = JS_NewAtom(ctx, buf);
-      ret = JS_HasProperty(ctx, obj, atom);
-      JS_FreeAtom(ctx, atom);
-    }
-  }*/
-
-  return ret;
-}
-
-BOOL
-lwsjs_has_property2(JSContext* ctx, JSValueConst obj, const char* name) {
-
-  if(!lwsjs_has_property(ctx, obj, name)) {
-    char buf[strlen(name) + 1];
-
-    camelize(buf, sizeof(buf), name);
-
-    return lwsjs_has_property(ctx, obj, buf);
-  }
-
-  return TRUE;
-}
-
-JSValue
-lwsjs_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
-  if(!lwsjs_has_property(ctx, obj, name)) {
-    char buf[strlen(name) + 1];
-
-    camelize(buf, sizeof(buf), name);
-
-    return JS_GetPropertyStr(ctx, obj, buf);
-  }
-
-  return JS_GetPropertyStr(ctx, obj, name);
 }
 
 static const char* lwsjs_log_levels[] = {

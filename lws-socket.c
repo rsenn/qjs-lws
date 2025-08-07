@@ -1,6 +1,7 @@
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws.h"
+#include "js-utils.h"
 #include <assert.h>
 
 #include "libwebsockets/lib/core/private-lib-core.h"
