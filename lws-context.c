@@ -9,6 +9,8 @@
 #include "lws.h"
 #include "js-utils.h"
 
+#define LWS_PLUGIN_STATIC 
+
 #ifdef PLUGIN_PROTOCOL_DEADDROP
 #include "libwebsockets/plugins/deaddrop/protocol_lws_deaddrop.c"
 #endif
@@ -640,6 +642,12 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
       0,
   };
 
+  for(size_t i = 0; i < len; i++) {
+    pro[j++] = protocol_from(ctx, values[i]);
+
+    JS_FreeValue(ctx, values[i]);
+  }
+
 #ifdef PLUGIN_PROTOCOL_DEADDROP
   pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_DEADDROP;
 #endif
@@ -670,12 +678,6 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
 #ifdef PLUGIN_PROTOCOL_RAW_TEST
   pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_RAW_TEST;
 #endif
-
-  for(size_t i = 0; i < len; i++) {
-    pro[i + j] = protocol_from(ctx, values[i]);
-
-    JS_FreeValue(ctx, values[i]);
-  }
 
   if(values)
     js_free(ctx, values);
