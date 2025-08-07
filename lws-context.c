@@ -514,6 +514,11 @@ end:
 }
 
 static JSValue
+protocol_c_callback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+
+}
+
+static JSValue
 protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
   JSValue ret = JS_UNDEFINED;
 
@@ -527,6 +532,11 @@ protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
   JS_SetPropertyStr(ctx, ret, "rxBufferSize", JS_NewUint32(ctx, proto->rx_buffer_size));
   JS_SetPropertyStr(ctx, ret, "id", JS_NewUint32(ctx, proto->id));
   JS_SetPropertyStr(ctx, ret, "txPacketSize", JS_NewUint32(ctx, proto->tx_packet_size));
+
+
+JSValue cb=JS_NewCFunction(ctx, protocol_c_callback);
+
+  JS_SetPropertyStr(ctx, ret, "callback", cb);
 
   return ret;
 }
