@@ -1,5 +1,15 @@
 #include "js-utils.h"
 
+JSValue
+js_function_prototype(JSContext* ctx) {
+  JSValue ret, fn = JS_NewCFunction(ctx, 0, "", 0);
+  ret = JS_GetPrototype(ctx, fn);
+
+  JS_FreeValue(ctx, fn);
+
+  return ret;
+}
+
 typedef struct {
   CClosureFunc* func;
   uint16_t length, magic;
@@ -7,7 +17,7 @@ typedef struct {
   void (*opaque_finalize)(void*);
 } JSCClosureRecord;
 
-static THREAD_LOCAL JSClassID js_cclosure_class_id;
+static JSClassID js_cclosure_class_id;
 
 static inline JSCClosureRecord*
 js_cclosure_data(JSValueConst value) {

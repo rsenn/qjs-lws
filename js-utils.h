@@ -6,9 +6,10 @@
 
 #include <quickjs.h>
 #include <cutils.h>
-#include <list.h> 
+#include <list.h>
 
- JSValue js_function_cclosure(JSContext*, CClosureFunc* func, int length, int magic, void* opaque, void (*opaque_finalize)(void*));
- 
+typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
+
+JSValue js_function_cclosure(JSContext*, CClosureFunc* func, int length, int magic, void* opaque, void (*opaque_finalize)(void*));
 
 #endif /* JS_UTILS_H */

@@ -7,6 +7,7 @@
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws.h"
+#include "js-utils.h"
 
 #ifdef PLUGIN_PROTOCOL_DEADDROP
 #include "libwebsockets/plugins/deaddrop/protocol_lws_deaddrop.c"
@@ -514,8 +515,10 @@ end:
 }
 
 static JSValue
-protocol_c_callback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+protocol_c_callback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* closure) {
+  const LWSProtocols* proto = closure;
 
+  return JS_UNDEFINED;
 }
 
 static JSValue
@@ -533,8 +536,7 @@ protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
   JS_SetPropertyStr(ctx, ret, "id", JS_NewUint32(ctx, proto->id));
   JS_SetPropertyStr(ctx, ret, "txPacketSize", JS_NewUint32(ctx, proto->tx_packet_size));
 
-
-JSValue cb=JS_NewCFunction(ctx, protocol_c_callback);
+  JSValue cb = js_function_cclosure(ctx, protocol_c_callback, 5, 0, proto, 0);
 
   JS_SetPropertyStr(ctx, ret, "callback", cb);
 
