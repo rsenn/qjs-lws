@@ -1,30 +1,4 @@
-import {
-  logLevel,
-  LWSSPA,
-  getCallbackName,
-  LLL_ERR,
-  LLL_WARN,
-  LLL_INFO,
-  LLL_NOTICE,
-  LLL_USER,
-  LLL_CLIENT,
-  LWS_ILLEGAL_HTTP_CONTENT_LEN,
-  LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL,
-  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
-  LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED,
-  LWS_SERVER_OPTION_IGNORE_MISSING_CERT,
-  LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER,
-  LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT,
-  LWS_WRITE_HTTP_FINAL,
-  LWSMPRO_NO_MOUNT,
-  LWSMPRO_HTTPS,
-  LWSMPRO_HTTP,
-  LWSMPRO_CALLBACK,
-  LWSMPRO_FILE,
-  LWSContext,
-  toArrayBuffer,
-  toString
-} from 'lws';
+import { logLevel, LWSSPA, getCallbackName, LLL_ERR, LLL_WARN, LLL_INFO, LLL_NOTICE, LLL_USER, LLL_CLIENT, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, toArrayBuffer, toString, } from 'lws';
 import { setTimeout } from 'os';
 
 logLevel(LLL_ERR | LLL_USER /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/);
@@ -43,8 +17,8 @@ const spa = (globalThis.spa = weakMapper(
       },
       onClose(name, filename) {
         verbose('spa.onClose', C, { [name]: filename });
-      }
-    })
+      },
+    }),
 ));
 
 const wsi2obj = (globalThis.wsi2obj = weakMapper(() => ({})));
@@ -68,19 +42,19 @@ const protocols = [
 
       verbose('onFilterHttpConnection', C, wsi, url, headers);
 
-      if (/multipart/.test(headers['content-type'])) spa(wsi);
+      if(/multipart/.test(headers['content-type'])) spa(wsi);
     },
     callback(wsi, reason, ...args) {
       verbose('ws ' + getCallbackName(reason), C, wsi, args);
       return 0;
-    }
+    },
   },
   {
     name: 'raw-echo',
     callback(wsi, reason, ...args) {
       verbose('raw-echo ' + getCallbackName(reason), C, wsi, args);
       return 0;
-    }
+    },
   },
   {
     name: 'http',
@@ -112,11 +86,11 @@ const protocols = [
       verbose('onHttpWriteable', C, wsi);
       const obj = wsi2obj(wsi);
 
-      if (!obj.responded) {
+      if(!obj.responded) {
         obj.lines = (JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n').split('\n');
 
         wsi.respond(200, LWS_ILLEGAL_HTTP_CONTENT_LEN ?? obj.lines.length, {
-          'content-type': 'text/html' /*, connection: 'close'*/
+          'content-type': 'text/html' /*, connection: 'close'*/,
         });
 
         obj.index = 0;
@@ -128,7 +102,7 @@ const protocols = [
 
       wsi.write(obj.lines[obj.index] + '\n', obj.lines[++obj.index] ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL);
 
-      if (obj.lines[obj.index]) {
+      if(obj.lines[obj.index]) {
         setTimeout(() => wsi.wantWrite(), 100);
         return 0;
       }
@@ -141,7 +115,7 @@ const protocols = [
 
       globalThis.wsi = wsi;
 
-      if (method != 'POST') wsi.wantWrite();
+      if(method != 'POST') wsi.wantWrite();
     },
     onAddHeaders(wsi, buf, len) {
       wsi.addHeader('test', 'blah', buf, len);
@@ -151,8 +125,8 @@ const protocols = [
     callback(wsi, reason, ...args) {
       verbose('http ' + getCallbackName(reason), C, wsi, args);
       return 0;
-    }
-  }
+    },
+  },
 ];
 
 globalThis.ctx = new LWSContext({
@@ -191,10 +165,10 @@ globalThis.ctx = new LWSContext({
         ['.key', 'text/plain'],
         ['.sublime-project', 'text/plain'],
         ['.sublime-workspace', 'text/plain'],
-        ['.js', 'application/javascript']
-      ]
-    }
-  ]
+        ['.js', 'application/javascript'],
+      ],
+    },
+  ],
 });
 
 function verbose(name, ...args) {
@@ -202,17 +176,17 @@ function verbose(name, ...args) {
 }
 
 function debug(name, ...args) {
-  if (process.env.DEBUG) console.log(name.padEnd(32), ...args);
+  if(process.env.DEBUG) console.log(name.padEnd(32), ...args);
 }
 
 function weakMapper(create, map = new WeakMap()) {
   return Object.assign(
     (obj, ...args) => {
       let ret;
-      if (map.has(obj)) ret = map.get(obj);
+      if(map.has(obj)) ret = map.get(obj);
       else map.set(obj, (ret = create(obj, ...args)));
       return ret;
     },
-    { set: (k, v) => map.set(k, v), get: k => map.get(k), map, create }
+    { set: (k, v) => map.set(k, v), get: k => map.get(k), map, create },
   );
 }
