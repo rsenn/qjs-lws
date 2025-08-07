@@ -3,4 +3,6 @@ import { WebSocket } from '../lib/websocket.js';
 
 test(() => {
   const ws = new WebSocket('ws://localhost/ws', []);
-}, '');
+}, 'Create WebSocket');
+
+console.log('tests',tests.tests);
