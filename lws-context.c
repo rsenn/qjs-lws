@@ -8,6 +8,37 @@
 #include "lws-context.h"
 #include "lws.h"
 
+#ifdef PLUGIN_PROTOCOL_DEADDROP
+#include "libwebsockets/plugins/deaddrop/protocol_lws_deaddrop.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_RAW_PROXY
+#include "libwebsockets/plugins/raw-proxy/protocol_lws_raw_proxy.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_FULLTEXT_DEMO
+#include "libwebsockets/plugins/protocol_fulltext_demo.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_STATUS
+#include "libwebsockets/plugins/protocol_lws_status.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_ACME_CLIENT
+#include "libwebsockets/plugins/acme-client/protocol_lws_acme_client.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_SSHD_DEMO
+#include "libwebsockets/plugins/protocol_lws_sshd_demo.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_DUMB_INCREMENT
+#include "libwebsockets/plugins/protocol_dumb_increment.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_MIRROR
+#include "libwebsockets/plugins/protocol_lws_mirror.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_RAW_SSHD
+#include "libwebsockets/plugins/ssh-base/sshd.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_RAW_TEST
+#include "libwebsockets/plugins/protocol_lws_raw_test.c"
+#endif
+
 JSClassID lwsjs_context_class_id;
 static JSValue lwsjs_context_proto, lwsjs_context_ctor;
 
@@ -482,6 +513,24 @@ end:
   return ret;
 }
 
+static JSValue
+protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
+  JSValue ret = JS_UNDEFINED;
+
+  if(proto->user)
+    return ptr_obj(ctx, ((LWSProtocol*)proto->user)->obj);
+
+  ret = JS_NewObjectProto(ctx, JS_NULL);
+
+  JS_SetPropertyStr(ctx, ret, "name", JS_NewString(ctx, proto->name));
+  JS_SetPropertyStr(ctx, ret, "perSessionDataSize", JS_NewUint32(ctx, proto->per_session_data_size));
+  JS_SetPropertyStr(ctx, ret, "rxBufferSize", JS_NewUint32(ctx, proto->rx_buffer_size));
+  JS_SetPropertyStr(ctx, ret, "id", JS_NewUint32(ctx, proto->id));
+  JS_SetPropertyStr(ctx, ret, "txPacketSize", JS_NewUint32(ctx, proto->tx_packet_size));
+
+  return ret;
+}
+
 static LWSProtocols
 protocol_from(JSContext* ctx, JSValueConst obj) {
   LWSProtocols pro = {0};
@@ -542,9 +591,10 @@ static const LWSProtocols*
 protocols_fromarray(JSContext* ctx, JSValueConst value) {
   size_t len;
   JSValue* values = to_valuearray(ctx, value, &len);
-  LWSProtocols* pro = js_mallocz(ctx, (len + 2) * sizeof(LWSProtocols));
+  LWSProtocols* pro = js_mallocz(ctx, (len + 13) * sizeof(LWSProtocols));
+  size_t i, j = 0;
 
-  pro[0] = (struct lws_protocols){
+  pro[j++] = (struct lws_protocols){
       "http-only",
       http_callback,
       0,
@@ -554,8 +604,39 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
       0,
   };
 
+#ifdef PLUGIN_PROTOCOL_DEADDROP
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_DEADDROP;
+#endif
+#ifdef PLUGIN_PROTOCOL_RAW_PROXY
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_RAW_PROXY;
+#endif
+#ifdef PLUGIN_PROTOCOL_FULLTEXT_DEMO
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_FULLTEXT_DEMO;
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_STATUS
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_LWS_STATUS;
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_ACME_CLIENT
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_LWS_ACME_CLIENT;
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_SSHD_DEMO
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_LWS_SSHD_DEMO;
+#endif
+#ifdef PLUGIN_PROTOCOL_DUMB_INCREMENT
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT;
+#endif
+#ifdef PLUGIN_PROTOCOL_MIRROR
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_MIRROR;
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_RAW_SSHD
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_LWS_RAW_SSHD;
+#endif
+#ifdef PLUGIN_PROTOCOL_RAW_TEST
+  pro[j++] = (struct lws_protocols)LWS_PLUGIN_PROTOCOL_RAW_TEST;
+#endif
+
   for(size_t i = 0; i < len; i++) {
-    pro[i + 1] = protocol_from(ctx, values[i]);
+    pro[i + j] = protocol_from(ctx, values[i]);
 
     JS_FreeValue(ctx, values[i]);
   }
@@ -1310,6 +1391,7 @@ enum {
   PROP_DEPRECATED,
   PROP_EUID,
   PROP_EGID,
+  PROP_PROTOCOLS,
 };
 
 static JSValue
@@ -1345,6 +1427,17 @@ lwsjs_context_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       break;
     }
+
+    case PROP_PROTOCOLS: {
+      ret = JS_NewArray(ctx);
+
+      for(uint32_t i = 0; lc->info.protocols[i].name; i++) {
+        JSValue protocol = protocol_obj(ctx, &lc->info.protocols[i]);
+        JS_SetPropertyUint32(ctx, ret, i, protocol);
+      }
+
+      break;
+    }
   }
 
   return ret;
@@ -1375,6 +1468,7 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("deprecated", lwsjs_context_get, 0, PROP_DEPRECATED),
     JS_CGETSET_MAGIC_DEF("euid", lwsjs_context_get, 0, PROP_EUID),
     JS_CGETSET_MAGIC_DEF("egid", lwsjs_context_get, 0, PROP_EGID),
+    JS_CGETSET_MAGIC_DEF("protocols", lwsjs_context_get, 0, PROP_PROTOCOLS),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSContext", JS_PROP_CONFIGURABLE),
 };
 

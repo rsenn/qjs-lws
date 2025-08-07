@@ -772,9 +772,9 @@ lwsjs_has_property2(JSContext* ctx, JSValueConst obj, const char* name) {
     camelize(buf, sizeof(buf), name);
 
     return lwsjs_has_property(ctx, obj, buf);
-}
+  }
 
-return TRUE;
+  return TRUE;
 }
 
 JSValue

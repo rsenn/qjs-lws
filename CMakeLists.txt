@@ -7,6 +7,13 @@ message("Building project [1;31m${PROJECT_NAME}[0m")
 
 set(DISABLE_WERROR TRUE CACHE BOOL "Disable -Werror flag")
 
+macro(PLUGIN DEF NAME ENABLED)
+  option(PLUGIN_${DEF} "Enable ${NAME} plugin" ${ENABLED})
+  if(${PLUGIN_${DEF}})
+  add_definitions(-DPLUGIN_PROTOCOL_${DEF}=1)
+  endif(${PLUGIN_${DEF}})
+endmacro(PLUGIN DEF NAME ENABLED)
+
 #option(BUILD_SHARED_LIBWEBSOCKETS "Shared building of dependency libraries" OFF)
 option(BUILD_LIBWEBSOCKETS "in-tree build of libwebsockets" ON)
 option(DO_TESTS "Perform tests" ON)
@@ -16,6 +23,18 @@ if(USE_CURL)
 endif(USE_CURL)
 option(BUILD_MINIMAL_EXAMPLES "Build minimal-examples" OFF)
 option(DEBUG_OUTPUT "Output debug messages" OFF)
+
+plugin(DEADDROP deaddrop ON)
+plugin(RAW_PROXY raw-proxy ON)
+plugin(FULLTEXT_DEMO protocol_fulltext_demo OFF)
+plugin(LWS_STATUS protocol_lws_status ON)
+plugin(LWS_ACME_CLIENT acme-client OFF)
+plugin(LWS_SSHD_DEMO protocol_lws_sshd_demo OFF)
+#plugin(POST_DEMO protocol_post_demo OFF)
+plugin(DUMB_INCREMENT protocol_dumb_increment OFF)
+plugin(MIRROR protocol_lws_mirror ON)
+plugin(LWS_RAW_SSHD ssh-base OFF)
+plugin(RAW_TEST protocol_lws_raw_test OFF)
 
 if(DEBUG_OUTPUT)
   add_definitions(-DDEBUG_OUTPUT)
@@ -329,7 +348,8 @@ include_directories(
   libwebsockets/lib/system/smd
   libwebsockets/lib/tls
   libwebsockets/lib/tls/mbedtls
-  libwebsockets/lib/tls/openssl)
+  libwebsockets/lib/tls/openssl
+  libwebsockets/plugins/ssh-base/include)
 
 file(GLOB JS_BINDINGS_SOURCES *.[ch])
 
