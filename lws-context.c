@@ -517,8 +517,29 @@ end:
 static JSValue
 protocol_c_callback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* closure) {
   const LWSProtocols* proto = closure;
+  struct lws* wsi = 0;
+  int reason = -1;
+  void *user = 0, *in = 0;
+  size_t dummy, len = 0;
 
-  return JS_UNDEFINED;
+  if(argc > 0)
+    wsi = lwsjs_socket_wsi(argv[0]);
+
+  if(argc > 1)
+    reason = to_int32(ctx, argv[1]);
+
+  if(argc > 2)
+    user = JS_GetArrayBuffer(ctx, &dummy, argv[2]);
+
+  if(argc > 3)
+    in = JS_GetArrayBuffer(ctx, &dummy, argv[3]);
+
+  if(argc > 4)
+    len = to_uint32(ctx, argv[4]);
+
+  int ret = proto->callback(wsi, reason, user, in, len);
+
+  return JS_NewInt32(ctx, ret);
 }
 
 static JSValue
@@ -536,7 +557,10 @@ protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
   JS_SetPropertyStr(ctx, ret, "id", JS_NewUint32(ctx, proto->id));
   JS_SetPropertyStr(ctx, ret, "txPacketSize", JS_NewUint32(ctx, proto->tx_packet_size));
 
-  JSValue cb = js_function_cclosure(ctx, protocol_c_callback, 5, 0, proto, 0);
+  JSValue cb = JS_NULL;
+
+  if(proto->callback)
+    cb = js_function_cclosure(ctx, protocol_c_callback, 5, 0, (void*)proto, 0);
 
   JS_SetPropertyStr(ctx, ret, "callback", cb);
 
