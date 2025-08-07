@@ -30,6 +30,7 @@ BOOL js_has_property(JSContext*, JSValueConst, const char*);
 BOOL js_has_property2(JSContext*, JSValueConst, const char*);
 JSValue js_get_property(JSContext*, JSValueConst, const char*);
 JSValue js_function_cclosure(JSContext*, CClosureFunc* func, int length, int magic, void* opaque, void (*opaque_finalize)(void*));
+void js_error_print(JSContext*, JSValue);
 
 static inline size_t
 camelize(char* dst, size_t dlen, const char* src) {

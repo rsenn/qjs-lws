@@ -240,3 +240,20 @@ js_function_cclosure(JSContext* ctx, CClosureFunc* func, int length, int magic, 
 
   return func_obj;
 }
+
+void
+js_error_print(JSContext* ctx, JSValueConst exception) {
+  JSValue stack;
+  const char* str;
+  stack = JS_GetPropertyStr(ctx, exception, "stack");
+
+  if((str = JS_ToCString(ctx, exception))) {
+    fprintf(stderr, "\x1b[2K\rERROR: %s\n", str);
+    JS_FreeCString(ctx, str);
+  }
+
+  if((str = JS_ToCString(ctx, stack))) {
+    fprintf(stderr, "STACK: %s\n", str);
+    JS_FreeCString(ctx, str);
+  }
+}

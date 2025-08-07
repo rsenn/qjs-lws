@@ -485,11 +485,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, argi, argv);
 
     if(JS_IsException(result)) {
-      char* error = to_stringfree(ctx, JS_GetException(ctx));
-
-      fprintf(stderr, "\x1b[1;31mEXCEPTION\x1b[0: %s\n", error);
-      js_free(ctx, error);
-
+      JSValue error = JS_GetException(ctx);
+      js_error_print(ctx, error);
+      JS_FreeValue(ctx, error);
       ret = -1;
       goto end;
     }
