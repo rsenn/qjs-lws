@@ -1,39 +1,7 @@
+#include "lws.h"
 #include "js-utils.h"
 #include <ctype.h>
 #include <string.h>
-
-size_t
-camelize(char* dst, size_t dlen, const char* src) {
-  size_t i, j;
-
-  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
-    if(src[i] == '_') {
-      ++i;
-      dst[j] = toupper(src[i]);
-      continue;
-    }
-
-    dst[j] = tolower(src[i]);
-  }
-
-  dst[j] = '\0';
-  return j;
-}
-
-size_t
-decamelize(char* dst, size_t dlen, const char* src) {
-  size_t i, j;
-
-  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
-    if(i > 0 && islower(src[i - 1]) && isupper(src[i]))
-      dst[j++] = '_';
-
-    dst[j] = toupper(src[i]);
-  }
-
-  dst[j] = '\0';
-  return j;
-}
 
 JSValue
 js_function_prototype(JSContext* ctx) {
@@ -46,8 +14,15 @@ js_function_prototype(JSContext* ctx) {
 }
 
 JSValue
-ptr_obj(JSContext* ctx, JSObject* obj) {
-  return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
+js_iterator_get(JSContext* ctx, JSValueConst iterable) {
+  JSValue symbol = global_get(ctx, "Symbol");
+  JSValue symiter = JS_GetPropertyStr(ctx, symbol, "iterator");
+  JS_FreeValue(ctx, symbol);
+  JSAtom atom = JS_ValueToAtom(ctx, symiter);
+  JS_FreeValue(ctx, symiter);
+  JSValue ret = JS_GetProperty(ctx, iterable, atom);
+  JS_FreeAtom(ctx, atom);
+  return ret;
 }
 
 JSValue
@@ -61,70 +36,6 @@ js_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
   return value;
 }
 
-JSValue*
-to_valuearray(JSContext* ctx, JSValueConst obj, size_t* lenp) {
-  JSValue iterator = iterator_get(ctx, obj);
-
-  if(JS_IsException(iterator)) {
-    JS_GetException(ctx);
-    return 0;
-  }
-
-  JSValue tmp = JS_Call(ctx, iterator, obj, 0, NULL);
-  JS_FreeValue(ctx, iterator);
-  iterator = tmp;
-
-  BOOL done = FALSE;
-  JSValue* ret = NULL;
-  uint32_t i;
-
-  for(i = 0;; ++i) {
-    JSValue value = js_iterator_next(ctx, iterator, &done);
-
-    if(done || !(ret = js_realloc(ctx, ret, (i + 1) * sizeof(JSValue)))) {
-      JS_FreeValue(ctx, value);
-      break;
-    }
-
-    ret[i] = value;
-  }
-
-  *lenp = i;
-
-  return ret;
-}
-
-char**
-to_stringarray(JSContext* ctx, JSValueConst obj) {
-  JSValue iterator = iterator_get(ctx, obj);
-
-  if(JS_IsException(iterator)) {
-    JS_GetException(ctx);
-    return 0;
-  }
-
-  JSValue tmp = JS_Call(ctx, iterator, obj, 0, NULL);
-  JS_FreeValue(ctx, iterator);
-  iterator = tmp;
-
-  BOOL done = FALSE;
-  char** ret = 0;
-  uint32_t i;
-
-  for(i = 0;; ++i) {
-    JSValue value = js_iterator_next(ctx, iterator, &done);
-
-    if(done || !(ret = js_realloc(ctx, ret, (i + 2) * sizeof(char*)))) {
-      JS_FreeValue(ctx, value);
-      break;
-    }
-
-    ret[i] = to_stringfree(ctx, value);
-    ret[i + 1] = 0;
-  }
-
-  return ret;
-}
 BOOL
 js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
   JSAtom atom = JS_NewAtom(ctx, name);
@@ -158,6 +69,89 @@ js_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
   }
 
   return JS_GetPropertyStr(ctx, obj, name);
+}
+
+void
+js_error_print(JSContext* ctx, JSValueConst exception) {
+  JSValue stack = JS_GetPropertyStr(ctx, exception, "stack");
+  const char* str;
+
+  if((str = JS_ToCString(ctx, exception))) {
+    fprintf(stderr, "\x1b[2K\rERROR: %s\n", str);
+    JS_FreeCString(ctx, str);
+  }
+
+  if((str = JS_ToCString(ctx, stack))) {
+    fprintf(stderr, "STACK: %s\n", str);
+    JS_FreeCString(ctx, str);
+  }
+
+  JS_FreeValue(ctx, stack);
+}
+
+JSValue*
+to_valuearray(JSContext* ctx, JSValueConst obj, size_t* lenp) {
+  JSValue iterator = js_iterator_get(ctx, obj);
+
+  if(JS_IsException(iterator)) {
+    JS_GetException(ctx);
+    return 0;
+  }
+
+  JSValue tmp = JS_Call(ctx, iterator, obj, 0, NULL);
+  JS_FreeValue(ctx, iterator);
+  iterator = tmp;
+
+  BOOL done = FALSE;
+  JSValue* ret = NULL;
+  uint32_t i;
+
+  for(i = 0;; ++i) {
+    JSValue value = js_iterator_next(ctx, iterator, &done);
+
+    if(done || !(ret = js_realloc(ctx, ret, (i + 1) * sizeof(JSValue)))) {
+      JS_FreeValue(ctx, value);
+      break;
+    }
+
+    ret[i] = value;
+  }
+
+  *lenp = i;
+
+  return ret;
+}
+
+char**
+to_stringarray(JSContext* ctx, JSValueConst obj) {
+  JSValue iterator = js_iterator_get(ctx, obj);
+
+  if(JS_IsException(iterator)) {
+    JS_GetException(ctx);
+    return 0;
+  }
+
+  JSValue tmp = JS_Call(ctx, iterator, obj, 0, NULL);
+  JS_FreeValue(ctx, iterator);
+  iterator = tmp;
+
+  BOOL done = FALSE;
+  char** ret = 0;
+  uint32_t i;
+
+  for(i = 0;; ++i) {
+    JSValue value = js_iterator_next(ctx, iterator, &done);
+
+    if(done || !(ret = js_realloc(ctx, ret, (i + 2) * sizeof(char*)))) {
+      JS_FreeValue(ctx, value);
+      break;
+    }
+
+    ret[i] = to_stringfree(ctx, value);
+    ret[i + 1] = 0;
+  }
+
+  return ret;
 }
 
 void
@@ -220,36 +214,6 @@ get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
   }
 
   return ptr;
-}
-
-JSValue
-iterator_get(JSContext* ctx, JSValueConst iterable) {
-  JSValue symbol = global_get(ctx, "Symbol");
-  JSValue symiter = JS_GetPropertyStr(ctx, symbol, "iterator");
-  JS_FreeValue(ctx, symbol);
-  JSAtom atom = JS_ValueToAtom(ctx, symiter);
-  JS_FreeValue(ctx, symiter);
-  JSValue ret = JS_GetProperty(ctx, iterable, atom);
-  JS_FreeAtom(ctx, atom);
-  return ret;
-}
-
-void
-js_error_print(JSContext* ctx, JSValueConst exception) {
-  JSValue stack = JS_GetPropertyStr(ctx, exception, "stack");
-  const char* str;
-
-  if((str = JS_ToCString(ctx, exception))) {
-    fprintf(stderr, "\x1b[2K\rERROR: %s\n", str);
-    JS_FreeCString(ctx, str);
-  }
-
-  if((str = JS_ToCString(ctx, stack))) {
-    fprintf(stderr, "STACK: %s\n", str);
-    JS_FreeCString(ctx, str);
-  }
-
-  JS_FreeValue(ctx, stack);
 }
 
 typedef struct {

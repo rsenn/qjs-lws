@@ -29,6 +29,8 @@ typedef struct lws_client_connect_info LWSClientConnectInfo;
 
 #define JS_ATOM_MAX_INT ((1u << 31) - 1)
 
+size_t camelize(char*, size_t, const char*);
+size_t decamelize(char*, size_t, const char*);
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
 void lwsjs_uri_toconnectinfo(JSContext*, char*, LWSClientConnectInfo*);
 // void lwsjs_uri_toobj(JSContext*, char*, JSValueConst);

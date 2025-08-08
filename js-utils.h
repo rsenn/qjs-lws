@@ -20,21 +20,24 @@
 
 typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
 
-size_t camelize(char*, size_t, const char*);
-size_t decamelize(char*, size_t, const char*);
-JSValue ptr_obj(JSContext*, JSObject*);
+JSValue js_function_prototype(JSContext*);
+JSValue js_iterator_get(JSContext*, JSValueConst);
 JSValue js_iterator_next(JSContext*, JSValueConst, BOOL*);
-JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
-char** to_stringarray(JSContext*, JSValueConst);
 BOOL js_has_property(JSContext*, JSValueConst, const char*);
 BOOL js_has_property2(JSContext*, JSValueConst, const char*);
 JSValue js_get_property(JSContext*, JSValueConst, const char*);
+void js_error_print(JSContext*, JSValueConst);
+JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
+char** to_stringarray(JSContext*, JSValueConst);
 void str_or_buf_property(const char**, const void**, unsigned int*, JSContext*, JSValueConst, const char*);
 size_t get_offset_length(JSContext*, int, JSValueConst[], size_t, size_t*);
 void* get_buffer(JSContext*, int, JSValueConst[], size_t*);
-JSValue iterator_get(JSContext*, JSValueConst);
-JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*)(void*));
-void js_error_print(JSContext*, JSValueConst);
+JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*opaque_finalize)(void*));
+
+static inline JSValue
+ptr_obj(JSContext* ctx, JSObject* obj) {
+  return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
+}
 
 #if __SIZEOF_POINTER__ == 8
 static inline void*

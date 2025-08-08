@@ -20,6 +20,39 @@ enum {
 
 static void lwsjs_log_callback(int, const char*);
 
+size_t
+camelize(char* dst, size_t dlen, const char* src) {
+  size_t i, j;
+
+  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
+    if(src[i] == '_') {
+      ++i;
+      dst[j] = toupper(src[i]);
+      continue;
+    }
+
+    dst[j] = tolower(src[i]);
+  }
+
+  dst[j] = '\0';
+  return j;
+}
+
+size_t
+decamelize(char* dst, size_t dlen, const char* src) {
+  size_t i, j;
+
+  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
+    if(i > 0 && islower(src[i - 1]) && isupper(src[i]))
+      dst[j++] = '_';
+
+    dst[j] = toupper(src[i]);
+  }
+
+  dst[j] = '\0';
+  return j;
+}
+
 void
 lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
   const char *protocol, *host, *path;
