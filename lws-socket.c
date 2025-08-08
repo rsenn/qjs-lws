@@ -581,30 +581,37 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     case METHOD_CLIENT_HTTP_MULTIPART: {
-      struct lws_process_html_args a = {0}, b;
+      struct lws_process_html_args a = {0}, b, c;
       const char *name = 0, *filename = 0, *content_type = 0;
       int i = 0;
 
-      if(argc > 0)
+      if(argc > 0 && !is_nullish(argv[0]))
         name = JS_ToCString(ctx, argv[0]);
-      if(argc > 1)
+      if(argc > 1 && !is_nullish(argv[1]))
         filename = JS_ToCString(ctx, argv[1]);
-      if(argc > 2)
+      if(argc > 2 && !is_nullish(argv[2]))
         content_type = JS_ToCString(ctx, argv[2]);
       if(argc > 3)
         i = lwsjs_html_process_args(ctx, &a, argc - 3, argv + 3);
 
       b = a;
 
-      if(lws_client_http_multipart(s->wsi, name, filename, content_type, &a.p, a.p + a.max_len)) {
+      b.p += b.len;
+      b.max_len -= b.len;
+
+      c = b;
+
+      if(lws_client_http_multipart(s->wsi, name, filename, content_type, &b.p, b.p + b.max_len)) {
         ret = JS_ThrowRangeError(ctx, "lws_client_http_multipart: does not fit into buffer of len %d", a.max_len);
       } else {
-        uint32_t n = (a.p - b.p);
+        ptrdiff_t n = b.p - c.p;
+
+        a.len += n;
 
         if(argc > 4 && JS_IsObject(argv[4]))
-          JS_SetPropertyUint32(ctx, argv[4], 0, JS_NewUint32(ctx, n));
+          JS_SetPropertyUint32(ctx, argv[4], 0, JS_NewUint32(ctx, a.len));
         else
-          ret = JS_NewUint32(ctx, n);
+          ret = JS_NewUint32(ctx, a.len);
       }
 
       if(name)
