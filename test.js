@@ -46,6 +46,8 @@ globalThis.ctx = new LWSContext({
         verbose('onHttpConfirmUpgrade', wsi, type, wsi.protocol);
       },
       onReceive(wsi, data, len) {
+        if(!('byteLength' in data)) data = data.toString().replace(/\n/g, '\\n');
+
         verbose('onReceive', wsi, data, len);
         wsi.write(data);
       },
