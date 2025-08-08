@@ -56,7 +56,7 @@ is_uri(enum lws_token_indexes ti) {
 
 int
 lwsjs_method_index(const char* method) {
-  for(int i = 0; i < countof(lwsjs_method_names); ++i)
+  for(int i = 0; i < (int)countof(lwsjs_method_names); ++i)
     if(lwsjs_method_names[i])
       if(!strcasecmp(method, lwsjs_method_names[i]))
         return i;
@@ -66,13 +66,13 @@ lwsjs_method_index(const char* method) {
 
 const char*
 lwsjs_method_name(int i) {
-  if(i >= 0 && i < countof(lwsjs_method_names))
+  if(i >= 0 && i < (int)countof(lwsjs_method_names))
     return lwsjs_method_names[i];
 
   return 0;
 }
 
-static const char*
+/*static const char*
 socket_method(LWSSocket* sock) {
   if(!sock->client) {
     char* uri_ptr;
@@ -92,7 +92,7 @@ socket_method(LWSSocket* sock) {
   }
 
   return 0;
-}
+}*/
 
 LWSSocket*
 socket_alloc(JSContext* ctx) {
@@ -116,11 +116,11 @@ socket_alloc(JSContext* ctx) {
   return sock;
 }
 
-static LWSSocket*
+/*static LWSSocket*
 socket_dup(LWSSocket* s) {
   ++s->ref_count;
   return s;
-}
+}*/
 
 static LWSSocketType
 socket_type(struct lws* wsi) {
@@ -201,7 +201,7 @@ socket_js(LWSSocket* sock, JSContext* ctx) {
   return sock ? JS_DupValue(ctx, socket_obj(sock)) : JS_NULL;
 }
 
-static LWSSocket*
+/*static LWSSocket*
 socket_get_or_create(JSContext* ctx, struct lws* wsi) {
   LWSSocket* sock;
 
@@ -215,7 +215,7 @@ socket_get_or_create(JSContext* ctx, struct lws* wsi) {
   }
 
   return sock;
-}
+}*/
 
 struct lws*
 lwsjs_socket_wsi(JSValueConst value) {

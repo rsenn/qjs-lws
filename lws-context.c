@@ -670,7 +670,7 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
   size_t len;
   JSValue* values = to_valuearray(ctx, value, &len);
   LWSProtocols* pro = js_mallocz(ctx, (len + 13) * sizeof(LWSProtocols));
-  size_t i, j = 0;
+  size_t j = 0;
 
   pro[j++] = (struct lws_protocols){
       "http-only",
@@ -1413,8 +1413,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
     case CLIENT_CONNECT: {
       LWSClientConnectInfo info = {0};
-      struct lws *wsi, *wsi2;
-
+ 
       JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
 
       if(argc > 0 && JS_IsString(argv[0])) {
