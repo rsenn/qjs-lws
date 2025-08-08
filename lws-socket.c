@@ -331,6 +331,7 @@ enum {
   METHOD_CLOSE,
   METHOD_HTTP_CLIENT_READ,
   METHOD_ADD_HEADER,
+  METHOD_CLIENT_HTTP_MULTIPART,
 };
 
 static JSValue
@@ -576,6 +577,43 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
       JS_FreeCString(ctx, name);
       JS_FreeCString(ctx, value);
+      break;
+    }
+
+    case METHOD_CLIENT_HTTP_MULTIPART: {
+      struct lws_process_html_args a = {0}, b;
+      const char *name = 0, *filename = 0, *content_type = 0;
+      int i = 0;
+
+      if(argc > 0)
+        name = JS_ToCString(ctx, argv[0]);
+      if(argc > 1)
+        filename = JS_ToCString(ctx, argv[1]);
+      if(argc > 2)
+        content_type = JS_ToCString(ctx, argv[2]);
+      if(argc > 3)
+        i = lwsjs_html_process_args(ctx, &a, argc - 3, argv + 3);
+
+      b = a;
+
+      if(lws_client_http_multipart(s->wsi, name, filename, content_type, &a.p, a.p + a.max_len)) {
+        ret = JS_ThrowRangeError(ctx, "lws_client_http_multipart: does not fit into buffer of len %d", a.max_len);
+      } else {
+        uint32_t n = (a.p - b.p);
+
+        if(argc > 4)
+          JS_SetPropertyUint32(ctx, argv[4], 0, JS_NewUint32(ctx, n));
+        else
+          ret = JS_NewUint32(ctx, n);
+      }
+
+      if(name)
+        JS_FreeCString(ctx, name);
+      if(filename)
+        JS_FreeCString(ctx, filename);
+      if(content_type)
+        JS_FreeCString(ctx, content_type);
+
       break;
     }
   }
@@ -841,6 +879,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("close", 0, lwsjs_socket_methods, METHOD_CLOSE),
     JS_CFUNC_MAGIC_DEF("httpClientRead", 1, lwsjs_socket_methods, METHOD_HTTP_CLIENT_READ),
     JS_CFUNC_MAGIC_DEF("addHeader", 4, lwsjs_socket_methods, METHOD_ADD_HEADER),
+    JS_CFUNC_MAGIC_DEF("clientHttpMultipart", 4, lwsjs_socket_methods, METHOD_CLIENT_HTTP_MULTIPART),
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lwsjs_socket_get, 0, PROP_ID, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_FLAGS_DEF("tag", lwsjs_socket_get, 0, PROP_TAG, JS_PROP_CONFIGURABLE),
     JS_CGETSET_MAGIC_DEF("headers", lwsjs_socket_get, 0, PROP_HEADERS),

@@ -53,6 +53,28 @@ decamelize(char* dst, size_t dlen, const char* src) {
   return j;
 }
 
+int
+lwsjs_html_process_args(JSContext* ctx, struct lws_process_html_args* pha, int argc, JSValueConst argv[]) {
+  size_t len;
+  uint8_t* buf;
+  int ret = 1;
+
+  if(argc == 0 || !(buf = JS_GetArrayBuffer(ctx, &len, argv[0])))
+    return 0;
+
+  pha->p = (char*)buf;
+  pha->len = 0;
+  pha->max_len = len;
+  pha->final = pha->chunked = 0;
+
+  if(argc > 1) {
+    pha->len = to_integerfree(ctx, JS_GetPropertyUint32(ctx, argv[1], 0));
+    ++ret;
+  }
+
+  return ret;
+}
+
 void
 lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
   const char *protocol, *host, *path;
