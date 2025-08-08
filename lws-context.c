@@ -1130,9 +1130,11 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   str_property(&ci->ssl_cipher_list, ctx, obj, "ssl_cipher_list");
   str_property(&ci->tls1_3_plus_cipher_list, ctx, obj, "tls1_3_plus_cipher_list");
   str_property(&ci->client_ssl_private_key_password, ctx, obj, "client_ssl_private_key_password");
-  str_property(&ci->client_ssl_cert_filepath, ctx, obj, "client_ssl_cert_filepath");
-  str_property(&ci->client_ssl_private_key_filepath, ctx, obj, "client_ssl_private_key_filepath");
-  str_property(&ci->client_ssl_ca_filepath, ctx, obj, "client_ssl_ca_filepath");
+
+  str_or_buf_property(&ci->client_ssl_cert_filepath, &ci->client_ssl_cert_mem, &ci->client_ssl_cert_mem_len, ctx, obj, "client_ssl_cert");
+  str_or_buf_property(&ci->client_ssl_private_key_filepath, &ci->client_ssl_key_mem, &ci->client_ssl_key_mem_len, ctx, obj, "client_ssl_private_key");
+  str_or_buf_property(&ci->client_ssl_ca_filepath, &ci->client_ssl_ca_mem, &ci->client_ssl_ca_mem_len, ctx, obj, "client_ssl_ca");
+
   str_property(&ci->client_ssl_cipher_list, ctx, obj, "client_ssl_cipher_list");
   str_property(&ci->client_tls_1_3_plus_cipher_list, ctx, obj, "client_tls_1_3_plus_cipher_list");
 #endif

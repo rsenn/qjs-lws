@@ -4,6 +4,39 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define WRAPAROUND(n, len) ((n) < 0 ? (n) + (len) : (n))
 
+size_t
+camelize(char* dst, size_t dlen, const char* src) {
+  size_t i, j;
+
+  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
+    if(src[i] == '_') {
+      ++i;
+      dst[j] = toupper(src[i]);
+      continue;
+    }
+
+    dst[j] = tolower(src[i]);
+  }
+
+  dst[j] = '\0';
+  return j;
+}
+
+size_t
+decamelize(char* dst, size_t dlen, const char* src) {
+  size_t i, j;
+
+  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
+    if(i > 0 && islower(src[i - 1]) && isupper(src[i]))
+      dst[j++] = '_';
+
+    dst[j] = toupper(src[i]);
+  }
+
+  dst[j] = '\0';
+  return j;
+}
+
 JSValue
 js_function_prototype(JSContext* ctx) {
   JSValue ret, fn = JS_NewCFunction(ctx, 0, "", 0);
@@ -140,6 +173,80 @@ js_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
   }
 
   return JS_GetPropertyStr(ctx, obj, name);
+}
+
+void
+str_or_buf_property(const char** pptr, const void** mptr, unsigned int* mlen, JSContext* ctx, JSValueConst obj, const char* name) {
+
+  if(js_has_property2(ctx, obj, name)) {
+    JSValue value = js_get_property(ctx, obj, name);
+    size_t len;
+    uint8_t* buf;
+
+    if((buf = JS_GetArrayBuffer(ctx, &len, value))) {
+      *pptr = 0;
+
+      if((*mptr = js_malloc(ctx, len))) {
+        *mlen = len;
+
+        memcpy((void*)*mptr, buf, len);
+      }
+    } else {
+      *mptr = 0;
+
+      str_replace(ctx, pptr, to_stringfree(ctx, value));
+    }
+  }
+}
+
+size_t
+get_offset_length(JSContext* ctx, int argc, JSValueConst argv[], size_t maxlen, size_t* lenp) {
+  int64_t ofs = 0, len = maxlen;
+
+  if(argc > 0) {
+    if((ofs = to_int64(ctx, argv[0])) < 0)
+      ofs = WRAPAROUND(ofs, (int64_t)maxlen);
+    ofs = MAX(0, MIN(ofs, (int64_t)maxlen));
+
+    if(argc > 1)
+      if((len = to_int64(ctx, argv[1])) < 0)
+        len = WRAPAROUND(len, (int64_t)maxlen);
+  }
+
+  maxlen -= ofs;
+  *lenp = MAX(0, MIN(len, (int64_t)maxlen));
+
+  return ofs;
+}
+
+void*
+get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
+  size_t maxlen;
+  uint8_t* ptr;
+
+  if((ptr = JS_GetArrayBuffer(ctx, &maxlen, argv[0]))) {
+    size_t ofs = 0, len = maxlen;
+
+    if(argc > 1)
+      ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
+
+    *lenp = len;
+    ptr += ofs;
+  }
+
+  return ptr;
+}
+
+JSValue
+iterator_get(JSContext* ctx, JSValueConst iterable) {
+  JSValue symbol = global_get(ctx, "Symbol");
+  JSValue symiter = JS_GetPropertyStr(ctx, symbol, "iterator");
+  JS_FreeValue(ctx, symbol);
+  JSAtom atom = JS_ValueToAtom(ctx, symiter);
+  JS_FreeValue(ctx, symiter);
+  JSValue ret = JS_GetProperty(ctx, iterable, atom);
+  JS_FreeAtom(ctx, atom);
+  return ret;
 }
 
 typedef struct {

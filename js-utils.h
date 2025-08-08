@@ -8,6 +8,7 @@
 #include <cutils.h>
 #include <list.h>
 #include <ctype.h>
+#include <string.h>
 
 #define JS_CONSTANT(c) JS_PROP_INT64_DEF((#c), (c), JS_PROP_ENUMERABLE)
 
@@ -22,6 +23,8 @@
 
 typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
 
+size_t camelize(char*, size_t, const char*);
+size_t decamelize(char*, size_t, const char*);
 JSValue ptr_obj(JSContext*, JSObject*);
 JSValue js_iterator_next(JSContext*, JSValueConst, BOOL*);
 JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
@@ -29,41 +32,13 @@ char** to_stringarray(JSContext*, JSValueConst);
 BOOL js_has_property(JSContext*, JSValueConst, const char*);
 BOOL js_has_property2(JSContext*, JSValueConst, const char*);
 JSValue js_get_property(JSContext*, JSValueConst, const char*);
-JSValue js_function_cclosure(JSContext*, CClosureFunc* func, int length, int magic, void* opaque, void (*opaque_finalize)(void*));
-void js_error_print(JSContext*, JSValue);
+void str_or_buf_property(const char**, const void**, unsigned int*, JSContext*, JSValueConst, const char*);
+size_t get_offset_length(JSContext*, int, JSValueConst[], size_t, size_t*);
+void* get_buffer(JSContext*, int, JSValueConst[], size_t*);
+JSValue iterator_get(JSContext*, JSValueConst);
+JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*)(void*));
+void js_error_print(JSContext*, JSValueConst);
 
-static inline size_t
-camelize(char* dst, size_t dlen, const char* src) {
-  size_t i, j;
-
-  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
-    if(src[i] == '_') {
-      ++i;
-      dst[j] = toupper(src[i]);
-      continue;
-    }
-
-    dst[j] = tolower(src[i]);
-  }
-
-  dst[j] = '\0';
-  return j;
-}
-
-static inline size_t
-decamelize(char* dst, size_t dlen, const char* src) {
-  size_t i, j;
-
-  for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
-    if(i > 0 && islower(src[i - 1]) && isupper(src[i]))
-      dst[j++] = '_';
-
-    dst[j] = toupper(src[i]);
-  }
-
-  dst[j] = '\0';
-  return j;
-}
 #if __SIZEOF_POINTER__ == 8
 static inline void*
 to_ptr(JSContext* ctx, JSValueConst val) {
@@ -239,56 +214,6 @@ obj_free(JSRuntime* rt, JSObject* obj) {
   JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, obj));
 }
 
-static inline size_t
-get_offset_length(JSContext* ctx, int argc, JSValueConst argv[], size_t maxlen, size_t* lenp) {
-  int64_t ofs = 0, len = maxlen;
-
-  if(argc > 0) {
-    if((ofs = to_int64(ctx, argv[0])) < 0)
-      ofs = WRAPAROUND(ofs, (int64_t)maxlen);
-    ofs = MAX(0, MIN(ofs, (int64_t)maxlen));
-
-    if(argc > 1)
-      if((len = to_int64(ctx, argv[1])) < 0)
-        len = WRAPAROUND(len, (int64_t)maxlen);
-  }
-
-  maxlen -= ofs;
-  *lenp = MAX(0, MIN(len, (int64_t)maxlen));
-
-  return ofs;
-}
-
-static inline void*
-get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
-  size_t maxlen;
-  uint8_t* ptr;
-
-  if((ptr = JS_GetArrayBuffer(ctx, &maxlen, argv[0]))) {
-    size_t ofs = 0, len = maxlen;
-
-    if(argc > 1)
-      ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
-
-    *lenp = len;
-    ptr += ofs;
-  }
-
-  return ptr;
-}
-
 JSValue ptr_obj(JSContext* ctx, JSObject* obj);
-
-static inline JSValue
-iterator_get(JSContext* ctx, JSValueConst iterable) {
-  JSValue symbol = global_get(ctx, "Symbol");
-  JSValue symiter = JS_GetPropertyStr(ctx, symbol, "iterator");
-  JS_FreeValue(ctx, symbol);
-  JSAtom atom = JS_ValueToAtom(ctx, symiter);
-  JS_FreeValue(ctx, symiter);
-  JSValue ret = JS_GetProperty(ctx, iterable, atom);
-  JS_FreeAtom(ctx, atom);
-  return ret;
-}
 
 #endif /* JS_UTILS_H */
