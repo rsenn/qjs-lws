@@ -5,6 +5,9 @@
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
+JSContext* lwsjs_log_ctx = 0;
+JSValue lwsjs_log_fn = JS_UNDEFINED;
+
 static void lwsjs_log_callback(int, const char*);
 
 size_t
@@ -290,6 +293,16 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     case FUNCTION_LOGLEVEL: {
       if(argc > 0) {
         lwsjs_loglevel = to_uint32(ctx, argv[0]);
+
+        if(argc > 1 && JS_IsFunction(ctx, argv[1])) {
+          lwsjs_log_ctx = JS_DupContext(ctx);
+          lwsjs_log_fn = JS_DupValue(ctx, argv[1]);
+        } else {
+          JS_FreeContext(lwsjs_log_ctx);
+          JS_FreeValue(ctx, lwsjs_log_fn);
+          lwsjs_log_ctx = 0;
+          lwsjs_log_fn = JS_UNDEFINED;
+        }
 
         lws_set_log_level(lwsjs_loglevel, &lwsjs_log_callback);
       } else {
@@ -826,8 +839,19 @@ lwsjs_log_callback(int level, const char* line) {
   if(level >= (int)countof(lwsjs_log_levels))
     fprintf(stderr, "level overflow: %i\n", level);
 
-  fprintf(stderr, "<%s> \x1b%s%s\x1b[0m", lwsjs_log_levels[level], lwsjs_log_colours[level], line);
-  fflush(stderr);
+  if(lwsjs_log_ctx) {
+    JSValueConst args[] = {
+        JS_NewUint32(lwsjs_log_ctx, level),
+        JS_NewString(lwsjs_log_ctx, line),
+    };
+    JSValue ret = JS_Call(lwsjs_log_ctx, lwsjs_log_fn, JS_NULL, 2, args);
+    JS_FreeValue(lwsjs_log_ctx, args[1]);
+    JS_FreeValue(lwsjs_log_ctx, args[0]);
+    JS_FreeValue(lwsjs_log_ctx, ret);
+  } else {
+    fprintf(stderr, "<%s> \x1b%s%s\x1b[0m", lwsjs_log_levels[level], lwsjs_log_colours[level], line);
+    fflush(stderr);
+  }
 }
 
 int
