@@ -680,6 +680,7 @@ enum {
   PROP_URI,
   PROP_BODY_PENDING,
   PROP_EXTENSIONS,
+  PROP_REDIRECTED_TO_GET,
 };
 
 static JSValue
@@ -861,6 +862,11 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       break;
     }
+
+    case PROP_REDIRECTED_TO_GET: {
+      ret = JS_NewBool(ctx, s->redirected_to_get);
+      break;
+    }
   }
 
   return ret;
@@ -904,6 +910,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("client", lwsjs_socket_get, 0, PROP_CLIENT),
     JS_CGETSET_MAGIC_DEF("response", lwsjs_socket_get, 0, PROP_RESPONSE_CODE),
     JS_CGETSET_MAGIC_DEF("bodyPending", lwsjs_socket_get, lwsjs_socket_set, PROP_BODY_PENDING),
+    JS_CGETSET_MAGIC_DEF("redirectedToGet", lwsjs_socket_get, 0, PROP_REDIRECTED_TO_GET),
     JS_CGETSET_MAGIC_DEF("extensions", lwsjs_socket_get, 0, PROP_EXTENSIONS),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };

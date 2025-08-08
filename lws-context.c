@@ -381,6 +381,13 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         goto end;
       }
     }
+
+    if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER)
+      s->redirected_to_get = lws_http_is_redirected_to_get(wsi);
+
+    if(reason == LWS_CALLBACK_CLIENT_HTTP_WRITEABLE)
+      if(s->redirected_to_get)
+        goto end;
   }
 
   if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH || reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
