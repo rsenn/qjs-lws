@@ -68,7 +68,7 @@ lwsjs_html_process_args(JSContext* ctx, struct lws_process_html_args* pha, int a
   pha->final = pha->chunked = 0;
 
   if(argc > 1) {
-    pha->len = to_integerfree(ctx, JS_GetPropertyUint32(ctx, argv[1], 0));
+    pha->len = to_integerfree(ctx, JS_IsObject(argv[1]) ? JS_GetPropertyUint32(ctx, argv[1], 0) : JS_DupValue(ctx, argv[1]));
     ++ret;
   }
 

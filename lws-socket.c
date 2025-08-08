@@ -601,7 +601,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       } else {
         uint32_t n = (a.p - b.p);
 
-        if(argc > 4)
+        if(argc > 4 && JS_IsObject(argv[4]))
           JS_SetPropertyUint32(ctx, argv[4], 0, JS_NewUint32(ctx, n));
         else
           ret = JS_NewUint32(ctx, n);
