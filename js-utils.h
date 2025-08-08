@@ -49,7 +49,7 @@ to_ptr(JSContext* ctx, JSValueConst val) {
 
 #define to_integer(ctx, val) to_int64(ctx, val)
 #define to_integerfree(ctx, val) to_int64free(ctx, val)
-#elif __SIZEOF_POINTER__ == 8
+#elif __SIZEOF_POINTER__ == 4
 static inline void*
 to_ptr(JSContext* ctx, JSValueConst val) {
   int32_t i = -1;
@@ -59,6 +59,8 @@ to_ptr(JSContext* ctx, JSValueConst val) {
 
 #define to_integer(ctx, val) to_int32(ctx, val)
 #define to_integerfree(ctx, val) to_int32free(ctx, val)
+#else
+#error __SIZEOF_POINTER__ is not 8 or 4
 #endif
 
 static inline BOOL
