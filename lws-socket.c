@@ -72,28 +72,6 @@ lwsjs_method_name(int i) {
   return 0;
 }
 
-/*static const char*
-socket_method(LWSSocket* sock) {
-  if(!sock->client) {
-    char* uri_ptr;
-    int method, uri_len;
-
-    method = lws_http_get_uri_and_method(sock->wsi, &uri_ptr, &uri_len);
-
-    if(method >= 0 && method < (int)countof(lwsjs_method_names))
-      return lwsjs_method_names[method];
-  }
-
-  for(size_t i = 0; i < countof(lwsjs_method_tokens); i++) {
-    enum lws_token_indexes tok = lwsjs_method_tokens[i];
-
-    if(lws_hdr_total_length(sock->wsi, tok))
-      return lwsjs_method_names[i];
-  }
-
-  return 0;
-}*/
-
 LWSSocket*
 socket_alloc(JSContext* ctx) {
   LWSSocket* sock;
@@ -115,12 +93,6 @@ socket_alloc(JSContext* ctx) {
 
   return sock;
 }
-
-/*static LWSSocket*
-socket_dup(LWSSocket* s) {
-  ++s->ref_count;
-  return s;
-}*/
 
 static LWSSocketType
 socket_type(struct lws* wsi) {
@@ -200,22 +172,6 @@ static inline JSValue
 socket_js(LWSSocket* sock, JSContext* ctx) {
   return sock ? JS_DupValue(ctx, socket_obj(sock)) : JS_NULL;
 }
-
-/*static LWSSocket*
-socket_get_or_create(JSContext* ctx, struct lws* wsi) {
-  LWSSocket* sock;
-
-  if(!(sock = socket_get(wsi)) || sock == (void*)-1) {
-    sock = socket_alloc(ctx);
-    sock->wsi = wsi;
-    DEBUG("new LWSSocket (wsi = %p, id = %d) = %p", wsi, sock->id, sock);
-  } else {
-    assert(sock->wsi == wsi);
-    DEBUG("recycled LWSSocket (wsi = %p, id = %d) = %p", wsi, sock->id, sock);
-  }
-
-  return sock;
-}*/
 
 struct lws*
 lwsjs_socket_wsi(JSValueConst value) {
@@ -460,7 +416,10 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
           hidx = i;
       }
 
-      lws_add_http_common_headers(s->wsi, code, NULL, len > 0 ? (uint64_t)len : LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end);
+      if(lws_add_http_common_headers(s->wsi, code, NULL, len > 0 ? (uint64_t)len : LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end)) {
+        ret = JS_ThrowInternalError(ctx, "lws_add_http_common_headers failed");
+        break;
+      }
 
       if(hidx != -1) {
         JSPropertyEnum* tmp_tab = 0;
@@ -805,7 +764,10 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       char* uri_ptr = 0;
       int uri_len = 0;
 
-      lws_http_get_uri_and_method(s->wsi, &uri_ptr, &uri_len);
+      if(lws_http_get_uri_and_method(s->wsi, &uri_ptr, &uri_len) == -1) {
+        ret = JS_ThrowInternalError(ctx, "lws_http_get_uri_and_method failed");
+        break;
+      }
 
       ret = JS_NewStringLen(ctx, uri_ptr, uri_len);
       break;

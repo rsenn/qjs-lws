@@ -1413,7 +1413,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
     case CLIENT_CONNECT: {
       LWSClientConnectInfo info = {0};
- 
+
       JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
 
       if(argc > 0 && JS_IsString(argv[0])) {
