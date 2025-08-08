@@ -394,13 +394,20 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     if(s && is_nullish(s->headers)) {
       s->headers = lwsjs_socket_headers(ctx, s->wsi, &s->proto);
     }
+  }
 
-    if(s && s->uri == 0) {
+  if(reason == LWS_CALLBACK_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
+    if(s && (s->uri == 0 || s->method == -1)) {
       char* uri_ptr = 0;
       int uri_len = 0;
 
-      s->method = lws_http_get_uri_and_method(s->wsi, &uri_ptr, &uri_len);
-      s->uri = js_strndup(ctx, uri_ptr, uri_len);
+      int method = lws_http_get_uri_and_method(s->wsi, &uri_ptr, &uri_len);
+
+      if(uri_ptr && s->uri == 0)
+        s->uri = js_strndup(ctx, uri_ptr, uri_len);
+
+      if(method >= 0 && s->method == -1)
+        s->method = method;
     }
   }
 
@@ -1433,15 +1440,16 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
     case CLIENT_CONNECT: {
       LWSClientConnectInfo info = {0};
-
+      char* uri = 0;
       JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
 
       if(argc > 0 && JS_IsString(argv[0])) {
-        char* uri;
+        char* tmp;
 
-        if((uri = to_string(ctx, argv[0]))) {
-          lwsjs_uri_toconnectinfo(ctx, uri, &info);
-          js_free(ctx, uri);
+        if((tmp = to_string(ctx, argv[0]))) {
+          uri = js_strdup(ctx, tmp);
+          lwsjs_uri_toconnectinfo(ctx, tmp, &info);
+          js_free(ctx, tmp);
         }
       }
 
@@ -1462,21 +1470,12 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       if(info.address == 0 && info.host)
         info.address = js_strdup(ctx, info.host);
 
+      if(!uri)
+        uri = lwsjs_connectinfo_to_uri(ctx, &info);
+
+      sock->uri = uri;
+
       lws_client_connect_via_info(&info);
-
-      /*if((wsi = lws_client_connect_via_info(&info))) {
-        ret = lwsjs_socket_create(ctx, wsi);
-
-        LWSSocket* sock;
-
-        if((sock = lwsjs_socket_data(ret))) {
-          sock->client = TRUE;
-          sock->type = info.method ? SOCKET_HTTP : SOCKET_WS;
-          sock->method = info.method ? lwsjs_method_index(info.method) : 0;
-        }
-
-        JS_DefinePropertyValueStr(ctx, ret, "info", JS_DupValue(ctx, obj), JS_PROP_CONFIGURABLE);
-      }*/
 
       client_connect_info_free(JS_GetRuntime(ctx), &info);
       JS_FreeValue(ctx, obj);

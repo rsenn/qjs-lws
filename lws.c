@@ -88,32 +88,27 @@ lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
     str_replace(ctx, &info->path, js_strdup(ctx, path));
 }
 
-/*void
-lwsjs_uri_toobj(JSContext* ctx, char* uri, JSValueConst obj) {
-  const char *protocol, *host, *path;
-  int port;
-  int r = lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
+char*
+lwsjs_connectinfo_to_uri(JSContext* ctx, const LWSClientConnectInfo* info) {
+  DynBuf db = {0};
+  dbuf_init2(&db, ctx, (void*)&js_realloc);
 
-  if(protocol) {
-    size_t len = strlen(protocol);
-    BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
-    BOOL http = !strncmp(protocol, "http", 4);
+  dbuf_putstr(&db, info->method ? (info->ssl_connection ? "https" : "http") : (info->ssl_connection ? "wss" : "ws"));
+  dbuf_putstr(&db, "://");
 
-    if(http)
-      JS_SetPropertyStr(ctx, obj, "method", JS_NewString(ctx, "GET"));
+  dbuf_putstr(&db, info->host ? info->host : "0.0.0.0");
 
-      if(ssl)
-      JS_SetPropertyStr(ctx, obj, "ssl", JS_NewBool(ctx, TRUE));
+  if(info->port) {
+    dbuf_putc(&db, ':');
+    dbuf_printf(&db, "%u", info->port);
   }
 
-  if(host)
-    JS_SetPropertyStr(ctx, obj, "host", JS_NewString(ctx, host));
+  if(info->path)
+    dbuf_putstr(&db, info->path);
 
-  JS_SetPropertyStr(ctx, obj, "port", JS_NewInt32(ctx, port));
-
-  if(path)
-    JS_SetPropertyStr(ctx, obj, "path", JS_NewString(ctx, path));
-}*/
+  dbuf_putc(&db, '\0');
+  return db.buf;
+}
 
 enum {
   FUNCTION_GET_CALLBACK_NAME = 0,
