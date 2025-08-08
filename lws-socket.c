@@ -752,16 +752,6 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_METHOD: {
-      /*char* uri_ptr = 0;
-      int uri_len = 0, method;
-
-      if((method = lws_http_get_uri_and_method(s->wsi, &uri_ptr, &uri_len)) == -1) {
-        ret = JS_ThrowInternalError(ctx, "lws_http_get_uri_and_method failed");
-        break;
-      }
-
-      ret = JS_NewInt32(ctx, method);*/
-
       const char* method;
 
       if((method = lwsjs_method_name(s->method)))
