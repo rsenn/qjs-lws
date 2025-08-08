@@ -158,9 +158,6 @@ to_stringfree_default(JSContext* ctx, JSValue value, const char* def) {
   return to_stringfree(ctx, value);
 }
 
-char** to_stringarray(JSContext*, JSValueConst);
-JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
-
 static inline char**
 to_stringarrayfree(JSContext* ctx, JSValue val) {
   char** ret = to_stringarray(ctx, val);
@@ -213,7 +210,5 @@ static inline void
 obj_free(JSRuntime* rt, JSObject* obj) {
   JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, obj));
 }
-
-JSValue ptr_obj(JSContext* ctx, JSObject* obj);
 
 #endif /* JS_UTILS_H */
