@@ -1082,6 +1082,16 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   JS_FreeValue(ctx, value);
 
 #ifdef LWS_ROLE_WS
+  struct lws_extension* exts;
+
+  if((exts = js_mallocz(ctx, sizeof(struct lws_extension) * 2)))
+    exts[0] = (struct lws_extension){
+        "permessage-deflate",
+        lws_extension_callback_pm_deflate,
+        "permessage-deflate; client_no_context_takeover; client_max_window_bits",
+    };
+
+  ci->extensions = exts;
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -1124,7 +1134,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 
 #ifdef LWS_WITH_TLS
   str_property(&ci->ssl_private_key_password, ctx, obj, "ssl_private_key_password");
-  
+
   str_or_buf_property(&ci->ssl_cert_filepath, &ci->server_ssl_cert_mem, &ci->server_ssl_cert_mem_len, ctx, obj, "server_ssl_cert");
   str_or_buf_property(&ci->ssl_private_key_filepath, &ci->server_ssl_private_key_mem, &ci->server_ssl_private_key_mem_len, ctx, obj, "server_ssl_private_key");
   str_or_buf_property(&ci->ssl_ca_filepath, &ci->server_ssl_ca_mem, &ci->server_ssl_ca_mem_len, ctx, obj, "server_ssl_ca");
