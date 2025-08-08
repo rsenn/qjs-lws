@@ -26,6 +26,7 @@ typedef struct {
 
 extern JSClassID lwsjs_socket_class_id;
 
+int socket_getid(struct lws* wsi);
 LWSSocket* socket_get(struct lws* wsi);
 LWSSocket* socket_alloc(JSContext* ctx);
 struct lws* lwsjs_socket_wsi(JSValueConst);

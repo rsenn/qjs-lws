@@ -105,6 +105,8 @@ iohandler_remove(LWSContext* lc, int fd, BOOL write) {
   HandlerFunction* hf;
 
   if((hf = iohandler_find(lc, fd, write))) {
+    DEBUG("%s %d %s", __func__, fd, write ? "write" : "read");
+
     list_del(&hf->link);
     js_free(lc->js, hf);
     return TRUE;
@@ -314,7 +316,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   int32_t ret = 0;
   JSValue* jsval = user && pro && pro->per_session_data_size == sizeof(JSValue) && JS_IsObject(*(JSValue*)user) ? user : 0;
 
-  DEBUG_WSI(wsi, "%s() %-32s %s", __func__, lwsjs_callback_name(reason), lws_wsi_tag(wsi));
+  DEBUG_WSI(wsi, "\x1b[1;33m%-24s\x1b[0m %p %p %zu", lwsjs_callback_name(reason), user, in, len);
 
   if(closure && countof(closure->callbacks) > reason && !is_nullish(closure->callbacks[reason])) {
     cb = &closure->callbacks[reason];

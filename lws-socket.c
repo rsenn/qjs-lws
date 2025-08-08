@@ -114,6 +114,15 @@ socket_type(struct lws* wsi) {
   return SOCKET_OTHER;
 }
 
+int
+socket_getid(struct lws* wsi) {
+  LWSSocket* sock;
+
+  if((sock = socket_get(wsi)))
+    return sock->id;
+  return -1;
+}
+
 LWSSocket*
 socket_get(struct lws* wsi) {
   struct list_head* n;
@@ -134,8 +143,7 @@ socket_get(struct lws* wsi) {
 
 static void
 socket_free(LWSSocket* sock, JSRuntime* rt) {
-  DEBUG("free LWSSocket: %p (ref = %d)", sock, sock->ref_count);
-
+  DEBUG("free LWSSocket: %p (ref_count = %d)", sock, sock->ref_count);
   if(--sock->ref_count == 0) {
     if(!JS_IsUndefined(sock->write_handler)) {
       JS_FreeValueRT(rt, sock->write_handler);
@@ -165,7 +173,7 @@ socket_delete(LWSSocket* sock, JSRuntime* rt) {
   if(sock->link.next)
     list_del(&sock->link);
 
-  DEBUG("delete LWSSocket: %p (wsi = %p, n = %d, ref = %d)", sock, sock->wsi, list_size(&socket_list), sock->ref_count);
+  DEBUG("delete LWSSocket: %p (wsi = %p, n = %d, ref_count = %d)", sock, sock->wsi, list_size(&socket_list), sock->ref_count);
 
   if(sock->obj) {
     obj_free(rt, sock->obj);

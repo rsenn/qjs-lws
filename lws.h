@@ -18,11 +18,11 @@ typedef struct lws_client_connect_info LWSClientConnectInfo;
 #endif
 
 #ifdef DEBUG_OUTPUT
-#define DEBUG(x...) lwsl_user("\x1b[0m" x)
-#define DEBUG_WSI(wsi, x...) lwsl_wsi_user(wsi, x)
+#define DEBUG(fmt, x...) lwsl_user("\x1b[0m" fmt, x)
+#define DEBUG_WSI(wsi, fmt, x...) lwsl_user("wsi#%d " fmt, socket_getid(wsi), x)
 #else
-#define DEBUG(x...)
-#define DEBUG_WSI(wsi, x...)
+#define DEBUG(fmt, x...)
+#define DEBUG_WSI(wsi, fmt, x...)
 #endif
 
 #define VISIBLE __attribute__((visibility("default")))
