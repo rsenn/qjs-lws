@@ -382,8 +382,14 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   }
 
   if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
-    if(s && is_nullish(s->headers))
+    if(s && is_nullish(s->headers)) {
       s->headers = lwsjs_socket_headers(ctx, s->wsi);
+
+      char* uri_ptr = 0;
+      int uri_len = 0;
+
+      s->method = lws_http_get_uri_and_method(s->wsi, &uri_ptr, &uri_len);
+    }
   }
 
   /*if(user && pro->per_session_data_size == sizeof(JSValue)) {
