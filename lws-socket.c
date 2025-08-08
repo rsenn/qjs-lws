@@ -96,6 +96,7 @@ socket_alloc(JSContext* ctx) {
   sock->headers = JS_UNDEFINED;
   sock->write_handler = JS_UNDEFINED;
   sock->id = ++socket_id;
+  sock->method = -1;
 
   return sock;
 }
