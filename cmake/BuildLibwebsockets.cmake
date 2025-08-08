@@ -279,7 +279,7 @@ macro(build_libwebsockets)
                -DLWS_WITH_LWSAC:BOOL=ON
                -DLWS_WITH_LWSWS:BOOL=OFF
                -DLWS_WITH_LWS_DSH:BOOL=OFF
-               -DLWS_WITH_MINIMAL_EXAMPLES:BOOL=ON
+               -DLWS_WITH_MINIMAL_EXAMPLES:BOOL=OFF
                -DLWS_WITH_MINIZ:BOOL=OFF
                -DLWS_WITH_NETLINK:BOOL=ON
                -DLWS_WITH_NO_LOGS:BOOL=OFF
