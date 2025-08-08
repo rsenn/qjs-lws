@@ -119,7 +119,7 @@ socket_get(struct lws* wsi) {
 
   list_for_each(n, &socket_list) {
     if((sock = list_entry(n, LWSSocket, link)))
-      if(sock->wsi == wsi)
+      if((uintptr_t)sock != (uintptr_t)-1 && sock->wsi == wsi)
         return sock;
   }
 
@@ -799,10 +799,8 @@ static void
 lwsjs_socket_finalizer(JSRuntime* rt, JSValue val) {
   LWSSocket* s;
 
-  if((s = lwsjs_socket_data(val))) {
-
-    socket_free(s, rt);
-  }
+  if((s = lwsjs_socket_data(val)))
+    socket_delete(s, rt);
 }
 
 static const JSClassDef lws_socket_class = {
