@@ -389,6 +389,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       int uri_len = 0;
 
       s->method = lws_http_get_uri_and_method(s->wsi, &uri_ptr, &uri_len);
+      s->uri = js_strndup(ctx, uri_ptr, uri_len);
     }
   }
 

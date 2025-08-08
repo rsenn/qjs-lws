@@ -17,6 +17,7 @@ typedef struct {
   struct lws* wsi;
   int id;
   LWSSocketType type;
+  char* uri;
   JSObject* obj;
   BOOL client, want_write, completed, closed;
   JSValue headers, write_handler;
