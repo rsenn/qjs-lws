@@ -118,7 +118,7 @@ globalThis.ctx = new LWSContext({
       },
       onHttp(wsi, buf) {
         const { protocol, method, uri, headers } = wsi;
-        verbose('onHttp', wsi, { protocol: protocol.name, method, uri }, console.config({ compact: false }), headers);
+        verbose('onHttp', wsi, { protocol, method, uri }, console.config({ compact: false }), headers);
 
         globalThis.wsi = wsi;
 
