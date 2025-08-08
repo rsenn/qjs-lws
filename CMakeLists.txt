@@ -10,7 +10,7 @@ set(DISABLE_WERROR TRUE CACHE BOOL "Disable -Werror flag")
 macro(PLUGIN DEF NAME ENABLED)
   option(PLUGIN_${DEF} "Enable ${NAME} plugin" ${ENABLED})
   if(${PLUGIN_${DEF}})
-  add_definitions(-DPLUGIN_PROTOCOL_${DEF}=1)
+    add_definitions(-DPLUGIN_PROTOCOL_${DEF}=1)
   endif(${PLUGIN_${DEF}})
 endmacro(PLUGIN DEF NAME ENABLED)
 

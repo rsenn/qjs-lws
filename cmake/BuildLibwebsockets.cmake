@@ -105,6 +105,10 @@ macro(build_libwebsockets)
   set(LIBWEBSOCKETS_LIBRARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib CACHE PATH
                                                                                     "libwebsockets library directory")
   # add_subdirectory(libwebsockets ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets)
+
+  list(APPEND LIBWEBSOCKETS_ARGS -DLWS_HAVE_HMAC_CTX_new:INTERNAL=1 -DLWS_HAVE_RSA_SET0_KEY:INTERNAL=1
+       -DLWS_HAVE_ECDSA_SIG_set0:INTERNAL=1 -DLWS_HAVE_BN_bn2binpad:INTERNAL=1)
+
   include(ExternalProject)
 
   if(WITH_WOLFSSL)
@@ -193,7 +197,7 @@ macro(build_libwebsockets)
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
     BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets
     PREFIX libwebsockets
-    CMAKE_ARGS -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON 
+    CMAKE_ARGS -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
                "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
                "-DCMAKE_C_FLAGS:STRING=${LIBWEBSOCKETS_C_FLAGS}"
                #"-DCMAKE_C_FLAGS:STRING=${LIBWEBSOCKETS_C_FLAGS} -DSSL_CTRL_SET_TLSEXT_HOSTNAME"
@@ -232,7 +236,8 @@ macro(build_libwebsockets)
                -DLWS_WITHOUT_CLIENT:BOOL=OFF
                -DLWS_WITHOUT_DAEMONIZE:BOOL=ON
                -DLWS_WITHOUT_EVENTFD:BOOL=OFF
-               -DLWS_WITHOUT_EXTENSIONS:BOOL=OFF -DLWS_WITHOUT_SERVER:BOOL=OFF
+               -DLWS_WITHOUT_EXTENSIONS:BOOL=OFF
+               -DLWS_WITHOUT_SERVER:BOOL=OFF
                -DLWS_WITHOUT_TESTAPPS:BOOL=ON
                -DLWS_WITHOUT_TEST_SERVER:BOOL=OFF
                -DLWS_WITH_ACCESS_LOG:BOOL=OFF
@@ -314,7 +319,7 @@ macro(build_libwebsockets)
                -DLWS_WITH_ZLIB:BOOL=ON
     CMAKE_CACHE_ARGS
       ${LIBWEBSOCKETS_ARGS}
-      -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON 
+      -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
       -DLWS_HAVE_LIBCAP:BOOL=FALSE
       -DLWS_WITH_PLUGINS_API:BOOL=${LWS_WITH_PLUGINS_API}
       -DLWS_WITH_PLUGINS:BOOL=${LWS_WITH_PLUGINS}
