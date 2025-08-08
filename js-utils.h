@@ -27,6 +27,7 @@ BOOL js_has_property(JSContext*, JSValueConst, const char*);
 BOOL js_has_property2(JSContext*, JSValueConst, const char*);
 JSValue js_get_property(JSContext*, JSValueConst, const char*);
 void js_error_print(JSContext*, JSValueConst);
+JSValue js_fmt_pointer(JSContext*, void*, const char*);
 JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
 char** to_stringarray(JSContext*, JSValueConst);
 void str_or_buf_property(const char**, const void**, unsigned int*, JSContext*, JSValueConst, const char*);

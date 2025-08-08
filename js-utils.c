@@ -89,6 +89,13 @@ js_error_print(JSContext* ctx, JSValueConst exception) {
   JS_FreeValue(ctx, stack);
 }
 
+JSValue
+js_fmt_pointer(JSContext* ctx, void* ptr, const char* str) {
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%s%p", str ? str : "", ptr);
+  return JS_NewString(ctx, buf);
+}
+
 JSValue*
 to_valuearray(JSContext* ctx, JSValueConst obj, size_t* lenp) {
   JSValue iterator = js_iterator_get(ctx, obj);

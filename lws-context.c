@@ -447,6 +447,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       argv[argi] = JS_NewArray(ctx);
       JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
       argi++;
+    } else if(reason == LWS_CALLBACK_ESTABLISHED) {
+      argv[argi++] = js_fmt_pointer(ctx, in, "(SSL*)");
+      argv[argi++] = JS_NewInt32(ctx, len);
     } else if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
       memset(*(uint8_t**)in, 0, len);
       argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
