@@ -532,13 +532,13 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   if(s && s->closed)
     ret = -1;
 
-  /* if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER)
-     if(sock->post)
-       if(!lws_http_is_redirected_to_get(wsi)) {
-         lwsl_user("%s: doing POST flow\n", __func__);
-         lws_client_http_body_pending(wsi, 1);
-         lws_callback_on_writable(wsi);
-       }*/
+  if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER)
+    if(s && s->method == WSI_TOKEN_POST_URI)
+      if(!lws_http_is_redirected_to_get(wsi)) {
+        lwsl_user("%s: doing POST flow\n", __func__);
+        lws_client_http_body_pending(wsi, 1);
+        lws_callback_on_writable(wsi);
+      }
 
   if(reason != LWS_CALLBACK_PROTOCOL_INIT && reason != LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
     if(s && s->completed)
