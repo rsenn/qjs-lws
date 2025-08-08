@@ -73,6 +73,12 @@ lwsjs_method_name(int i) {
 }
 
 LWSSocket*
+socket_dup(LWSSocket* s) {
+  ++s->ref_count;
+  return s;
+}
+
+LWSSocket*
 socket_alloc(JSContext* ctx) {
   LWSSocket* sock;
 
@@ -193,7 +199,7 @@ JSValue
 lwsjs_socket_wrap(JSContext* ctx, LWSSocket* sock) {
   JSValue obj = JS_NewObjectProtoClass(ctx, lwsjs_socket_proto, lwsjs_socket_class_id);
 
-  JS_SetOpaque(obj, sock);
+  JS_SetOpaque(obj, socket_dup(sock));
 
   sock->obj = obj_ptr(ctx, obj);
 
