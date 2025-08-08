@@ -157,6 +157,10 @@ socket_free(LWSSocket* sock, JSRuntime* rt) {
       js_free_rt(rt, sock->uri);
       sock->uri = 0;
     }
+    if(sock->proto) {
+      js_free_rt(rt, sock->proto);
+      sock->proto = 0;
+    }
 
     js_free_rt(rt, sock);
   }
