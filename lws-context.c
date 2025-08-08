@@ -502,8 +502,8 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       JSValue error = JS_GetException(ctx);
       js_error_print(ctx, error);
       JS_FreeValue(ctx, error);
-      ret = -1;
-      goto end;
+      /*  ret = -1;
+        goto end;*/
     }
 
     if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
