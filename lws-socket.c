@@ -239,7 +239,13 @@ lwsjs_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
   else
     ret = lwsjs_socket_create(ctx, wsi);
 
-  DEBUG("%s LWSSocket (wsi = %p, id = %d, obj = %p) = %p", ptr ? "create" : "get", wsi, lwsjs_socket_data(ret)->id, JS_VALUE_GET_OBJ(ret), lwsjs_socket_data(ret));
+  DEBUG("%s LWSSocket (wsi = %p, id = %d, ref_count = %d, obj = %p) = %p",
+        ptr == 0 ? "create" : "get",
+        wsi,
+        lwsjs_socket_data(ret)->id,
+        lwsjs_socket_data(ret)->ref_count,
+        JS_VALUE_GET_OBJ(ret),
+        lwsjs_socket_data(ret));
 
   return ret;
 }
@@ -820,7 +826,7 @@ lwsjs_socket_finalizer(JSRuntime* rt, JSValue val) {
   LWSSocket* s;
 
   if((s = lwsjs_socket_data(val)))
-    socket_delete(s, rt);
+    socket_free(s, rt);
 }
 
 static const JSClassDef lws_socket_class = {
