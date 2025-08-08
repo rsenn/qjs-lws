@@ -382,9 +382,10 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   }
 
   if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
-    if(s && is_nullish(s->headers)) {
+    if(s && is_nullish(s->headers))
       s->headers = lwsjs_socket_headers(ctx, s->wsi);
 
+    if(s && s->uri == 0) {
       char* uri_ptr = 0;
       int uri_len = 0;
 
