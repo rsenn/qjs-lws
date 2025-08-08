@@ -6,9 +6,6 @@
 
 #include <quickjs.h>
 #include <cutils.h>
-#include <list.h>
-#include <ctype.h>
-#include <string.h>
 
 #define JS_CONSTANT(c) JS_PROP_INT64_DEF((#c), (c), JS_PROP_ENUMERABLE)
 

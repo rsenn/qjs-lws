@@ -1,8 +1,6 @@
 #include "js-utils.h"
+#include <ctype.h>
 #include <string.h>
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define WRAPAROUND(n, len) ((n) < 0 ? (n) + (len) : (n))
 
 size_t
 camelize(char* dst, size_t dlen, const char* src) {
@@ -132,19 +130,6 @@ js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
   JSAtom atom = JS_NewAtom(ctx, name);
   BOOL ret = JS_HasProperty(ctx, obj, atom);
   JS_FreeAtom(ctx, atom);
-
-  /*if(!ret) {
-    char buf[strlen(name) + 1];
-
-    camelize(buf, sizeof(buf), name);
-
-    if(strcmp(name, buf)) {
-      atom = JS_NewAtom(ctx, buf);
-      ret = JS_HasProperty(ctx, obj, atom);
-      JS_FreeAtom(ctx, atom);
-    }
-  }*/
-
   return ret;
 }
 
@@ -249,6 +234,24 @@ iterator_get(JSContext* ctx, JSValueConst iterable) {
   return ret;
 }
 
+void
+js_error_print(JSContext* ctx, JSValueConst exception) {
+  JSValue stack = JS_GetPropertyStr(ctx, exception, "stack");
+  const char* str;
+
+  if((str = JS_ToCString(ctx, exception))) {
+    fprintf(stderr, "\x1b[2K\rERROR: %s\n", str);
+    JS_FreeCString(ctx, str);
+  }
+
+  if((str = JS_ToCString(ctx, stack))) {
+    fprintf(stderr, "STACK: %s\n", str);
+    JS_FreeCString(ctx, str);
+  }
+
+  JS_FreeValue(ctx, stack);
+}
+
 typedef struct {
   CClosureFunc* func;
   uint16_t length, magic;
@@ -315,15 +318,14 @@ static JSClassDef js_cclosure_class = {
 JSValue
 js_function_cclosure(JSContext* ctx, CClosureFunc* func, int length, int magic, void* opaque, void (*opaque_finalize)(void*)) {
   JSCClosureRecord* ccr;
-  JSValue func_proto, func_obj;
 
   if(js_cclosure_class_id == 0) {
     JS_NewClassID(&js_cclosure_class_id);
     JS_NewClass(JS_GetRuntime(ctx), js_cclosure_class_id, &js_cclosure_class);
   }
 
-  func_proto = js_function_prototype(ctx);
-  func_obj = JS_NewObjectProtoClass(ctx, func_proto, js_cclosure_class_id);
+  JSValue func_proto = js_function_prototype(ctx);
+  JSValue func_obj = JS_NewObjectProtoClass(ctx, func_proto, js_cclosure_class_id);
 
   JS_FreeValue(ctx, func_proto);
 
@@ -343,24 +345,5 @@ js_function_cclosure(JSContext* ctx, CClosureFunc* func, int length, int magic, 
 
   JS_SetOpaque(func_obj, ccr);
 
-  // JS_DefinePropertyValueStr(ctx, func_obj, "length", JS_NewUint32(ctx, length), JS_PROP_CONFIGURABLE);
-
   return func_obj;
-}
-
-void
-js_error_print(JSContext* ctx, JSValueConst exception) {
-  JSValue stack;
-  const char* str;
-  stack = JS_GetPropertyStr(ctx, exception, "stack");
-
-  if((str = JS_ToCString(ctx, exception))) {
-    fprintf(stderr, "\x1b[2K\rERROR: %s\n", str);
-    JS_FreeCString(ctx, str);
-  }
-
-  if((str = JS_ToCString(ctx, stack))) {
-    fprintf(stderr, "STACK: %s\n", str);
-    JS_FreeCString(ctx, str);
-  }
 }
