@@ -271,7 +271,7 @@ js_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void*
           *jsval = JS_MKPTR(0, 0);
         }
 
-        // lwsjs_socket_destroy(ctx, wsi);
+        lwsjs_socket_destroy(ctx, wsi);
         return 0;
       }
     }

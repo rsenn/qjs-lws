@@ -153,10 +153,11 @@ socket_delete(LWSSocket* sock, JSRuntime* rt) {
   assert(socket_list.next);
   assert(socket_list.prev);
 
-  assert(sock->link.next);
-  assert(sock->link.prev);
+  /*  assert(sock->link.next);
+    assert(sock->link.prev);*/
 
-  list_del(&sock->link);
+  if(sock->link.next)
+    list_del(&sock->link);
 
   DEBUG("delete LWSSocket: %p (wsi = %p, n = %d, ref = %d)", sock, sock->wsi, list_size(&socket_list), sock->ref_count);
 
@@ -237,11 +238,6 @@ lwsjs_socket_destroy(JSContext* ctx, struct lws* wsi) {
     return;
 
   assert(sock);
-  assert(sock->link.next);
-  /*  JSValue obj = socket_obj(sock);
-    JS_SetOpaque(obj, 0);
-    JS_FreeValue(ctx, obj);
-    sock->obj = 0;*/
 
   socket_delete(sock, JS_GetRuntime(ctx));
 }
