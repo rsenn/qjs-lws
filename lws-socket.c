@@ -649,6 +649,7 @@ enum {
   PROP_METHOD,
   PROP_URI,
   PROP_BODY_PENDING,
+  PROP_EXTENSIONS,
 };
 
 static JSValue
@@ -814,6 +815,19 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_NewInt32(ctx, s->body_pending);
       break;
     }
+
+    case PROP_EXTENSIONS: {
+      LWSContext* lc;
+
+      if((lc = lwsjs_socket_context(s->wsi)) && lc->info.extensions) {
+        ret = JS_NewArray(ctx);
+
+        for(int i = 0; lc->info.extensions[i].name; i++)
+          JS_SetPropertyUint32(ctx, ret, i, JS_NewString(ctx, lc->info.extensions[i].name));
+      }
+
+      break;
+    }
   }
 
   return ret;
@@ -858,6 +872,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("client", lwsjs_socket_get, 0, PROP_CLIENT),
     JS_CGETSET_MAGIC_DEF("response", lwsjs_socket_get, 0, PROP_RESPONSE_CODE),
     JS_CGETSET_MAGIC_DEF("bodyPending", lwsjs_socket_get, lwsjs_socket_set, PROP_BODY_PENDING),
+    JS_CGETSET_MAGIC_DEF("extensions", lwsjs_socket_get, 0, PROP_EXTENSIONS),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 
