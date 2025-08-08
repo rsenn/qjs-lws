@@ -26,18 +26,18 @@ static const char* lwsjs_log_levels[] = {
 };
 
 static const char* const lwsjs_log_colours[] = {
-    "[31;1m", /* LLL_ERR */
-    "[36;1m", /* LLL_WARN */
-    "[35;1m", /* LLL_NOTICE */
-    "[32;1m", /* LLL_INFO */
-    "[34;1m", /* LLL_DEBUG */
-    "[33;1m", /* LLL_PARSER */
-    "[33m",   /* LLL_HEADER */
-    "[33m",   /* LLL_EXT */
-    "[33m",   /* LLL_CLIENT */
-    "[33;1m", /* LLL_LATENCY */
-    "[0;1m",  /* LLL_USER */
-    "[31m",   /* LLL_THREAD */
+    "\033[38;5;88m",  /* LLL_ERR */
+    "\033[38;5;166m", /* LLL_WARN */
+    "\033[38;5;208m", /* LLL_NOTICE */
+    "\033[38;5;214m", /* LLL_INFO */
+    "\033[38;5;220m", /* LLL_DEBUG */
+    "\033[38;5;226m", /* LLL_PARSER */
+    "\033[38;5;154m", /* LLL_HEADER */
+    "\033[38;5;40m",  /* LLL_EXT */
+    "\033[38;5;36m",  /* LLL_CLIENT */
+    "\033[38;5;74m",  /* LLL_LATENCY */
+    "\033[38;5;69m",  /* LLL_USER */
+    "\033[38;5;135m", /* LLL_THREAD */
 };
 
 size_t
@@ -145,6 +145,7 @@ lwsjs_connectinfo_to_uri(JSContext* ctx, const LWSClientConnectInfo* info) {
 
 enum {
   FUNCTION_GET_LOG_LEVEL_NAME = 0,
+  FUNCTION_GET_LOG_LEVEL_COLOUR,
   FUNCTION_GET_CALLBACK_NAME,
   FUNCTION_GET_CALLBACK_NUMBER,
   FUNCTION_GET_TOKEN_NAME,
@@ -168,6 +169,14 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       if(level >= 0 && level < countof(lwsjs_log_levels))
         ret = JS_NewString(ctx, lwsjs_log_levels[level]);
+
+      break;
+    }
+    case FUNCTION_GET_LOG_LEVEL_COLOUR: {
+      int32_t level = to_uint32(ctx, argv[0]);
+
+      if(level >= 0 && level < countof(lwsjs_log_colours))
+        ret = JS_NewString(ctx, lwsjs_log_colours[level]);
 
       break;
     }
@@ -396,6 +405,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
 static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getLogLevelName", 1, lwsjs_functions, FUNCTION_GET_LOG_LEVEL_NAME),
+    JS_CFUNC_MAGIC_DEF("getLogLevelColour", 1, lwsjs_functions, FUNCTION_GET_LOG_LEVEL_COLOUR),
     JS_CFUNC_MAGIC_DEF("getCallbackName", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NAME),
     JS_CFUNC_MAGIC_DEF("getCallbackNumber", 1, lwsjs_functions, FUNCTION_GET_CALLBACK_NUMBER),
     JS_CFUNC_MAGIC_DEF("getTokenName", 1, lwsjs_functions, FUNCTION_GET_TOKEN_NAME),
@@ -870,7 +880,7 @@ lwsjs_log_callback(int level, const char* line) {
     JS_FreeValue(ctx, args[0]);
     JS_FreeValue(ctx, ret);
   } else {
-    fprintf(stderr, "<%s> \x1b%s%s\x1b[0m", lwsjs_log_levels[level], lwsjs_log_colours[level], line);
+    fprintf(stderr, "<%s> %s%s\x1b[0m", lwsjs_log_levels[level], lwsjs_log_colours[level], line);
     fflush(stderr);
   }
 }
