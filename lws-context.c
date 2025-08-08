@@ -440,6 +440,9 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     } else if(process_html_args) {
       struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
 
+      if(reason == LWS_CALLBACK_ADD_HEADERS)
+        pha->len = 0;
+
       if(pha->len < pha->max_len)
         memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
 
