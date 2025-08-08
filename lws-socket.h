@@ -17,7 +17,7 @@ typedef struct {
   struct lws* wsi;
   int id;
   LWSSocketType type;
-  char* uri;
+  char *uri, *proto;
   JSObject* obj;
   BOOL client, want_write, completed, closed;
   JSValue headers, write_handler;
@@ -33,7 +33,7 @@ void lwsjs_socket_destroy(JSContext*, struct lws*);
 JSValue lwsjs_socket_wrap(JSContext*, LWSSocket*);
 JSValue lwsjs_socket_create(JSContext*, struct lws*);
 JSValue lwsjs_socket_get_or_create(JSContext*, struct lws*);
-JSValue lwsjs_socket_headers(JSContext*, struct lws*);
+JSValue lwsjs_socket_headers(JSContext*, struct lws*, char**);
 int lwsjs_socket_init(JSContext*, JSModuleDef*);
 int lwsjs_method_index(const char* method);
 const char* lwsjs_method_name(int index);

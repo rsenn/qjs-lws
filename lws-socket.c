@@ -273,7 +273,7 @@ custom_headers_callback(const char* name, int nlen, void* opaque) {
 }
 
 JSValue
-lwsjs_socket_headers(JSContext* ctx, struct lws* wsi) {
+lwsjs_socket_headers(JSContext* ctx, struct lws* wsi, char** pproto) {
   JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
 
   for(int i = WSI_TOKEN_GET_URI; i < WSI_TOKEN_COUNT; ++i) {
@@ -287,12 +287,17 @@ lwsjs_socket_headers(JSContext* ctx, struct lws* wsi) {
           continue;
 
         size_t namelen = find_charset(name, ": ", 2);
-        // JSAtom prop = JS_NewAtomUInt32(ctx, i);
         JSAtom prop = JS_NewAtomLen(ctx, name, namelen);
         char buf[len + 1];
         int r = lws_hdr_copy(wsi, buf, len + 1, i);
 
-        JS_SetProperty(ctx, ret, prop, JS_NewStringLen(ctx, buf, r));
+        if(namelen == 0) {
+          if(*pproto)
+            js_free(ctx, *pproto);
+          *pproto = js_strndup(ctx, buf, r);
+        } else {
+          JS_SetProperty(ctx, ret, prop, JS_NewStringLen(ctx, buf, r));
+        }
         JS_FreeAtom(ctx, prop);
       }
     }
@@ -745,16 +750,16 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_PROTOCOL: {
-      const struct lws_protocols* p;
+      /*   const struct lws_protocols* p;
 
-      if((p = lws_get_protocol(s->wsi))) {
-        LWSProtocol* lwsp;
+         if((p = lws_get_protocol(s->wsi))) {
+           LWSProtocol* lwsp;
 
-        if((lwsp = p->user))
-          if(lwsp->obj)
-            ret = ptr_obj(ctx, lwsp->obj);
-      }
-
+           if((lwsp = p->user))
+             if(lwsp->obj)
+               ret = ptr_obj(ctx, lwsp->obj);
+         }*/
+      ret = s->proto ? JS_NewString(ctx, s->proto) : JS_NULL;
       break;
     }
 

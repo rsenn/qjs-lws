@@ -381,9 +381,10 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
   }
 
-  if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
-    if(s && is_nullish(s->headers))
-      s->headers = lwsjs_socket_headers(ctx, s->wsi);
+  if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH || reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
+    if(s && is_nullish(s->headers)) {
+      s->headers = lwsjs_socket_headers(ctx, s->wsi, &s->proto);
+    }
 
     if(s && s->uri == 0) {
       char* uri_ptr = 0;
@@ -493,10 +494,6 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       argv[argi++] = JS_NewInt64(ctx, len);
     } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
       argv[argi++] = JS_NewString(ctx, in);
-    }
-
-    if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
-      s->headers = lwsjs_socket_headers(ctx, wsi);
     }
 
     JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, argi, argv);
