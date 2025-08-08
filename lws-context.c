@@ -1124,9 +1124,11 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
 
 #ifdef LWS_WITH_TLS
   str_property(&ci->ssl_private_key_password, ctx, obj, "ssl_private_key_password");
-  str_property(&ci->ssl_cert_filepath, ctx, obj, "ssl_cert_filepath");
-  str_property(&ci->ssl_private_key_filepath, ctx, obj, "ssl_private_key_filepath");
-  str_property(&ci->ssl_ca_filepath, ctx, obj, "ssl_ca_filepath");
+  
+  str_or_buf_property(&ci->ssl_cert_filepath, &ci->server_ssl_cert_mem, &ci->server_ssl_cert_mem_len, ctx, obj, "server_ssl_cert");
+  str_or_buf_property(&ci->ssl_private_key_filepath, &ci->server_ssl_private_key_mem, &ci->server_ssl_private_key_mem_len, ctx, obj, "server_ssl_private_key");
+  str_or_buf_property(&ci->ssl_ca_filepath, &ci->server_ssl_ca_mem, &ci->server_ssl_ca_mem_len, ctx, obj, "server_ssl_ca");
+
   str_property(&ci->ssl_cipher_list, ctx, obj, "ssl_cipher_list");
   str_property(&ci->tls1_3_plus_cipher_list, ctx, obj, "tls1_3_plus_cipher_list");
   str_property(&ci->client_ssl_private_key_password, ctx, obj, "client_ssl_private_key_password");

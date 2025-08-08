@@ -142,9 +142,9 @@ globalThis.ctx = new LWSContext({
   listenAcceptRole: 'raw-skt',
   listenAcceptProtocol: 'raw-echo',
   protocols,
-  sslCaFilepath: 'ca.crt',
-  sslCertFilepath: 'localhost.crt',
-  sslPrivateKeyFilepath: 'localhost.key',
+  serverSslCa: 'ca.crt',
+  serverSslCert: 'localhost.crt',
+  serverSslPrivateKey: 'localhost.key',
   mounts: [
     { mountpoint: '/ws', protocol: 'ws', originProtocol: LWSMPRO_NO_MOUNT },
     { mountpoint: '/test', protocol: 'http', originProtocol: LWSMPRO_CALLBACK },
