@@ -379,9 +379,10 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         goto end;
       }
     }
+  }
 
-  } else if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
-    if(s && JS_IsUndefined(s->headers))
+  if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
+    if(s && is_nullish(s->headers))
       s->headers = lwsjs_socket_headers(ctx, s->wsi);
   }
 
@@ -551,7 +552,7 @@ end:
 }
 
 static JSValue
-protocol_c_callback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* closure) {
+c_callback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* closure) {
   const LWSProtocols* proto = closure;
   struct lws* wsi = 0;
   int reason = -1;
@@ -601,7 +602,7 @@ protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
   JSValue cb = JS_NULL;
 
   if(proto->callback)
-    cb = js_function_cclosure(ctx, protocol_c_callback, 4, 0, (void*)proto, 0);
+    cb = js_function_cclosure(ctx, c_callback, 4, 0, (void*)proto, 0);
 
   JS_SetPropertyStr(ctx, ret, "callback", cb);
 
