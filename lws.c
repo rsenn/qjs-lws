@@ -5,19 +5,6 @@
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
-enum {
-  FUNCTION_GET_CALLBACK_NAME = 0,
-  FUNCTION_GET_CALLBACK_NUMBER,
-  FUNCTION_GET_TOKEN_NAME,
-  FUNCTION_LOG,
-  FUNCTION_PARSE_URI,
-  FUNCTION_VISIBLE,
-  FUNCTION_TO_STRING,
-  FUNCTION_TO_POINTER,
-  FUNCTION_TO_ARRAYBUFFER,
-  FUNCTION_LOGLEVEL,
-};
-
 static void lwsjs_log_callback(int, const char*);
 
 size_t
@@ -127,6 +114,20 @@ lwsjs_uri_toobj(JSContext* ctx, char* uri, JSValueConst obj) {
   if(path)
     JS_SetPropertyStr(ctx, obj, "path", JS_NewString(ctx, path));
 }*/
+
+enum {
+  FUNCTION_GET_CALLBACK_NAME = 0,
+  FUNCTION_GET_CALLBACK_NUMBER,
+  FUNCTION_GET_TOKEN_NAME,
+  FUNCTION_LOG,
+  FUNCTION_PARSE_URI,
+  FUNCTION_VISIBLE,
+  FUNCTION_TO_STRING,
+  FUNCTION_TO_POINTER,
+  FUNCTION_TO_ARRAYBUFFER,
+  FUNCTION_LOGLEVEL,
+  FUNCTION_WRITE,
+};
 
 static JSValue
 lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic) {
@@ -302,6 +303,43 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       break;
     }
+
+    case FUNCTION_WRITE: {
+      size_t len;
+      uint8_t* buf;
+      const char* str = 0;
+
+      if(!(buf = JS_GetArrayBuffer(ctx, &len, argv[0])) && !(str = JS_ToCStringLen(ctx, &len, argv[0]))) {
+        ret = JS_ThrowTypeError(ctx, "argument 1 must be ArrayBuffer or String");
+        break;
+      }
+
+      buf = (uint8_t*)str;
+
+      struct lws_process_html_args a = {0}, b;
+      int i = lwsjs_html_process_args(ctx, &a, argc - 1, argv + 1);
+
+      b = a;
+      b.p += b.len;
+      b.max_len -= b.len;
+
+      int n = MIN(len, b.max_len);
+
+      if(n >= 0)
+        memcpy(b.p, buf, n);
+
+      a.len += n;
+
+      if(argc > 2 && JS_IsObject(argv[2]))
+        JS_SetPropertyUint32(ctx, argv[2], 0, JS_NewUint32(ctx, a.len));
+
+      ret = JS_NewUint32(ctx, n);
+
+      if(str)
+        JS_FreeCString(ctx, str);
+
+      break;
+    }
   }
 
   return ret;
@@ -318,6 +356,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("toString", 1, lwsjs_functions, FUNCTION_TO_STRING),
     JS_CFUNC_MAGIC_DEF("toArrayBuffer", 1, lwsjs_functions, FUNCTION_TO_ARRAYBUFFER),
     JS_CFUNC_MAGIC_DEF("toPointer", 1, lwsjs_functions, FUNCTION_TO_POINTER),
+    JS_CFUNC_MAGIC_DEF("write", 2, lwsjs_functions, FUNCTION_WRITE),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),
