@@ -62,13 +62,6 @@ globalThis.ctx = new LWSContext({
       },
     },
     {
-      name: 'raw-echo',
-      callback(wsi, reason, ...args) {
-        verbose('raw-echo ' + getCallbackName(reason), wsi, args);
-        return 0;
-      },
-    },
-    {
       name: 'http',
       onHttpBody(wsi, buf, len) {
         const s = wsi2spa(wsi);
