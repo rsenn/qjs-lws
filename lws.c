@@ -381,7 +381,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       b.p += b.len;
       b.max_len -= b.len;
 
-      int n = MIN(len, b.max_len);
+      int n = MIN((int)len, b.max_len);
 
       if(n >= 0)
         memcpy(b.p, buf, n);
