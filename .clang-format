@@ -52,7 +52,6 @@ SpacesInCStyleCastParentheses: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
 UseTab: Never
-AlwaysBreakAfterDefinitionReturnType: All
 ColumnLimit: 200
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
