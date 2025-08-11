@@ -512,6 +512,10 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       argv[argi++] = JS_NewString(ctx, in);
     }
 
+    if(reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
+      argv[argi++] = JS_NewInt32(ctx, errno);
+    }
+
     JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, argi, argv);
 
     if(JS_IsException(result)) {
