@@ -1046,7 +1046,7 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
 
   if(js_has_property(ctx, obj, "ssl")) {
     value = js_get_property(ctx, obj, "ssl");
-    ci->ssl_connection |= JS_IsBool(value)
+    ci->ssl_connection |= !JS_IsNumber(value)
                               ? (JS_ToBool(ctx, value) ? LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK : 0)
                               : to_uint32(ctx, value);
     JS_FreeValue(ctx, value);
