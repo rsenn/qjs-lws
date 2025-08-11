@@ -140,7 +140,7 @@ lwsjs_connectinfo_to_uri(JSContext* ctx, const LWSClientConnectInfo* info) {
     dbuf_putstr(&db, info->path);
 
   dbuf_putc(&db, '\0');
-  return db.buf;
+  return (char*)db.buf;
 }
 
 enum {
@@ -165,7 +165,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
   switch(magic) {
     case FUNCTION_GET_LOG_LEVEL_NAME: {
-      int32_t level = to_uint32(ctx, argv[0]);
+      size_t level = to_uint32(ctx, argv[0]);
 
       if(level >= 0 && level < countof(lwsjs_log_levels))
         ret = JS_NewString(ctx, lwsjs_log_levels[level]);
@@ -173,7 +173,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       break;
     }
     case FUNCTION_GET_LOG_LEVEL_COLOUR: {
-      int32_t level = to_uint32(ctx, argv[0]);
+      size_t level = to_uint32(ctx, argv[0]);
 
       if(level >= 0 && level < countof(lwsjs_log_colours))
         ret = JS_NewString(ctx, lwsjs_log_colours[level]);
@@ -458,7 +458,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CONSTANT(LLL_COUNT),
 
     JS_CONSTANT(CONTEXT_PORT_NO_LISTEN),
-    
+
     JS_CONSTANT(LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT),
     JS_CONSTANT(LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME),
     JS_CONSTANT(LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT),
