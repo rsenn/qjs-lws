@@ -352,8 +352,8 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
   BOOL is_ws = lwsi_role_ws(s->wsi), is_http = lwsi_role_http(s->wsi);
 
-  if(!is_http && (magic == METHOD_ADD_HEADER || magic == METHOD_HTTP_CLIENT_READ))
-    return JS_ThrowInternalError(ctx, "%s (magic=%d) wsi is not HTTP", __func__, magic);
+  /*if(!is_http && (magic == METHOD_ADD_HEADER || magic == METHOD_HTTP_CLIENT_READ))
+    return JS_ThrowInternalError(ctx, "%s (magic=%d) wsi is not HTTP", __func__, magic);*/
 
   switch(magic) {
     case METHOD_WANT_WRITE: {
