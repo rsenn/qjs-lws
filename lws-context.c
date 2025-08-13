@@ -411,19 +411,10 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
   }
 
-  /*if(user && pro->per_session_data_size == sizeof(JSValue)) {
-    if(reason == LWS_CALLBACK_WSI_DESTROY) {
-      JS_FreeValue(ctx, *(JSValue*)user);
-      *(JSValue*)user = JS_MKPTR(0, 0);
-    } else if(reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
-      *(JSValue*)user = JS_NewObjectProto(ctx, JS_NULL);
-    }
-  }*/
-
   if(cb && !is_nullish(*cb)) {
     int argi = 1, buffer_index = -1;
     JSValue argv[5] = {
-        /*reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_PROTOCOL_INIT || reason == LWS_CALLBACK_PROTOCOL_DESTROY ? JS_NULL :*/ JS_DupValue(ctx, sock),
+        JS_DupValue(ctx, sock),
     };
 
     if(cb == &closure->callback)
@@ -513,6 +504,13 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
 
     if(reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
+      argv[argi++] = JS_NewInt32(ctx, errno);
+    }
+
+    if(reason == LWS_CALLBACK_RAW_CLOSE) {
+      /*JS_FreeValue(ctx, argv[--argi]);
+      JS_FreeValue(ctx, argv[--argi]);*/
+
       argv[argi++] = JS_NewInt32(ctx, errno);
     }
 
