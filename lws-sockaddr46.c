@@ -262,3 +262,19 @@ lwsjs_sockaddr46_value(JSContext* ctx, JSValueConst value) {
 
   return lwsjs_sockaddr46_constructor(ctx, lwsjs_sockaddr46_ctor, 1, &value);
 }
+
+lws_sockaddr46*
+lwsjs_sockaddr46_data(JSContext* ctx, JSValueConst value) {
+  size_t len;
+  lws_sockaddr46* sa;
+
+  if(!JS_IsInstanceOf(ctx, value, lwsjs_sockaddr46_ctor))
+    return 0;
+
+  if((sa = (lws_sockaddr46*)JS_GetArrayBuffer(ctx, &len, value)) && len < sizeof(*sa)) {
+    JS_ThrowRangeError(ctx, "SockAddr64 must have length %zu", sizeof(*sa));
+    return 0;
+  }
+
+  return sa;
+}
