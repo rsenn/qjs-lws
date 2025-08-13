@@ -157,6 +157,10 @@ enum {
   FUNCTION_TO_ARRAYBUFFER,
   FUNCTION_LOGLEVEL,
   FUNCTION_WRITE,
+  FUNCTION_PARSE_MAC,
+  FUNCTION_PARSE_NUMERIC_ADDRESS,
+  FUNCTION_WRITE_NUMERIC_ADDRESS,
+  FUNCTION_INTERFACE_TO_SA,
 };
 
 static JSValue
@@ -398,6 +402,95 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       break;
     }
+
+    case FUNCTION_PARSE_MAC: {
+      size_t n;
+      uint8_t buf[6];
+      uint8_t* p = buf;
+
+      if(argc > 1) {
+        if((p = get_buffer(ctx, argc - 1, argv + 1, &n)))
+          if(n < 6)
+            return JS_ThrowRangeError(ctx, "ArrayBuffer must be at least 6 bytes");
+      }
+
+      const char* mac = JS_ToCString(ctx, argv[0]);
+      int r = lws_parse_mac(mac, p);
+
+      if(p == buf)
+        ret = JS_NewArrayBufferCopy(ctx, buf, 6);
+      else
+        ret = JS_NewInt32(ctx, r);
+
+      JS_FreeCString(ctx, mac);
+      break;
+    }
+    case FUNCTION_PARSE_NUMERIC_ADDRESS: {
+      size_t n;
+      uint8_t buf[16];
+      uint8_t* p = buf;
+
+      if(argc > 1) {
+        if((p = get_buffer(ctx, argc - 1, argv + 1, &n)))
+          if(n < 16)
+            return JS_ThrowRangeError(ctx, "ArrayBuffer must be at least 16 bytes");
+      }
+
+      const char* addr = JS_ToCString(ctx, argv[0]);
+      int r = lws_parse_numeric_address(addr, p, 16);
+
+      if(p == buf)
+        ret = JS_NewArrayBufferCopy(ctx, buf, r);
+      else
+        ret = JS_NewInt32(ctx, r);
+
+      JS_FreeCString(ctx, addr);
+      break;
+    }
+    case FUNCTION_WRITE_NUMERIC_ADDRESS: {
+      size_t len, n;
+      char out[64];
+      uint8_t buf[16];
+      uint8_t *in, *p = buf;
+
+      if((in = get_buffer(ctx, argc, argv, &len))) {
+        if(argc > 1 && JS_IsNumber(argv[1])) {
+          len = to_uint32(ctx, argv[1]);
+
+          argc--;
+          argv++;
+        }
+      }
+      int r = lws_write_numeric_address(in, len, out, sizeof(out));
+
+      ret = JS_NewStringLen(ctx, out, r);
+      break;
+    }
+
+    case FUNCTION_INTERFACE_TO_SA: {
+      const int ipv6 = to_int32(ctx, argv[0]);
+      const size_t size = ipv6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+      size_t n;
+      uint8_t buf[size];
+      uint8_t* p = buf;
+
+      if(argc > 2) {
+        if((p = get_buffer(ctx, argc - 2, argv + 2, &n)))
+          if(n < size)
+            return JS_ThrowRangeError(ctx, "ArrayBuffer must be at least %zu bytes", size);
+      }
+
+      const char* iface = JS_ToCString(ctx, argv[1]);
+      int r = lws_interface_to_sa(ipv6, iface, (void*)p, size);
+
+      if(p == buf)
+        ret = JS_NewArrayBufferCopy(ctx, buf, size);
+      else
+        ret = JS_NewInt32(ctx, r);
+
+      JS_FreeCString(ctx, iface);
+      break;
+    }
   }
 
   return ret;
@@ -417,6 +510,10 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("toArrayBuffer", 1, lwsjs_functions, FUNCTION_TO_ARRAYBUFFER),
     JS_CFUNC_MAGIC_DEF("toPointer", 1, lwsjs_functions, FUNCTION_TO_POINTER),
     JS_CFUNC_MAGIC_DEF("write", 2, lwsjs_functions, FUNCTION_WRITE),
+    JS_CFUNC_MAGIC_DEF("parseMac", 1, lwsjs_functions, FUNCTION_PARSE_MAC),
+    JS_CFUNC_MAGIC_DEF("parseNumericAddress", 1, lwsjs_functions, FUNCTION_PARSE_NUMERIC_ADDRESS),
+    JS_CFUNC_MAGIC_DEF("writeNumericAddress", 1, lwsjs_functions, FUNCTION_WRITE_NUMERIC_ADDRESS),
+    JS_CFUNC_MAGIC_DEF("interfaceToSa", 1, lwsjs_functions, FUNCTION_INTERFACE_TO_SA),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),
@@ -892,6 +989,7 @@ lwsjs_init(JSContext* ctx, JSModuleDef* m) {
   lwsjs_context_init(ctx, m);
   lwsjs_socket_init(ctx, m);
   lwsjs_spa_init(ctx, m);
+  lwsjs_sockaddr46_init(ctx, m);
 
   if(m)
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));

@@ -34,6 +34,7 @@ size_t camelize(char*, size_t, const char*);
 size_t decamelize(char*, size_t, const char*);
 int lwsjs_html_process_args(JSContext*, struct lws_process_html_args*, int, JSValueConst[]);
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
+int lwsjs_sockaddr46_init(JSContext*, JSModuleDef*);
 void lwsjs_uri_toconnectinfo(JSContext*, char*, LWSClientConnectInfo*);
 char* lwsjs_connectinfo_to_uri(JSContext*, const LWSClientConnectInfo*);
 enum lws_callback_reasons lwsjs_callback_find(const char*);
