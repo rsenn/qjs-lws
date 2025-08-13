@@ -1,5 +1,6 @@
 #include "lws-socket.h"
 #include "lws-context.h"
+#include "lws-sockaddr46.h"
 #include "lws.h"
 #include "js-utils.h"
 

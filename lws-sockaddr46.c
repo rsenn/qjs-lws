@@ -7,16 +7,6 @@
 JSClassID lwsjs_sockaddr46_class_id;
 static JSValue lwsjs_sockaddr46_proto, lwsjs_sockaddr46_ctor;
 
-static inline LWSSocket*
-lwsjs_sockaddr46_data(JSValueConst value) {
-  return JS_GetOpaque(value, lwsjs_sockaddr46_class_id);
-}
-
-static inline LWSSocket*
-lwsjs_sockaddr46_data2(JSContext* ctx, JSValueConst value) {
-  return JS_GetOpaque2(ctx, value, lwsjs_sockaddr46_class_id);
-}
-
 static JSValue
 lwsjs_sockaddr46_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
   lws_sockaddr46 sa = {0};
@@ -235,10 +225,9 @@ static const JSCFunctionListEntry lws_sockaddr46_proto_funcs[] = {
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSockAddr46", JS_PROP_CONFIGURABLE),
 };
 
-JSValue
+static JSValue
 js_arraybuffer_prototype(JSContext* ctx) {
   uint8_t buf[4];
-
   JSValue obj = JS_NewArrayBufferCopy(ctx, buf, sizeof(buf));
   JSValue proto = JS_GetPrototype(ctx, obj);
   JS_FreeValue(ctx, obj);
@@ -264,4 +253,12 @@ lwsjs_sockaddr46_init(JSContext* ctx, JSModuleDef* m) {
   }
 
   return 0;
+}
+
+JSValue
+lwsjs_sockaddr46_value(JSContext* ctx, JSValueConst value) {
+  if(JS_IsInstanceOf(ctx, value, lwsjs_sockaddr46_ctor))
+    return JS_DupValue(ctx, value);
+
+  return lwsjs_sockaddr46_constructor(ctx, lwsjs_sockaddr46_ctor, 1, &value);
 }
