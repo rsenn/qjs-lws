@@ -1005,6 +1005,7 @@ js_init_module(JSContext* ctx, const char* module_name) {
     JS_AddModuleExport(ctx, m, "LWSContext");
     JS_AddModuleExport(ctx, m, "LWSSocket");
     JS_AddModuleExport(ctx, m, "LWSSPA");
+    JS_AddModuleExport(ctx, m, "LWSSockAddr46");
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
   }
 
