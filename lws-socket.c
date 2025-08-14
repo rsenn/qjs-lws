@@ -6,7 +6,7 @@
 #include <assert.h>
 
 #include "libwebsockets/lib/core/private-lib-core.h"
-//#include "libwebsockets/lib/roles/private-lib-roles.h"
+// #include "libwebsockets/lib/roles/private-lib-roles.h"
 
 JSClassID lwsjs_socket_class_id;
 static JSValue lwsjs_socket_proto, lwsjs_socket_ctor;
