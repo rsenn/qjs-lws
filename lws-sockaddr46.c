@@ -103,10 +103,10 @@ lwsjs_sockaddr46_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValu
     }
 
     case METHOD_COMPARE: {
-      size_t len2;
+      size_t len2 = 0;
       lws_sockaddr46* sa2;
 
-      if(!(sa2 = (lws_sockaddr46*)JS_GetArrayBuffer(ctx, &len, argv[0])))
+      if(!(sa2 = (lws_sockaddr46*)JS_GetArrayBuffer(ctx, &len2, argv[0])))
         return JS_EXCEPTION;
 
       if(len2 < sizeof(*sa2))
@@ -117,10 +117,10 @@ lwsjs_sockaddr46_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValu
     }
 
     case METHOD_ON_NET: {
-      size_t len2;
+      size_t len2 = 0;
       lws_sockaddr46* sa2;
 
-      if(!(sa2 = (lws_sockaddr46*)JS_GetArrayBuffer(ctx, &len, argv[0])))
+      if(!(sa2 = (lws_sockaddr46*)JS_GetArrayBuffer(ctx, &len2, argv[0])))
         return JS_EXCEPTION;
 
       if(len2 < sizeof(*sa2))
