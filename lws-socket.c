@@ -1,6 +1,7 @@
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws-vhost.h"
+#include "lws-sockaddr46.h"
 #include "lws.h"
 #include "js-utils.h"
 #include <assert.h>
@@ -676,6 +677,7 @@ enum {
   PROP_TAG,
   PROP_TLS,
   PROP_PEER,
+  PROP_LOCAL,
   PROP_FD,
   PROP_CONTEXT,
   PROP_PEER_WRITE_ALLOWANCE,
@@ -768,9 +770,42 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_PEER: {
-      char buf[256];
-      lws_get_peer_simple(s->wsi, buf, sizeof(buf));
-      ret = JS_NewString(ctx, buf);
+      lws_sockfd_type fd = lws_get_socket_fd(s->wsi);
+
+      if(fd == -1) {
+        ret = JS_NULL;
+        break;
+      }
+
+      ret = lwsjs_sockaddr46_new(ctx);
+      lws_sockaddr46* sa = lwsjs_sockaddr46_data(ctx, ret);
+      socklen_t len = sizeof(*sa);
+
+      if(getpeername(fd, (struct sockaddr*)sa, &len) == -1) {
+        JS_FreeValue(ctx, ret);
+        return JS_ThrowInternalError(ctx, "geetpeername() returned -1: %s", strerror(errno));
+      }
+
+      break;
+    }
+
+    case PROP_LOCAL: {
+      lws_sockfd_type fd = lws_get_socket_fd(s->wsi);
+
+      if(fd == -1) {
+        ret = JS_NULL;
+        break;
+      }
+
+      ret = lwsjs_sockaddr46_new(ctx);
+      lws_sockaddr46* sa = lwsjs_sockaddr46_data(ctx, ret);
+      socklen_t len = sizeof(*sa);
+
+      if(getsockname(fd, (struct sockaddr*)sa, &len) == -1) {
+        JS_FreeValue(ctx, ret);
+        return JS_ThrowInternalError(ctx, "getsockname() returned -1: %s", strerror(errno));
+      }
+
       break;
     }
 
@@ -906,6 +941,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("headers", lwsjs_socket_get, 0, PROP_HEADERS),
     JS_CGETSET_MAGIC_DEF("tls", lwsjs_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lwsjs_socket_get, 0, PROP_PEER),
+    JS_CGETSET_MAGIC_DEF("local", lwsjs_socket_get, 0, PROP_LOCAL),
     JS_CGETSET_MAGIC_DEF("fd", lwsjs_socket_get, 0, PROP_FD),
     JS_CGETSET_MAGIC_DEF("parent", lwsjs_socket_get, 0, PROP_PARENT),
     JS_CGETSET_MAGIC_DEF("child", lwsjs_socket_get, 0, PROP_CHILD),

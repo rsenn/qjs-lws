@@ -84,7 +84,20 @@ lwsjs_sockaddr46_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValu
   switch(magic) {
     case METHOD_TO_STRING: {
       char buf[64];
-      int r = lws_sa46_write_numeric_address(sa, buf, sizeof(buf));
+      int r = 0;
+
+      if(sa->sa6.sin6_family == AF_INET6 && sa->sa4.sin_port)
+        buf[r++] = '[';
+
+      r += lws_sa46_write_numeric_address(sa, &buf[r], sizeof(buf) - r);
+
+      if(sa->sa4.sin_port) {
+        if(sa->sa6.sin6_family == AF_INET6)
+          buf[r++] = ']';
+
+        r += snprintf(&buf[r], sizeof(buf) - r, ":%u", ntohs(sa->sa4.sin_port));
+      }
+
       ret = JS_NewStringLen(ctx, buf, r);
       break;
     }
@@ -125,6 +138,7 @@ enum {
   PROP_FAMILY = 0,
   PROP_PORT,
   PROP_ADDRESS,
+  PROP_HOST,
 };
 
 static JSValue
@@ -163,6 +177,13 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
         }
         default: break;
       }
+      break;
+    }
+    case PROP_HOST: {
+      char buf[64];
+      int r = lws_sa46_write_numeric_address(sa, buf, sizeof(buf));
+
+      ret = JS_NewStringLen(ctx, buf, r);
       break;
     }
   }
@@ -217,7 +238,8 @@ static const JSClassDef lws_sockaddr46_class = {
 static const JSCFunctionListEntry lws_sockaddr46_proto_funcs[] = {
     JS_CGETSET_MAGIC_FLAGS_DEF("family", lwsjs_sockaddr46_get, 0, PROP_FAMILY, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_FLAGS_DEF("port", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_PORT, 0),
-    JS_CGETSET_MAGIC_FLAGS_DEF("address", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_ADDRESS, JS_PROP_ENUMERABLE),
+    JS_CGETSET_MAGIC_DEF("address", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_ADDRESS),
+    JS_CGETSET_MAGIC_FLAGS_DEF("host", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_HOST, JS_PROP_ENUMERABLE),
     JS_CFUNC_MAGIC_DEF("toString", 0, lwsjs_sockaddr46_methods, METHOD_TO_STRING),
     JS_CFUNC_MAGIC_DEF("compare", 1, lwsjs_sockaddr46_methods, METHOD_COMPARE),
     JS_CFUNC_MAGIC_DEF("onNet", 2, lwsjs_sockaddr46_methods, METHOD_ON_NET),
@@ -277,4 +299,9 @@ lwsjs_sockaddr46_data(JSContext* ctx, JSValueConst value) {
   }
 
   return sa;
+}
+
+JSValue
+lwsjs_sockaddr46_new(JSContext* ctx) {
+  return lwsjs_sockaddr46_constructor(ctx, lwsjs_sockaddr46_ctor, 0, 0);
 }
