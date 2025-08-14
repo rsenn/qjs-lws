@@ -249,7 +249,7 @@ static const JSCFunctionListEntry lws_sockaddr46_proto_funcs[] = {
 
 static JSValue
 js_arraybuffer_prototype(JSContext* ctx) {
-  uint8_t buf[4];
+  uint8_t buf[4] = {0, 0, 0, 0};
   JSValue obj = JS_NewArrayBufferCopy(ctx, buf, sizeof(buf));
   JSValue proto = JS_GetPrototype(ctx, obj);
   JS_FreeValue(ctx, obj);
