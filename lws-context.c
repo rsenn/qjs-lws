@@ -966,7 +966,7 @@ vhost_option_from(JSContext* ctx, JSValueConst obj) {
       next = JS_GetPropertyStr(ctx, obj, "next");
   }
 
-  if((vho = js_malloc(ctx, sizeof(struct lws_protocol_vhost_options)))) {
+  if((vho = js_mallocz(ctx, sizeof(struct lws_protocol_vhost_options)))) {
     vho->name = to_string(ctx, name);
     vho->value = to_string(ctx, value);
     vho->options = vhost_options_from(ctx, options);
@@ -983,8 +983,9 @@ vhost_option_from(JSContext* ctx, JSValueConst obj) {
 static struct lws_protocol_vhost_options*
 vhost_options_from(JSContext* ctx, JSValueConst value) {
   struct lws_protocol_vhost_options *vho = 0, **ptr = &vho, *tmp;
+  JSValue first = JS_UNDEFINED;
 
-  if(JS_IsArray(ctx, value)) {
+  if(JS_IsArray(ctx, value) && ((first = JS_GetPropertyUint32(ctx, value, 0)), JS_IsObject(first))) {
     int32_t len = to_int32free(ctx, JS_GetPropertyStr(ctx, value, "length"));
 
     if(len > 0) {
@@ -1006,6 +1007,8 @@ vhost_options_from(JSContext* ctx, JSValueConst value) {
   } else if(JS_IsObject(value)) {
     vho = vhost_option_from(ctx, value);
   }
+
+  JS_FreeValue(ctx, first);
 
   return vho;
 }
