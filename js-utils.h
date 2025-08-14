@@ -37,7 +37,7 @@ JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*
 
 static inline JSValue
 ptr_obj(JSContext* ctx, JSObject* obj) {
-  return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
+  return obj ? JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj)) : JS_NULL;
 }
 
 #if __SIZEOF_POINTER__ == 8

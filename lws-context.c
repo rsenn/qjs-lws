@@ -6,6 +6,7 @@
 #include <assert.h>
 #include "lws-socket.h"
 #include "lws-context.h"
+#include "lws-sockaddr46.h"
 #include "lws.h"
 #include "js-utils.h"
 
@@ -45,10 +46,10 @@
 JSClassID lwsjs_context_class_id;
 static JSValue lwsjs_context_proto, lwsjs_context_ctor;
 
-static LWSProtocolVHostOptions* vhost_options_from(JSContext*, JSValueConst);
-static LWSProtocolVHostOptions* vhost_options_fromfree(JSContext*, JSValue);
+static struct lws_protocol_vhost_options* vhost_options_from(JSContext*, JSValueConst);
+static struct lws_protocol_vhost_options* vhost_options_fromfree(JSContext*, JSValue);
 
-static void vhost_options_free(JSRuntime*, LWSProtocolVHostOptions*);
+static void vhost_options_free(JSRuntime*, struct lws_protocol_vhost_options*);
 
 typedef struct {
   struct list_head link;
@@ -582,7 +583,7 @@ end:
 
 static JSValue
 c_callback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* closure) {
-  const LWSProtocols* proto = closure;
+  const struct lws_protocols* proto = closure;
   struct lws* wsi = 0;
   int reason = -1;
   char* str = 0;
@@ -613,8 +614,8 @@ c_callback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
   return ret;
 }
 
-static JSValue
-protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
+JSValue
+lwsjs_protocol_obj(JSContext* ctx, const struct lws_protocols* proto) {
   JSValue ret = JS_UNDEFINED;
 
   /*if(proto->user)
@@ -638,9 +639,9 @@ protocol_obj(JSContext* ctx, const LWSProtocols* proto) {
   return ret;
 }
 
-static LWSProtocols
+static struct lws_protocols
 protocol_from(JSContext* ctx, JSValueConst obj) {
-  LWSProtocols pro = {0};
+  struct lws_protocols pro = {0};
   LWSProtocol* closure;
 
   if(!(closure = js_mallocz(ctx, sizeof(LWSProtocol))))
@@ -676,7 +677,7 @@ protocol_from(JSContext* ctx, JSValueConst obj) {
 }
 
 static void
-protocol_free(JSRuntime* rt, LWSProtocols* pro) {
+protocol_free(JSRuntime* rt, struct lws_protocols* pro) {
   LWSProtocol* closure = pro->user;
 
   if(closure) {
@@ -691,14 +692,17 @@ protocol_free(JSRuntime* rt, LWSProtocols* pro) {
   pro->user = 0;
   pro->callback = 0;
 
-  js_free_rt(rt, (char*)pro->name);
+  if(pro->name) {
+    js_free_rt(rt, (char*)pro->name);
+    pro->name = 0;
+  }
 }
 
-static const LWSProtocols*
+static const struct lws_protocols*
 protocols_fromarray(JSContext* ctx, JSValueConst value) {
-  size_t len;
+  size_t len = 0;
   JSValue* values = to_valuearray(ctx, value, &len);
-  LWSProtocols* pro = js_mallocz(ctx, (len + 13) * sizeof(LWSProtocols));
+  struct lws_protocols* pro = js_mallocz(ctx, (len + 13) * sizeof(struct lws_protocols));
   size_t j = 0;
 
   pro[j++] = (struct lws_protocols){
@@ -755,7 +759,7 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
 }
 
 static void
-protocols_free(JSRuntime* rt, LWSProtocols* pro) {
+protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
   size_t i;
 
   for(i = 0; pro[i].name; ++i)
@@ -923,17 +927,17 @@ http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
     }
 
     if(mnt->cgienv) {
-      vhost_options_free(rt, (LWSProtocolVHostOptions*)mnt->cgienv);
+      vhost_options_free(rt, (struct lws_protocol_vhost_options*)mnt->cgienv);
       mnt->cgienv = 0;
     }
 
     if(mnt->extra_mimetypes) {
-      vhost_options_free(rt, (LWSProtocolVHostOptions*)mnt->extra_mimetypes);
+      vhost_options_free(rt, (struct lws_protocol_vhost_options*)mnt->extra_mimetypes);
       mnt->extra_mimetypes = 0;
     }
 
     if(mnt->interpret) {
-      vhost_options_free(rt, (LWSProtocolVHostOptions*)mnt->interpret);
+      vhost_options_free(rt, (struct lws_protocol_vhost_options*)mnt->interpret);
       mnt->interpret = 0;
     }
 
@@ -944,9 +948,9 @@ http_mounts_free(JSRuntime* rt, struct lws_http_mount* mnt) {
   }
 }
 
-static LWSProtocolVHostOptions*
+static struct lws_protocol_vhost_options*
 vhost_option_from(JSContext* ctx, JSValueConst obj) {
-  LWSProtocolVHostOptions* vho;
+  struct lws_protocol_vhost_options* vho;
   JSValue name = JS_UNDEFINED, value = JS_UNDEFINED, options = JS_UNDEFINED, next = JS_UNDEFINED;
 
   if(JS_IsArray(ctx, obj)) {
@@ -962,7 +966,7 @@ vhost_option_from(JSContext* ctx, JSValueConst obj) {
       next = JS_GetPropertyStr(ctx, obj, "next");
   }
 
-  if((vho = js_malloc(ctx, sizeof(LWSProtocolVHostOptions)))) {
+  if((vho = js_malloc(ctx, sizeof(struct lws_protocol_vhost_options)))) {
     vho->name = to_string(ctx, name);
     vho->value = to_string(ctx, value);
     vho->options = vhost_options_from(ctx, options);
@@ -976,9 +980,9 @@ vhost_option_from(JSContext* ctx, JSValueConst obj) {
   return vho;
 }
 
-static LWSProtocolVHostOptions*
+static struct lws_protocol_vhost_options*
 vhost_options_from(JSContext* ctx, JSValueConst value) {
-  LWSProtocolVHostOptions *vho = 0, **ptr = &vho, *tmp;
+  struct lws_protocol_vhost_options *vho = 0, **ptr = &vho, *tmp;
 
   if(JS_IsArray(ctx, value)) {
     int32_t len = to_int32free(ctx, JS_GetPropertyStr(ctx, value, "length"));
@@ -989,7 +993,7 @@ vhost_options_from(JSContext* ctx, JSValueConst value) {
 
         if((*ptr = tmp = vhost_option_from(ctx, option))) {
           do
-            ptr = (LWSProtocolVHostOptions**)&(*ptr)->next;
+            ptr = (struct lws_protocol_vhost_options**)&(*ptr)->next;
           while(*ptr);
         }
 
@@ -1006,15 +1010,15 @@ vhost_options_from(JSContext* ctx, JSValueConst value) {
   return vho;
 }
 
-static LWSProtocolVHostOptions*
+static struct lws_protocol_vhost_options*
 vhost_options_fromfree(JSContext* ctx, JSValue value) {
-  LWSProtocolVHostOptions* vho = vhost_options_from(ctx, value);
+  struct lws_protocol_vhost_options* vho = vhost_options_from(ctx, value);
   JS_FreeValue(ctx, value);
   return vho;
 }
 
 static void
-vhost_options_free(JSRuntime* rt, LWSProtocolVHostOptions* vho) {
+vhost_options_free(JSRuntime* rt, struct lws_protocol_vhost_options* vho) {
   do {
     js_free_rt(rt, (char*)vho->name);
     vho->name = 0;
@@ -1022,14 +1026,14 @@ vhost_options_free(JSRuntime* rt, LWSProtocolVHostOptions* vho) {
     js_free_rt(rt, (char*)vho->value);
     vho->value = 0;
 
-    vhost_options_free(rt, (LWSProtocolVHostOptions*)vho->options);
+    vhost_options_free(rt, (struct lws_protocol_vhost_options*)vho->options);
     vho->options = 0;
 
-  } while((vho = (LWSProtocolVHostOptions*)vho->next));
+  } while((vho = (struct lws_protocol_vhost_options*)vho->next));
 }
 
 static void
-client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectInfo* ci) {
+client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_connect_info* ci) {
   JSValue value;
 
   if(js_has_property(ctx, obj, "context")) {
@@ -1075,7 +1079,7 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, LWSClientConnectIn
 }
 
 static void
-client_connect_info_free(JSRuntime* rt, LWSClientConnectInfo* ci) {
+client_connect_info_free(JSRuntime* rt, struct lws_client_connect_info* ci) {
   if(ci->address)
     js_free_rt(rt, (char*)ci->address);
   if(ci->path)
@@ -1100,8 +1104,8 @@ client_connect_info_free(JSRuntime* rt, LWSClientConnectInfo* ci) {
     js_free_rt(rt, (char*)ci->auth_password);
 }
 
-static void
-context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreationInfo* ci) {
+void
+lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_context_creation_info* ci) {
   JSValue value;
 
   str_property(&ci->iface, ctx, obj, "iface");
@@ -1204,25 +1208,25 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, LWSContextCreati
   }
 }
 
-static void
-context_creation_info_free(JSRuntime* rt, LWSContextCreationInfo* ci) {
+void
+lwsjs_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
   if(ci->iface)
     js_free_rt(rt, (char*)ci->iface);
 
   if(ci->protocols)
-    protocols_free(rt, (LWSProtocols*)ci->protocols);
+    protocols_free(rt, (struct lws_protocols*)ci->protocols);
 
   if(ci->http_proxy_address)
     js_free_rt(rt, (char*)ci->http_proxy_address);
 
   if(ci->headers)
-    vhost_options_free(rt, (LWSProtocolVHostOptions*)ci->headers);
+    vhost_options_free(rt, (struct lws_protocol_vhost_options*)ci->headers);
 
   if(ci->reject_service_keywords)
-    vhost_options_free(rt, (LWSProtocolVHostOptions*)ci->reject_service_keywords);
+    vhost_options_free(rt, (struct lws_protocol_vhost_options*)ci->reject_service_keywords);
 
   if(ci->pvo)
-    vhost_options_free(rt, (LWSProtocolVHostOptions*)ci->pvo);
+    vhost_options_free(rt, (struct lws_protocol_vhost_options*)ci->pvo);
 
   if(ci->log_filepath)
     js_free_rt(rt, (char*)ci->log_filepath);
@@ -1321,7 +1325,7 @@ context_free(JSRuntime* rt, LWSContext* lc) {
     lc->ctx = NULL;
   }
 
-  context_creation_info_free(rt, &lc->info);
+  lwsjs_context_creation_info_free(rt, &lc->info);
 
   js_free_rt(rt, lc);
 }
@@ -1344,7 +1348,7 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
     goto fail;
 
   if(JS_IsObject(argv[0]))
-    context_creation_info_fromobj(ctx, argv[0], &lc->info);
+    lwsjs_context_creation_info_fromobj(ctx, argv[0], &lc->info);
 
   JS_SetOpaque(obj, lc);
 
@@ -1369,11 +1373,14 @@ fail:
 
 enum {
   DESTROY,
+  GET_VHOST_BY_NAME,
   ADOPT_SOCKET,
   ADOPT_SOCKET_READBUF,
   CANCEL_SERVICE,
   CLIENT_CONNECT,
   GET_RANDOM,
+  ASYNC_DNS_SERVER_ADD,
+  ASYNC_DNS_SERVER_REMOVE,
 };
 
 static JSValue
@@ -1390,6 +1397,21 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         lws_context_destroy(lc->ctx);
         lc->ctx = NULL;
         ret = JS_TRUE;
+      }
+
+      break;
+    }
+
+    case GET_VHOST_BY_NAME: {
+      const char* name;
+
+      if((name = JS_ToCString(ctx, argv[0]))) {
+        struct lws_vhost* vho;
+
+        if((vho = lws_get_vhost_by_name(lc->ctx, name)))
+          ret = ptr_obj(ctx, lws_get_vhost_user(vho));
+
+        JS_FreeCString(ctx, name);
       }
 
       break;
@@ -1417,15 +1439,8 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       if(wsi_from_fd(lc->ctx, arg))
         return JS_ThrowInternalError(ctx, "socket %" PRIi32 " already adopted", arg);
 
-      if(!(buf = JS_GetArrayBuffer(ctx, &len, argv[1])))
+      if(!(buf = get_buffer(ctx, argc - 1, argv + 1, &len)))
         return JS_ThrowTypeError(ctx, "argument 2 must be an arraybuffer");
-
-      if(argc > 2) {
-        int64_t l = to_int64(ctx, argv[2]);
-
-        if(l >= 0 && l < (int64_t)len)
-          len = l;
-      }
 
       if((wsi = lws_adopt_socket_readbuf(lc->ctx, arg, (const char*)buf, len)))
         ret = lwsjs_socket_create(ctx, wsi);
@@ -1441,7 +1456,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
     }
 
     case CLIENT_CONNECT: {
-      LWSClientConnectInfo info = {0};
+      struct lws_client_connect_info info = {0};
       char* uri = 0;
       JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
 
@@ -1491,6 +1506,25 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       if((p = get_buffer(ctx, argc, argv, &n)))
         lws_get_random(lc->ctx, p, n);
 
+      break;
+    }
+
+    case ASYNC_DNS_SERVER_ADD: {
+      JSValue addr = lwsjs_sockaddr46_value(ctx, argv[0]);
+      lws_sockaddr46* sa46 = lwsjs_sockaddr46_data(ctx, addr);
+
+      ret = JS_NewInt32(ctx, lws_async_dns_server_add(lc->ctx, sa46));
+
+      JS_FreeValue(ctx, addr);
+      break;
+    }
+    case ASYNC_DNS_SERVER_REMOVE: {
+      JSValue addr = lwsjs_sockaddr46_value(ctx, argv[0]);
+      lws_sockaddr46* sa46 = lwsjs_sockaddr46_data(ctx, addr);
+
+      lws_async_dns_server_remove(lc->ctx, sa46);
+
+      JS_FreeValue(ctx, addr);
       break;
     }
   }
@@ -1544,7 +1578,7 @@ lwsjs_context_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_NewArray(ctx);
 
       for(uint32_t i = 0; lc->info.protocols[i].name; i++) {
-        JSValue protocol = protocol_obj(ctx, &lc->info.protocols[i]);
+        JSValue protocol = lwsjs_protocol_obj(ctx, &lc->info.protocols[i]);
         JS_SetPropertyUint32(ctx, ret, i, protocol);
       }
 
@@ -1570,11 +1604,14 @@ static const JSClassDef lws_context_class = {
 
 static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("destroy", 0, lwsjs_context_methods, DESTROY),
+    JS_CFUNC_MAGIC_DEF("getVhostByName", 1, lwsjs_context_methods, GET_VHOST_BY_NAME),
     JS_CFUNC_MAGIC_DEF("adoptSocket", 1, lwsjs_context_methods, ADOPT_SOCKET),
     JS_CFUNC_MAGIC_DEF("adoptSocketReadbuf", 2, lwsjs_context_methods, ADOPT_SOCKET_READBUF),
     JS_CFUNC_MAGIC_DEF("cancelService", 0, lwsjs_context_methods, CANCEL_SERVICE),
     JS_CFUNC_MAGIC_DEF("clientConnect", 1, lwsjs_context_methods, CLIENT_CONNECT),
     JS_CFUNC_MAGIC_DEF("getRandom", 1, lwsjs_context_methods, GET_RANDOM),
+    JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, ASYNC_DNS_SERVER_ADD),
+    JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, ASYNC_DNS_SERVER_REMOVE),
     JS_CGETSET_MAGIC_DEF("hostname", lwsjs_context_get, 0, PROP_HOSTNAME),
     // JS_CGETSET_MAGIC_DEF("vhost", lwsjs_context_get, 0, PROP_VHOST),
     JS_CGETSET_MAGIC_DEF("deprecated", lwsjs_context_get, 0, PROP_DEPRECATED),

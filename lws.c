@@ -1,6 +1,7 @@
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws-sockaddr46.h"
+#include "lws-vhost.h"
 #include "lws.h"
 #include "js-utils.h"
 
@@ -97,7 +98,7 @@ lwsjs_html_process_args(JSContext* ctx, struct lws_process_html_args* pha, int a
 }
 
 void
-lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
+lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, struct lws_client_connect_info* info) {
   const char *protocol, *host, *path;
   int port;
   int r = lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
@@ -123,7 +124,7 @@ lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, LWSClientConnectInfo* info) {
 }
 
 char*
-lwsjs_connectinfo_to_uri(JSContext* ctx, const LWSClientConnectInfo* info) {
+lwsjs_connectinfo_to_uri(JSContext* ctx, const struct lws_client_connect_info* info) {
   DynBuf db = {0};
   dbuf_init2(&db, ctx, (void*)&js_realloc);
 
@@ -277,7 +278,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       char* uri;
 
       if((uri = to_string(ctx, argv[0]))) {
-        LWSClientConnectInfo info = {0};
+        struct lws_client_connect_info info = {0};
 
         // ret = argc > 1 ? JS_DupValue(ctx, argv[1]) : JS_NewObjectProto(ctx, JS_NULL);
 
@@ -988,6 +989,7 @@ lwsjs_log_callback(int level, const char* line) {
 int
 lwsjs_init(JSContext* ctx, JSModuleDef* m) {
   lwsjs_context_init(ctx, m);
+  lwsjs_vhost_init(ctx, m);
   lwsjs_socket_init(ctx, m);
   lwsjs_spa_init(ctx, m);
   lwsjs_sockaddr46_init(ctx, m);
@@ -1004,6 +1006,7 @@ js_init_module(JSContext* ctx, const char* module_name) {
 
   if((m = JS_NewCModule(ctx, module_name, lwsjs_init))) {
     JS_AddModuleExport(ctx, m, "LWSContext");
+    JS_AddModuleExport(ctx, m, "LWSVhost");
     JS_AddModuleExport(ctx, m, "LWSSocket");
     JS_AddModuleExport(ctx, m, "LWSSPA");
     JS_AddModuleExport(ctx, m, "LWSSockAddr46");

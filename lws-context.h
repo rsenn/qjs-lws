@@ -5,6 +5,7 @@
 #include <cutils.h>
 #include <list.h>
 #include <libwebsockets.h>
+#include "lws.h"
 
 typedef struct {
   struct lws_context* ctx;
@@ -22,6 +23,9 @@ typedef struct {
 extern JSClassID lwsjs_context_class_id;
 
 int lwsjs_context_init(JSContext*, JSModuleDef*);
+void lwsjs_context_creation_info_fromobj(JSContext*, JSValueConst, struct lws_context_creation_info*);
+void lwsjs_context_creation_info_free(JSRuntime*, struct lws_context_creation_info*);
+JSValue lwsjs_protocol_obj(JSContext* ctx, const struct lws_protocols* proto);
 
 static inline LWSContext*
 lwsjs_context_data(JSValueConst value) {

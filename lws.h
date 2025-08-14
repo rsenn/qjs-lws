@@ -6,12 +6,7 @@
 #include <list.h>
 #include <ctype.h>
 #include <libwebsockets.h>
-
-typedef struct lws_protocols LWSProtocols;
-typedef struct lws_protocol_vhost_options LWSProtocolVHostOptions;
-typedef struct lws_context_creation_info LWSContextCreationInfo;
-typedef struct lws_client_connect_info LWSClientConnectInfo;
-
+ 
 #if __SIZEOF_POINTER__ == 8
 #define intptr int64_t
 #elif __SIZEOF_POINTER__ == 4
@@ -34,8 +29,8 @@ size_t camelize(char*, size_t, const char*);
 size_t decamelize(char*, size_t, const char*);
 int lwsjs_html_process_args(JSContext*, struct lws_process_html_args*, int, JSValueConst[]);
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
-void lwsjs_uri_toconnectinfo(JSContext*, char*, LWSClientConnectInfo*);
-char* lwsjs_connectinfo_to_uri(JSContext*, const LWSClientConnectInfo*);
+void lwsjs_uri_toconnectinfo(JSContext*, char*, struct lws_client_connect_info*);
+char* lwsjs_connectinfo_to_uri(JSContext*, const struct lws_client_connect_info*);
 enum lws_callback_reasons lwsjs_callback_find(const char*);
 const char* lwsjs_callback_name(enum lws_callback_reasons);
 void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);

@@ -1,5 +1,6 @@
 #include "lws-socket.h"
 #include "lws-context.h"
+#include "lws-vhost.h"
 #include "lws.h"
 #include "js-utils.h"
 #include <assert.h>
@@ -667,7 +668,8 @@ lwsjs_socket_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueC
 }
 
 enum {
-  PROP_HEADERS = 0,
+  PROP_VHOST,
+  PROP_HEADERS,
   PROP_ID,
   PROP_CLIENT,
   PROP_RESPONSE_CODE,
@@ -721,6 +723,14 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     return JS_UNINITIALIZED;
 
   switch(magic) {
+    case PROP_VHOST: {
+      struct lws_vhost* vho;
+
+      if((vho = lws_get_vhost(s->wsi)))
+        ret = lws_vhost_object(ctx, vho);
+
+      break;
+    }
     case PROP_HEADERS: {
       ret = JS_DupValue(ctx, s->headers);
       break;
@@ -892,6 +902,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("clientHttpMultipart", 4, lwsjs_socket_methods, METHOD_CLIENT_HTTP_MULTIPART),
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lwsjs_socket_get, 0, PROP_ID, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_FLAGS_DEF("tag", lwsjs_socket_get, 0, PROP_TAG, JS_PROP_CONFIGURABLE),
+    JS_CGETSET_MAGIC_DEF("vhost", lwsjs_socket_get, 0, PROP_VHOST),
     JS_CGETSET_MAGIC_DEF("headers", lwsjs_socket_get, 0, PROP_HEADERS),
     JS_CGETSET_MAGIC_DEF("tls", lwsjs_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lwsjs_socket_get, 0, PROP_PEER),
