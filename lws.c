@@ -111,7 +111,7 @@ lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, struct lws_client_connect_inf
       str_replace(ctx, &info->method, js_strdup(ctx, "GET"));
 
     if(ssl)
-      info->ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+      info->ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE;
   }
 
   if(host)

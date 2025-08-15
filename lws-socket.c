@@ -301,21 +301,42 @@ typedef struct {
 } CustomHeaders;
 
 static void
+set_property(JSContext* ctx, JSValueConst obj, const char* name, int nlen, const char* value, int vlen) {
+  JSAtom prop = JS_NewAtomLen(ctx, name, nlen);
+  JS_SetProperty(ctx, obj, prop, JS_NewStringLen(ctx, value, vlen));
+  JS_FreeAtom(ctx, prop);
+}
+
+static void
 custom_headers_callback(const char* name, int nlen, void* opaque) {
   CustomHeaders* ch = opaque;
-  int namelen = nlen;
-  int len = lws_hdr_custom_length(ch->wsi, name, nlen);
-
-  if(namelen > 0 && name[namelen - 1] == ':')
-    --namelen;
-
-  JSAtom prop = JS_NewAtomLen(ch->ctx, name, namelen);
+  int namelen = nlen, len = lws_hdr_custom_length(ch->wsi, name, nlen);
   char buf[len + 1];
-
   int r = lws_hdr_custom_copy(ch->wsi, buf, len + 1, name, nlen);
+  int i = 0, j;
 
-  JS_SetProperty(ch->ctx, ch->obj, prop, JS_NewStringLen(ch->ctx, buf, r));
-  JS_FreeAtom(ch->ctx, prop);
+  while((j = findb_charset(&name[i], nlen - i, ": ", 2)) < (nlen - i - 1)) {
+    int k = i + j;
+
+    while(name[k] == ':' || name[k] == ' ')
+      ++k;
+
+    int n = findb_charset(&name[k], nlen - k, "\r\n", 2);
+    int end = k + n;
+
+    while(name[end] == '\r' || name[end] == '\n')
+      ++end;
+
+    if(n < (nlen - k))
+      set_property(ch->ctx, ch->obj, &name[i], j, &name[k], n);
+
+    i = end;
+
+    if(n >= (nlen - k))
+      break;
+  }
+
+  set_property(ch->ctx, ch->obj, &name[i], findb_charset(&name[i], nlen - i, ": ", 2), buf, r);
 }
 
 JSValue
@@ -725,6 +746,7 @@ enum {
   PROP_CHILD,
   PROP_NETWORK,
   PROP_EXTENSIONS,
+  PROP_H2,
 };
 
 static JSValue
@@ -938,6 +960,13 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       break;
     }
+
+    case PROP_H2: {
+      if(s->wsi)
+        ret = JS_NewBool(ctx, lws_wsi_is_h2(s->wsi));
+
+      break;
+    }
   }
 
   return ret;
@@ -985,6 +1014,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("bodyPending", lwsjs_socket_get, lwsjs_socket_set, PROP_BODY_PENDING),
     JS_CGETSET_MAGIC_DEF("redirectedToGet", lwsjs_socket_get, 0, PROP_REDIRECTED_TO_GET),
     JS_CGETSET_MAGIC_DEF("extensions", lwsjs_socket_get, 0, PROP_EXTENSIONS),
+    JS_CGETSET_MAGIC_DEF("h2", lwsjs_socket_get, 0, PROP_H2),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 

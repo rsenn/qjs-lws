@@ -6,7 +6,7 @@
 #include <list.h>
 #include <ctype.h>
 #include <libwebsockets.h>
- 
+
 #if __SIZEOF_POINTER__ == 8
 #define intptr int64_t
 #elif __SIZEOF_POINTER__ == 4
@@ -53,6 +53,18 @@ find_charset(const char* s, const char* set, size_t setlen) {
   size_t i, j;
 
   for(i = 0; s[i]; ++i)
+    for(j = 0; j < setlen; ++j)
+      if(s[i] == set[j])
+        return i;
+
+  return i;
+}
+
+static inline size_t
+findb_charset(const char* s, size_t len, const char* set, size_t setlen) {
+  size_t i, j;
+
+  for(i = 0; i < len; ++i)
     for(j = 0; j < setlen; ++j)
       if(s[i] == set[j])
         return i;
