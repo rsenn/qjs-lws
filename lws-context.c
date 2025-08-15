@@ -363,7 +363,7 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   /*if(((int32_t*)wsi)[58] & 2)
     return lws_callback_http_dummy(wsi, reason, user, in, len);*/
 
-  JSValue sock = wsi ? lwsjs_socket_get_or_create(ctx, reason == LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL ? 0 : wsi) : JS_UNDEFINED;
+  JSValue sock = wsi && reason != LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL && reason != LWS_CALLBACK_PROTOCOL_INIT ? lwsjs_socket_get_or_create(ctx, wsi) : JS_UNDEFINED;
   LWSSocket* s = lwsjs_socket_data(sock);
 
   if(reason == LWS_CALLBACK_HTTP_WRITEABLE || reason == LWS_CALLBACK_CLIENT_HTTP_WRITEABLE || reason == LWS_CALLBACK_SERVER_WRITEABLE || reason == LWS_CALLBACK_CLIENT_WRITEABLE ||
@@ -1538,7 +1538,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       struct lws* wsi;
 
       if((wsi = wsi_from_fd(lc->ctx, to_int32(ctx, argv[0]))))
-        ret = socket_obj2(socket_get(wsi), ctx);
+        ret = js_socket_get(ctx, wsi);
       break;
     }
   }

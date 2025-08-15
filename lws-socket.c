@@ -126,22 +126,39 @@ socket_getid(struct lws* wsi) {
   return -1;
 }
 
-LWSSocket*
-socket_get(struct lws* wsi) {
+static LWSSocket*
+socket_find(struct lws* wsi) {
   struct list_head* n;
-  LWSSocket* sock;
-  JSObject* obj;
-
-  if(wsi && (obj = lws_get_opaque_user_data(wsi)))
-    return lwsjs_socket_data(JS_MKPTR(JS_TAG_OBJECT, obj));
 
   list_for_each(n, &socket_list) {
-    if((sock = list_entry(n, LWSSocket, link)))
+    LWSSocket* sock = list_entry(n, LWSSocket, link);
+
+    if(sock)
       if((uintptr_t)sock != (uintptr_t)-1 && sock->wsi == wsi)
         return sock;
   }
 
   return 0;
+}
+
+LWSSocket*
+socket_get(struct lws* wsi) {
+  JSObject* obj;
+
+  if((obj = lws_get_opaque_user_data(wsi)))
+    return lwsjs_socket_data(JS_MKPTR(JS_TAG_OBJECT, obj));
+
+  return 0;
+}
+
+JSValue
+js_socket_get(JSContext* ctx, struct lws* wsi) {
+  JSObject* obj;
+
+  if((obj = lws_get_opaque_user_data(wsi)))
+    return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
+
+  return JS_UNDEFINED;
 }
 
 static LWSSocket*
@@ -204,14 +221,9 @@ socket_delete(LWSSocket* sock, JSRuntime* rt) {
   socket_free(sock, rt);
 }
 
-static inline JSValue
-socket_obj(LWSSocket* sock) {
-  return sock ? JS_MKPTR(JS_TAG_OBJECT, sock->obj) : JS_NULL;
-}
-
-JSValue
+static JSValue
 socket_obj2(LWSSocket* sock, JSContext* ctx) {
-  return sock ? JS_DupValue(ctx, socket_obj(sock)) : JS_NULL;
+  return sock ? JS_DupValue(ctx, ptr_obj(ctx, sock->obj)) : JS_NULL;
 }
 
 struct lws*
@@ -248,17 +260,19 @@ lwsjs_socket_create(JSContext* ctx, struct lws* wsi) {
   return ret;
 }
 
-static JSValue
-js_socket_get(JSContext* ctx, struct lws* wsi) {
-  void* ptr;
+void
+lwsjs_socket_destroy(JSContext* ctx, struct lws* wsi) {
+  LWSSocket* sock = socket_get(wsi);
 
-  if(wsi && (ptr = lws_get_opaque_user_data(wsi)))
-    return ptr_obj(ctx, ptr);
+  /*if(sock == 0)
+    return;*/
 
-  if((ptr = socket_get(wsi)))
-    return socket_obj2(ptr, ctx);
+  assert(sock);
 
-  return JS_UNDEFINED;
+  assert(sock->wsi);
+  sock->wsi = 0;
+
+  socket_delete(sock, JS_GetRuntime(ctx));
 }
 
 JSValue
@@ -278,21 +292,6 @@ lwsjs_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
         lwsjs_socket_data(ret));
 
   return ret;
-}
-
-void
-lwsjs_socket_destroy(JSContext* ctx, struct lws* wsi) {
-  LWSSocket* sock = socket_get(wsi);
-
-  if(sock == 0)
-    return;
-
-  assert(sock);
-
-  assert(sock->wsi == wsi);
-  sock->wsi = 0;
-
-  socket_delete(sock, JS_GetRuntime(ctx));
 }
 
 typedef struct {
@@ -614,6 +613,10 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     case METHOD_CLIENT_HTTP_MULTIPART: {
+
+      if(!s->wsi->http.multipart)
+        break;
+
       struct lws_process_html_args a = {0}, b, c;
       const char *name = 0, *filename = 0, *content_type = 0;
       int i = 0;
@@ -788,7 +791,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_FD: {
-      lws_sockfd_type fd = s->wsi ? lws_get_socket_fd(s->wsi) : -1;
+      int32_t fd = s->wsi ? (int32_t)lws_get_socket_fd(s->wsi) : -1;
       ret = JS_NewInt32(ctx, fd);
       break;
     }
