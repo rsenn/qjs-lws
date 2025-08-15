@@ -144,6 +144,20 @@ socket_get(struct lws* wsi) {
   return 0;
 }
 
+static LWSSocket*
+socket_get_by_id(int id) {
+  struct list_head* n;
+  LWSSocket* sock;
+
+  list_for_each(n, &socket_list) {
+    if((sock = list_entry(n, LWSSocket, link)))
+      if(sock->id == id)
+        return sock;
+  }
+
+  return 0;
+}
+
 static void
 socket_free(LWSSocket* sock, JSRuntime* rt) {
   DEBUG("free LWSSocket: %p (ref_count = %d)", sock, sock->ref_count);
@@ -195,8 +209,8 @@ socket_obj(LWSSocket* sock) {
   return sock ? JS_MKPTR(JS_TAG_OBJECT, sock->obj) : JS_NULL;
 }
 
-static inline JSValue
-socket_js(LWSSocket* sock, JSContext* ctx) {
+JSValue
+socket_obj2(LWSSocket* sock, JSContext* ctx) {
   return sock ? JS_DupValue(ctx, socket_obj(sock)) : JS_NULL;
 }
 
@@ -234,20 +248,29 @@ lwsjs_socket_create(JSContext* ctx, struct lws* wsi) {
   return ret;
 }
 
-JSValue
-lwsjs_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
+static JSValue
+js_socket_get(JSContext* ctx, struct lws* wsi) {
   void* ptr;
-  JSValue ret;
 
   if(wsi && (ptr = lws_get_opaque_user_data(wsi)))
-    ret = ptr_obj(ctx, ptr);
-  else if((ptr = socket_get(wsi)))
-    ret = socket_js(ptr, ctx);
-  else
+    return ptr_obj(ctx, ptr);
+
+  if((ptr = socket_get(wsi)))
+    return socket_obj2(ptr, ctx);
+
+  return JS_UNDEFINED;
+}
+
+JSValue
+lwsjs_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
+  JSValue ret = js_socket_get(ctx, wsi);
+  BOOL create;
+
+  if((create = JS_IsUndefined(ret)))
     ret = lwsjs_socket_create(ctx, wsi);
 
   DEBUG("%s LWSSocket (wsi = %p, id = %d, ref_count = %d, obj = %p) = %p",
-        ptr == 0 ? "create" : "get",
+        create ? "create" : "get",
         wsi,
         lwsjs_socket_data(ret)->id,
         lwsjs_socket_data(ret)->ref_count,
@@ -637,6 +660,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
 enum {
   FUNCTION_LIST,
+  FUNCTION_GET,
 };
 
 static JSValue
@@ -657,10 +681,15 @@ lwsjs_socket_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueC
           if(sock == (LWSSocket*)(uintptr_t)(intptr_t)-1)
             continue;
 
-          JS_SetPropertyUint32(ctx, ret, i++, socket_js(sock, ctx));
+          JS_SetPropertyUint32(ctx, ret, i++, socket_obj2(sock, ctx));
         }
       }
 
+      break;
+    }
+
+    case FUNCTION_GET: {
+      ret = socket_obj2(socket_get_by_id(to_int32(ctx, argv[0])), ctx);
       break;
     }
   }
@@ -674,22 +703,22 @@ enum {
   PROP_ID,
   PROP_CLIENT,
   PROP_RESPONSE_CODE,
+  PROP_FD,
+  PROP_METHOD,
+  PROP_URI,
+  PROP_BODY_PENDING,
+  PROP_REDIRECTED_TO_GET,
+  PROP_PROTOCOL,
   PROP_TAG,
   PROP_TLS,
   PROP_PEER,
   PROP_LOCAL,
-  PROP_FD,
   PROP_CONTEXT,
   PROP_PEER_WRITE_ALLOWANCE,
   PROP_PARENT,
   PROP_CHILD,
   PROP_NETWORK,
-  PROP_PROTOCOL,
-  PROP_METHOD,
-  PROP_URI,
-  PROP_BODY_PENDING,
   PROP_EXTENSIONS,
-  PROP_REDIRECTED_TO_GET,
 };
 
 static JSValue
@@ -721,7 +750,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
-  if(!s->wsi && magic > PROP_RESPONSE_CODE)
+  if(!s->wsi && magic > PROP_PROTOCOL)
     return JS_UNINITIALIZED;
 
   switch(magic) {
@@ -755,6 +784,41 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       break;
     }
 
+    case PROP_FD: {
+      lws_sockfd_type fd = s->wsi ? lws_get_socket_fd(s->wsi) : -1;
+      ret = JS_NewInt32(ctx, fd);
+      break;
+    }
+
+    case PROP_METHOD: {
+      const char* method;
+
+      if((method = lwsjs_method_name(s->method)))
+        ret = JS_NewString(ctx, method);
+
+      break;
+    }
+
+    case PROP_URI: {
+      ret = s->uri ? JS_NewString(ctx, s->uri) : JS_NULL;
+      break;
+    }
+
+    case PROP_BODY_PENDING: {
+      ret = JS_NewInt32(ctx, s->body_pending);
+      break;
+    }
+
+    case PROP_REDIRECTED_TO_GET: {
+      ret = JS_NewBool(ctx, s->redirected_to_get);
+      break;
+    }
+
+    case PROP_PROTOCOL: {
+      ret = s->proto ? JS_NewString(ctx, s->proto) : JS_NULL;
+      break;
+    }
+
     case PROP_TAG: {
       const char* tag;
 
@@ -783,7 +847,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       if(getpeername(fd, (struct sockaddr*)sa, &len) == -1) {
         JS_FreeValue(ctx, ret);
-        return JS_ThrowInternalError(ctx, "geetpeername() returned -1: %s", strerror(errno));
+        return JS_ThrowInternalError(ctx, "geetpeername(%d) returned -1: %s", fd, strerror(errno));
       }
 
       break;
@@ -803,26 +867,17 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       if(getsockname(fd, (struct sockaddr*)sa, &len) == -1) {
         JS_FreeValue(ctx, ret);
-        return JS_ThrowInternalError(ctx, "getsockname() returned -1: %s", strerror(errno));
+        return JS_ThrowInternalError(ctx, "getsockname(%d) returned -1: %s", fd, strerror(errno));
       }
 
-      break;
-    }
-
-    case PROP_FD: {
-      lws_sockfd_type fd = s->wsi ? lws_get_socket_fd(s->wsi) : -1;
-      ret = JS_NewInt32(ctx, fd);
       break;
     }
 
     case PROP_CONTEXT: {
       struct lws_context* lws;
 
-      if((lws = lws_get_context(s->wsi))) {
-        JSObject* obj = lws_context_user(lws);
-
-        ret = ptr_obj(ctx, obj);
-      }
+      if((lws = lws_get_context(s->wsi)))
+        ret = ptr_obj(ctx, lws_context_user(lws));
 
       break;
     }
@@ -859,39 +914,6 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       break;
     }
 
-    case PROP_PROTOCOL: {
-      /*   const struct lws_protocols* p;
-
-         if((p = lws_get_protocol(s->wsi))) {
-           LWSProtocol* lwsp;
-
-           if((lwsp = p->user))
-             if(lwsp->obj)
-               ret = ptr_obj(ctx, lwsp->obj);
-         }*/
-      ret = s->proto ? JS_NewString(ctx, s->proto) : JS_NULL;
-      break;
-    }
-
-    case PROP_METHOD: {
-      const char* method;
-
-      if((method = lwsjs_method_name(s->method)))
-        ret = JS_NewString(ctx, method);
-
-      break;
-    }
-
-    case PROP_URI: {
-      ret = s->uri ? JS_NewString(ctx, s->uri) : JS_NULL;
-      break;
-    }
-
-    case PROP_BODY_PENDING: {
-      ret = JS_NewInt32(ctx, s->body_pending);
-      break;
-    }
-
     case PROP_EXTENSIONS: {
       LWSContext* lc;
 
@@ -902,11 +924,6 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
           JS_SetPropertyUint32(ctx, ret, i, JS_NewString(ctx, lc->info.extensions[i].name));
       }
 
-      break;
-    }
-
-    case PROP_REDIRECTED_TO_GET: {
-      ret = JS_NewBool(ctx, s->redirected_to_get);
       break;
     }
   }
@@ -961,6 +978,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
 
 static const JSCFunctionListEntry lws_socket_static_funcs[] = {
     JS_CFUNC_MAGIC_DEF("list", 0, lwsjs_socket_functions, FUNCTION_LIST),
+    JS_CFUNC_MAGIC_DEF("get", 1, lwsjs_socket_functions, FUNCTION_GET),
 };
 
 int

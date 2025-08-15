@@ -440,7 +440,10 @@ protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
     BOOL process_html_args = reason == LWS_CALLBACK_ADD_HEADERS || reason == LWS_CALLBACK_CHECK_ACCESS_RIGHTS || reason == LWS_CALLBACK_PROCESS_HTML;
 
-    if(reason == LWS_CALLBACK_CLIENT_RECEIVE && (((char*)in)[-2] & 0x7f) == 8) {
+    if(reason == LWS_CALLBACK_CLIENT_HTTP_REDIRECT) {
+      argv[argi++] = JS_NewString(ctx, in);
+      argv[argi++] = JS_NewInt32(ctx, len);
+    } else if(reason == LWS_CALLBACK_CLIENT_RECEIVE && (((char*)in)[-2] & 0x7f) == 8) {
       BOOL has_reason = cb == &closure->callback;
       int code = (int)(((uint8_t*)in)[0]) << 8 | ((uint8_t*)in)[1];
 
@@ -1384,6 +1387,7 @@ enum {
   GET_RANDOM,
   ASYNC_DNS_SERVER_ADD,
   ASYNC_DNS_SERVER_REMOVE,
+  WSI_FROM_FD,
 };
 
 static JSValue
@@ -1530,6 +1534,13 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       JS_FreeValue(ctx, addr);
       break;
     }
+    case WSI_FROM_FD: {
+      struct lws* wsi;
+
+      if((wsi = wsi_from_fd(lc->ctx, to_int32(ctx, argv[0]))))
+        ret = socket_obj2(socket_get(wsi), ctx);
+      break;
+    }
   }
 
   return ret;
@@ -1615,6 +1626,7 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getRandom", 1, lwsjs_context_methods, GET_RANDOM),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, ASYNC_DNS_SERVER_ADD),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, ASYNC_DNS_SERVER_REMOVE),
+    JS_CFUNC_MAGIC_DEF("wsiFromFd", 1, lwsjs_context_methods, WSI_FROM_FD),
     JS_CGETSET_MAGIC_DEF("hostname", lwsjs_context_get, 0, PROP_HOSTNAME),
     // JS_CGETSET_MAGIC_DEF("vhost", lwsjs_context_get, 0, PROP_VHOST),
     JS_CGETSET_MAGIC_DEF("deprecated", lwsjs_context_get, 0, PROP_DEPRECATED),
