@@ -289,6 +289,9 @@ lwsjs_socket_destroy(JSContext* ctx, struct lws* wsi) {
 
   assert(sock);
 
+  assert(sock->wsi == wsi);
+  sock->wsi = 0;
+
   socket_delete(sock, JS_GetRuntime(ctx));
 }
 
@@ -847,7 +850,10 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       if(getpeername(fd, (struct sockaddr*)sa, &len) == -1) {
         JS_FreeValue(ctx, ret);
-        return JS_ThrowInternalError(ctx, "geetpeername(%d) returned -1: %s", fd, strerror(errno));
+        if(errno == EBADF)
+          ret = JS_NULL;
+        else
+          ret = JS_ThrowInternalError(ctx, "geetpeername(%d) returned -1: %s", fd, strerror(errno));
       }
 
       break;
@@ -867,7 +873,10 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       if(getsockname(fd, (struct sockaddr*)sa, &len) == -1) {
         JS_FreeValue(ctx, ret);
-        return JS_ThrowInternalError(ctx, "getsockname(%d) returned -1: %s", fd, strerror(errno));
+        if(errno == EBADF)
+          ret = JS_NULL;
+        else
+          ret = JS_ThrowInternalError(ctx, "getsockname(%d) returned -1: %s", fd, strerror(errno));
       }
 
       break;
