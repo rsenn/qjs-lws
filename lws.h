@@ -82,4 +82,4 @@ list_size(struct list_head* list) {
   return i;
 }
 
-#endif
+#endif /* defined QJS_LWS_H */

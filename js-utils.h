@@ -214,4 +214,4 @@ obj_free(JSRuntime* rt, JSObject* obj) {
   JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, obj));
 }
 
-#endif /* JS_UTILS_H */
+#endif /* defined JS_UTILS_H */

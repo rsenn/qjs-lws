@@ -50,4 +50,4 @@ lwsjs_socket_data2(JSContext* ctx, JSValueConst value) {
   return JS_GetOpaque2(ctx, value, lwsjs_socket_class_id);
 }
 
-#endif
+#endif /* defined QJS_LWS_SOCKET_H */

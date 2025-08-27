@@ -32,4 +32,5 @@ lws_vhost_data(JSValueConst value) {
 
   return 0;
 }
-#endif
+
+#endif /* define QJS_LWS_VHOST_H */

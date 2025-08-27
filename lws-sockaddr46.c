@@ -17,29 +17,35 @@ lwsjs_sockaddr46_constructor(JSContext* ctx, JSValueConst new_target, int argc, 
     argi++;
   }
 
-  if(argc > argi && JS_IsNumber(argv[argi])) {
-    sa.sa4.sin_port = htons(to_uint32(ctx, argv[argi]));
-    argi++;
-  }
-
   if(argc > argi) {
     uint8_t* p;
     size_t len;
-    const char* str;
+    char* str;
 
     if((p = get_buffer(ctx, argc - argi, argv - argi, &len))) {
       if(len == 4 && (sa.sa4.sin_family == 0 || sa.sa4.sin_family == AF_INET)) {
         sa.sa4.sin_family = AF_INET;
         memcpy(&sa.sa4.sin_addr, p, len);
+        argi++;
       } else if(len == 16 && (sa.sa6.sin6_family == 0 || sa.sa6.sin6_family == AF_INET6)) {
         sa.sa6.sin6_family = AF_INET6;
         memcpy(&sa.sa6.sin6_addr, p, len);
-      } else if(argi == 0)
+        argi++;
+      } else if(argi == 0) {
         memcpy(&sa, p, MIN(len, sizeof(sa)));
-    } else if((str = JS_ToCString(ctx, argv[0]))) {
-      lws_sa46_parse_numeric_address(str, &sa);
-      JS_FreeCString(ctx, str);
+        argi++;
+      }
+    } else if((str = to_string(ctx, argv[argi]))) {
+      if(lws_sa46_parse_numeric_address(str, &sa) == 0)
+        argi++;
+
+      js_free(ctx, str);
     }
+  }
+
+  if(argc > argi && JS_IsNumber(argv[argi])) {
+    sa.sa4.sin_port = htons(to_uint32(ctx, argv[argi]));
+    argi++;
   }
 
   JSValue obj = JS_NewArrayBufferCopy(ctx, (uint8_t*)&sa, sizeof(sa));

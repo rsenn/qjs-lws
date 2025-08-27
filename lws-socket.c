@@ -635,8 +635,8 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
     case METHOD_CLIENT_HTTP_MULTIPART: {
 
-      if(!s->wsi->http.multipart)
-        break;
+      /*      if(!s->wsi->http.multipart)
+              break;*/
 
       struct lws_process_html_args a = {0}, b, c;
       const char *name = 0, *filename = 0, *content_type = 0;

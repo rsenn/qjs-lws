@@ -61,4 +61,4 @@ lwsjs_socket_context(struct lws* wsi) {
   return 0;
 }
 
-#endif
+#endif /* QJS_LWS_CONTEXT_H */
