@@ -7,7 +7,7 @@
 #include <libwebsockets.h>
 #include "lws.h"
 
-typedef struct {
+typedef struct LWSContext {
   struct lws_context* ctx;
   struct lws_context_creation_info info;
   JSContext* js;
@@ -23,9 +23,9 @@ typedef struct {
 extern JSClassID lwsjs_context_class_id;
 
 int lwsjs_context_init(JSContext*, JSModuleDef*);
-void lwsjs_context_creation_info_fromobj(JSContext*, JSValueConst, struct lws_context_creation_info*);
-void lwsjs_context_creation_info_free(JSRuntime*, struct lws_context_creation_info*);
-JSValue lwsjs_protocol_obj(JSContext* ctx, const struct lws_protocols* proto);
+void context_creation_info_fromobj(JSContext*, JSValueConst, struct lws_context_creation_info*);
+void context_creation_info_free(JSRuntime*, struct lws_context_creation_info*);
+JSValue protocol_obj(JSContext* ctx, const struct lws_protocols* proto);
 
 static inline LWSContext*
 lwsjs_context_data(JSValueConst value) {
@@ -39,16 +39,16 @@ lwsjs_context_data2(JSContext* ctx, JSValueConst value) {
 
 static inline struct lws_context*
 lws_context_data(JSValueConst value) {
-  LWSContext* lwsctx;
+  LWSContext* lws;
 
-  if((lwsctx = lwsjs_context_data(value)))
-    return lwsctx->ctx;
+  if((lws = lwsjs_context_data(value)))
+    return lws->ctx;
 
   return 0;
 }
 
 static inline LWSContext*
-lwsjs_socket_context(struct lws* wsi) {
+lwsjs_wsi_context(struct lws* wsi) {
   struct lws_context* lws;
 
   if((lws = lws_get_context(wsi))) {
@@ -59,6 +59,22 @@ lwsjs_socket_context(struct lws* wsi) {
   }
 
   return 0;
+}
+
+static inline JSContext*
+lwsjs_wsi_jscontext(struct lws* wsi) {
+  struct lws_protocols const* pro = lws_get_protocol(wsi);
+  LWSProtocol* closure = pro ? pro->user : 0;
+  JSContext* ctx = closure ? closure->ctx : 0;
+
+  if(!ctx) {
+    LWSContext* lc;
+
+    if((lc = lwsjs_wsi_context(wsi)))
+      ctx = lc->js;
+  }
+
+  return ctx;
 }
 
 #endif /* QJS_LWS_CONTEXT_H */

@@ -1,6 +1,12 @@
 #ifndef IOHANDLER_H
 #define IOHANDLER_H
 
+#include "lws-context.h"
+#include <quickjs.h>
+#include <cutils.h>
+#include <list.h>
+
+
 typedef struct {
   struct list_head link;
   int fd;

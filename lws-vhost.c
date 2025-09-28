@@ -27,7 +27,7 @@ lwsjs_vhost_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     goto fail;
 
   if(JS_IsObject(argv[1]))
-    lwsjs_context_creation_info_fromobj(ctx, argv[1], &lv->info);
+    context_creation_info_fromobj(ctx, argv[1], &lv->info);
 
   lv->info.user = obj_ptr(ctx, obj);
 
@@ -101,7 +101,7 @@ lwsjs_vhost_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
         const struct lws_protocols* pro;
 
         if((pro = lws_vhost_name_to_protocol(lv->vho, name)))
-          ret = pro->user ? ptr_obj(ctx, pro->user) : lwsjs_protocol_obj(ctx, pro);
+          ret = pro->user ? ptr_obj(ctx, pro->user) : protocol_obj(ctx, pro);
         else
           ret = JS_NULL;
 
@@ -174,7 +174,7 @@ lwsjs_vhost_finalizer(JSRuntime* rt, JSValue val) {
   LWSVhost* lv;
 
   if((lv = lwsjs_vhost_data(val))) {
-    lwsjs_context_creation_info_free(rt, &lv->info);
+    context_creation_info_free(rt, &lv->info);
 
     lws_vhost_destroy(lv->vho);
     lv->vho = 0;
