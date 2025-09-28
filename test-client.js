@@ -3,7 +3,7 @@ import { interactive, verbose, debug, weakMapper } from './lib/lws/util.js';
 
 const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92, maxArrayLength: 8 });
 
-const wsi2obj = weakMapper(() => (§{}));
+const wsi2obj = weakMapper(() => ({}));
 
 let ctx = (globalThis.ctx = new LWSContext({
   asyncDnsServers: ['8.8.8.8', '8.8.4.4', '4.2.2.1'],
