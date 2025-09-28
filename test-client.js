@@ -1,4 +1,5 @@
 import { parseUri, toString, toPointer, toArrayBuffer, LWSContext, LWSSocket, WSI_TOKEN_HTTP_ALLOW, WSI_TOKEN_HTTP_ACCEPT, WSI_TOKEN_HTTP_COOKIE, WSI_TOKEN_HTTP_USER_AGENT, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
+import { interactive, verbose, debug, weakMapper } from './lib/lws/util.js';
 
 const C = console.config({ compact: true, maxStringLength: +(process.env.COLUMNS ?? 120) - 92, maxArrayLength: 8 });
 
@@ -114,22 +115,6 @@ let ctx = (globalThis.ctx = new LWSContext({
 globalThis.client = ctx.clientConnect('https://blog.fefe.de/');
 
 interactive();
-
-function weakMapper(create, map = new WeakMap()) {
-  return Object.assign(
-    (obj, ...args) => {
-      let ret;
-      if(map.has(obj)) ret = map.get(obj);
-      else map.set(obj, (ret = create(obj, ...args)));
-      return ret;
-    },
-    { set: (k, v) => map.set(k, v), get: k => map.get(k), map, create },
-  );
-}
-
-function verbose(name, ...args) {
-  console.log('\r' + name.padEnd(32), C, ...args);
-}
 
 function interactive() {
   os.kill(os.getpid(), os.SIGUSR1);

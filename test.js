@@ -1,5 +1,6 @@
 import { logLevel, LWSSPA, getCallbackName, LLL_ERR, LLL_WARN, LLL_INFO, LLL_NOTICE, LLL_USER, LLL_CLIENT, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, toArrayBuffer, toString, } from 'lws';
 import { setTimeout } from 'os';
+import { extraMimetypes } from './lib/lws/mimetypes.js';
 
 logLevel(LLL_ERR | LLL_USER);
 
@@ -148,18 +149,7 @@ globalThis.ctx = new LWSContext({
       origin: '.',
       def: 'README.md',
       originProtocol: LWSMPRO_FILE,
-      extraMimetypes: [
-        ['.diff', 'text/x-diff'],
-        ['.patch', 'text/x-diff  '],
-        ['.c', 'text/x-c'],
-        ['.h', 'text/x-c'],
-        ['.md', 'text/markdown'],
-        ['.crt', 'text/plain'],
-        ['.key', 'text/plain'],
-        ['.sublime-project', 'text/plain'],
-        ['.sublime-workspace', 'text/plain'],
-        ['.js', 'application/javascript'],
-      ],
+      extraMimetypes,
     },
   ],
 });
