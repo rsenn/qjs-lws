@@ -951,7 +951,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     case PROP_EXTENSIONS: {
       LWSContext* lc;
 
-      if((lc = lwsjs_socket_context(s->wsi)) && lc->info.extensions) {
+      if((lc = lwsjs_wsi_context(s->wsi)) && lc->info.extensions) {
         ret = JS_NewArray(ctx);
 
         for(int i = 0; lc->info.extensions[i].name; i++)
