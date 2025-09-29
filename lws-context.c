@@ -181,7 +181,7 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
     JS_FreeValue(ctx, values[i]);
   }
 
-#ifdef PLUGIN_PROTOCOL_DEADDROP
+/*#ifdef PLUGIN_PROTOCOL_DEADDROP
   pro[j++] = (LWSProtocols)LWS_PLUGIN_PROTOCOL_DEADDROP;
 #endif
 #ifdef PLUGIN_PROTOCOL_RAW_PROXY
@@ -211,7 +211,7 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
 #ifdef PLUGIN_PROTOCOL_RAW_TEST
   pro[j++] = (LWSProtocols)LWS_PLUGIN_PROTOCOL_RAW_TEST;
 #endif
-
+*/
   if(values)
     js_free(ctx, values);
 
