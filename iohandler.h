@@ -30,7 +30,9 @@ iohandler_function(JSContext* ctx, BOOL write) {
     JS_FreeValue(ctx, glob);
   }
 
-  return iohandler_functions[write] = JS_GetPropertyStr(ctx, iohandler_base, write ? "setWriteHandler" : "setReadHandler");
+  iohandler_functions[write] = JS_GetPropertyStr(ctx, iohandler_base, write ? "setWriteHandler" : "setReadHandler");
+
+  return iohandler_functions[write];
 }
 
 static HandlerFunction*
