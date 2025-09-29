@@ -12,6 +12,7 @@ typedef struct {
   BOOL write;
 } HandlerFunction;
 
+static JSValue iohandler_base = JS_UNDEFINED;
 static JSValue iohandler_functions[2] = {JS_UNDEFINED, JS_UNDEFINED};
 
 static JSValue
@@ -19,17 +20,17 @@ iohandler_function(JSContext* ctx, BOOL write) {
   if(!JS_IsUndefined(iohandler_functions[write]))
     return JS_DupValue(ctx, iohandler_functions[write]);
 
-  JSValue glob = JS_GetGlobalObject(ctx);
-  const char* str = "globalThis.io = await import('io');";
+  if(JS_IsUndefined(iohandler_base)) {
+    const char* str = "globalThis.io = await import('io');";
 
-  JS_Eval(ctx, str, strlen(str), "-", JS_EVAL_TYPE_MODULE);
+    JS_FreeValue(ctx, JS_Eval(ctx, str, strlen(str), "-", JS_EVAL_TYPE_MODULE));
 
-  JSValue os = JS_GetPropertyStr(ctx, glob, "io");
+    JSValue glob = JS_GetGlobalObject(ctx);
+    iohandler_base = JS_GetPropertyStr(ctx, glob, "io");
+    JS_FreeValue(ctx, glob);
+  }
 
-  JS_FreeValue(ctx, glob);
-  JSValue fn = JS_GetPropertyStr(ctx, os, write ? "setWriteHandler" : "setReadHandler");
-  JS_FreeValue(ctx, os);
-  return fn;
+  return iohandler_functions[write] = JS_GetPropertyStr(ctx, iohandler_base, write ? "setWriteHandler" : "setReadHandler");
 }
 
 static HandlerFunction*
