@@ -6,7 +6,6 @@
 #include <cutils.h>
 #include <list.h>
 
-
 typedef struct {
   struct list_head link;
   int fd;
