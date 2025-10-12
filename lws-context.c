@@ -835,16 +835,16 @@ fail:
 }
 
 enum {
-  DESTROY,
-  GET_VHOST_BY_NAME,
-  ADOPT_SOCKET,
-  ADOPT_SOCKET_READBUF,
-  CANCEL_SERVICE,
-  CLIENT_CONNECT,
-  GET_RANDOM,
-  ASYNC_DNS_SERVER_ADD,
-  ASYNC_DNS_SERVER_REMOVE,
-  WSI_FROM_FD,
+  METHOD_DESTROY,
+  METHOD_GET_VHOST_BY_NAME,
+  METHOD_ADOPT_SOCKET,
+  METHOD_ADOPT_SOCKET_READBUF,
+  METHOD_CANCEL_SERVICE,
+  METHOD_CLIENT_CONNECT,
+  METHOD_GET_RANDOM,
+  METHOD_ASYNC_DNS_SERVER_ADD,
+  METHOD_ASYNC_DNS_SERVER_REMOVE,
+  METHOD_WSI_FROM_FD,
 };
 
 static JSValue
@@ -855,11 +855,11 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
   if(!(lc = lwsjs_context_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
-  if(lc->ctx == NULL)
+  if(lc->ctx == NULL && magic != METHOD_DESTROY)
     return JS_ThrowInternalError(ctx, "LWSContext internal lws_context has been destroyed");
 
   switch(magic) {
-    case DESTROY: {
+    case METHOD_DESTROY: {
       if(lc->ctx) {
         lws_context_destroy(lc->ctx);
         lc->ctx = NULL;
@@ -869,7 +869,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       break;
     }
 
-    case GET_VHOST_BY_NAME: {
+    case METHOD_GET_VHOST_BY_NAME: {
       const char* name;
 
       if((name = JS_ToCString(ctx, argv[0]))) {
@@ -884,7 +884,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       break;
     }
 
-    case ADOPT_SOCKET: {
+    case METHOD_ADOPT_SOCKET: {
       int32_t arg = to_int32(ctx, argv[0]);
       struct lws* wsi;
 
@@ -897,7 +897,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       break;
     }
 
-    case ADOPT_SOCKET_READBUF: {
+    case METHOD_ADOPT_SOCKET_READBUF: {
       int32_t arg = to_int32(ctx, argv[0]);
       struct lws* wsi;
       size_t len;
@@ -915,14 +915,14 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       break;
     }
 
-    case CANCEL_SERVICE: {
+    case METHOD_CANCEL_SERVICE: {
       lws_cancel_service(lc->ctx);
 
       iohandler_cleanup(lc);
       break;
     }
 
-    case CLIENT_CONNECT: {
+    case METHOD_CLIENT_CONNECT: {
       struct lws_client_connect_info info = {0};
       char* uri = 0;
       JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
@@ -966,7 +966,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       break;
     }
 
-    case GET_RANDOM: {
+    case METHOD_GET_RANDOM: {
       size_t n;
       uint8_t* p;
 
@@ -976,7 +976,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       break;
     }
 
-    case ASYNC_DNS_SERVER_ADD: {
+    case METHOD_ASYNC_DNS_SERVER_ADD: {
       JSValue addr = lwsjs_sockaddr46_value(ctx, argv[0]);
       lws_sockaddr46* sa46 = lwsjs_sockaddr46_data(ctx, addr);
 
@@ -985,7 +985,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       JS_FreeValue(ctx, addr);
       break;
     }
-    case ASYNC_DNS_SERVER_REMOVE: {
+    case METHOD_ASYNC_DNS_SERVER_REMOVE: {
       JSValue addr = lwsjs_sockaddr46_value(ctx, argv[0]);
       lws_sockaddr46* sa46 = lwsjs_sockaddr46_data(ctx, addr);
 
@@ -994,7 +994,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       JS_FreeValue(ctx, addr);
       break;
     }
-    case WSI_FROM_FD: {
+    case METHOD_WSI_FROM_FD: {
       struct lws* wsi;
 
       if((wsi = wsi_from_fd(lc->ctx, to_int32(ctx, argv[0]))))
@@ -1077,16 +1077,16 @@ static const JSClassDef lws_context_class = {
 };
 
 static const JSCFunctionListEntry lws_context_proto_funcs[] = {
-    JS_CFUNC_MAGIC_DEF("destroy", 0, lwsjs_context_methods, DESTROY),
-    JS_CFUNC_MAGIC_DEF("getVhostByName", 1, lwsjs_context_methods, GET_VHOST_BY_NAME),
-    JS_CFUNC_MAGIC_DEF("adoptSocket", 1, lwsjs_context_methods, ADOPT_SOCKET),
-    JS_CFUNC_MAGIC_DEF("adoptSocketReadbuf", 2, lwsjs_context_methods, ADOPT_SOCKET_READBUF),
-    JS_CFUNC_MAGIC_DEF("cancelService", 0, lwsjs_context_methods, CANCEL_SERVICE),
-    JS_CFUNC_MAGIC_DEF("clientConnect", 1, lwsjs_context_methods, CLIENT_CONNECT),
-    JS_CFUNC_MAGIC_DEF("getRandom", 1, lwsjs_context_methods, GET_RANDOM),
-    JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, ASYNC_DNS_SERVER_ADD),
-    JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, ASYNC_DNS_SERVER_REMOVE),
-    JS_CFUNC_MAGIC_DEF("wsiFromFd", 1, lwsjs_context_methods, WSI_FROM_FD),
+    JS_CFUNC_MAGIC_DEF("destroy", 0, lwsjs_context_methods, METHOD_DESTROY),
+    JS_CFUNC_MAGIC_DEF("getVhostByName", 1, lwsjs_context_methods, METHOD_GET_VHOST_BY_NAME),
+    JS_CFUNC_MAGIC_DEF("adoptSocket", 1, lwsjs_context_methods, METHOD_ADOPT_SOCKET),
+    JS_CFUNC_MAGIC_DEF("adoptSocketReadbuf", 2, lwsjs_context_methods, METHOD_ADOPT_SOCKET_READBUF),
+    JS_CFUNC_MAGIC_DEF("cancelService", 0, lwsjs_context_methods, METHOD_CANCEL_SERVICE),
+    JS_CFUNC_MAGIC_DEF("clientConnect", 1, lwsjs_context_methods, METHOD_CLIENT_CONNECT),
+    JS_CFUNC_MAGIC_DEF("getRandom", 1, lwsjs_context_methods, METHOD_GET_RANDOM),
+    JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, METHOD_ASYNC_DNS_SERVER_ADD),
+    JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, METHOD_ASYNC_DNS_SERVER_REMOVE),
+    JS_CFUNC_MAGIC_DEF("wsiFromFd", 1, lwsjs_context_methods, METHOD_WSI_FROM_FD),
     JS_CGETSET_MAGIC_DEF("hostname", lwsjs_context_get, 0, PROP_HOSTNAME),
     // JS_CGETSET_MAGIC_DEF("vhost", lwsjs_context_get, 0, PROP_VHOST),
     JS_CGETSET_MAGIC_DEF("deprecated", lwsjs_context_get, 0, PROP_DEPRECATED),
