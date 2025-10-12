@@ -855,6 +855,9 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
   if(!(lc = lwsjs_context_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
+  if(lc->ctx == NULL)
+    return JS_ThrowInternalError(ctx, "LWSContext internal lws_context has been destroyed");
+
   switch(magic) {
     case DESTROY: {
       if(lc->ctx) {
