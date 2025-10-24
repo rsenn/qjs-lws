@@ -1,5 +1,6 @@
 #include "lws.h"
 #include "js-utils.h"
+#include <alloca.h>
 #include <ctype.h>
 #include <string.h>
 
