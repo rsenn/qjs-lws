@@ -1430,6 +1430,15 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
       argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
       argv[argi++] = JS_NewInt64(ctx, len);
+
+      if(lws_ws_sending_multifragment(wsi)) {
+        argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
+        JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);
+        JS_SetPropertyStr(ctx, argv[argi], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
+        JS_SetPropertyStr(ctx, argv[argi], "last", JS_NewBool(ctx, lws_is_last_fragment(wsi)));
+        argi++;
+      }
+
     } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
       argv[argi++] = JS_NewString(ctx, in);
     }
