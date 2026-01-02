@@ -1,21 +1,5 @@
-import { interactive } from './lib/lws/util.js';
-import { verbose } from './lib/lws/util.js';
-import { weakMapper } from './lib/lws/util.js';
-import { getCallbackName } from 'lws';
-import { log } from 'lws';
-import { LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT } from 'lws';
-import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX } from 'lws';
-import { LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT } from 'lws';
-import { LWS_SERVER_OPTION_IGNORE_MISSING_CERT } from 'lws';
-import { LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED } from 'lws';
-import { LWSContext } from 'lws';
-import { toArrayBuffer } from 'lws';
-import { toPointer } from 'lws';
-import { toString } from 'lws';
-import { WSI_TOKEN_HTTP_ACCEPT } from 'lws';
-import { WSI_TOKEN_HTTP_ALLOW } from 'lws';
-import { WSI_TOKEN_HTTP_COOKIE } from 'lws';
-import { WSI_TOKEN_HTTP_USER_AGENT } from 'lws';
+import { parseUri, toString, toPointer, toArrayBuffer, LWSContext, LWSSocket, WSI_TOKEN_HTTP_ALLOW, WSI_TOKEN_HTTP_ACCEPT, WSI_TOKEN_HTTP_COOKIE, WSI_TOKEN_HTTP_USER_AGENT, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_PRE, LWSSPA, getCallbackName, getCallbackNumber, log, LWSMPRO_HTTP, LWSMPRO_HTTPS, LWSMPRO_FILE, LWSMPRO_CGI, LWSMPRO_REDIR_HTTP, LWSMPRO_REDIR_HTTPS, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, } from 'lws';
+import { interactive, verbose, debug, weakMapper } from '../lib/lws/util.js';
 
 const wsi2obj = weakMapper(() => ({}));
 

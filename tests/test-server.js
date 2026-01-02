@@ -1,29 +1,8 @@
+import { logLevel, LWSSPA, getCallbackName, LLL_ERR, LLL_WARN, LLL_INFO, LLL_NOTICE, LLL_USER, LLL_CLIENT, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, toArrayBuffer, toString, } from 'lws';
 import { setTimeout } from 'os';
-import extraMimetypes from './lib/lws/mimetypes.js';
-import { debug } from './lib/lws/util.js';
-import { interactive } from './lib/lws/util.js';
-import { verbose } from './lib/lws/util.js';
-import { weakMapper } from './lib/lws/util.js';
-import { getCallbackName } from 'lws';
-import { LLL_ERR } from 'lws';
-import { LLL_USER } from 'lws';
-import { logLevel } from 'lws';
-import { LWS_ILLEGAL_HTTP_CONTENT_LEN } from 'lws';
-import { LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER } from 'lws';
-import { LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT } from 'lws';
-import { LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT } from 'lws';
-import { LWS_SERVER_OPTION_IGNORE_MISSING_CERT } from 'lws';
-import { LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED } from 'lws';
-import { LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL } from 'lws';
-import { LWS_WRITE_HTTP_FINAL } from 'lws';
-import { LWSContext } from 'lws';
-import { LWSMPRO_CALLBACK } from 'lws';
-import { LWSMPRO_FILE } from 'lws';
-import { LWSMPRO_HTTP } from 'lws';
-import { LWSMPRO_NO_MOUNT } from 'lws';
-import { LWSSPA } from 'lws';
-import { toArrayBuffer } from 'lws';
-import { toString } from 'lws';
+import extraMimetypes from '../lib/lws/mimetypes.js';
+import { verbose, debug, weakMapper, interactive } from '../lib/lws/util.js';
+
 logLevel(LLL_ERR | LLL_USER);
 
 const wsi2spa = weakMapper(
