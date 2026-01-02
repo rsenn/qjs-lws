@@ -1435,7 +1435,7 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
         JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);
         JS_SetPropertyStr(ctx, argv[argi], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
-        JS_SetPropertyStr(ctx, argv[argi], "last", JS_NewBool(ctx, lws_is_last_fragment(wsi)));
+        JS_SetPropertyStr(ctx, argv[argi], "final", JS_NewBool(ctx, lws_is_final_fragment(wsi)));
         argi++;
       }
 
