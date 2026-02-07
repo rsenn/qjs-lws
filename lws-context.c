@@ -1,9 +1,12 @@
+#define _XOPEN_SOURCE 500
 #include <quickjs.h>
 #include <cutils.h>
 #include <list.h>
 #include <libwebsockets.h>
 #include <lws_config.h>
 #include <assert.h>
+#include <limits.h>
+#include <stdlib.h>
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws-sockaddr46.h"
