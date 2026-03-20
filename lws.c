@@ -7,8 +7,8 @@
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
-JSContext* lwsjs_log_ctx = 0;
-JSValue lwsjs_log_fn = JS_UNDEFINED;
+static JSContext* lwsjs_log_ctx = 0;
+static JSValue lwsjs_log_fn = { JS_TAG_UNDEFINED, 0 };
 
 static void lwsjs_log_callback(int, const char*);
 
