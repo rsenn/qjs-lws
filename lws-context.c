@@ -25,9 +25,9 @@
 #ifdef PLUGIN_PROTOCOL_FULLTEXT_DEMO
 #include "libwebsockets/plugins/protocol_fulltext_demo.c"
 #endif
-#ifdef PLUGIN_PROTOCOL_LWS_STATUS
+/*#ifdef PLUGIN_PROTOCOL_LWS_STATUS
 #include "libwebsockets/plugins/protocol_lws_status.c"
-#endif
+#endif*/
 #ifdef PLUGIN_PROTOCOL_LWS_ACME_CLIENT
 #include "libwebsockets/plugins/acme-client/protocol_lws_acme_client.c"
 #endif

@@ -6,6 +6,7 @@ project(qjs-lws C)
 message("Building project [1;31m${PROJECT_NAME}[0m")
 
 set(DISABLE_WERROR TRUE CACHE BOOL "Disable -Werror flag")
+set(EXTRA_LIBRARIES "" CACHE STRING "Extra libraries")
 
 macro(PLUGIN DEF NAME ENABLED)
   option(PLUGIN_${DEF} "Enable ${NAME} plugin" ${ENABLED})
@@ -372,16 +373,28 @@ function(DUMP_TARGET TARGET)
     endif(VALUE)
   endforeach()
 endfunction(DUMP_TARGET TARGET)
+  
+check_includes(alloca.h)
+check_library_exists(iphlpapi GetNetworkParams "" HAVE_GETNETWORKPARAMS)
+check_library_exists(mincore GetAdaptersAddresses "" HAVE_GETADAPTERSADDRESSES)
 
 if(WIN32)
   add_library(qjs-lws MODULE ${JS_BINDINGS_SOURCES})
 else(WIN32)
   add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
 endif(WIN32)
+ 
 
 #add_dependencies(qjs-lws minnet.c)
+if(HAVE_GETNETWORKPARAMS)
+  list(APPEND EXTRA_LIBRARIES iphlpapi)
+endif(HAVE_GETNETWORKPARAMS)
+if(HAVE_GETADAPTERSADDRESSES)
+  list(APPEND EXTRA_LIBRARIES mincore)
+endif(HAVE_GETADAPTERSADDRESSES)
 
-target_link_libraries(qjs-lws ${QUICKJS_LIBRARY})
+link_libraries(${EXTRA_LIBRARIES})
+target_link_libraries(qjs-lws ${EXTRA_LIBRARIES} ${QUICKJS_LIBRARY})
 
 if(BUILD_LIBWEBSOCKETS)
   add_dependencies(qjs-lws libwebsockets)
@@ -426,7 +439,7 @@ macro(TARGET_LINK TARGET)
   target_link_directories(${TARGET} PUBLIC ${QUICKJS_LIBRARY_DIR} ${LIBWEBSOCKETS_LIBRARY_DIR})
 
   target_link_libraries(${TARGET} ${LIBWEBSOCKETS_LIBRARIES} ${MBEDTLS_LIBRARIES} ${OPENSSL_LIBRARIES}
-                        ${SOCKET_LIBRARIES} ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY})
+                        ${EXTRA_LIBRARIES} ${SOCKET_LIBRARIES} ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY})
 endmacro(TARGET_LINK TARGET)
 
 target_link(qjs-lws lws)

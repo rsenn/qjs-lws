@@ -1,6 +1,8 @@
 #include "lws.h"
 #include "js-utils.h"
+#ifdef HAVE_ALLOCA_H
 #include <alloca.h>
+#endif
 #include <ctype.h>
 #include <string.h>
 
