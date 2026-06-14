@@ -36,7 +36,7 @@ const ctx = new LWSContext(options);
 }
 ```
 
-Common `reason` constants (available as `cv.*` on the lws namespace or as raw integers):
+Common `reason` constants (available as `lws.*` on the lws namespace or as raw integers):
 
 | Constant | Value | When |
 |----------|-------|------|
