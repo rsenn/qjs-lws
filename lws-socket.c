@@ -513,16 +513,45 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
             JS_FreeValue(ctx, key);
 
             JSValue value = JS_GetProperty(ctx, argv[hidx], tmp_tab[j].atom);
-            size_t vlen;
-            const char* vstr = JS_ToCStringLen(ctx, &vlen, value);
+
+            /* Array values emit one header line per element. Needed for
+               Set-Cookie (RFC 6265 forbids comma-folding) and accepted
+               generally so callers can pass a list under any name. */
+            if(JS_IsArray(ctx, value)) {
+              uint32_t n_elems = to_uint32free(ctx, JS_GetPropertyStr(ctx, value, "length"));
+
+              for(uint32_t k = 0; k < n_elems; k++) {
+                JSValue elem = JS_GetPropertyUint32(ctx, value, k);
+                size_t vlen;
+                const char* vstr = JS_ToCStringLen(ctx, &vlen, elem);
+
+                if(vstr) {
+                  if(lws_add_http_header_by_name(s->wsi, (const uint8_t*)name, (const uint8_t*)vstr, vlen, &p, end))
+                    JS_ThrowInternalError(ctx, "lws_add_http_header_by_name");
+
+                  JS_FreeCString(ctx, vstr);
+                }
+
+                JS_FreeValue(ctx, elem);
+              }
+            } else {
+              size_t vlen;
+              const char* vstr = JS_ToCStringLen(ctx, &vlen, value);
+
+              if(vstr) {
+                if(lws_add_http_header_by_name(s->wsi, (const uint8_t*)name, (const uint8_t*)vstr, vlen, &p, end))
+                  JS_ThrowInternalError(ctx, "lws_add_http_header_by_name");
+
+                JS_FreeCString(ctx, vstr);
+              }
+            }
+
             JS_FreeValue(ctx, value);
-
-            if(lws_add_http_header_by_name(s->wsi, (const uint8_t*)name, (void*)vstr, vlen, &p, end))
-              JS_ThrowInternalError(ctx, "lws_add_http_header_by_name");
-
             JS_FreeCString(ctx, name);
-            JS_FreeCString(ctx, vstr);
+            JS_FreeAtom(ctx, tmp_tab[j].atom);
           }
+
+          js_free(ctx, tmp_tab);
         }
       }
 
