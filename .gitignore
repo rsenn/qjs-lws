@@ -1,0 +1,132 @@
+# ---------- build output ----------
+build/
+build-*/
+out/
+cmake-build-*/
+
+# CMake generated stuff that can sneak outside of build/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+compile_commands.json
+
+# autotools (libwebsockets submodule sometimes spews these)
+config.log
+config.status
+Makefile.in
+
+# ---------- compiled objects ----------
+*.o
+*.lo
+*.obj
+*.a
+*.lib
+*.la
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exp
+*.pdb
+*.ilk
+*.exe
+
+# Keep the cross-build log in the tree if you want — otherwise ignore:
+x86_64-w64-mingw32.log
+
+# ---------- profiling / debugging ----------
+gmon.out
+*.gcda
+*.gcno
+*.gcov
+perf.data
+perf.data.old
+callgrind.out.*
+massif.out.*
+*.prof
+core
+core.*
+vgcore.*
+
+# ---------- caches: clangd / ccache / language servers ----------
+.cache/
+.clangd/
+.qtc_clangd/
+.qtc/
+.ccache/
+.cscope.out
+cscope.*
+tags
+TAGS
+GPATH
+GRTAGS
+GTAGS
+.ctags
+
+# ---------- editor / IDE ----------
+# Sublime Text
+*.sublime-workspace
+# Keep *.sublime-project — that's the checked-in project file.
+
+# Vim / Emacs
+*.swp
+*.swo
+*.swn
+*~
+.\#*
+\#*\#
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains / CLion / Qt Creator
+.idea/
+*.iml
+*.iws
+*.user
+*.user.*
+*.autosave
+CMakeLists.txt.user
+CMakeLists.txt.user.*
+
+# ---------- OS noise ----------
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------- node-ish (for the JS helpers under lib/, just in case) ----------
+node_modules/
+npm-debug.log*
+yarn-error.log
+.pnpm-debug.log
+package-lock.json
+yarn.lock
+
+# ---------- env / secrets ----------
+.env
+.env.local
+*.local
+
+# ---------- test / coverage ----------
+coverage/
+lcov.info
+*.log
+!CMakeLists.txt
+
+# ---------- private TLS material ----------
+# Keep the demo cert/key checked in (localhost.crt/.key) but block strays:
+*.pem
+*.p12
+*.pfx
+!localhost.crt
+!localhost.key
+!ca.crt
