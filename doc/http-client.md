@@ -1,0 +1,138 @@
+# HTTP client
+
+The same `LWSContext` + protocol mechanism drives outbound HTTP
+requests. You create a context with no listening port, install an
+`'http'` protocol with the client callbacks, and call
+`ctx.clientConnect(url)`.
+
+## GET with URL string
+
+```js
+import { LWSContext, toString } from 'lws';
+
+const ctx = new LWSContext({
+  protocols: [{
+    name: 'http',
+    onEstablishedClientHttp(wsi, status) {
+      console.log('status', status, wsi.headers);
+    },
+    onReceiveClientHttp(wsi) {                    // tells us bytes are ready
+      const buf = new ArrayBuffer(64 * 1024);
+      if(wsi.httpClientRead(buf))                 // copies them out
+        this.onReceiveClientHttpRead(wsi, buf);
+    },
+    onReceiveClientHttpRead(wsi, data, len) {
+      process.stdout.write(toString(data, 0, len));
+    },
+    onCompletedClientHttp(wsi)  { /* body fully received */ },
+    onClosedClientHttp(wsi)     { ctx.cancelService(); },
+    onClientConnectionError(wsi, msg, errno) {
+      console.error('error', msg, errno);
+      ctx.cancelService();
+    },
+  }],
+});
+
+ctx.clientConnect('https://blog.fefe.de/');
+```
+
+`onReceiveClientHttp` is a "data ready" notification — you must
+call `wsi.httpClientRead(buf)` yourself to drain the read.
+
+## Sending custom request headers
+
+```js
+import { WSI_TOKEN_HTTP_ACCEPT, WSI_TOKEN_HTTP_USER_AGENT } from 'lws';
+
+{
+  name: 'http',
+  onClientAppendHandshakeHeader(wsi, buf, len) {
+    wsi.addHeader(WSI_TOKEN_HTTP_ACCEPT,     '*/*',      buf, len);
+    wsi.addHeader(WSI_TOKEN_HTTP_USER_AGENT, 'qjs-lws',  buf, len);
+    wsi.addHeader('x-custom',                'value',    buf, len);
+  },
+}
+```
+
+Use the `WSI_TOKEN_HTTP_*` constants where they exist — they pack
+more tightly in the request than a literal name.
+
+## POST with a body
+
+```js
+import { LCCSCF_USE_SSL, LWS_WRITE_HTTP_FINAL } from 'lws';
+
+ctx.clientConnect('https://httpbin.org/post', {
+  method: 'POST',
+  sslConnection: LCCSCF_USE_SSL,
+});
+```
+
+In the protocol:
+
+```js
+{
+  name: 'http',
+  onClientAppendHandshakeHeader(wsi, buf, len) {
+    if(!wsi.redirectedToGet && wsi.method === 'POST')
+      wsi.bodyPending = 1;                    // tells lws there's a body
+  },
+  onClientHttpWriteable(wsi) {
+    wsi.write('{"hello":"world"}', LWS_WRITE_HTTP_FINAL);
+    wsi.bodyPending = 0;
+  },
+}
+```
+
+`wsi.bodyPending` is a getter/setter — assigning calls
+`lws_client_http_body_pending()`.
+
+## Multipart upload
+
+```js
+import { LCCSCF_HTTP_MULTIPART_MIME } from 'lws';
+
+ctx.clientConnect('https://example.com/upload', {
+  method: 'POST',
+  sslConnection: LCCSCF_USE_SSL | LCCSCF_HTTP_MULTIPART_MIME,
+});
+```
+
+```js
+onClientHttpWriteable(wsi) {
+  const ab = new ArrayBuffer(4096);
+  let len = wsi.clientHttpMultipart('field', null, null, ab);   // text part header
+  len += write('value\r\n', ab, len);
+  len += wsi.clientHttpMultipart('file', 'a.txt', 'text/plain', ab, len);
+  len += write('hello\r\n', ab, len);
+  len += wsi.clientHttpMultipart(null, null, null, ab, len);    // closing boundary
+
+  wsi.write(ab, len, LWS_WRITE_HTTP_FINAL);
+  wsi.bodyPending = 0;
+}
+```
+
+## Redirects
+
+`onClientHttpRedirect(wsi, url, status)` fires before the redirect is
+followed. Set `LCCSCF_HTTP_NO_FOLLOW_REDIRECT` in `sslConnection` to
+disable redirect following.
+
+`wsi.redirectedToGet` is `true` if a POST was downgraded to GET via
+a 303 redirect.
+
+## Promise wrapper: `lib/fetch.js`
+
+`lib/fetch.js` builds a WHATWG-`fetch`-shaped API on top of these
+callbacks:
+
+```js
+import { fetch } from './lib/fetch.js';
+
+const res = await fetch('https://example.com/', { tls: {} });
+console.log(res.status, res.headers);
+for await (const chunk of res.body) process.stdout.write(chunk);
+```
+
+It uses the `ReadableStream` adapter from `lib/lws/streams.js` and a
+permissive default TLS setup.

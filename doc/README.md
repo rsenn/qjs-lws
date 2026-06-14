@@ -32,6 +32,9 @@ import { LWSContext /* … */ } from 'lws';
 | [http-client.md](http-client.md) | HTTP client (fetch-like) example |
 | [raw-tcp.md](raw-tcp.md)       | Raw TCP server / client |
 | [constants.md](constants.md)   | Enumerated constants exported by the module |
+| [helpers.md](helpers.md)       | JS helpers shipped under `lib/` (fetch, serve, WebSocket, TCPSocket) |
+| [examples.md](examples.md)     | Twelve copy-paste examples covering every role |
+| [building.md](building.md)     | Build instructions and CMake options |
 
 ## Architecture overview
 
