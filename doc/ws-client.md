@@ -137,5 +137,5 @@ import { WebSocket } from './lib/websocket.js';
 const ws = new WebSocket('wss://echo.websocket.events/', 'chat');
 ws.addEventListener('open',    () => ws.send('hi'));
 ws.addEventListener('message', e => console.log(e.data));
-ws.addEventListener('close',   () => process.exit(0));
+ws.addEventListener('close',   () => console.log('closed'));
 ```

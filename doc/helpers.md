@@ -30,11 +30,12 @@ plain `{ body, status, headers }` object that the helper wraps).
 WHATWG-`fetch`-shaped client built on `LWSContext.clientConnect`.
 
 ```js
+import { toString } from 'lws';
 import { fetch } from './lib/fetch.js';
 
 const res = await fetch('https://example.com/', { tls: {} });
 console.log(res.status, res.headers.get('content-type'));
-for await (const chunk of res.body) process.stdout.write(chunk);
+for await (const chunk of res.body) console.log(toString(chunk));
 ```
 
 Recognised options (subset):
@@ -61,7 +62,7 @@ const ws = new WebSocket('wss://echo.websocket.events/', ['chat']);
 
 ws.addEventListener('open',    () => ws.send('hi'));
 ws.addEventListener('message', e => console.log(e.data));
-ws.addEventListener('close',   () => process.exit(0));
+ws.addEventListener('close',   () => console.log('closed'));
 ws.addEventListener('error',   e => console.error(e.message));
 
 // or `ws.onmessage = …` style — the class extends an EventTarget
@@ -83,13 +84,14 @@ EventTarget-style raw TCP socket plus a Streams-based
 `TCPSocketStream`:
 
 ```js
+import { toString } from 'lws';
 import { TCPSocket, TCPSocketStream } from './lib/tcpSocket.js';
 
 // Client.
 const s = new TCPSocket('example.com', 80);
 s.addEventListener('open',    () => s.send('GET / HTTP/1.0\r\n\r\n'));
-s.addEventListener('message', e => process.stdout.write(e.data));
-s.addEventListener('close',   () => process.exit(0));
+s.addEventListener('message', e => console.log(toString(e.data)));
+s.addEventListener('close',   () => console.log('closed'));
 
 // Listener.
 const server = new TCPSocket().bind('0.0.0.0', 1234);

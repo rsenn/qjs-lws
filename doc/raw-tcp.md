@@ -15,7 +15,7 @@ const ctx = new LWSContext({
     name: 'raw',
     onConnecting(wsi, fd)        { /* socket() just returned */ },
     onRawConnected(wsi)          { wsi.write(toArrayBuffer('GET / HTTP/1.0\r\n\r\n')); },
-    onRawRx(wsi, data)           { process.stdout.write(toString(data)); },
+    onRawRx(wsi, data)           { console.log(toString(data)); },
     onRawWriteable(wsi)          { /* called when send buffer drains */ },
     onRawClose(wsi, errno)       { ctx.cancelService(); },
   }],
@@ -100,10 +100,11 @@ new LWSContext({
 protocol with an EventTarget and a WHATWG-streams view:
 
 ```js
+import { toString } from 'lws';
 import { TCPSocket } from './lib/tcpSocket.js';
 
 const s = new TCPSocket('example.com', 80);
 s.addEventListener('open',    () => s.send('GET / HTTP/1.0\r\n\r\n'));
-s.addEventListener('message', e => process.stdout.write(e.data));
-s.addEventListener('close',   () => process.exit(0));
+s.addEventListener('message', e => console.log(toString(e.data)));
+s.addEventListener('close',   () => console.log('closed'));
 ```

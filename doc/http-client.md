@@ -22,7 +22,7 @@ const ctx = new LWSContext({
         this.onReceiveClientHttpRead(wsi, buf);
     },
     onReceiveClientHttpRead(wsi, data, len) {
-      process.stdout.write(toString(data, 0, len));
+      console.log(toString(data, 0, len));
     },
     onCompletedClientHttp(wsi)  { /* body fully received */ },
     onClosedClientHttp(wsi)     { ctx.cancelService(); },
@@ -131,7 +131,7 @@ import { fetch } from './lib/fetch.js';
 
 const res = await fetch('https://example.com/', { tls: {} });
 console.log(res.status, res.headers);
-for await (const chunk of res.body) process.stdout.write(chunk);
+for await (const chunk of res.body) console.log(toString(chunk));
 ```
 
 It uses the `ReadableStream` adapter from `lib/lws/streams.js` and a

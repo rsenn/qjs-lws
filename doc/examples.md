@@ -25,7 +25,7 @@ console.log('listening on ws://localhost:8080/echo');
 ## 2. WebSocket broadcast
 
 ```js
-import { LWSContext, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT } from 'lws';
+import { LWSContext, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT, toString } from 'lws';
 
 const clients = new Set();
 
@@ -38,7 +38,7 @@ new LWSContext({
     onEstablished(wsi)   { clients.add(wsi); },
     onClosed(wsi)        { clients.delete(wsi); },
     onReceive(wsi, msg)  {
-      const text = typeof msg === 'string' ? msg : new TextDecoder().decode(msg);
+      const text = typeof msg === 'string' ? msg : toString(msg);
       for(const c of clients) c.write(text, LWS_WRITE_TEXT);
     },
   }],
@@ -148,7 +148,7 @@ const ctx = new LWSContext({
       if(wsi.httpClientRead(buf)) this.onReceiveClientHttpRead(wsi, buf);
     },
     onReceiveClientHttpRead(wsi, buf, len) {
-      process.stdout.write(toString(buf, 0, len));
+      console.log(toString(buf, 0, len));
     },
     onClosedClientHttp(wsi) { ctx.cancelService(); },
     onClientConnectionError(wsi, m) { console.error(m); ctx.cancelService(); },

@@ -25,9 +25,10 @@ getCallbackName(reason)    // → string ("Established", "ClientReceive", …)
 getCallbackNumber(name)    // → integer  (camelCase → enum)
 ```
 
-`getCallbackName` returns the camelCased symbol (first letter
-uppercase, underscores stripped). `getCallbackNumber` accepts any
-casing and walks `_CAMEL_CASE` from the JS name.
+`getCallbackName` returns the PascalCased symbol (`CLIENT_RECEIVE` →
+`ClientReceive`). `getCallbackNumber` accepts the same form (or
+camelCase) and decamelizes it back to the underscore-separated
+name before looking it up.
 
 ### HTTP token name
 
