@@ -153,14 +153,79 @@ app.use('/v1/api', api);     // /v1/api/users etc.
 The mount prefix is stripped from `req.path` inside the router and
 restored on the way out, so nested matchers see relative paths.
 
+## Sessions (`lib/lws/session.js`)
+
+```js
+import { session, MemoryStore } from './lib/lws/session.js';
+
+app.use(session({
+  store:   new MemoryStore(),
+  name:    'sid',
+  cookie:  { maxAge: 86_400_000, httpOnly: true, sameSite: 'Lax', path: '/' },
+  resave:           false,
+  saveUninitialized: false,
+  rolling:          true,
+}));
+
+app.post('/login',  (req, res) => { req.session.user = { id: 1 }; res.json({ ok: true }); });
+app.get ('/me',     (req, res) => req.session.user ? res.json(req.session.user) : res.status(401).end());
+app.post('/logout', async (req, res) => { await req.session.destroy(); res.json({ ok: true }); });
+```
+
+The `req.session` API is a plain object with non-enumerable helper
+methods attached:
+
+| Member | Description |
+|---|---|
+| `req.session.<key>`     | Read/write user data. Stored under the session ID. |
+| `req.sessionID`         | Current session ID (read-only) |
+| `req.session.save()`    | Force a save even if nothing was touched |
+| `req.session.touch()`   | Extend store TTL without rewriting the value |
+| `req.session.destroy()` | Remove from store + emit a `Set-Cookie` that clears the cookie |
+| `req.session.regenerate()` | New SID, data preserved — use after login to defeat session-fixation |
+
+### Pluggable store
+
+Implement four methods to drop in Redis / SQLite / LMDB:
+
+```js
+class MyStore {
+  async get(sid)              { /* return data or null */ }
+  async set(sid, data, ttlMs) { /* upsert */ }
+  async destroy(sid)          { /* remove */ }
+  async touch(sid, ttlMs)     { /* extend expiry; no-op acceptable */ }
+}
+```
+
+`MemoryStore` ships in the same module: lazy expiration on `get()` and
+a `sweep()` for periodic GC.
+
+### Crypto-grade random IDs
+
+The default `genId` calls `LWSContext.getRandom()` (libwebsockets's
+CSPRNG) — that's reachable because `App.listen()` records the context
+on `app.context` and `req.app = app` is set on every request. If you
+dispatch by hand without going through `listen`, pass `genId` yourself
+or attach an `app.context = { getRandom(buf) {…} }` shim. Without
+either, the middleware falls back to `Math.random()` and prints a
+one-time stderr warning.
+
+### Rolling cookies + `regenerate`
+
+When `rolling: true` (default), every request refreshes the cookie's
+`Max-Age` so the session stays alive while the user is active.
+`regenerate()` also writes a fresh `Set-Cookie`, so a `POST /rotate`
+response carries **two** `Set-Cookie` lines — the rolling refresh of
+the old SID and the new one. HTTP says last-write-wins; every browser
+implementation keeps the second.
+
 ## What's NOT here (yet)
 
-- **Sessions**: need a storage backend (memory / SQLite / Redis) — not
-  hard but opinionated. Build on top of `req.cookies` + `res.cookie`.
 - **Compression**: requires either streaming gzip in JS (slow) or a
   C-side wrapper over libwebsockets's deflate. Open question.
 - **Rate limiting**: pure JS, ~20 lines, no library decision needed.
-- **CSRF**: pure JS once sessions exist.
+- **CSRF**: pure JS now that sessions exist; default-deny strategy on
+  state-changing methods, token in `req.session._csrf`.
 
 ## Architecture notes
 
