@@ -264,15 +264,12 @@ void
 lwsjs_socket_destroy(JSContext* ctx, struct lws* wsi) {
   LWSSocket* sock = socket_get(wsi);
 
-  /*if(sock == 0)
-    return;*/
+  if(sock) {
+    assert(sock->wsi);
+    sock->wsi = 0;
 
-  assert(sock);
-
-  assert(sock->wsi);
-  sock->wsi = 0;
-
-  socket_delete(sock, JS_GetRuntime(ctx));
+    socket_delete(sock, JS_GetRuntime(ctx));
+  }
 }
 
 JSValue
