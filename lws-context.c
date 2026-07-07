@@ -1299,7 +1299,17 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   if(reason == LWS_CALLBACK_HTTP_WRITEABLE || reason == LWS_CALLBACK_CLIENT_HTTP_WRITEABLE || reason == LWS_CALLBACK_SERVER_WRITEABLE || reason == LWS_CALLBACK_CLIENT_WRITEABLE ||
      reason == LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE || reason == LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE || reason == LWS_CALLBACK_RAW_WRITEABLE || reason == LWS_CALLBACK_RAW_WRITEABLE_FILE ||
      reason == LWS_CALLBACK_MQTT_CLIENT_WRITEABLE) {
-    if(s && s->want_write) {
+    /* Drain any queued wsi.write() chunks first; socket_flush re-arms the
+       writeable callback if it couldn't push everything out this round. */
+    if(s)
+      socket_flush(s);
+
+    /* Only fire the user's wantWrite() handler once our internal queue is
+       empty — that way waitWrite() semantically means "drained", not
+       "ready for the first byte" while a backlog is still going out.
+       socket_flush already re-armed if the queue isn't empty yet, so this
+       fires on a subsequent WRITEABLE callback. */
+    if(s && s->want_write && list_empty(&s->write_queue)) {
       s->want_write = FALSE;
 
       if(!JS_IsUndefined(s->write_handler)) {

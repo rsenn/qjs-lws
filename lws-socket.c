@@ -15,6 +15,99 @@ static JSValue lwsjs_socket_proto, lwsjs_socket_ctor;
 static struct list_head socket_list;
 static uint32_t socket_id;
 
+/* Per-write queue entry. The payload sits at buf + LWS_PRE so libwebsockets
+   has room to fill the WebSocket frame header in place. off is how many
+   payload bytes have already been handed to lws_write(). */
+typedef struct {
+  struct list_head link;
+  uint8_t* buf;
+  size_t len, off;
+  enum lws_write_protocol proto;
+} WriteChunk;
+
+static WriteChunk*
+write_chunk_new(const void* data, size_t len, enum lws_write_protocol proto) {
+  WriteChunk* wc = malloc(sizeof(*wc));
+
+  if(!wc)
+    return NULL;
+
+  wc->buf = malloc(LWS_PRE + len);
+
+  if(!wc->buf) {
+    free(wc);
+    return NULL;
+  }
+
+  if(len)
+    memcpy(wc->buf + LWS_PRE, data, len);
+
+  wc->len = len;
+  wc->off = 0;
+  wc->proto = proto;
+  return wc;
+}
+
+static void
+write_chunk_free(WriteChunk* wc) {
+  free(wc->buf);
+  free(wc);
+}
+
+static void
+socket_write_queue_clear(LWSSocket* s) {
+  while(!list_empty(&s->write_queue)) {
+    WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
+    list_del(&wc->link);
+    write_chunk_free(wc);
+  }
+  s->write_buffered = 0;
+}
+
+/* Drain as many queued chunks as libwebsockets is willing to accept. If any
+   remain (partial write, or lws is currently holding a partial internally),
+   re-arm the writeable callback so we get called back to try again. */
+void
+socket_flush(LWSSocket* s) {
+  if(!s || !s->wsi)
+    return;
+
+  while(!list_empty(&s->write_queue)) {
+    if(lws_partial_buffered(s->wsi))
+      break;
+
+    WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
+    size_t remaining = wc->len - wc->off;
+    int n = lws_write(s->wsi, wc->buf + LWS_PRE + wc->off, remaining, wc->proto);
+
+    if(n < 0) {
+      /* Connection is dead — drop everything so we don't keep re-arming. */
+      socket_write_queue_clear(s);
+      return;
+    }
+
+    wc->off += n;
+    s->write_buffered -= n;
+
+    if(wc->off >= wc->len) {
+      if(wc->proto == LWS_WRITE_HTTP_FINAL)
+        if(lws_http_transaction_completed(s->wsi))
+          s->completed = TRUE;
+
+      list_del(&wc->link);
+      write_chunk_free(wc);
+      continue;
+    }
+
+    /* Chunk still has payload but this call made no progress — wait. */
+    if(n == 0)
+      break;
+  }
+
+  if(!list_empty(&s->write_queue))
+    lws_callback_on_writable(s->wsi);
+}
+
 static const enum lws_token_indexes lwsjs_method_tokens[] = {
     WSI_TOKEN_GET_URI,
     WSI_TOKEN_POST_URI,
@@ -99,6 +192,7 @@ socket_alloc(JSContext* ctx) {
   sock->write_handler = JS_UNDEFINED;
   sock->id = ++socket_id;
   sock->method = -1;
+  init_list_head(&sock->write_queue);
 
   return sock;
 }
@@ -186,6 +280,9 @@ socket_free(LWSSocket* sock, JSRuntime* rt) {
 
     JS_FreeValueRT(rt, sock->headers);
     sock->headers = JS_UNDEFINED;
+
+    if(sock->write_queue.next)
+      socket_write_queue_clear(sock);
 
     if(sock->uri) {
       js_free_rt(rt, sock->uri);
@@ -418,29 +515,18 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     case METHOD_WRITE: {
-      DynBuf dbuf = {0};
+      BOOL text = JS_IsString(argv[0]);
+      size_t len = 0;
+      const void* ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0])
+                             : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
 
-      if(lws_partial_buffered(s->wsi)) {
-        ret = JS_ThrowInternalError(ctx, "I/O error: partially buffered lws_write()");
+      if(!ptr) {
+        ret = JS_ThrowTypeError(ctx, "wsi.write: expected string or ArrayBuffer");
         break;
       }
 
-      /*if(!lws_send_pipe_choked(s->wsi)) {
-        ret = JS_ThrowInternalError(ctx, "I/O error: send pipe choked lws_write()");
-        break;
-      }*/
-
-      BOOL text = JS_IsString(argv[0]);
-      size_t len;
-      void* ptr = text ? (void*)JS_ToCStringLen(ctx, &len, argv[0]) : JS_GetArrayBuffer(ctx, &len, argv[0]);
       size_t n = len;
       enum lws_write_protocol proto = is_http ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
-
-      if(is_ws) {
-        dbuf_init2(&dbuf, 0, 0);
-        dbuf_put(&dbuf, (const void*)"XXXXXXXXXXXXXXXXXXXX", LWS_PRE);
-        dbuf_put(&dbuf, ptr, n);
-      }
 
       if(argc > 2)
         n = to_int32(ctx, argv[1]);
@@ -448,27 +534,27 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       if(argc > 1)
         proto = to_int32(ctx, argv[argc > 2 ? 2 : 1]);
 
-      if(ptr) {
-        int r = lws_write(s->wsi, is_ws ? dbuf.buf + LWS_PRE : ptr, MIN(n, len), proto);
+      if(n > len)
+        n = len;
 
-        DEBUG_WSI(s->wsi, "wrote data (%d)", r);
+      WriteChunk* wc = write_chunk_new(ptr, n, proto);
 
-        ret = JS_NewInt32(ctx, r);
+      if(text)
+        JS_FreeCString(ctx, (const char*)ptr);
 
-        if(r > 0)
-          if(proto == LWS_WRITE_HTTP_FINAL)
-            if(lws_http_transaction_completed(s->wsi))
-              s->completed = TRUE;
-
-        DEBUG_WSI(s->wsi, "send pipe choked: %d partially buffered: %d", lws_send_pipe_choked(s->wsi), lws_partial_buffered(s->wsi));
+      if(!wc) {
+        ret = JS_ThrowOutOfMemory(ctx);
+        break;
       }
 
-      if(JS_IsString(argv[0]))
-        JS_FreeCString(ctx, ptr);
+      list_add_tail(&wc->link, &s->write_queue);
+      s->write_buffered += n;
 
-      if(dbuf.buf)
-        free(dbuf.buf);
+      socket_flush(s);
 
+      DEBUG_WSI(s->wsi, "queued %zu bytes, %zu buffered, partial=%d", n, s->write_buffered, lws_partial_buffered(s->wsi));
+
+      ret = JS_NewInt32(ctx, (int)n);
       break;
     }
 
@@ -773,6 +859,7 @@ enum {
   PROP_NETWORK,
   PROP_EXTENSIONS,
   PROP_H2,
+  PROP_BUFFERED_AMOUNT,
 };
 
 static JSValue
@@ -993,6 +1080,11 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       break;
     }
+
+    case PROP_BUFFERED_AMOUNT: {
+      ret = JS_NewInt64(ctx, (int64_t)s->write_buffered);
+      break;
+    }
   }
 
   return ret;
@@ -1041,6 +1133,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("redirectedToGet", lwsjs_socket_get, 0, PROP_REDIRECTED_TO_GET),
     JS_CGETSET_MAGIC_DEF("extensions", lwsjs_socket_get, 0, PROP_EXTENSIONS),
     JS_CGETSET_MAGIC_DEF("h2", lwsjs_socket_get, 0, PROP_H2),
+    JS_CGETSET_MAGIC_DEF("bufferedAmount", lwsjs_socket_get, 0, PROP_BUFFERED_AMOUNT),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 

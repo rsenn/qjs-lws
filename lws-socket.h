@@ -22,6 +22,8 @@ typedef struct {
   BOOL client, want_write, redirected_to_get, completed, closed;
   JSValue headers, write_handler;
   int response_code, body_pending, method;
+  struct list_head write_queue; /* pending WriteChunks, FIFO */
+  size_t write_buffered;        /* bytes still queued at our layer */
 } LWSSocket;
 
 extern JSClassID lwsjs_socket_class_id;
@@ -29,6 +31,7 @@ extern JSClassID lwsjs_socket_class_id;
 int socket_getid(struct lws* wsi);
 LWSSocket* socket_get(struct lws* wsi);
 LWSSocket* socket_alloc(JSContext* ctx);
+void socket_flush(LWSSocket* s);
 struct lws* lwsjs_socket_wsi(JSValueConst);
 void lwsjs_socket_destroy(JSContext*, struct lws*);
 JSValue lwsjs_socket_wrap(JSContext*, LWSSocket*);
