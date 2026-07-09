@@ -377,13 +377,13 @@ lwsjs_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
   if((create = JS_IsUndefined(ret)))
     ret = lwsjs_socket_create(ctx, wsi);
 
-  DEBUG("%s LWSSocket (wsi = %p, id = %d, ref_count = %d, obj = %p) = %p",
+  /*DEBUG("%s LWSSocket (wsi = %p, id = %d, ref_count = %d, obj = %p) = %p",
         create ? "create" : "get",
         wsi,
         lwsjs_socket_data(ret)->id,
         lwsjs_socket_data(ret)->ref_count,
         JS_VALUE_GET_OBJ(ret),
-        lwsjs_socket_data(ret));
+        lwsjs_socket_data(ret));*/
 
   return ret;
 }

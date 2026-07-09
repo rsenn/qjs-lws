@@ -48,7 +48,6 @@ class FrameDecoder {
 }
 
 function encodeFrame(jsonText) {
-  console.log('encodeFrame', jsonText);
   const body = new TextEncoder().encode(jsonText);
   const header = new TextEncoder().encode((body.length + 1).toString(16).padStart(8, '0') + '\n');
   const out = new Uint8Array(header.length + body.length + 1);
@@ -73,7 +72,9 @@ function setStatus(text) {
 
 function request(command, args) {
   const request_seq = seq++;
-  ws.send(encodeFrame(JSON.stringify({ type: 'request', request: { command, request_seq, args } })));
+  const r = { type: 'request', request: { command, request_seq, args } };
+  //console.log('sending req',  r);
+  ws.send(encodeFrame(JSON.stringify(r)));
   return new Promise(resolve => pending.set(request_seq, resolve));
 }
 
@@ -83,9 +84,11 @@ function onFrame(json) {
   try {
     msg = JSON.parse(json);
   } catch(e) {
-    console.error('bad debugger frame', e, json);
+    console.log(`bad debugger frame: '${json}'`);
     return;
   }
+
+  //console.log('received frame',  msg);
 
   if(msg.type === 'response') {
     pending.get(msg.request_seq)?.(msg.body);
@@ -165,9 +168,11 @@ async function refresh() {
   }
 }
 
-for(const id of ['continue', 'next', 'stepIn', 'stepOut', 'pause']) document.getElementById(id).addEventListener('click', () => request(id));
+for(const id of ['continue', 'next', 'stepIn', 'stepOut', 'pause']) {
+  document.getElementById(id).addEventListener('click', () => request(id));
+}
 
-ws = new WebSocket(`ws://${location.host}/debug`);
+ws = new WebSocket(`ws://${location.host}/debug`, 'browser');
 ws.binaryType = 'arraybuffer';
 
 const decoder = new FrameDecoder(onFrame);
@@ -176,6 +181,9 @@ ws.onopen = () => setStatus('connected — waiting for a debug target…');
 ws.onclose = () => setStatus('disconnected');
 ws.onerror = () => setStatus('connection error');
 ws.onmessage = event => {
-  console.log('onmessage', event.data);
-  decoder.push(event.data);
+  let {data}=event;
+
+  if(typeof data == 'string') data = new TextEncoder('utf-8').encode(data).buffer;
+
+  decoder.push(data);
 };

@@ -9,9 +9,9 @@
  *   (open http://localhost:9229/)
  *   QUICKJS_DEBUG_ADDRESS=127.0.0.1:9229 qjs target.js
  */
-import { LLL_ERR, LLL_WARN, logLevel, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+import { LLL_ERR, LLL_WARN, LLL_USER, LLL_DEBUG, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
 
-logLevel(LLL_ERR, LLL_WARN);
+logLevel(LLL_ERR | LLL_USER);
 
 const PORT = 9229;
 
@@ -43,7 +43,6 @@ createServer({
         console.log('browser disconnected');
       },
       onReceive(wsi, data) {
-        console.log('tcp rx <- browser rx', data);
         target?.write(data);
       },
     },
@@ -60,7 +59,6 @@ createServer({
         console.log('debug target disconnected');
       },
       onRawRx(wsi, data) {
-        console.log('tcp rx -> browser tx', data);
         browser?.write(data);
       },
     },
