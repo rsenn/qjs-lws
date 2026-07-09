@@ -205,6 +205,8 @@ ws.onerror = () => setStatus('connection error');
 ws.onmessage = event => {
   let { data } = event;
 
+  console.log('onmessage', new TextDecoder().decode(data).replaceAll(/\n/g, '\\n'));
+
   if(typeof data == 'string') data = new TextEncoder('utf-8').encode(data).buffer;
 
   decoder.push(data);
