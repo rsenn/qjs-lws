@@ -1,74 +1,17 @@
 /**
- * Speaks the quickjs-debugger.c wire protocol directly over the WebSocket
- * that server.js forwards to/from the raw TCP debug target:
- *
- *     %08x '\n' <payload> '\n'          (8 hex digit header, upper 4 bits
- *                                        are a channel number, lower 28
- *                                        bits are the payload length,
- *                                        counting the trailing \n)
- *
- * Channel 0 is the JSON debugger protocol; channels 1 and 2 are the debug
- * target's stdout/stderr, piped through verbatim by server.js.
+ * Talks to server.js over the WebSocket at /debug. Each WS message is one
+ * self-contained unit (no manual length framing needed, the transport
+ * already delimits messages):
+ *   - a message starting with '{' is a debug-wire JSON message
+ *   - a message starting with a byte < 0x20 is streamed target I/O: that
+ *     first byte is a channel number (1 = stdout, 2 = stderr), the rest is
+ *     raw output text
  *
  * server.js does not parse any of this — it only shovels bytes. Source files
  * are fetched as plain static assets from the same origin (server.js serves
  * the current directory), so `qjs target.js` must be run from this directory
  * for the reported filename to resolve.
  */
-
-class FrameDecoder {
-  #buf = new Uint8Array(0);
-  #need = -1; // -1: waiting for the 9-byte header, else payload bytes wanted
-  #channel = -1;
-
-  constructor(onFrame, onOutput) {
-    this.onFrame = onFrame;
-    this.onOutput = onOutput;
-  }
-
-  push(chunk) {
-    const add = new Uint8Array(chunk);
-    const buf = new Uint8Array(this.#buf.length + add.length);
-    buf.set(this.#buf, 0);
-    buf.set(add, this.#buf.length);
-    this.#buf = buf;
-
-    for(;;) {
-      if(this.#need < 0) {
-        if(this.#buf.length < 9) return;
-        const hdr = new TextDecoder().decode(this.#buf.subarray(0, 8));
-
-        this.#channel = parseInt(hdr[0], 16);
-        this.#need = parseInt(hdr.slice(1), 16);
-        this.#buf = this.#buf.subarray(9);
-      }
-
-      if(this.#buf.length < this.#need) return;
-
-      const channel = this.#channel;
-      const payload = this.#buf.subarray(0, this.#need);
-      this.#buf = this.#buf.subarray(this.#need);
-      this.#need = -1;
-      this.#channel = -1;
-
-      let text = new TextDecoder().decode(payload);
-      if(text.endsWith('\n')) text = text.slice(0, -1);
-
-      if(channel === 0) this.onFrame(text);
-      else this.onOutput?.(channel, text);
-    }
-  }
-}
-
-function encodeFrame(body, id = 0) {
-  if(typeof body == 'string') body = new TextEncoder().encode(body);
-  const header = new TextEncoder().encode(id.toString(16) + (body.length + 1).toString(16).padStart(7, '0') + '\n');
-  const out = new Uint8Array(header.length + body.length + 1);
-  out.set(header, 0);
-  out.set(body, header.length);
-  out[out.length - 1] = 0x0a; // '\n'
-  return out.buffer;
-}
 
 const statusEl = document.getElementById('status');
 const sourceEl = document.getElementById('source');
@@ -88,7 +31,7 @@ function request(command, args) {
   const request_seq = seq++;
   const r = { type: 'request', request: { command, request_seq, args } };
   //console.log('sending req',  r);
-  ws.send(encodeFrame(JSON.stringify(r)));
+  ws.send(JSON.stringify(r));
   return new Promise(resolve => pending.set(request_seq, resolve));
 }
 
@@ -219,17 +162,13 @@ document.addEventListener('keydown', e => {
 ws = new WebSocket(`ws://${location.host}/debug`, 'browser');
 ws.binaryType = 'arraybuffer';
 
-const decoder = new FrameDecoder(onFrame, onOutput);
-
 ws.onopen = () => setStatus('connected — waiting for a debug target…');
 ws.onclose = () => setStatus('disconnected');
 ws.onerror = () => setStatus('connection error');
 ws.onmessage = event => {
-  let { data } = event;
+  const { data } = event;
+  const bytes = typeof data == 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
 
-  //console.log('onmessage', new TextDecoder().decode(data).replaceAll(/\n/g, '\\n'));
-
-  if(typeof data == 'string') data = new TextEncoder('utf-8').encode(data).buffer;
-
-  decoder.push(data);
+  if(bytes[0] === 0x7b) onFrame(new TextDecoder().decode(bytes));
+  else onOutput(bytes[0], new TextDecoder().decode(bytes.subarray(1)));
 };

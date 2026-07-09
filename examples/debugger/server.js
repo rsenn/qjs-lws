@@ -4,23 +4,89 @@
  * debugger protocol at all — it is a dumb byte pipe. demo.js implements the
  * protocol client-side.
  *
+ * Wire protocol on the WebSocket (each WS message is one unit, framing is
+ * free courtesy of the transport):
+ *   - a message starting with '{' is a debug-wire JSON message
+ *   - a message starting with a byte < 0x20 is streamed target I/O: that
+ *     first byte is a channel number (1 = stdout, 2 = stderr), the rest is
+ *     raw output text
+ *
+ * The debug target itself speaks quickjs-debugger.c's own framing on its raw
+ * TCP socket ("%08x '\n' <json> '\n'", the 8-hex-digit length counting json
+ * + the trailing '\n'); server.js translates between that and the WS
+ * protocol above.
+ *
  * Run:
  *   qjs server.js
  *   (open http://localhost:9229/)
  *   QUICKJS_DEBUG_ADDRESS=127.0.0.1:9229 qjs target.js
  */
-import { LLL_ERR, LLL_WARN, LLL_USER, LLL_DEBUG, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
-import { exec, pipe, setReadHandler, read, write, close } from 'os';
+import { LLL_ERR, LLL_WARN, LLL_USER, LLL_DEBUG, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_WRITE_BINARY, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, } from 'lws';
+import { exec, pipe, setReadHandler, read, close } from 'os';
 import { TextEncoder, TextDecoder } from 'textcode';
 
 logLevel(LLL_ERR | LLL_USER);
 
 const PORT = 9229;
 
+// Composes a chain of layer(call, args) functions into one, each layer's
+// `call` invoking the function built by the previous entries. Used via
+// [layers...].reduce(compose, base) - the last layer becomes the public
+// entry point, the first wraps `base` directly.
+const compose =
+  (call, layer) =>
+  (...args) =>
+    layer(call, args);
+
+// Bridges the push-driven onRawRx callback into pull-style reads, so the
+// frame decoder below can be written top-to-bottom like a synchronous
+// parser (mirrors readFully()'s contract: resolves the requested number of
+// bytes, or null once closed).
+class ByteQueue {
+  #buf = new Uint8Array(0);
+  #closed = false;
+  #waiting = null; // { n, resolve }
+
+  feed(chunk) {
+    const add = new Uint8Array(chunk);
+    const buf = new Uint8Array(this.#buf.length + add.length);
+    buf.set(this.#buf, 0);
+    buf.set(add, this.#buf.length);
+    this.#buf = buf;
+    this.#check();
+  }
+
+  close() {
+    this.#closed = true;
+    this.#check();
+  }
+
+  read(n) {
+    return new Promise(resolve => {
+      this.#waiting = { n, resolve };
+      this.#check();
+    });
+  }
+
+  #check() {
+    if(!this.#waiting) return;
+
+    const { n, resolve } = this.#waiting;
+
+    if(this.#buf.length >= n) {
+      resolve(this.#buf.slice(0, n));
+      this.#buf = this.#buf.subarray(n);
+      this.#waiting = null;
+    } else if(this.#closed) {
+      resolve(null);
+      this.#waiting = null;
+    }
+  }
+}
+
 let browser = null; // wsi of the connected browser tab (WebSocket)
 let target = null; // wsi of the connected debug target (raw TCP)
-let stdin = -1;
-let targetBuf = new Uint8Array(0); // bytes accumulated from `target` until a full frame is available
+let targetQueue = null; // ByteQueue accumulating bytes from `target` until full frames are available
 
 createServer({
   port: PORT,
@@ -42,8 +108,8 @@ createServer({
         browser = wsi;
 
         if(!target) {
-          stdin = launchTarget();
-          console.log(`browser connected, launching target... (stdin = ${stdin})`);
+          launchTarget();
+          console.log('browser connected, launching target...');
         } else console.log('browser connected');
       },
       onClosed() {
@@ -51,22 +117,18 @@ createServer({
         console.log('browser disconnected');
       },
       onReceive(wsi, data) {
-        const text = new TextDecoder().decode(data.slice(0, 9));
+        // debugger commands from the demo UI always arrive as a bare JSON
+        // message (ws.send(string) => a WS text frame => data is a string)
+        const json = typeof data == 'string' ? data : new TextDecoder().decode(data);
+        const body = new TextEncoder().encode(json);
+        const header = new TextEncoder().encode((body.length + 1).toString(16).padStart(8, '0') + '\n');
+        const frame = new Uint8Array(header.length + body.length + 1);
 
-        const len = parseInt(text.slice(1), 16);
-        const id = parseInt(text.slice(0, 1), 16);
+        frame.set(header, 0);
+        frame.set(body, header.length);
+        frame[frame.length - 1] = 0x0a;
 
-        //console.log('onReceive', console.config({ compact: true, maxStringLength: 32 }), { data: new TextDecoder().decode(data), text });
-
-        let written;
-
-        if(id) {
-          written = write(stdin, data, 9, len);
-        } else {
-          written = target?.write(data);
-        }
-
-        console.log('onReceive', console.config({ compact: true }), { written, len, id });
+        target?.write(frame.buffer);
       },
     },
 
@@ -76,30 +138,33 @@ createServer({
       onRawAdopt(wsi) {
         target = wsi;
         console.log('debug target connected');
+
+        const queue = (targetQueue = new ByteQueue());
+
+        const decodeFrame = [
+          async call => await call(+('0x' + (await call(9)))),
+          async call => {
+            const text = await call();
+            return text?.endsWith('\n') ? text.slice(0, -1) : text;
+          },
+        ].reduce(compose, n => queue.read(n).then(bytes => bytes && new TextDecoder().decode(bytes)));
+
+        (async () => {
+          for(;;) {
+            const json = await decodeFrame();
+            if(json == null) break; // target closed mid-frame or cleanly
+            browser?.write(json);
+          }
+        })();
       },
       onRawClose() {
         target = null;
-        targetBuf = new Uint8Array(0);
+        targetQueue?.close();
+        targetQueue = null;
         console.log('debug target disconnected');
       },
       onRawRx(wsi, data) {
-        const add = new Uint8Array(data);
-        const buf = new Uint8Array(targetBuf.length + add.length);
-        buf.set(targetBuf, 0);
-        buf.set(add, targetBuf.length);
-        targetBuf = buf;
-
-        for(;;) {
-          if(targetBuf.length < 9) return;
-
-          const need = parseInt(new TextDecoder().decode(targetBuf.subarray(0, 8)), 16);
-          const total = 9 + need;
-
-          if(targetBuf.length < total) return;
-
-          browser?.write(targetBuf.slice(0, total).buffer);
-          targetBuf = targetBuf.subarray(total);
-        }
+        targetQueue?.feed(data);
       },
     },
   ],
@@ -116,16 +181,16 @@ function launchTarget(script = 'target.js') {
   close(err_w);
   close(in_r);
 
-  [
+  for(const [fd, channel] of [
     [out_r, 1],
     [err_r, 2],
-  ].forEach(([fd, id]) => {
-    const rbuf = new ArrayBuffer(1024 + 10);
+  ]) {
+    const rbuf = new ArrayBuffer(1 + 1024);
+    const u8 = new Uint8Array(rbuf);
+    u8[0] = channel;
 
     setReadHandler(fd, () => {
-      const r = read(fd, rbuf, 9, 1024);
-
-      console.log('readable', console.config({ compact: true }), { pid, in_w, r });
+      const r = read(fd, rbuf, 1, 1024);
 
       if(r <= 0) {
         setReadHandler(fd, null);
@@ -133,20 +198,9 @@ function launchTarget(script = 'target.js') {
         return;
       }
 
-      const u8 = new Uint8Array(rbuf);
-      const lenstr = id.toString(16) + (r + 1).toString(16).padStart(7, '0') + '\n';
-
-      u8.set(new TextEncoder().encode(lenstr), 0);
-
-      u8[9 + r] = 0x0a;
-
-      const payload = u8.slice(0, 10 + r);
-
-      //console.log('sending to browser', console.config({ compact: true, maxStringLength: 64 }), payload.buffer);
-
-      browser?.write(payload.buffer);
+      browser?.write(rbuf, 1 + r, LWS_WRITE_BINARY);
     });
-  });
+  }
 
   console.log('launchTarget', { pid, in_w });
   return in_w;
