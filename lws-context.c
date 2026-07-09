@@ -13,6 +13,7 @@
 #include "lws.h"
 #include "js-utils.h"
 #include "iohandler.h"
+#include "lws-epoll.h"
 
 #define LWS_PLUGIN_STATIC
 
@@ -776,6 +777,8 @@ context_new(JSContext* ctx) {
 
 static void
 context_free(JSRuntime* rt, LWSContext* lc) {
+  lws_epoll_destroy(lc);
+
   if(lc->js) {
     JS_FreeContext(lc->js);
     lc->js = NULL;
@@ -837,6 +840,15 @@ fail:
   return JS_EXCEPTION;
 }
 
+static JSValue
+lwsjs_create_server(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  return JS_CallConstructor(ctx, lwsjs_context_ctor, argc, argv);
+}
+
+static const JSCFunctionListEntry lws_context_funcs[] = {
+    JS_CFUNC_DEF("createServer", 1, lwsjs_create_server),
+};
+
 enum {
   METHOD_DESTROY,
   METHOD_GET_VHOST_BY_NAME,
@@ -864,6 +876,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
   switch(magic) {
     case METHOD_DESTROY: {
       if(lc->ctx) {
+        lws_epoll_destroy(lc);
         lws_context_destroy(lc->ctx);
         lc->ctx = NULL;
         ret = JS_TRUE;
@@ -1111,6 +1124,7 @@ lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
 
   if(m) {
     JS_SetModuleExport(ctx, m, "LWSContext", lwsjs_context_ctor);
+    JS_SetModuleExportList(ctx, m, lws_context_funcs, countof(lws_context_funcs));
   }
 
   return 0;
@@ -1118,18 +1132,7 @@ lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
 
 static int
 callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
-  LWSProtocols const* pro = wsi ? lws_get_protocol(wsi) : 0;
-  LWSProtocol* closure = pro ? pro->user : 0;
   LWSContext* lc = wsi ? lwsjs_wsi_context(wsi) : 0;
-  JSContext* ctx = closure && closure->ctx ? closure->ctx : lc ? lc->js : 0;
-
-  if(!ctx && lc && lc->ctx) {
-    JSObject* obj = lws_context_user(lc->ctx);
-    LWSContext* lwsctx;
-
-    if((lwsctx = JS_GetOpaque(JS_MKPTR(JS_TAG_OBJECT, obj), lwsjs_context_class_id)))
-      ctx = lwsctx->js;
-  }
 
   switch(reason) {
     case LWS_CALLBACK_LOCK_POLL:
@@ -1140,8 +1143,7 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
     case LWS_CALLBACK_DEL_POLL_FD: {
       struct lws_pollargs* x = in;
 
-      iohandler_set(lc, x->fd, JS_NULL, 0);
-      iohandler_set(lc, x->fd, JS_NULL, 1);
+      lws_epoll_del(lc, x->fd);
       return 0;
     }
 
@@ -1152,21 +1154,7 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
       if(x->events == x->prev_events)
         return 0;
 
-      BOOL write = !!(x->events & POLLOUT);
-      JSValueConst data[] = {
-          JS_NewInt32(ctx, x->fd),
-          JS_NewInt32(ctx, x->events),
-          JS_NewBool(ctx, write),
-          JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
-      };
-      JSValue fn = JS_NewCFunctionData(ctx, protocol_handler, 0, 0, countof(data), data);
-
-      if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
-        iohandler_set(lc, x->fd, JS_NULL, !write);
-
-      iohandler_set(lc, x->fd, fn, write);
-
-      JS_FreeValue(ctx, fn);
+      lws_epoll_ctl(lc, x->fd, x->events);
       return 0;
     }
 

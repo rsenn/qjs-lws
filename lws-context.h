@@ -7,11 +7,14 @@
 #include <libwebsockets.h>
 #include "lws.h"
 
+typedef struct LWSEpoll LWSEpoll;
+
 typedef struct LWSContext {
   struct lws_context* ctx;
   struct lws_context_creation_info info;
   JSContext* js;
   struct list_head handlers;
+  LWSEpoll* epoll;
 } LWSContext;
 
 typedef struct {

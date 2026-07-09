@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>qjs-lws debugger demo</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 1rem; }
+  #status { color: #888; font-style: italic; margin-bottom: 0.5rem; }
+  #toolbar button { margin-right: 0.25rem; margin-bottom: 0.5rem; }
+  #panes { display: flex; gap: 1rem; align-items: flex-start; }
+  #source { border: 1px solid #ccc; padding: 0.5rem; overflow: auto; max-height: 32rem; flex: 2; }
+  #source div { white-space: pre; font-family: monospace; }
+  #source .line-no { display: inline-block; width: 2.5rem; color: #999; user-select: none; }
+  #source .current { background: #ffe58f; }
+  #vars { border: 1px solid #ccc; padding: 0.5rem; overflow: auto; max-height: 32rem; flex: 1; font-family: monospace; }
+  #vars .scope { font-weight: bold; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>qjs-lws debugger demo</h1>
+<div id="status">connecting…</div>
+<div id="toolbar">
+  <button id="continue">Continue</button>
+  <button id="next">Step Over</button>
+  <button id="stepIn">Step In</button>
+  <button id="stepOut">Step Out</button>
+  <button id="pause">Pause</button>
+</div>
+<div id="panes">
+  <div id="source">(waiting for a paused debug target…)</div>
+  <div id="vars"></div>
+</div>
+<script src="demo.js"></script>
+</body>
+</html>

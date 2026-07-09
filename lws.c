@@ -1006,6 +1006,7 @@ js_init_module(JSContext* ctx, const char* module_name) {
 
   if((m = JS_NewCModule(ctx, module_name, lwsjs_init))) {
     JS_AddModuleExport(ctx, m, "LWSContext");
+    JS_AddModuleExport(ctx, m, "createServer");
     JS_AddModuleExport(ctx, m, "LWSVhost");
     JS_AddModuleExport(ctx, m, "LWSSocket");
     JS_AddModuleExport(ctx, m, "LWSSPA");
