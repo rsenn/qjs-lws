@@ -20,6 +20,7 @@ const PORT = 9229;
 let browser = null; // wsi of the connected browser tab (WebSocket)
 let target = null; // wsi of the connected debug target (raw TCP)
 let stdin = -1;
+let targetBuf = new Uint8Array(0); // bytes accumulated from `target` until a full frame is available
 
 createServer({
   port: PORT,
@@ -78,10 +79,27 @@ createServer({
       },
       onRawClose() {
         target = null;
+        targetBuf = new Uint8Array(0);
         console.log('debug target disconnected');
       },
       onRawRx(wsi, data) {
-        browser?.write(data);
+        const add = new Uint8Array(data);
+        const buf = new Uint8Array(targetBuf.length + add.length);
+        buf.set(targetBuf, 0);
+        buf.set(add, targetBuf.length);
+        targetBuf = buf;
+
+        for(;;) {
+          if(targetBuf.length < 9) return;
+
+          const need = parseInt(new TextDecoder().decode(targetBuf.subarray(0, 8)), 16);
+          const total = 9 + need;
+
+          if(targetBuf.length < total) return;
+
+          browser?.write(targetBuf.subarray(0, total).buffer);
+          targetBuf = targetBuf.subarray(total);
+        }
       },
     },
   ],
