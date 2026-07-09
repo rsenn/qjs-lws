@@ -2,7 +2,13 @@
  * Speaks the quickjs-debugger.c wire protocol directly over the WebSocket
  * that server.js forwards to/from the raw TCP debug target:
  *
- *     %08x '\n' <json> '\n'          (8 hex digit length, counts json + \n)
+ *     %08x '\n' <payload> '\n'          (8 hex digit header, upper 4 bits
+ *                                        are a channel number, lower 28
+ *                                        bits are the payload length,
+ *                                        counting the trailing \n)
+ *
+ * Channel 0 is the JSON debugger protocol; channels 1 and 2 are the debug
+ * target's stdout/stderr, piped through verbatim by server.js.
  *
  * server.js does not parse any of this — it only shovels bytes. Source files
  * are fetched as plain static assets from the same origin (server.js serves
@@ -13,10 +19,11 @@
 class FrameDecoder {
   #buf = new Uint8Array(0);
   #need = -1; // -1: waiting for the 9-byte header, else payload bytes wanted
-  #id = -1;
+  #channel = -1;
 
-  constructor(onFrame) {
+  constructor(onFrame, onOutput) {
     this.onFrame = onFrame;
+    this.onOutput = onOutput;
   }
 
   push(chunk) {
@@ -29,21 +36,26 @@ class FrameDecoder {
     for(;;) {
       if(this.#need < 0) {
         if(this.#buf.length < 9) return;
+        const hdr = new TextDecoder().decode(this.#buf.subarray(0, 8));
 
-        this.#need = parseInt(new TextDecoder().decode(this.#buf.subarray(0, 8)), 16);
+        this.#channel = parseInt(hdr[0], 16);
+        this.#need = parseInt(hdr.slice(1), 16);
         this.#buf = this.#buf.subarray(9);
       }
 
       if(this.#buf.length < this.#need) return;
 
+      const channel = this.#channel;
       const payload = this.#buf.subarray(0, this.#need);
       this.#buf = this.#buf.subarray(this.#need);
       this.#need = -1;
+      this.#channel = -1;
 
-      let json = new TextDecoder().decode(payload);
-      if(json.endsWith('\n')) json = json.slice(0, -1);
+      let text = new TextDecoder().decode(payload);
+      if(text.endsWith('\n')) text = text.slice(0, -1);
 
-      this.onFrame(json);
+      if(channel === 0) this.onFrame(text);
+      else this.onOutput?.(channel, text);
     }
   }
 }
@@ -61,6 +73,7 @@ function encodeFrame(body, id = 0) {
 const statusEl = document.getElementById('status');
 const sourceEl = document.getElementById('source');
 const varsEl = document.getElementById('vars');
+const outputEl = document.getElementById('output');
 const sourceCache = new Map();
 
 let ws,
@@ -102,6 +115,14 @@ function onFrame(json) {
       setStatus('debug target terminated');
     }
   }
+}
+
+function onOutput(channel, text) {
+  const line = document.createElement('div');
+  if(channel === 2) line.className = 'stderr';
+  line.textContent = text;
+  outputEl.appendChild(line);
+  outputEl.scrollTop = outputEl.scrollHeight;
 }
 
 async function showSource(filename, line) {
@@ -176,7 +197,7 @@ for(const id of ['continue', 'next', 'stepIn', 'stepOut', 'pause']) {
 ws = new WebSocket(`ws://${location.host}/debug`, 'browser');
 ws.binaryType = 'arraybuffer';
 
-const decoder = new FrameDecoder(onFrame);
+const decoder = new FrameDecoder(onFrame, onOutput);
 
 ws.onopen = () => setStatus('connected — waiting for a debug target…');
 ws.onclose = () => setStatus('disconnected');
