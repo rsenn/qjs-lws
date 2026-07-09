@@ -191,9 +191,30 @@ async function refresh() {
   }
 }
 
+const keyMap = {
+  F5: 'continue',
+  F9: 'pause',
+  F10: 'next',
+  F11: 'stepIn',
+  F12: 'stepOut',
+};
+
+for(const [key, id] of Object.entries(keyMap)) {
+  document.getElementById(id).title = key;
+}
+
 for(const id of ['continue', 'next', 'stepIn', 'stepOut', 'pause']) {
   document.getElementById(id).addEventListener('click', () => request(id));
 }
+
+document.addEventListener('keydown', e => {
+  const id = keyMap[e.key];
+
+  if(id) {
+    e.preventDefault();
+    request(id);
+  }
+});
 
 ws = new WebSocket(`ws://${location.host}/debug`, 'browser');
 ws.binaryType = 'arraybuffer';
