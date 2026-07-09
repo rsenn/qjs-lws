@@ -1432,7 +1432,6 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
       argv[argi++] = JS_NewInt64(ctx, len);
 
-
       /*if(lws_ws_sending_multifragment(wsi)) {
         argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
         JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);

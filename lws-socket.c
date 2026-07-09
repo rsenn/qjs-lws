@@ -517,8 +517,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     case METHOD_WRITE: {
       BOOL text = JS_IsString(argv[0]);
       size_t len = 0;
-      const void* ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0])
-                             : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
+      const void* ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0]) : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
 
       if(!ptr) {
         ret = JS_ThrowTypeError(ctx, "wsi.write: expected string or ArrayBuffer");

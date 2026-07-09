@@ -13,12 +13,15 @@
 class FrameDecoder {
   #buf = new Uint8Array(0);
   #need = -1; // -1: waiting for the 9-byte header, else payload bytes wanted
+  #id = -1;
 
   constructor(onFrame) {
     this.onFrame = onFrame;
   }
 
   push(chunk) {
+    console.log('FrameDecoder.chunk', new TextDecoder().decode(chunk));
+
     const add = new Uint8Array(chunk);
     const buf = new Uint8Array(this.#buf.length + add.length);
     buf.set(this.#buf, 0);
@@ -29,7 +32,10 @@ class FrameDecoder {
       if(this.#need < 0) {
         if(this.#buf.length < 9) return;
 
-        this.#need = parseInt(new TextDecoder().decode(this.#buf.subarray(0, 8)), 16);
+        const hdr = parseInt(new TextDecoder().decode(this.#buf.subarray(0, 8)), 16);
+
+        this.#need = hdr & 0x3fffffff;
+        this.#id = hdr >>> 30;
         this.#buf = this.#buf.subarray(9);
       }
 

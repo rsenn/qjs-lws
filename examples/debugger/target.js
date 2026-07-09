@@ -14,7 +14,7 @@ function fib(n) {
 }
 
 function main() {
-  for(let i = 0; i < 6; i++) {
+  for(let i = 0; i < 100; i++) {
     const result = fib(i);
     console.log(i, result);
   }
