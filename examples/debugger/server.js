@@ -102,7 +102,7 @@ function launchTarget(script = 'target.js') {
     [out_r, 1],
     [err_r, 2],
   ].forEach(([fd, id]) => {
-    const rbuf = new ArrayBuffer(1024 + 9);
+    const rbuf = new ArrayBuffer(1024 + 10);
 
     setReadHandler(fd, () => {
       const r = read(fd, rbuf, 9, 1024);
@@ -110,11 +110,13 @@ function launchTarget(script = 'target.js') {
       console.log('readable', console.config({ compact: true }), { pid, in_w, r });
 
       const u8 = new Uint8Array(rbuf);
-      const lenstr = id.toString(16) + r.toString(16).padStart(7, '0') + '\n';
+      const lenstr = id.toString(16) + (r + 1).toString(16).padStart(7, '0') + '\n';
 
       u8.set(new TextEncoder().encode(lenstr), 0);
 
-      const payload = u8.subarray(0, 9 + r);
+      u8[9 + r] = 0x0a;
+
+      const payload = u8.subarray(0, 10 + r);
       browser?.write(payload.buffer);
     });
   });

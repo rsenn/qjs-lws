@@ -21,7 +21,6 @@ class FrameDecoder {
 
   push(chunk) {
     const add = new Uint8Array(chunk);
-    console.log(`[chunk]`, new TextDecoder().decode(add));
     const buf = new Uint8Array(this.#buf.length + add.length);
     buf.set(this.#buf, 0);
     buf.set(add, this.#buf.length);
@@ -30,31 +29,21 @@ class FrameDecoder {
     for(;;) {
       if(this.#need < 0) {
         if(this.#buf.length < 9) return;
-        const hdr = new TextDecoder().decode(this.#buf.subarray(0, 8));
 
-        this.#need = parseInt(hdr.slice(1), 16);
-        this.#id = parseInt(hdr.slice(0, 1), 16);
+        this.#need = parseInt(new TextDecoder().decode(this.#buf.subarray(0, 8)), 16);
         this.#buf = this.#buf.subarray(9);
       }
 
       if(this.#buf.length < this.#need) return;
 
-      const id = this.#id;
-      let payload = this.#buf.subarray(0, this.#need);
+      const payload = this.#buf.subarray(0, this.#need);
       this.#buf = this.#buf.subarray(this.#need);
       this.#need = -1;
-      this.#id = -1;
 
-      payload = new TextDecoder().decode(payload);
+      let json = new TextDecoder().decode(payload);
+      if(json.endsWith('\n')) json = json.slice(0, -1);
 
-      if(id === 0) {
-        if(payload.endsWith('\n')) payload = payload.slice(0, -1);
-
-        this.onFrame(payload);
-      } else {
-        const label = { 1: 'stdout', 2: 'stderr', 3: 'stdin' }[id] ?? `id=${id}`;
-        console.log(`[target ${label}]`, payload);
-      }
+      this.onFrame(json);
     }
   }
 }
