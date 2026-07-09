@@ -181,7 +181,7 @@ ws.onopen = () => setStatus('connected — waiting for a debug target…');
 ws.onclose = () => setStatus('disconnected');
 ws.onerror = () => setStatus('connection error');
 ws.onmessage = event => {
-  let {data}=event;
+  let { data } = event;
 
   if(typeof data == 'string') data = new TextEncoder('utf-8').encode(data).buffer;
 
