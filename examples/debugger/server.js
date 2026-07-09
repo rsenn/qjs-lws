@@ -142,7 +142,7 @@ function launchTarget(script = 'target.js') {
 
       const payload = u8.slice(0, 10 + r);
 
-      console.log('sending to browser', console.config({ compact: true, maxStringLength: 64 }), payload.buffer);
+      //console.log('sending to browser', console.config({ compact: true, maxStringLength: 64 }), payload.buffer);
 
       browser?.write(payload.buffer);
     });
