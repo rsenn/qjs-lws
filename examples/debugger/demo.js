@@ -20,9 +20,8 @@ class FrameDecoder {
   }
 
   push(chunk) {
-    console.log('FrameDecoder.chunk', new TextDecoder().decode(chunk));
-
     const add = new Uint8Array(chunk);
+    console.log(`[chunk]`, new TextDecoder().decode(add));
     const buf = new Uint8Array(this.#buf.length + add.length);
     buf.set(this.#buf, 0);
     buf.set(add, this.#buf.length);
@@ -31,31 +30,38 @@ class FrameDecoder {
     for(;;) {
       if(this.#need < 0) {
         if(this.#buf.length < 9) return;
+        const hdr = new TextDecoder().decode(this.#buf.subarray(0, 8));
 
-        const hdr = parseInt(new TextDecoder().decode(this.#buf.subarray(0, 8)), 16);
-
-        this.#need = hdr & 0x3fffffff;
-        this.#id = hdr >>> 30;
+        this.#need = parseInt(hdr.slice(1), 16);
+        this.#id = parseInt(hdr.slice(0, 1), 16);
         this.#buf = this.#buf.subarray(9);
       }
 
       if(this.#buf.length < this.#need) return;
 
-      const payload = this.#buf.subarray(0, this.#need);
+      const id = this.#id;
+      let payload = this.#buf.subarray(0, this.#need);
       this.#buf = this.#buf.subarray(this.#need);
       this.#need = -1;
+      this.#id = -1;
 
-      let json = new TextDecoder().decode(payload);
-      if(json.endsWith('\n')) json = json.slice(0, -1);
+      payload = new TextDecoder().decode(payload);
 
-      this.onFrame(json);
+      if(id === 0) {
+        if(payload.endsWith('\n')) payload = payload.slice(0, -1);
+
+        this.onFrame(payload);
+      } else {
+        const label = { 1: 'stdout', 2: 'stderr', 3: 'stdin' }[id] ?? `id=${id}`;
+        console.log(`[target ${label}]`, payload);
+      }
     }
   }
 }
 
-function encodeFrame(jsonText) {
-  const body = new TextEncoder().encode(jsonText);
-  const header = new TextEncoder().encode((body.length + 1).toString(16).padStart(8, '0') + '\n');
+function encodeFrame(body, id = 0) {
+  if(typeof body == 'string') body = new TextEncoder().encode(body);
+  const header = new TextEncoder().encode(id.toString(16) + (body.length + 1).toString(16).padStart(7, '0') + '\n');
   const out = new Uint8Array(header.length + body.length + 1);
   out.set(header, 0);
   out.set(body, header.length);
