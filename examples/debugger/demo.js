@@ -29,9 +29,11 @@ function setStatus(text) {
 
 function request(command, args) {
   const request_seq = seq++;
-  const r = { type: 'request', request: { command, request_seq, args } };
-  //console.log('sending req',  r);
-  ws.send(JSON.stringify(r));
+  const request = { type: 'request', request: { command, request_seq, args } };
+  
+  console.log('%c🡆%c sendMessage(', 'color: red;', 'color: black', request, ')'  );
+
+  ws.send(JSON.stringify(request));
   return new Promise(resolve => pending.set(request_seq, resolve));
 }
 
@@ -45,7 +47,7 @@ function onFrame(json) {
     return;
   }
 
-  //console.log('received frame',  msg);
+  console.log('%c🡄%c onFrame','color: green;', 'color: black', msg);
 
   if(msg.type === 'response') {
     pending.get(msg.request_seq)?.(msg.body);
@@ -61,7 +63,8 @@ function onFrame(json) {
 }
 
 function onOutput(channel, text) {
-  console.log('onOutput', channel, text);
+  console.log('%c🡇%c onOutput', 'color: #ffc000;', 'color: black', { channel, text });
+
   const line = document.createElement('div');
   if(channel === 2) line.className = 'stderr';
   line.textContent = text;
@@ -165,8 +168,7 @@ ws.binaryType = 'arraybuffer';
 ws.onopen = () => setStatus('connected — waiting for a debug target…');
 ws.onclose = () => setStatus('disconnected');
 ws.onerror = () => setStatus('connection error');
-ws.onmessage = event => {
-  const { data } = event;
+ws.onmessage = ({data}) => {
   const bytes = typeof data == 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
 
   if(bytes[0] === 0x7b) onFrame(new TextDecoder().decode(bytes));

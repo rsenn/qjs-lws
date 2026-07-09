@@ -29,14 +29,13 @@ logLevel(LLL_ERR | LLL_USER);
 
 const PORT = 9229;
 
-// Composes a chain of layer(call, args) functions into one, each layer's
-// `call` invoking the function built by the previous entries. Used via
-// [layers...].reduce(compose, base) - the last layer becomes the public
-// entry point, the first wraps `base` directly.
-const compose =
-  (call, layer) =>
-  (...args) =>
-    layer(call, args);
+const compose = (f, g) => x => g(f(x));
+
+// bytes (or null on EOF) -> decoded, trailing-newline-stripped text
+const toText = compose(
+  bytes => bytes && new TextDecoder().decode(bytes),
+  text => (text?.endsWith('\n') ? text.slice(0, -1) : text),
+);
 
 // Bridges the push-driven onRawRx callback into pull-style reads, so the
 // frame decoder below can be written top-to-bottom like a synchronous
@@ -140,14 +139,14 @@ createServer({
         console.log('debug target connected');
 
         const queue = (targetQueue = new ByteQueue());
+        const readText = n => queue.read(n).then(toText);
 
-        const decodeFrame = [
-          async call => await call(+('0x' + (await call(9)))),
-          async call => {
-            const text = await call();
-            return text?.endsWith('\n') ? text.slice(0, -1) : text;
-          },
-        ].reduce(compose, n => queue.read(n).then(bytes => bytes && new TextDecoder().decode(bytes)));
+        async function decodeFrame() {
+          const header = await readText(9); // 8 hex digits + '\n'
+          if(header == null) return null;
+
+          return readText(+('0x' + header)); // payload, length includes its own trailing '\n'
+        }
 
         (async () => {
           for(;;) {
