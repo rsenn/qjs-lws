@@ -97,7 +97,7 @@ createServer({
 
           if(targetBuf.length < total) return;
 
-          browser?.write(targetBuf.subarray(0, total).buffer);
+          browser?.write(targetBuf.slice(0, total).buffer);
           targetBuf = targetBuf.subarray(total);
         }
       },
@@ -127,6 +127,12 @@ function launchTarget(script = 'target.js') {
 
       console.log('readable', console.config({ compact: true }), { pid, in_w, r });
 
+      if(r <= 0) {
+        setReadHandler(fd, null);
+        close(fd);
+        return;
+      }
+
       const u8 = new Uint8Array(rbuf);
       const lenstr = id.toString(16) + (r + 1).toString(16).padStart(7, '0') + '\n';
 
@@ -134,7 +140,10 @@ function launchTarget(script = 'target.js') {
 
       u8[9 + r] = 0x0a;
 
-      const payload = u8.subarray(0, 10 + r);
+      const payload = u8.slice(0, 10 + r);
+
+      console.log('sending to browser', console.config({ compact: true, maxStringLength: 64 }), payload.buffer);
+
       browser?.write(payload.buffer);
     });
   });

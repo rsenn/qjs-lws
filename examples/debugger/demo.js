@@ -118,6 +118,7 @@ function onFrame(json) {
 }
 
 function onOutput(channel, text) {
+  console.log('onOutput', channel, text);
   const line = document.createElement('div');
   if(channel === 2) line.className = 'stderr';
   line.textContent = text;
@@ -205,7 +206,7 @@ ws.onerror = () => setStatus('connection error');
 ws.onmessage = event => {
   let { data } = event;
 
-  console.log('onmessage', new TextDecoder().decode(data).replaceAll(/\n/g, '\\n'));
+  //console.log('onmessage', new TextDecoder().decode(data).replaceAll(/\n/g, '\\n'));
 
   if(typeof data == 'string') data = new TextEncoder('utf-8').encode(data).buffer;
 
