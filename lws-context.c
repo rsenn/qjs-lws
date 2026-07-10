@@ -1251,13 +1251,22 @@ patch_system_vhost_pollfd(struct lws_context* ctx) {
 
 static int
 callback_js(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
-  if(wsi) {
-    JSValue* jsval = user;
-    LWSProtocols const* pro = lws_get_protocol(wsi);
+  if(!wsi)
+    return -1;
 
-    if(reason == LWS_CALLBACK_WSI_CREATE || reason == LWS_CALLBACK_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL || reason == LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL ||
-       reason == LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL || reason == LWS_CALLBACK_RAW_PROXY_CLI_BIND_PROTOCOL || reason == LWS_CALLBACK_RAW_PROXY_SRV_BIND_PROTOCOL ||
-       reason == LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL || reason == LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL) {
+  JSValue* jsval = user;
+  LWSProtocols const* pro = lws_get_protocol(wsi);
+
+  switch(reason) {
+    case LWS_CALLBACK_WSI_CREATE:
+    case LWS_CALLBACK_HTTP_BIND_PROTOCOL:
+    case LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL:
+    case LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL:
+    case LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL:
+    case LWS_CALLBACK_RAW_PROXY_CLI_BIND_PROTOCOL:
+    case LWS_CALLBACK_RAW_PROXY_SRV_BIND_PROTOCOL:
+    case LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL:
+    case LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL: {
       if(user && pro->per_session_data_size == sizeof(JSValue)) {
         JSContext* ctx = lwsjs_wsi_jscontext(wsi);
 
@@ -1266,9 +1275,10 @@ callback_js(struct lws* wsi, enum lws_callback_reasons reason, void* user, void*
 
         return 0;
       }
+      break;
     }
 
-    if(reason == LWS_CALLBACK_WSI_DESTROY) {
+    case LWS_CALLBACK_WSI_DESTROY: {
       if(user && pro->per_session_data_size == sizeof(JSValue)) {
         JSContext* ctx = lwsjs_wsi_jscontext(wsi);
 
@@ -1280,7 +1290,10 @@ callback_js(struct lws* wsi, enum lws_callback_reasons reason, void* user, void*
         lwsjs_socket_destroy(ctx, wsi);
         return 0;
       }
+      break;
     }
+
+    default: break;
   }
 
   return -1;
