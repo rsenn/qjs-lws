@@ -21,7 +21,7 @@
  *   (open http://localhost:9229/)
  *   QUICKJS_DEBUG_ADDRESS=127.0.0.1:9229 qjs target.js
  */
-import { LLL_ERR, LLL_WARN, LLL_USER, LLL_DEBUG, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_WRITE_BINARY, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, } from 'lws';
+import { LLL_ERR,  LLL_USER,  logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_WRITE_BINARY, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, } from 'lws';
 import { exec, pipe, setReadHandler, read, close } from 'os';
 import { TextEncoder, TextDecoder } from 'textcode';
 

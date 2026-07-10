@@ -26,7 +26,69 @@ const statusEl = document.getElementById('status');
 const sourceEl = document.getElementById('source');
 const varsEl = document.getElementById('vars');
 const outputEl = document.getElementById('output');
+const evalInput = document.getElementById('evalInput');
+const evalResultEl = document.getElementById('evalResult');
+const watchInput = document.getElementById('watchInput');
+const watchListEl = document.getElementById('watchList');
 const sourceCache = new Map();
+const breakpoints = new Map(); // filename -> Set<line>
+const watches = []; // expression strings, re-evaluated on every pause/step
+
+const KEYWORDS =
+  'async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield';
+
+// Tokenizes a single source line. Order matters: comment/regex/string must
+// be tried before the generic punct/other fallbacks so a `/` isn't
+// misread as division, and `other` guarantees full coverage (no
+// characters skip escaping) so an escaped entity is never split across
+// two <span>s.
+//
+// The regex/division heuristic is deliberately simple: a `/` starts a
+// regex literal unless directly preceded (ignoring whitespace) by a
+// word char, `)` or `]` - correctly handles `a/b` and `a / b`, but
+// misreads `return /re/` as division since "return" also ends in a
+// word char. Full disambiguation needs real parsing, not worth it here.
+const tokenRe = new RegExp(
+  '(?<comment>//[^\\n]*|/\\*[\\s\\S]*?\\*/)' +
+    '|(?<regex>(?<![\\w$)\\]]\\s*)/(?:[^/\\\\\\n[]|\\\\.|\\[(?:[^\\]\\\\\\n]|\\\\.)*\\])+/[a-z]*)' +
+    `|(?<string>"(?:[^"\\\\\\n]|\\\\.)*"|'(?:[^'\\\\\\n]|\\\\.)*')` +
+    '|(?<numeric>\\b0[xX][\\da-fA-F]+\\b|\\b0[oO][0-7]+\\b|\\b0[bB][01]+\\b|\\b\\d+\\.\\d*(?:[eE][+-]?\\d+)?\\b|\\b\\.\\d+\\b|\\b\\d+(?:[eE][+-]?\\d+)?\\b)' +
+    `|(?<keyword>\\b(?:${KEYWORDS})\\b)` +
+    '|(?<ident>[A-Za-z_$][\\w$]*)' +
+    '|(?<punct>[-+*/%=<>!&|^~?:;,.(){}\\[\\]]+)' +
+    '|(?<other>[\\s\\S])',
+  'g',
+);
+
+function escapeHtml(str) {
+  return str.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+}
+
+function highlightLine(line) {
+  return line.replace(tokenRe, (match, ...rest) => {
+    const groups = rest[rest.length - 1];
+    const type = Object.keys(groups).find(k => groups[k] !== undefined);
+    const escaped = escapeHtml(match);
+    return type && type !== 'other' ? `<span class="tok-${type}">${escaped}</span>` : escaped;
+  });
+}
+
+function toggleBreakpoint(filename, line, div) {
+  let set = breakpoints.get(filename);
+  if(!set) breakpoints.set(filename, (set = new Set()));
+
+  if(set.has(line)) set.delete(line);
+  else set.add(line);
+
+  div.classList.toggle('breakpoint', set.has(line));
+
+  ws.send(
+    JSON.stringify({
+      type: 'breakpoints',
+      breakpoints: { path: filename, breakpoints: [...set].map(line => ({ line })) },
+    }),
+  );
+}
 
 let ws,
   seq = 1;
@@ -106,25 +168,35 @@ async function showSource(filename, line) {
 
   text.split('\n').forEach((codeLine, i) => {
     const div = document.createElement('div');
+    const lineNo = i + 1;
 
-    if(i + 1 === line) div.className = 'current';
+    if(lineNo === line) div.classList.add('current');
+    if(breakpoints.get(filename)?.has(lineNo)) div.classList.add('breakpoint');
 
     const no = document.createElement('span');
     no.className = 'line-no';
-    no.textContent = i + 1;
+    no.textContent = lineNo;
+    no.addEventListener('click', () => toggleBreakpoint(filename, lineNo, div));
 
-    div.append(no, codeLine);
+    const code = document.createElement('span');
+    code.innerHTML = highlightLine(codeLine);
+
+    div.append(no, code);
     sourceEl.appendChild(div);
   });
 
   sourceEl.querySelector('.current')?.scrollIntoView({ block: 'center' });
 }
 
+let currentFrameId = 0;
+
 async function refresh() {
   const frames = await request('stackTrace');
   const frame = frames[0];
 
   if(!frame) return;
+
+  currentFrameId = frame.id;
 
   await showSource(frame.filename, frame.line);
 
@@ -146,6 +218,68 @@ async function refresh() {
       varsEl.appendChild(row);
     }
   }
+
+  await updateWatches();
+}
+
+async function evaluate(expression, frameId = currentFrameId) {
+  const { result } = await request('evaluate', { expression, frameId });
+  return result;
+}
+
+async function runEval() {
+  const expression = evalInput.value;
+  if(!expression) return;
+  evalResultEl.textContent = await evaluate(expression);
+}
+
+document.getElementById('evalRun').addEventListener('click', runEval);
+evalInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter') runEval();
+});
+
+function renderWatches() {
+  watchListEl.innerHTML = '';
+
+  watches.forEach((expression, i) => {
+    const row = document.createElement('div');
+
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => {
+      watches.splice(i, 1);
+      renderWatches();
+    });
+
+    const label = document.createElement('span');
+    label.textContent = ` ${expression} = `;
+
+    const value = document.createElement('span');
+    value.className = 'watch-value';
+
+    row.append(removeBtn, label, value);
+    watchListEl.appendChild(row);
+  });
+}
+
+function addWatch() {
+  const expression = watchInput.value;
+  if(!expression) return;
+  watches.push(expression);
+  watchInput.value = '';
+  renderWatches();
+  updateWatches();
+}
+
+document.getElementById('watchAdd').addEventListener('click', addWatch);
+watchInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter') addWatch();
+});
+
+async function updateWatches() {
+  const values = watchListEl.querySelectorAll('.watch-value');
+
+  for(let i = 0; i < watches.length; i++) values[i].textContent = await evaluate(watches[i]);
 }
 
 const keyMap = {

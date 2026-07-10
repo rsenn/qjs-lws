@@ -11,12 +11,23 @@
   #panes { display: flex; gap: 1rem; align-items: flex-start; }
   #source { border: 1px solid #ccc; padding: 0.5rem; overflow: auto; max-height: 32rem; flex: 2; }
   #source div { white-space: pre; font-family: monospace; }
-  #source .line-no { display: inline-block; width: 2.5rem; color: #999; user-select: none; }
+  #source .line-no { display: inline-block; width: 2.5rem; color: #999; user-select: none; cursor: pointer; }
   #source .current { background: #ffe58f; }
+  #source .breakpoint .line-no { background: #d9363e; color: #fff; border-radius: 50%; }
+  #source .tok-comment { color: #8a8a8a; font-style: italic; }
+  #source .tok-string { color: #a31515; }
+  #source .tok-regex { color: #af00db; }
+  #source .tok-numeric { color: #098658; }
+  #source .tok-keyword { color: #0000ff; }
   #vars { border: 1px solid #ccc; padding: 0.5rem; overflow: auto; max-height: 32rem; flex: 1; font-family: monospace; }
   #vars .scope { font-weight: bold; margin-top: 0.5rem; }
   #output { border: 1px solid #ccc; background: #1e1e1e; color: #ddd; font-family: monospace; white-space: pre-wrap; padding: 0.5rem; max-height: 12rem; overflow: auto; margin-top: 1rem; }
   #output .stderr { color: #ff6b6b; }
+  #evalPane { margin-top: 1rem; }
+  #evalPane input { font-family: monospace; width: 24rem; }
+  #evalResult { font-family: monospace; margin-top: 0.25rem; min-height: 1.2em; }
+  #watchList { font-family: monospace; margin-top: 0.25rem; }
+  #watchList div { margin-top: 0.15rem; }
 </style>
 </head>
 <body>
@@ -35,6 +46,16 @@
 </div>
 <h2>Program Output</h2>
 <div id="output"></div>
+<div id="evalPane">
+  <h2>Evaluate</h2>
+  <input id="evalInput" placeholder="expression, Enter to run">
+  <button id="evalRun">Run</button>
+  <div id="evalResult"></div>
+  <h3>Watches</h3>
+  <input id="watchInput" placeholder="watch expression, Enter to add">
+  <button id="watchAdd">Add</button>
+  <div id="watchList"></div>
+</div>
 <script src="demo.js"></script>
 </body>
 </html>
