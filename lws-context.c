@@ -53,6 +53,7 @@ static int callback_pollfd(struct lws*, enum lws_callback_reasons, void*, void*,
 static int callback_js(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
 static int callback_http(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
 static int callback_protocol(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
+static void patch_system_vhost_pollfd(struct lws_context*);
 static JSValue callback_c(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
 
 static struct lws_protocol_vhost_options* vhost_options_from(JSContext*, JSValueConst);
@@ -827,6 +828,8 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
   /* This must be called last, because it can trigger callbacks already */
   lc->ctx = lws_create_context(&lc->info);
 
+  patch_system_vhost_pollfd(lc->ctx);
+
   JS_DefinePropertyValueStr(ctx, obj, "info", JS_DupValue(ctx, argv[0]), JS_PROP_CONFIGURABLE);
 
   return obj;
@@ -1188,6 +1191,62 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
   }
 
   return -1;
+}
+
+/*
+ * lws_create_context() always creates its own internal "system" vhost
+ * (context->vhost_system) for async-dns/ntp/dhcp/stdin, built from lws's
+ * own protocol list - entirely separate from the vhost(s) our own
+ * protocols_fromarray() builds. Since pollfd management (LOCK_POLL,
+ * ADD_POLL_FD, etc.) is always dispatched via vhost->protocols[0].callback
+ * regardless of which protocol a given wsi is actually bound to, poll-fd
+ * events for wsi living on the system vhost (e.g. the async-DNS resolver's
+ * UDP socket) were never reaching callback_pollfd()/iohandler_set() at
+ * all - they went to lws's own internal protocol callback instead, which
+ * has no idea about our iohandler-driven event loop. That left async DNS
+ * lookups (and hence any fetch() to a hostname rather than a literal IP)
+ * silently stuck forever waiting for a write-ready notification that
+ * never arrived. Fix: after context creation, wrap the system vhost's
+ * protocols[0] callback so pollfd-management reasons go to
+ * callback_pollfd() first, falling through to the original callback
+ * (real DNS/ntp/etc. protocol logic) for everything else.
+ */
+static lws_callback_function* system_vhost_orig_callback;
+
+static int
+callback_system_vhost_pollfd_wrap(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+  switch(reason) {
+    case LWS_CALLBACK_LOCK_POLL:
+    case LWS_CALLBACK_UNLOCK_POLL:
+    case LWS_CALLBACK_ADD_POLL_FD:
+    case LWS_CALLBACK_DEL_POLL_FD:
+    case LWS_CALLBACK_CHANGE_MODE_POLL_FD: {
+      if(callback_pollfd(wsi, reason, user, in, len) == 0)
+        return 0;
+      break;
+    }
+    default: break;
+  }
+
+  return system_vhost_orig_callback ? system_vhost_orig_callback(wsi, reason, user, in, len) : 0;
+}
+
+static void
+patch_system_vhost_pollfd(struct lws_context* ctx) {
+  struct lws_vhost* vh;
+  const struct lws_protocols* pro;
+
+  if(!ctx || !(vh = lws_get_vhost_by_name(ctx, "system")))
+    return;
+
+  if(!(pro = lws_vhost_name_to_protocol(vh, "lws-async-dns")))
+    return;
+
+  if(pro->callback == callback_system_vhost_pollfd_wrap)
+    return;
+
+  system_vhost_orig_callback = pro->callback;
+  ((struct lws_protocols*)pro)->callback = callback_system_vhost_pollfd_wrap;
 }
 
 static int
