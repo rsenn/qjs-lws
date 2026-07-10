@@ -13,7 +13,6 @@
 #include "lws.h"
 #include "js-utils.h"
 #include "iohandler.h"
-#include "lws-epoll.h"
 
 #define LWS_PLUGIN_STATIC
 
@@ -777,8 +776,6 @@ context_new(JSContext* ctx) {
 
 static void
 context_free(JSRuntime* rt, LWSContext* lc) {
-  lws_epoll_destroy(lc);
-
   if(lc->js) {
     JS_FreeContext(lc->js);
     lc->js = NULL;
@@ -876,7 +873,6 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
   switch(magic) {
     case METHOD_DESTROY: {
       if(lc->ctx) {
-        lws_epoll_destroy(lc);
         lws_context_destroy(lc->ctx);
         lc->ctx = NULL;
         ret = JS_TRUE;
@@ -1143,7 +1139,8 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
     case LWS_CALLBACK_DEL_POLL_FD: {
       struct lws_pollargs* x = in;
 
-      lws_epoll_del(lc, x->fd);
+      iohandler_set(lc, x->fd, JS_NULL, 0);
+      iohandler_set(lc, x->fd, JS_NULL, 1);
       return 0;
     }
 
@@ -1154,7 +1151,21 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
       if(x->events == x->prev_events)
         return 0;
 
-      lws_epoll_ctl(lc, x->fd, x->events);
+      BOOL write = !!(x->events & POLLOUT);
+      JSValueConst data[] = {
+          JS_NewInt32(ctx, x->fd),
+          JS_NewInt32(ctx, x->events),
+          JS_NewBool(ctx, write),
+          JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
+      };
+      JSValue fn = JS_NewCFunctionData(ctx, protocol_handler, 0, 0, countof(data), data);
+
+      if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
+        iohandler_set(lc, x->fd, JS_NULL, !write);
+
+      iohandler_set(lc, x->fd, fn, write);
+
+      JS_FreeValue(ctx, fn);
       return 0;
     }
 
