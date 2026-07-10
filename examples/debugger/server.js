@@ -21,13 +21,21 @@
  *   (open http://localhost:9229/)
  *   QUICKJS_DEBUG_ADDRESS=127.0.0.1:9229 qjs target.js
  */
-import { LLL_ERR,  LLL_USER,  logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_WRITE_BINARY, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, } from 'lws';
+import { LLL_ERR, LLL_USER, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_WRITE_BINARY, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
 import { exec, pipe, setReadHandler, read, close } from 'os';
 import { TextEncoder, TextDecoder } from 'textcode';
 
 logLevel(LLL_ERR | LLL_USER);
 
 const PORT = 9229;
+
+// 0: silent, 1: child stdin/stdout/stderr, 2: + debug wire protocol.
+let debugLevel = 1 + +(process.env.DEBUG ?? 0);
+
+function debugLog(level, arrow, color, label, ...args) {
+  if(debugLevel < level) return;
+  console.log(`\x1b[${color}m${arrow}\x1b[0m  ${label}`, console.config({ compact: true }), ...args);
+}
 
 const compose = (f, g) => x => g(f(x));
 
@@ -36,6 +44,11 @@ const toText = compose(
   bytes => bytes && new TextDecoder().decode(bytes),
   text => (text?.endsWith('\n') ? text.slice(0, -1) : text),
 );
+
+/** Frame a JSON string. byteLength must be the UTF-8 byte count of `json`. */
+export function frameMessage(json, byteLength = json.length) {
+  return (byteLength + 1).toString(16).padStart(8, '0') + '\n' + json + '\n';
+}
 
 // Bridges the push-driven onRawRx callback into pull-style reads, so the
 // frame decoder below can be written top-to-bottom like a synchronous
@@ -108,26 +121,23 @@ createServer({
 
         if(!target) {
           launchTarget();
-          console.log('browser connected, launching target...');
-        } else console.log('browser connected');
+          debugLog(0, '✅', 36, 'browser connected, launching target...');
+        } else {
+          debugLog(0, '✅', 36, 'browser connected');
+        }
       },
       onClosed() {
         browser = null;
-        console.log('browser disconnected');
+        debugLog(0, '⛔', 36, 'browser disconnected');
       },
       onReceive(wsi, data) {
         // debugger commands from the demo UI always arrive as a bare JSON
         // message (ws.send(string) => a WS text frame => data is a string)
         const json = typeof data == 'string' ? data : new TextDecoder().decode(data);
-        const body = new TextEncoder().encode(json);
-        const header = new TextEncoder().encode((body.length + 1).toString(16).padStart(8, '0') + '\n');
-        const frame = new Uint8Array(header.length + body.length + 1);
 
-        frame.set(header, 0);
-        frame.set(body, header.length);
-        frame[frame.length - 1] = 0x0a;
+        debugLog(2, '🡆', 31, 'client', JSON.parse(json));
 
-        target?.write(frame.buffer);
+        target?.write(frameMessage(json, new TextEncoder().encode(json).length));
       },
     },
 
@@ -136,7 +146,7 @@ createServer({
       name: 'target',
       onRawAdopt(wsi) {
         target = wsi;
-        console.log('debug target connected');
+        debugLog(0, '✅', 33, 'debug target connected');
 
         const queue = (targetQueue = new ByteQueue());
         const readText = n => queue.read(n).then(toText);
@@ -152,6 +162,9 @@ createServer({
           for(;;) {
             const json = await decodeFrame();
             if(json == null) break; // target closed mid-frame or cleanly
+
+            debugLog(2, '🡄', 32, 'target', JSON.parse(json));
+
             browser?.write(json);
           }
         })();
@@ -160,7 +173,7 @@ createServer({
         target = null;
         targetQueue?.close();
         targetQueue = null;
-        console.log('debug target disconnected');
+        debugLog(0, '⛔', 33, 'debug target disconnected');
       },
       onRawRx(wsi, data) {
         targetQueue?.feed(data);
@@ -170,40 +183,42 @@ createServer({
 });
 
 function launchTarget(script = 'target.js') {
-  const [in_r, in_w] = pipe();
-  const [out_r, out_w] = pipe();
-  const [err_r, err_w] = pipe();
+  const [[stdin, toChild], [fromStdout, stdout], [fromStderr, stderr]] = [pipe(), pipe(), pipe()];
 
-  const pid = exec(['env', `QUICKJS_DEBUG_ADDRESS=127.0.0.1:${PORT}`, `qjs`, script], { block: false, stdin: in_r, stdout: out_w, stderr: err_w });
+  const pid = exec(['env', `QUICKJS_DEBUG_ADDRESS=127.0.0.1:${PORT}`, `qjs`, script], {
+    block: false,
+    stdin,
+    stdout,
+    stderr,
+  });
 
-  close(out_w);
-  close(err_w);
-  close(in_r);
+  [stdout, stderr, stdin].forEach(close);
 
   for(const [fd, channel] of [
-    [out_r, 1],
-    [err_r, 2],
+    [fromStdout, 1],
+    [fromStderr, 2],
   ]) {
-    const rbuf = new ArrayBuffer(1 + 1024);
-    const u8 = new Uint8Array(rbuf);
-    u8[0] = channel;
+    const buf = new Uint8Array(1 + 1024);
+    buf[0] = channel;
 
     setReadHandler(fd, () => {
-      const r = read(fd, rbuf, 1, 1024);
+      const n = read(fd, buf.buffer, 1, 1024);
 
-      if(r <= 0) {
+      if(n <= 0) {
         setReadHandler(fd, null);
         close(fd);
         return;
       }
 
-      browser?.write(rbuf, 1 + r, LWS_WRITE_BINARY);
+      debugLog(1, '🡇', 33, 'onOutput', { channel, text: new TextDecoder().decode(buf.subarray(1, 1 + n)) });
+
+      browser?.write(buf.buffer, 1 + n, LWS_WRITE_BINARY);
     });
   }
 
-  console.log('launchTarget', { pid, in_w });
-  return in_w;
+  debugLog(0, '▶️', 36, 'launchTarget', { pid, toChild });
+  return toChild;
 }
 
-console.log(`open http://localhost:${PORT}/`);
-console.log(`then:  QUICKJS_DEBUG_ADDRESS=127.0.0.1:${PORT} qjs target.js`);
+debugLog(0, 'ℹ️', 36, `open http://localhost:${PORT}/`);
+debugLog(0, 'ℹ️', 36, `then:  QUICKJS_DEBUG_ADDRESS=127.0.0.1:${PORT} qjs target.js`);

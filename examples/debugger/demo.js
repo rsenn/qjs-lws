@@ -313,7 +313,7 @@ ws.binaryType = 'arraybuffer';
 ws.onopen = () => setStatus('connected — waiting for a debug target…');
 ws.onclose = () => setStatus('disconnected');
 ws.onerror = () => setStatus('connection error');
-ws.onmessage = ({data}) => {
+ws.onmessage = ({ data }) => {
   const bytes = typeof data == 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
 
   if(bytes[0] === 0x7b) onFrame(new TextDecoder().decode(bytes));
