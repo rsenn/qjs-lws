@@ -121,6 +121,40 @@ disable redirect following.
 `wsi.redirectedToGet` is `true` if a POST was downgraded to GET via
 a 303 redirect.
 
+## Connection pipelining / keep-alive
+
+By default every `clientConnect()` opens its own network connection.
+Setting `LCCSCF_PIPELINE` in `sslConnection` lets lws reuse an
+existing connection to the same vhost/endpoint instead: for h1,
+subsequent requests queue on the first ("leader") connection and run
+sequentially over it; for h2, they join the same network connection
+as parallel mux streams as soon as it's up. See
+`libwebsockets/lib/core-net/README.md` for the full mechanism.
+
+```js
+import { LCCSCF_PIPELINE } from 'lws';
+
+const a = ctx.clientConnect(url, { sslConnection: LCCSCF_PIPELINE });
+const b = ctx.clientConnect(url, { sslConnection: LCCSCF_PIPELINE });
+```
+
+Both connections still get their own full set of callbacks — lws
+does not distinguish "leader" from "queued" at the callback level
+(see `lib/core-net/README.md`: "The user code does not know which
+wsi was first or is queued, it just waits for stuff to happen the
+same either way"). To actually observe whether reuse happened, use
+the `pipelineLeader` / `isPipelineLeader` / `pipelineQueueDepth`
+accessors on `LWSSocket` — see
+[LWSSocket.md](LWSSocket.md#pipelining--keep-alive-introspection).
+
+These accessors require the `lws_get_txn_queue_leader()` /
+`lws_wsi_is_txn_queue_leader()` / `lws_get_txn_queue_depth()` patch
+to the vendored libwebsockets in `patches/`; upstream lws does not
+expose this state. `lib/fetch.js` does not use `LCCSCF_PIPELINE` yet
+(each `fetch()` call opens its own `LWSContext`/vhost, so there's no
+shared "existing connection" to reuse) — using it there needs the
+caller to share one context/vhost across calls first.
+
 ## Promise wrapper: `lib/fetch.js`
 
 `lib/fetch.js` builds a WHATWG-`fetch`-shaped API on top of these

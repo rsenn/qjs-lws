@@ -1,0 +1,122 @@
+From acb818ea598cce369817080bcf6b61e682baf16c Mon Sep 17 00:00:00 2001
+From: Roman Senn <roman.l.senn@gmail.com>
+Date: Fri, 10 Jul 2026 20:28:17 +0200
+Subject: [PATCH] Add public accessors for h1/h2 client txn-queue (pipelining)
+ state
+
+LCCSCF_PIPELINE already lets client connections queue/mux onto an
+existing connection to the same endpoint (see lib/core-net/README.md),
+but nothing let a caller observe whether that actually happened - the
+relevant state (dll2_cli_txn_queue, dll_cli_active_conns,
+dll2_cli_txn_queue_owner) is private to struct lws.
+
+Adds three read-only accessors, modeled on the existing
+lws_get_network_wsi()/lws_get_parent()/lws_get_child():
+
+- lws_get_txn_queue_leader(wsi): the wsi this one is queued behind, or
+  NULL if it isn't queued.
+- lws_wsi_is_txn_queue_leader(wsi): whether this wsi owns a real
+  network connection others may queue behind.
+- lws_get_txn_queue_depth(wsi): how many client wsi are currently
+  queued behind this leader.
+---
+ include/libwebsockets/lws-misc.h | 37 ++++++++++++++++++++++++++++++++
+ lib/core-net/wsi.c               | 34 +++++++++++++++++++++++++++++
+ 2 files changed, 71 insertions(+)
+
+diff --git a/include/libwebsockets/lws-misc.h b/include/libwebsockets/lws-misc.h
+index e455d5de3..713e38244 100644
+--- a/include/libwebsockets/lws-misc.h
++++ b/include/libwebsockets/lws-misc.h
+@@ -855,6 +855,43 @@ lws_get_close_payload(struct lws *wsi);
+ LWS_VISIBLE LWS_EXTERN
+ struct lws *lws_get_network_wsi(struct lws *wsi);
+ 
++/**
++ * lws_get_txn_queue_leader() - get the wsi managing the h1-pipelined
++ * connection this client wsi is queued behind, or NULL
++ *
++ * \param wsi: wsi you have
++ *
++ * If LCCSCF_PIPELINE caused this client connection to queue behind an
++ * existing "leader" connection to the same endpoint instead of opening its
++ * own network connection, this returns that leader wsi. Returns NULL if wsi
++ * is not queued (it may be a leader itself, or have its own connection).
++ */
++LWS_VISIBLE LWS_EXTERN struct lws *
++lws_get_txn_queue_leader(const struct lws *wsi);
++
++/**
++ * lws_wsi_is_txn_queue_leader() - is this wsi an active pipelining leader?
++ *
++ * \param wsi: wsi you have
++ *
++ * Returns nonzero if this wsi currently owns a real network connection that
++ * other client wsi to the same endpoint may be queued behind.
++ */
++LWS_VISIBLE LWS_EXTERN int
++lws_wsi_is_txn_queue_leader(const struct lws *wsi);
++
++/**
++ * lws_get_txn_queue_depth() - count client wsi queued behind this leader
++ *
++ * \param wsi: the leader wsi
++ *
++ * Returns how many other client connections are currently queued (h1
++ * pipelining) behind this one waiting their turn on the same network
++ * connection. 0 if none, or if wsi is not a leader.
++ */
++LWS_VISIBLE LWS_EXTERN int
++lws_get_txn_queue_depth(const struct lws *wsi);
++
+ /**
+  * lws_set_allocator() - custom allocator support
+  *
+diff --git a/lib/core-net/wsi.c b/lib/core-net/wsi.c
+index 2a358b227..0ae957cfb 100644
+--- a/lib/core-net/wsi.c
++++ b/lib/core-net/wsi.c
+@@ -133,6 +133,40 @@ struct lws *lws_get_network_wsi(struct lws *wsi) {
+ 	return wsi;
+ }
+ 
++struct lws *
++lws_get_txn_queue_leader(const struct lws *wsi)
++{
++#if defined(LWS_WITH_CLIENT)
++	if (!wsi || lws_dll2_is_detached(&wsi->dll2_cli_txn_queue))
++		return NULL;
++
++	return lws_container_of(wsi->dll2_cli_txn_queue.owner, struct lws,
++				 dll2_cli_txn_queue_owner);
++#else
++	return NULL;
++#endif
++}
++
++int
++lws_wsi_is_txn_queue_leader(const struct lws *wsi)
++{
++#if defined(LWS_WITH_CLIENT)
++	return wsi && !lws_dll2_is_detached(&wsi->dll_cli_active_conns);
++#else
++	return 0;
++#endif
++}
++
++int
++lws_get_txn_queue_depth(const struct lws *wsi)
++{
++#if defined(LWS_WITH_CLIENT)
++	return wsi ? (int)wsi->dll2_cli_txn_queue_owner.count : 0;
++#else
++	return 0;
++#endif
++}
++
+ const struct lws_protocols *lws_vhost_name_to_protocol(struct lws_vhost *vh,
+ 		const char *name) {
+ 	int n;
+-- 
+2.43.0
+

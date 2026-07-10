@@ -859,6 +859,9 @@ enum {
   PROP_EXTENSIONS,
   PROP_H2,
   PROP_BUFFERED_AMOUNT,
+  PROP_PIPELINE_LEADER,
+  PROP_IS_PIPELINE_LEADER,
+  PROP_PIPELINE_QUEUE_DEPTH,
 };
 
 static JSValue
@@ -1084,6 +1087,29 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_NewInt64(ctx, (int64_t)s->write_buffered);
       break;
     }
+
+    case PROP_PIPELINE_LEADER: {
+      struct lws* wsi = s->wsi ? lws_get_txn_queue_leader(s->wsi) : NULL;
+
+      if(wsi)
+        ret = lwsjs_socket_get_or_create(ctx, wsi);
+
+      break;
+    }
+
+    case PROP_IS_PIPELINE_LEADER: {
+      if(s->wsi)
+        ret = JS_NewBool(ctx, lws_wsi_is_txn_queue_leader(s->wsi));
+
+      break;
+    }
+
+    case PROP_PIPELINE_QUEUE_DEPTH: {
+      if(s->wsi)
+        ret = JS_NewInt32(ctx, lws_get_txn_queue_depth(s->wsi));
+
+      break;
+    }
   }
 
   return ret;
@@ -1133,6 +1159,9 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("extensions", lwsjs_socket_get, 0, PROP_EXTENSIONS),
     JS_CGETSET_MAGIC_DEF("h2", lwsjs_socket_get, 0, PROP_H2),
     JS_CGETSET_MAGIC_DEF("bufferedAmount", lwsjs_socket_get, 0, PROP_BUFFERED_AMOUNT),
+    JS_CGETSET_MAGIC_DEF("pipelineLeader", lwsjs_socket_get, 0, PROP_PIPELINE_LEADER),
+    JS_CGETSET_MAGIC_DEF("isPipelineLeader", lwsjs_socket_get, 0, PROP_IS_PIPELINE_LEADER),
+    JS_CGETSET_MAGIC_DEF("pipelineQueueDepth", lwsjs_socket_get, 0, PROP_PIPELINE_QUEUE_DEPTH),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 

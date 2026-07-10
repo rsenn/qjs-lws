@@ -116,7 +116,9 @@ See [mounts.md](mounts.md) for their meaning.
 `IP_LOW_COST`, `CONMON`, `ACCEPT_TLS_DOWNGRADE_REDIRECTS`,
 `CACHE_COOKIES`.
 
-See [tls.md](tls.md) for usage.
+See [tls.md](tls.md) for usage, and
+[http-client.md](http-client.md#connection-pipelining--keep-alive)
+for `PIPELINE` / `MUXABLE_STREAM` specifically.
 
 ## HTTP header tokens (`WSI_TOKEN_*`)
 

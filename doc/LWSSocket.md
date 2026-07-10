@@ -162,8 +162,31 @@ Throws `RangeError` when the buffer is too small.
 | `h2`           | Boolean — `lws_wsi_is_h2()` |
 | `redirectedToGet` | `true` if a client redirect downgraded POST to GET |
 | `bodyPending`  | Get/set; setter calls `lws_client_http_body_pending(n)` — used to drive client POST body writes |
+| `pipelineLeader` | The wsi this one is queued behind (`lws_get_txn_queue_leader()`), or `undefined` if not queued |
+| `isPipelineLeader` | Boolean — `lws_wsi_is_txn_queue_leader()`, whether other client wsi may be queued behind this one |
+| `pipelineQueueDepth` | Number of client wsi currently queued behind this one (`lws_get_txn_queue_depth()`) |
 
 The toStringTag is `LWSSocket`.
+
+### Pipelining / keep-alive introspection
+
+When a client connection is made with `LCCSCF_PIPELINE` set in
+`sslConnection`, libwebsockets transparently queues (h1) or muxes
+(h2) additional connections to the same endpoint onto an existing
+one instead of opening a new network connection — see
+[http-client.md](http-client.md#connection-pipelining--keep-alive).
+`pipelineLeader`, `isPipelineLeader` and `pipelineQueueDepth` expose
+that state, which libwebsockets otherwise keeps private to `struct
+lws`:
+
+```js
+const a = ctx.clientConnect(url, { sslConnection: LCCSCF_PIPELINE });
+const b = ctx.clientConnect(url, { sslConnection: LCCSCF_PIPELINE });
+
+console.log(b.pipelineLeader === a);   // true once b queued behind a
+console.log(a.isPipelineLeader);       // true
+console.log(a.pipelineQueueDepth);     // 1
+```
 
 ## Lifetime / per-session data
 
