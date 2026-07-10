@@ -11,7 +11,7 @@
   #panes { display: flex; gap: 1rem; flex: 1; min-height: 0; }
   #sourceCol, #varsCol { min-width: 0; overflow-y: auto; }
   #sourceCol { flex: 2; }
-  #varsCol { flex: 1; }
+  #varsCol { flex: 1; display: flex; flex-direction: column; gap: 1rem; }
   #source { border: 1px solid #ccc; padding: 0.5rem; overflow: auto; max-height: 32rem; }
   #source div { white-space: pre; font-family: monospace; }
   #source .line-no { display: inline-block; width: 2.5rem; color: #999; user-select: none; cursor: pointer; }
@@ -26,11 +26,9 @@
   #vars .scope { font-weight: bold; margin-top: 0.5rem; }
   #output { border: 1px solid #ccc; background: #1e1e1e; color: #ddd; font-family: monospace; white-space: pre-wrap; padding: 0.5rem; max-height: 12rem; overflow: auto; margin-top: 1rem; }
   #output .stderr { color: #ff6b6b; }
-  #evalPane { margin-top: 1rem; }
+  #evalPane { margin-top: auto; }
   #evalPane input { font-family: monospace; width: 100%; box-sizing: border-box; }
   #evalResult { font-family: monospace; margin-top: 0.25rem; min-height: 1.2em; }
-  #watchList { font-family: monospace; margin-top: 0.25rem; }
-  #watchList div { margin-top: 0.15rem; }
 </style>
 </head>
 <body>
@@ -56,10 +54,6 @@
       <input id="evalInput" placeholder="expression, Enter to run">
       <button id="evalRun">Run</button>
       <div id="evalResult"></div>
-      <h3>Watches</h3>
-      <input id="watchInput" placeholder="watch expression, Enter to add">
-      <button id="watchAdd">Add</button>
-      <div id="watchList"></div>
     </div>
   </div>
 </div>

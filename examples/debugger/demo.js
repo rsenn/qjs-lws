@@ -1,20 +1,13 @@
 /**
  * Talks to server.js over the WebSocket at /debug. Each WS message is one
- * self-contained unit (no manual length framing needed, the transport
- * already delimits messages):
- *   - a message starting with '{' is a debug-wire JSON message
- *   - a message starting with a byte < 0x20 is streamed target I/O: that
- *     first byte is a channel number (1 = stdout, 2 = stderr), the rest is
- *     raw output text
- *
- * server.js does not parse any of this — it only shovels bytes. Source files
- * are fetched as plain static assets from the same origin (server.js serves
- * the current directory), so `qjs target.js` must be run from this directory
- * for the reported filename to resolve.
+ * self-contained unit: a message starting with '{' is debug-wire JSON, one
+ * starting with a byte < 0x20 is streamed target I/O (that byte is the
+ * channel: 1 = stdout, 2 = stderr). server.js only shovels bytes; source
+ * files are fetched as static assets from the same origin, so `qjs
+ * target.js` must run from this directory for filenames to resolve.
  */
 
-// 0: silent, 1: std{out,err,in} streams, 2: + wire protocol (sendMessage/onFrame).
-// Adjust from devtools with e.g. `debugLevel = 2`.
+// 0: silent, 1: std{out,err,in}, 2: + wire protocol. Set from devtools.
 let debugLevel = 1;
 
 function debugLog(level, arrow, color, label, ...args) {
@@ -28,26 +21,15 @@ const varsEl = document.getElementById('vars');
 const outputEl = document.getElementById('output');
 const evalInput = document.getElementById('evalInput');
 const evalResultEl = document.getElementById('evalResult');
-const watchInput = document.getElementById('watchInput');
-const watchListEl = document.getElementById('watchList');
 const sourceCache = new Map();
 const breakpoints = new Map(); // filename -> Set<line>
-const watches = []; // expression strings, re-evaluated on every pause/step
 
 const KEYWORDS =
   'async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield';
 
-// Tokenizes a single source line. Order matters: comment/regex/string must
-// be tried before the generic punct/other fallbacks so a `/` isn't
-// misread as division, and `other` guarantees full coverage (no
-// characters skip escaping) so an escaped entity is never split across
-// two <span>s.
-//
-// The regex/division heuristic is deliberately simple: a `/` starts a
-// regex literal unless directly preceded (ignoring whitespace) by a
-// word char, `)` or `]` - correctly handles `a/b` and `a / b`, but
-// misreads `return /re/` as division since "return" also ends in a
-// word char. Full disambiguation needs real parsing, not worth it here.
+// `other` covers every remaining char so escaping never splits across two
+// <span>s. Regex-vs-division is a simple heuristic (word char before `/`
+// means division) - misreads `return /re/`, an accepted edge case.
 const tokenRe = new RegExp(
   '(?<comment>//[^\\n]*|/\\*[\\s\\S]*?\\*/)' +
     '|(?<regex>(?<![\\w$)\\]]\\s*)/(?:[^/\\\\\\n[]|\\\\.|\\[(?:[^\\]\\\\\\n]|\\\\.)*\\])+/[a-z]*)' +
@@ -76,18 +58,10 @@ function highlightLine(line) {
 function toggleBreakpoint(filename, line, div) {
   let set = breakpoints.get(filename);
   if(!set) breakpoints.set(filename, (set = new Set()));
-
   if(set.has(line)) set.delete(line);
   else set.add(line);
-
   div.classList.toggle('breakpoint', set.has(line));
-
-  ws.send(
-    JSON.stringify({
-      type: 'breakpoints',
-      breakpoints: { path: filename, breakpoints: [...set].map(line => ({ line })) },
-    }),
-  );
+  ws.send(JSON.stringify({ type: 'breakpoints', breakpoints: { path: filename, breakpoints: [...set].map(line => ({ line })) } }));
 }
 
 let ws,
@@ -101,25 +75,20 @@ function setStatus(text) {
 function request(command, args) {
   const request_seq = seq++;
   const request = { type: 'request', request: { command, request_seq, args } };
-
   debugLog(2, '🡆', 'red', 'sendMessage(', request, ')');
-
   ws.send(JSON.stringify(request));
   return new Promise(resolve => pending.set(request_seq, resolve));
 }
 
 function onFrame(json) {
   let msg;
-
   try {
     msg = JSON.parse(json);
   } catch(e) {
     console.log(`bad debugger frame: '${json}'`);
     return;
   }
-
   debugLog(2, '🡄', 'green', 'onFrame', msg);
-
   if(msg.type === 'response') {
     pending.get(msg.request_seq)?.(msg.body);
     pending.delete(msg.request_seq);
@@ -135,9 +104,7 @@ function onFrame(json) {
 
 function onOutput(channel, text) {
   const stdin = channel === 3;
-
   debugLog(1, stdin ? '🡅' : '🡇', stdin ? 'blue' : '#ffc000', 'onOutput', { channel, text });
-
   const line = document.createElement('div');
   if(channel === 2) line.className = 'stderr';
   line.textContent = text;
@@ -160,7 +127,6 @@ async function showSource(filename, line) {
     } catch(e) {
       text = `(could not load ${filename}: ${e})`;
     }
-
     sourceCache.set(filename, text);
   }
 
@@ -169,7 +135,6 @@ async function showSource(filename, line) {
   text.split('\n').forEach((codeLine, i) => {
     const div = document.createElement('div');
     const lineNo = i + 1;
-
     if(lineNo === line) div.classList.add('current');
     if(breakpoints.get(filename)?.has(lineNo)) div.classList.add('breakpoint');
 
@@ -193,19 +158,15 @@ let currentFrameId = 0;
 async function refresh() {
   const frames = await request('stackTrace');
   const frame = frames[0];
-
   if(!frame) return;
 
   currentFrameId = frame.id;
-
   await showSource(frame.filename, frame.line);
 
   varsEl.innerHTML = '';
 
   for(const scope of await request('scopes', { frameId: frame.id })) {
-    if(scope.expensive)
-      // skip Global: huge builtin list, not useful here
-      continue;
+    if(scope.expensive) continue; // skip Global: huge builtin list, not useful here
 
     const heading = document.createElement('div');
     heading.className = 'scope';
@@ -218,8 +179,6 @@ async function refresh() {
       varsEl.appendChild(row);
     }
   }
-
-  await updateWatches();
 }
 
 async function evaluate(expression, frameId = currentFrameId) {
@@ -229,78 +188,20 @@ async function evaluate(expression, frameId = currentFrameId) {
 
 async function runEval() {
   const expression = evalInput.value;
-  if(!expression) return;
-  evalResultEl.textContent = await evaluate(expression);
+  if(expression) evalResultEl.textContent = await evaluate(expression);
 }
 
 document.getElementById('evalRun').addEventListener('click', runEval);
-evalInput.addEventListener('keydown', e => {
-  if(e.key === 'Enter') runEval();
-});
+evalInput.addEventListener('keydown', e => e.key === 'Enter' && runEval());
 
-function renderWatches() {
-  watchListEl.innerHTML = '';
+const keyMap = { F5: 'continue', F9: 'pause', F10: 'next', F11: 'stepIn', F12: 'stepOut' };
 
-  watches.forEach((expression, i) => {
-    const row = document.createElement('div');
+for(const [key, id] of Object.entries(keyMap)) document.getElementById(id).title = key;
 
-    const removeBtn = document.createElement('button');
-    removeBtn.textContent = '×';
-    removeBtn.addEventListener('click', () => {
-      watches.splice(i, 1);
-      renderWatches();
-    });
-
-    const label = document.createElement('span');
-    label.textContent = ` ${expression} = `;
-
-    const value = document.createElement('span');
-    value.className = 'watch-value';
-
-    row.append(removeBtn, label, value);
-    watchListEl.appendChild(row);
-  });
-}
-
-function addWatch() {
-  const expression = watchInput.value;
-  if(!expression) return;
-  watches.push(expression);
-  watchInput.value = '';
-  renderWatches();
-  updateWatches();
-}
-
-document.getElementById('watchAdd').addEventListener('click', addWatch);
-watchInput.addEventListener('keydown', e => {
-  if(e.key === 'Enter') addWatch();
-});
-
-async function updateWatches() {
-  const values = watchListEl.querySelectorAll('.watch-value');
-
-  for(let i = 0; i < watches.length; i++) values[i].textContent = await evaluate(watches[i]);
-}
-
-const keyMap = {
-  F5: 'continue',
-  F9: 'pause',
-  F10: 'next',
-  F11: 'stepIn',
-  F12: 'stepOut',
-};
-
-for(const [key, id] of Object.entries(keyMap)) {
-  document.getElementById(id).title = key;
-}
-
-for(const id of ['continue', 'next', 'stepIn', 'stepOut', 'pause']) {
-  document.getElementById(id).addEventListener('click', () => request(id));
-}
+for(const id of ['continue', 'next', 'stepIn', 'stepOut', 'pause']) document.getElementById(id).addEventListener('click', () => request(id));
 
 document.addEventListener('keydown', e => {
   const id = keyMap[e.key];
-
   if(id) {
     e.preventDefault();
     request(id);
@@ -315,7 +216,6 @@ ws.onclose = () => setStatus('disconnected');
 ws.onerror = () => setStatus('connection error');
 ws.onmessage = ({ data }) => {
   const bytes = typeof data == 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
-
   if(bytes[0] === 0x7b) onFrame(new TextDecoder().decode(bytes));
   else onOutput(bytes[0], new TextDecoder().decode(bytes.subarray(1)));
 };
