@@ -1,0 +1,186 @@
+diff --git a/lws-epoll.c b/lws-epoll.c
+new file mode 100644
+index 0000000..e639d55
+--- /dev/null
++++ b/lws-epoll.c
+@@ -0,0 +1,157 @@
++#include "lws-epoll.h"
++#include "iohandler.h"
++#include "js-utils.h"
++#include <sys/epoll.h>
++#include <poll.h>
++#include <unistd.h>
++
++typedef struct {
++  struct list_head link;
++  int fd;
++  int events; /* POLLIN/POLLOUT interest, as registered by lws */
++} LWSEpollFd;
++
++struct LWSEpoll {
++  int epfd;
++  LWSContext* lc;
++  struct list_head fds;
++};
++
++static LWSEpollFd*
++epoll_fd_find(LWSEpoll* ep, int fd) {
++  struct list_head* el;
++
++  list_for_each(el, &ep->fds) {
++    LWSEpollFd* e = list_entry(el, LWSEpollFd, link);
++
++    if(e->fd == fd)
++      return e;
++  }
++
++  return NULL;
++}
++
++static void
++epoll_drain(LWSEpoll* ep) {
++  struct epoll_event events[32];
++  int i, n;
++
++  for(;;) {
++    n = epoll_wait(ep->epfd, events, countof(events), 0);
++
++    if(n <= 0)
++      break;
++
++    for(i = 0; i < n; i++) {
++      LWSEpollFd* e = epoll_fd_find(ep, events[i].data.fd);
++      struct lws_pollfd pfd = {
++          .fd = events[i].data.fd,
++          .events = e ? e->events : 0,
++          .revents = 0,
++      };
++
++      if(events[i].events & EPOLLIN)
++        pfd.revents |= POLLIN;
++      if(events[i].events & EPOLLOUT)
++        pfd.revents |= POLLOUT;
++      if(events[i].events & (EPOLLERR | EPOLLHUP))
++        pfd.revents |= POLLHUP;
++
++      lws_service_fd(ep->lc->ctx, &pfd);
++    }
++
++    if(n < (int)countof(events))
++      break;
++  }
++}
++
++static JSValue
++epoll_readable(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, void* opaque) {
++  epoll_drain(opaque);
++  return JS_UNDEFINED;
++}
++
++static LWSEpoll*
++epoll_new(LWSContext* lc) {
++  LWSEpoll* ep;
++
++  if(!(ep = js_mallocz(lc->js, sizeof(LWSEpoll))))
++    return NULL;
++
++  if((ep->epfd = epoll_create1(EPOLL_CLOEXEC)) < 0) {
++    js_free(lc->js, ep);
++    return NULL;
++  }
++
++  ep->lc = lc;
++  init_list_head(&ep->fds);
++
++  JSValue fn = js_function_cclosure(lc->js, epoll_readable, 0, 0, ep, NULL);
++  iohandler_set(lc, ep->epfd, fn, FALSE);
++  JS_FreeValue(lc->js, fn);
++
++  return ep;
++}
++
++void
++lws_epoll_ctl(LWSContext* lc, int fd, int pollevents) {
++  LWSEpoll* ep;
++  LWSEpollFd* e;
++  struct epoll_event ev = {0};
++
++  if(!(ep = lc->epoll) && !(ep = lc->epoll = epoll_new(lc)))
++    return;
++
++  if(pollevents & POLLIN)
++    ev.events |= EPOLLIN;
++  if(pollevents & POLLOUT)
++    ev.events |= EPOLLOUT;
++  ev.data.fd = fd;
++
++  if((e = epoll_fd_find(ep, fd))) {
++    e->events = pollevents;
++    epoll_ctl(ep->epfd, EPOLL_CTL_MOD, fd, &ev);
++  } else if((e = js_mallocz(lc->js, sizeof(LWSEpollFd)))) {
++    e->fd = fd;
++    e->events = pollevents;
++    list_add(&e->link, &ep->fds);
++    epoll_ctl(ep->epfd, EPOLL_CTL_ADD, fd, &ev);
++  }
++}
++
++void
++lws_epoll_del(LWSContext* lc, int fd) {
++  LWSEpoll* ep;
++  LWSEpollFd* e;
++
++  if(!(ep = lc->epoll))
++    return;
++
++  if((e = epoll_fd_find(ep, fd))) {
++    epoll_ctl(ep->epfd, EPOLL_CTL_DEL, fd, NULL);
++    list_del(&e->link);
++    js_free(lc->js, e);
++  }
++}
++
++void
++lws_epoll_destroy(LWSContext* lc) {
++  LWSEpoll* ep;
++  struct list_head *el, *next;
++
++  if(!(ep = lc->epoll))
++    return;
++
++  iohandler_set(lc, ep->epfd, JS_NULL, FALSE);
++
++  list_for_each_safe(el, next, &ep->fds) {
++    LWSEpollFd* e = list_entry(el, LWSEpollFd, link);
++
++    list_del(&e->link);
++    js_free(lc->js, e);
++  }
++
++  close(ep->epfd);
++  js_free(lc->js, ep);
++  lc->epoll = NULL;
++}
+diff --git a/lws-epoll.h b/lws-epoll.h
+new file mode 100644
+index 0000000..f2e9fac
+--- /dev/null
++++ b/lws-epoll.h
+@@ -0,0 +1,17 @@
++#ifndef QJS_LWS_EPOLL_H
++#define QJS_LWS_EPOLL_H
++
++#include "lws-context.h"
++
++/* Add or modify epoll interest for fd (POLLIN/POLLOUT bitmask). Lazily
++   creates the LWSContext's epoll instance and its single quickjs-libc
++   read-handler registration on first use. */
++void lws_epoll_ctl(LWSContext*, int fd, int events);
++
++/* Drop fd from the epoll instance. */
++void lws_epoll_del(LWSContext*, int fd);
++
++/* Tear down the epoll instance: close epfd and unregister its read handler. */
++void lws_epoll_destroy(LWSContext*);
++
++#endif /* defined QJS_LWS_EPOLL_H */

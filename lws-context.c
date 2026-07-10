@@ -1129,6 +1129,7 @@ lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
 static int
 callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   LWSContext* lc = wsi ? lwsjs_wsi_context(wsi) : 0;
+  JSContext* ctx = lc && lc->js ? lc->js : wsi ? lwsjs_wsi_jscontext(wsi) : 0;
 
   switch(reason) {
     case LWS_CALLBACK_LOCK_POLL:
