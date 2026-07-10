@@ -1128,8 +1128,22 @@ lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
 
 static int
 callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+  /*LWSContext* lc = wsi ? lwsjs_wsi_context(wsi) : 0;
+  JSContext* ctx = lc && lc->js ? lc->js : wsi ? lwsjs_wsi_jscontext(wsi) : 0;*/
+
+  LWSProtocols const* pro = wsi ? lws_get_protocol(wsi) : 0;
+  LWSProtocol* closure = pro ? pro->user : 0;
+
   LWSContext* lc = wsi ? lwsjs_wsi_context(wsi) : 0;
-  JSContext* ctx = lc && lc->js ? lc->js : wsi ? lwsjs_wsi_jscontext(wsi) : 0;
+  JSContext* ctx = closure && closure->ctx ? closure->ctx : lc ? lc->js : 0;
+
+  if(!ctx && lc && lc->ctx) {
+    JSObject* obj = lws_context_user(lc->ctx);
+    LWSContext* lwsctx;
+
+    if((lwsctx = JS_GetOpaque(JS_MKPTR(JS_TAG_OBJECT, obj), lwsjs_context_class_id)))
+      ctx = lwsctx->js;
+  }
 
   switch(reason) {
     case LWS_CALLBACK_LOCK_POLL:
