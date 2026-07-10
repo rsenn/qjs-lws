@@ -150,10 +150,14 @@ accessors on `LWSSocket` — see
 These accessors require the `lws_get_txn_queue_leader()` /
 `lws_wsi_is_txn_queue_leader()` / `lws_get_txn_queue_depth()` patch
 to the vendored libwebsockets in `patches/`; upstream lws does not
-expose this state. `lib/fetch.js` does not use `LCCSCF_PIPELINE` yet
-(each `fetch()` call opens its own `LWSContext`/vhost, so there's no
-shared "existing connection" to reuse) — using it there needs the
-caller to share one context/vhost across calls first.
+expose this state. `lib/fetch.js` uses `LCCSCF_PIPELINE` by default —
+it reuses one shared `LWSContext`/vhost across calls specifically so
+repeat requests to the same origin can queue/mux onto an existing
+connection. Pass `keepAlive: false`, or a custom `tls` option, to get
+an isolated one-off context instead. See
+[tests/test-fetch.js](../tests/test-fetch.js) for a same-host crawler
+that exercises this and reports how many distinct TCP connections the
+whole crawl actually used.
 
 ## Promise wrapper: `lib/fetch.js`
 
@@ -170,3 +174,8 @@ for await (const chunk of res.body) console.log(toString(chunk));
 
 It uses the `ReadableStream` adapter from `lib/lws/streams.js` and a
 permissive default TLS setup.
+
+By default it also shares one `LWSContext` across calls and sets
+`LCCSCF_PIPELINE` — see [Connection pipelining / keep-alive](#connection-pipelining--keep-alive)
+above. Pass `{ tls: {...} }` (a custom TLS config) or `{ keepAlive: false }`
+to fall back to an isolated context per call instead.

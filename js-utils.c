@@ -169,22 +169,29 @@ str_or_buf_property(const char** pptr, const void** mptr, unsigned int* mlen, JS
 
   if(js_has_property2(ctx, obj, name)) {
     JSValue value = js_get_property(ctx, obj, name);
-    size_t len;
-    uint8_t* buf;
 
-    if((buf = JS_GetArrayBuffer(ctx, &len, value))) {
-      *pptr = 0;
+    if(!JS_IsString(value)) {
+      size_t len;
+      uint8_t* buf;
 
-      if((*mptr = js_malloc(ctx, len))) {
-        *mlen = len;
+      if((buf = JS_GetArrayBuffer(ctx, &len, value))) {
+        *pptr = 0;
 
-        memcpy((void*)*mptr, buf, len);
+        if((*mptr = js_malloc(ctx, len))) {
+          *mlen = len;
+
+          memcpy((void*)*mptr, buf, len);
+        }
+
+        return;
       }
-    } else {
-      *mptr = 0;
 
-      str_replace(ctx, pptr, to_stringfree(ctx, value));
+      JS_GetException(ctx);
     }
+
+    *mptr = 0;
+
+    str_replace(ctx, pptr, to_stringfree(ctx, value));
   }
 }
 
