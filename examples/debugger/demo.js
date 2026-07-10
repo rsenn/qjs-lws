@@ -13,6 +13,15 @@
  * for the reported filename to resolve.
  */
 
+// 0: silent, 1: std{out,err,in} streams, 2: + wire protocol (sendMessage/onFrame).
+// Adjust from devtools with e.g. `debugLevel = 2`.
+let debugLevel = 1;
+
+function debugLog(level, arrow, color, label, ...args) {
+  if(debugLevel < level) return;
+  console.log(`%c${arrow}%c ${label}`, `color: ${color};`, 'color: black', ...args);
+}
+
 const statusEl = document.getElementById('status');
 const sourceEl = document.getElementById('source');
 const varsEl = document.getElementById('vars');
@@ -30,8 +39,8 @@ function setStatus(text) {
 function request(command, args) {
   const request_seq = seq++;
   const request = { type: 'request', request: { command, request_seq, args } };
-  
-  console.log('%c🡆%c sendMessage(', 'color: red;', 'color: black', request, ')'  );
+
+  debugLog(2, '🡆', 'red', 'sendMessage(', request, ')');
 
   ws.send(JSON.stringify(request));
   return new Promise(resolve => pending.set(request_seq, resolve));
@@ -47,7 +56,7 @@ function onFrame(json) {
     return;
   }
 
-  console.log('%c🡄%c onFrame','color: green;', 'color: black', msg);
+  debugLog(2, '🡄', 'green', 'onFrame', msg);
 
   if(msg.type === 'response') {
     pending.get(msg.request_seq)?.(msg.body);
@@ -63,7 +72,9 @@ function onFrame(json) {
 }
 
 function onOutput(channel, text) {
-  console.log('%c🡇%c onOutput', 'color: #ffc000;', 'color: black', { channel, text });
+  const stdin = channel === 3;
+
+  debugLog(1, stdin ? '🡅' : '🡇', stdin ? 'blue' : '#ffc000', 'onOutput', { channel, text });
 
   const line = document.createElement('div');
   if(channel === 2) line.className = 'stderr';
