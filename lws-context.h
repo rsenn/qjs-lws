@@ -16,7 +16,11 @@ typedef struct LWSContext {
   struct lws_context_creation_info info;
   JSContext* js;
   struct list_head handlers;
-  int service_timer_id;
+  /* Holds whatever os.setTimeout() returned - an opaque JS "OSTimer"
+     object in this quickjs-libc, not a plain numeric id - so it must be
+     passed back to os.clearTimeout() as-is, never coerced to a number.
+     JS_UNDEFINED means no service tick is currently scheduled. */
+  JSValue service_timer_id;
 #ifdef USE_EPOLL
   LWSEpoll* epoll;
 #endif

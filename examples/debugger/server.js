@@ -23,7 +23,8 @@
  */
 import { LLL_ERR, LLL_USER, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWS_WRITE_BINARY, LWS_WRITE_HTTP_FINAL, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, } from 'lws';
 import { ByteQueue } from '../../lib/lws/byte-queue.js';
-import { exec, pipe, setReadHandler, read, close, realpath } from 'os';
+import { SubprocessStream } from '../../lib/lws/subprocess-stream.js';
+import { realpath } from 'os';
 import { TextEncoder, TextDecoder } from 'textcode';
 import * as std from 'std';
 
@@ -200,42 +201,36 @@ createServer({
   ],
 });
 
-function launchTarget(script = 'target.js') {
-  const [[stdin, toChild], [fromStdout, stdout], [fromStderr, stderr]] = [pipe(), pipe(), pipe()];
+// Forwards one of the child's output streams to the browser as
+// channel-prefixed binary WS messages (1 = stdout, 2 = stderr) - see the
+// wire-protocol note at the top of this file.
+async function pumpChannel(stream, channel) {
+  const reader = stream.getReader();
 
-  const pid = exec(['env', `QUICKJS_DEBUG_ADDRESS=127.0.0.1:${PORT}`, `qjs`, script], {
-    block: false,
-    stdin,
-    stdout,
-    stderr,
-  });
+  for(;;) {
+    const { value, done } = await reader.read();
+    if(done) break;
 
-  [stdout, stderr, stdin].forEach(close);
+    const framed = new Uint8Array(1 + value.byteLength);
+    framed[0] = channel;
+    framed.set(new Uint8Array(value), 1);
 
-  for(const [fd, channel] of [
-    [fromStdout, 1],
-    [fromStderr, 2],
-  ]) {
-    const buf = new Uint8Array(1 + 1024);
-    buf[0] = channel;
+    debugLog(1, '🡇', 33, 'onOutput', { channel, text: new TextDecoder().decode(value) });
 
-    setReadHandler(fd, () => {
-      const n = read(fd, buf.buffer, 1, 1024);
-
-      if(n <= 0) {
-        setReadHandler(fd, null);
-        close(fd);
-        return;
-      }
-
-      debugLog(1, '🡇', 33, 'onOutput', { channel, text: new TextDecoder().decode(buf.subarray(1, 1 + n)) });
-
-      browser?.write(buf.buffer, 1 + n, LWS_WRITE_BINARY);
-    });
+    browser?.write(framed.buffer, framed.byteLength, LWS_WRITE_BINARY);
   }
+}
 
-  debugLog(0, '▶️', 36, 'launchTarget', { pid, toChild });
-  return toChild;
+function launchTarget(script = 'target.js') {
+  const child = SubprocessStream(['env', `QUICKJS_DEBUG_ADDRESS=127.0.0.1:${PORT}`, 'qjs', script]);
+
+  pumpChannel(child.stdout, 1);
+  pumpChannel(child.stderr, 2);
+
+  child.exited.then(({ code, signal }) => debugLog(0, '⏹️', 36, 'target process exited', { pid: child.pid, code, signal }));
+
+  debugLog(0, '▶️', 36, 'launchTarget', { pid: child.pid });
+  return child;
 }
 
 debugLog(0, 'ℹ️', 36, `open http://localhost:${PORT}/`);

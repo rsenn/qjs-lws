@@ -113,7 +113,12 @@ static JSValue
 service_tick(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst func_data[]) {
   LWSContext* lc = to_ptr(ctx, func_data[0]);
 
-  lc->service_timer_id = 0;
+  /* The timer that invoked this callback has already fired (and
+     quickjs-libc frees its own OSTimer state internally once it does) -
+     drop our reference to it before schedule_service_tick() below
+     overwrites service_timer_id with the next one. */
+  JS_FreeValue(ctx, lc->service_timer_id);
+  lc->service_timer_id = JS_UNDEFINED;
 
   if(!lc->ctx)
     return JS_UNDEFINED;
@@ -140,20 +145,22 @@ schedule_service_tick(LWSContext* lc, int delay_ms) {
   JSValue cb = JS_NewCFunctionData(lc->js, service_tick, 0, 0, countof(data), data);
 
   JSValue args[2] = {cb, JS_NewInt32(lc->js, delay_ms)};
-  JSValue ret = JS_Call(lc->js, fn, JS_NULL, 2, args);
 
-  int32_t id = 0;
-  JS_ToInt32(lc->js, &id, ret);
-  lc->service_timer_id = id;
+  /* os.setTimeout() returns an opaque "OSTimer" JS object in this
+     quickjs-libc, not a plain numeric id (unlike, say, Node's timer
+     handles being coercible to a number) - JS_ToInt32-ing it throws a
+     stray, never-checked "toPrimitive" TypeError, since the object has
+     no valueOf/toString. Keep the object itself; it goes back into
+     os.clearTimeout() unchanged in cancel_service_tick(). */
+  lc->service_timer_id = JS_Call(lc->js, fn, JS_NULL, 2, args);
 
-  JS_FreeValue(lc->js, ret);
   JS_FreeValue(lc->js, cb);
   JS_FreeValue(lc->js, fn);
 }
 
 static void
 cancel_service_tick(LWSContext* lc) {
-  if(!lc->service_timer_id || !lc->js)
+  if(JS_IsUndefined(lc->service_timer_id) || !lc->js)
     return;
 
   JSValue glob = JS_GetGlobalObject(lc->js);
@@ -162,13 +169,13 @@ cancel_service_tick(LWSContext* lc) {
   JSValue fn = JS_GetPropertyStr(lc->js, os, "clearTimeout");
   JS_FreeValue(lc->js, os);
 
-  JSValue arg = JS_NewInt32(lc->js, lc->service_timer_id);
-  JSValue ret = JS_Call(lc->js, fn, JS_NULL, 1, &arg);
+  JSValue ret = JS_Call(lc->js, fn, JS_NULL, 1, &lc->service_timer_id);
 
   JS_FreeValue(lc->js, ret);
   JS_FreeValue(lc->js, fn);
 
-  lc->service_timer_id = 0;
+  JS_FreeValue(lc->js, lc->service_timer_id);
+  lc->service_timer_id = JS_UNDEFINED;
 }
 
 JSValue
@@ -668,6 +675,7 @@ void
 context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_context_creation_info* ci) {
   JSValue value;
 
+
   str_property(&ci->iface, ctx, obj, "iface");
   str_property(&ci->vhost_name, ctx, obj, "vhost_name");
 
@@ -875,8 +883,12 @@ static LWSContext*
 context_new(JSContext* ctx) {
   LWSContext* lc;
 
-  if((lc = js_mallocz(ctx, sizeof(LWSContext))))
+  if((lc = js_mallocz(ctx, sizeof(LWSContext)))) {
     init_list_head(&lc->handlers);
+    /* js_mallocz() zero-fills, which isn't guaranteed to be JS_UNDEFINED's
+       actual bit pattern - set it explicitly rather than relying on that. */
+    lc->service_timer_id = JS_UNDEFINED;
+  }
 
   return lc;
 }
