@@ -8,6 +8,49 @@ under `Unreleased` until that changes.
 
 ### Added
 
+- `lib/lws/url.js`: a conforming subset of the WHATWG URL Standard —
+  `URL` and `URLSearchParams`, implemented from the spec's basic URL
+  parser state machine (special schemes, relative resolution,
+  IPv4/IPv6 hosts, `file:`/opaque-path URLs, percent-encoding per
+  component). `URLSearchParams` writes back through to its parent
+  `URL`'s `search`/`href`. Known deviation: no IDNA/Punycode (non-ASCII
+  domain labels stay as lowercased UTF-8 rather than `xn--` form).
+  See [doc/helpers.md](doc/helpers.md#liblwsurljs).
+- `Response` gained a `redirected` property (default `false`,
+  preserved by `clone()`); `lib/fetch.js` sets it to `true` when lws
+  follows a redirect.
+- New `USE_EPOLL` CMake option (default `OFF`, Linux-only): routes
+  pollfd management through a single `epoll(7)` instance
+  (`lws-epoll.c`/`lws-epoll.h`) instead of one `os.setReadHandler`/
+  `setWriteHandler` registration per fd. Previously these sources
+  existed but were unconditionally excluded from the build. See
+  [doc/event-loop.md](doc/event-loop.md#optional-epoll7-backend-use_epoll).
+
+### Fixed
+
+- `lib/lws/body.js`: `Body.prototype.text()` called
+  `TextEncoder.encode()` instead of `TextDecoder.decode()`, so
+  `response.text()`/`.json()` returned garbage instead of the actual
+  body for every real `fetch()` response.
+- `lib/lws/stream-utils.js`: `concatArrayBuffer()` passed a raw
+  `ArrayBuffer` chunk straight to `Uint8Array.prototype.set()`, which
+  silently copies nothing (a bare `ArrayBuffer` has no indexed
+  properties) — bodies constructed directly from an `ArrayBuffer`
+  (e.g. `new Response(arrayBuffer)`) decoded to all-zero bytes.
+- `lib/lws/body.js`: the `Body` constructor only treated `undefined`
+  as "no body", not `null` — `Response.error()` and `new
+  Response(null)` (the standard no-body idiom, e.g. for 204/304
+  responses) always threw `TypeError: bad body: object`.
+- `lib/lws/response.js`: `Response.redirect(url)` had no default
+  `status`, so omitting it threw instead of defaulting to 302 per
+  spec.
+- `lib/lws/headers.js`: `Headers` values were never validated —
+  `normalizeValue()` now trims leading/trailing HTTP whitespace and
+  throws `TypeError` on embedded NUL/CR/LF, matching the Fetch spec
+  and closing a header-injection gap (an untrusted value containing
+  `"\r\n"` could otherwise smuggle extra headers onto the wire via
+  `wsi.addHeader`).
+
 - `LWSSocket` gained `pipelineLeader`, `isPipelineLeader`, and
   `pipelineQueueDepth` accessors for introspecting libwebsockets'
   `LCCSCF_PIPELINE` client connection queueing/muxing (h1 pipelining,

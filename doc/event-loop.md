@@ -24,6 +24,41 @@ Implemented in `iohandler.h` and `callback_pollfd` in `lws-context.c`.
 `LWS_CALLBACK_LOCK_POLL` / `UNLOCK_POLL` are no-ops because there is
 no second thread.
 
+## Optional `epoll(7)` backend (`USE_EPOLL`)
+
+The default backend above registers one QuickJS io handler *per fd*
+(and re-registers it on every `CHANGE_MODE_POLL_FD`, since each
+handler is a freshly-built JS closure). Build with `-DUSE_EPOLL=ON`
+(off by default; Linux-only) to instead route pollfd management
+through a single `epoll` instance:
+
+1. `LWS_CALLBACK_ADD_POLL_FD` / `CHANGE_MODE_POLL_FD` call
+   `lws_epoll_ctl(lc, fd, events)`, which lazily creates the
+   `LWSContext`'s epoll instance (`epoll_create1`) on first use and
+   issues `EPOLL_CTL_ADD`/`EPOLL_CTL_MOD` — no per-fd JS closure is
+   created.
+2. `LWS_CALLBACK_DEL_POLL_FD` calls `lws_epoll_del(lc, fd)`
+   (`EPOLL_CTL_DEL`).
+3. The epoll instance's own fd is registered with
+   `os.setReadHandler` exactly once. When it fires, `epoll_wait()`
+   drains all ready fds and calls `lws_service_fd()` directly in C
+   for each one — the QuickJS event loop is only ever woken for the
+   one epoll fd, regardless of how many connections are open.
+4. `ctx.cancelService()` / context teardown calls
+   `lws_epoll_destroy(lc)`, which unregisters that one io handler and
+   closes the epoll fd.
+
+Implemented in `lws-epoll.c` / `lws-epoll.h`, wired into
+`callback_pollfd()` and the inline pollfd handling in
+`callback_protocol()` (`lws-context.c`) behind `#ifdef USE_EPOLL`.
+The `LWSContext` struct gains an `epoll` field (also behind
+`#ifdef USE_EPOLL`) holding the `LWSEpoll*` instance.
+
+Everything under "Consequences for user code" below still applies
+unchanged — from script-side JS there's no observable difference
+between the two backends beyond fewer fds ever being registered with
+`os.setReadHandler`.
+
 ## Consequences for user code
 
 - **You never call `os.setReadHandler` for an lws-managed fd

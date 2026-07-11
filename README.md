@@ -151,6 +151,19 @@ ctx.clientConnect('https://example.com/');
   script stays alive while any fd is registered. See
   [`doc/event-loop.md`](doc/event-loop.md).
 - Convenience wrappers (`fetch`, `serve`, `WebSocket`, `TCPSocket`,
-  `TCPSocketStream`) live under [`lib/`](lib/) and are documented
-  in [`doc/helpers.md`](doc/helpers.md).
+  `TCPSocketStream`, `URL`/`URLSearchParams`) live under
+  [`lib/`](lib/) and are documented in
+  [`doc/helpers.md`](doc/helpers.md).
+- `lib/lws/url.js` is a from-spec implementation of the WHATWG URL
+  Standard's basic URL parser — special schemes, relative-URL
+  resolution, IPv4/IPv6 hosts, `file:`/opaque-path URLs, and a
+  `URLSearchParams` that writes back through to the parent `URL`.
+  `fetch`'s `Request`/`Response`/`Headers`/body-reading are a
+  conforming *subset* of WHATWG Fetch (no CORS/cache/service-worker
+  semantics — this runs server-side, not in a browser sandbox), with
+  spec-checked behaviour where they do overlap: `Headers` rejects
+  header-injection attempts (embedded CR/LF/NUL in values), body
+  reading (`text()`/`json()`/`arrayBuffer()`) is UTF-8-correct for
+  both string and binary bodies, and `Response.redirected` reflects
+  whether `fetch()` actually followed a redirect.
 - More end-to-end examples in [`doc/examples.md`](doc/examples.md).

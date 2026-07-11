@@ -49,7 +49,33 @@ Recognised options (subset):
 | `pwsi(wsi)` | Hook called with the freshly created `LWSSocket` |
 
 The body is exposed as a `ReadableStream` from
-`lib/lws/streams.js`.
+`lib/lws/streams.js`. `Response.redirected` is `true` when lws
+followed at least one redirect to produce the response.
+
+### `lib/lws/url.js`
+
+A conforming subset of the [WHATWG URL Standard](https://url.spec.whatwg.org/):
+`URL` and `URLSearchParams`, implemented from the spec's own basic
+URL parser state machine (not a regex approximation) — special-scheme
+handling (`http`/`https`/`ws`/`wss`/`ftp`/`file`), relative-URL
+resolution against a base, IPv4/IPv6 host parsing and serialization,
+`file:`/opaque-path URLs (`mailto:`, …), and correct percent-encoding
+per component.
+
+```js
+import { URL, URLSearchParams } from './lib/lws/url.js';
+
+const u = new URL('/a/../b?x=1', 'https://example.com/dir/');
+console.log(u.href);            // https://example.com/b?x=1
+console.log(u.searchParams.get('x')); // '1'
+
+u.searchParams.set('y', '2');
+console.log(u.href);            // https://example.com/b?x=1&y=2 (searchParams writes back through)
+```
+
+Known deviation from the spec: no IDNA/Punycode — non-ASCII domain
+labels are lowercased and kept as UTF-8 rather than converted to
+`xn--` ASCII form. Plain ASCII domains are unaffected.
 
 ### `lib/websocket.js`
 
@@ -112,10 +138,11 @@ const { readable, writable, remoteAddress } = await stream.opened;
 | `context.js`       | `createContext(info)` — adds defaults (DNS servers from `/etc/resolv.conf`, `vhostName` from `/etc/hostname`, TLS options when `info.tls` is set), then `new LWSContext(info)` |
 | `util.js`          | `waitWrite(wsi)`, `mapper`/`weakMapper`, `actor`, `verbose`/`debug`, state constants `CONNECTING`/`OPEN`/`CLOSING`/`CLOSED`, `ConnectionError` |
 | `events.js`        | A spec-shaped `EventTarget` plus `EventTargetProperties(['open',…])` for `onfoo = …` properties |
-| `body.js`          | Body mixin used by `Request`/`Response` |
+| `body.js`          | Body mixin used by `Request`/`Response`: `arrayBuffer()`/`text()`/`json()`/`blob()`/`formData()`. `null` and `undefined` both mean "no body" |
 | `request.js`       | `Request` (subset of WHATWG `Request`) |
-| `response.js`      | `Response` (subset of WHATWG `Response`) |
-| `headers.js`       | `Headers` (case-insensitive map) |
+| `response.js`      | `Response` (subset of WHATWG `Response`), including `redirected` |
+| `headers.js`       | `Headers` (case-insensitive map). Values are validated per spec: leading/trailing HTTP whitespace is trimmed, embedded NUL/CR/LF throws `TypeError` (prevents header injection via untrusted values) |
+| `url.js`           | `URL` / `URLSearchParams` — see above |
 | `streams.js`       | A self-contained `ReadableStream`/`WritableStream`/`TransformStream` implementation |
 | `stream-utils.js`  | Reader/writer helpers |
 | `simple-queue.js`  | Queue used by `streams.js` |

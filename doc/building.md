@@ -26,6 +26,7 @@ From `CMakeLists.txt`:
 | `BUILD_CURL`           | `OFF` | Vendor-build curl when `USE_CURL=ON` |
 | `BUILD_MINIMAL_EXAMPLES` | `OFF` | Build the libwebsockets minimal examples |
 | `DEBUG_OUTPUT`         | `OFF` | Define `DEBUG_OUTPUT`; activates the `DEBUG()` / `DEBUG_WSI()` macros |
+| `USE_EPOLL`            | `OFF` | Linux-only. Route pollfd management through a single `epoll(7)` instance (`lws-epoll.c`) instead of one `os.setReadHandler`/`setWriteHandler` registration per fd — see [event-loop.md](event-loop.md#optional-epoll7-backend-use_epoll) |
 | `DISABLE_WERROR`       | `ON`  | Don't treat warnings as errors |
 
 ### libwebsockets plugins
