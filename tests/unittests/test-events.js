@@ -1,0 +1,135 @@
+import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
+import { EventTarget, EventEmitter, EventTargetProperties, once, waitOne } from '../../lib/lws/events.js';
+
+await tests({
+  'addEventListener / dispatchEvent invokes the listener'() {
+    const t = new EventTarget();
+    let received;
+    t.addEventListener('ping', e => (received = e));
+    t.dispatchEvent({ type: 'ping', detail: 42 });
+    assert(received, 'listener was never called');
+    eq(42, received.detail);
+  },
+
+  'dispatchEvent sets event.target'() {
+    const t = new EventTarget();
+    let target;
+    t.addEventListener('ping', e => (target = e.target));
+    t.dispatchEvent({ type: 'ping', detail: 1 });
+    assertStrictEquals(t, target);
+  },
+
+  'removeEventListener stops future delivery'() {
+    const t = new EventTarget();
+    let count = 0;
+    const fn = () => count++;
+    t.addEventListener('ping', fn);
+    t.dispatchEvent({ type: 'ping' });
+    t.removeEventListener('ping', fn);
+    t.dispatchEvent({ type: 'ping' });
+    eq(1, count);
+  },
+
+  'multiple listeners for the same type all fire, in order'() {
+    const t = new EventTarget();
+    const order = [];
+    t.addEventListener('ping', () => order.push('a'));
+    t.addEventListener('ping', () => order.push('b'));
+    t.dispatchEvent({ type: 'ping' });
+    eq('a,b', order.join(','));
+  },
+
+  'dispatchEvent with no listeners is a no-op, does not throw'() {
+    const t = new EventTarget();
+    t.dispatchEvent({ type: 'nope' });
+  },
+
+  'addEventListener rejects a non-function listener'() {
+    const t = new EventTarget();
+    try {
+      t.addEventListener('ping', 'not a function');
+      fail('expected a throw for a non-function listener');
+    } catch(e) {
+      assert(e instanceof TypeError, 'expected TypeError, got ' + e);
+    }
+  },
+
+  'EventTargetProperties: on<type> setter registers, getter reads back'() {
+    const Klass = EventTargetProperties(['open']);
+    const t = new Klass();
+    let fired = false;
+    t.onopen = () => (fired = true);
+    assert(typeof t.onopen === 'function', 'expected onopen getter to read back the handler');
+    t.dispatchEvent({ type: 'open' });
+    assertStrictEquals(true, fired);
+  },
+
+  'EventTargetProperties: reassigning on<type> replaces the old handler'() {
+    const Klass = EventTargetProperties(['open']);
+    const t = new Klass();
+    let calls = 0;
+    t.onopen = () => calls++;
+    t.onopen = () => (calls += 10);
+    t.dispatchEvent({ type: 'open' });
+    eq(10, calls);
+  },
+
+  'EventEmitter: on/emit'() {
+    const e = new EventEmitter();
+    const seen = [];
+    e.on('data', (...args) => seen.push(args));
+    e.emit('data', 1, 2);
+    eq(1, seen.length);
+    eq('1,2', seen[0].join(','));
+  },
+
+  'EventEmitter: once fires only once'() {
+    const e = new EventEmitter();
+    let count = 0;
+    e.once('data', () => count++);
+    e.emit('data');
+    e.emit('data');
+    eq(1, count);
+  },
+
+  'EventEmitter: removeListener stops delivery'() {
+    const e = new EventEmitter();
+    let count = 0;
+    const fn = () => count++;
+    e.on('data', fn);
+    e.emit('data');
+    e.removeListener('data', fn);
+    e.emit('data');
+    eq(1, count);
+  },
+
+  'EventEmitter: removeAllListeners(type) clears just that type'() {
+    const e = new EventEmitter();
+    let a = 0,
+      b = 0;
+    e.on('a', () => a++);
+    e.on('b', () => b++);
+    e.removeAllListeners('a');
+    e.emit('a');
+    e.emit('b');
+    eq(0, a);
+    eq(1, b);
+  },
+
+  async 'once(emitter, type) resolves with the next matching event'() {
+    const t = new EventTarget();
+    const p = once(t, 'ping');
+    t.dispatchEvent({ type: 'ping', detail: 7 });
+    const ev = await p;
+    eq(7, ev.detail);
+  },
+
+  async 'waitOne resolves with whichever of several types fires first'() {
+    const t = new EventTarget();
+    const p = waitOne(t, ['a', 'b']);
+    t.dispatchEvent({ type: 'b', detail: 'won' });
+    const ev = await p;
+    eq('b', ev.type);
+    eq('won', ev.detail);
+  },
+});
