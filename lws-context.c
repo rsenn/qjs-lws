@@ -13,6 +13,9 @@
 #include "lws.h"
 #include "js-utils.h"
 #include "iohandler.h"
+#ifdef USE_EPOLL
+#include "lws-epoll.h"
+#endif
 
 #define LWS_PLUGIN_STATIC
 
@@ -880,6 +883,10 @@ context_new(JSContext* ctx) {
 
 static void
 context_free(JSRuntime* rt, LWSContext* lc) {
+#ifdef USE_EPOLL
+  lws_epoll_destroy(lc);
+#endif
+
   if(lc->js) {
     cancel_service_tick(lc);
     JS_FreeContext(lc->js);
@@ -1267,8 +1274,12 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
     case LWS_CALLBACK_DEL_POLL_FD: {
       struct lws_pollargs* x = in;
 
+#ifdef USE_EPOLL
+      lws_epoll_del(lc, x->fd);
+#else
       iohandler_set(lc, x->fd, JS_NULL, 0);
       iohandler_set(lc, x->fd, JS_NULL, 1);
+#endif
       return 0;
     }
 
@@ -1279,6 +1290,9 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
       if(x->events == x->prev_events)
         return 0;
 
+#ifdef USE_EPOLL
+      lws_epoll_ctl(lc, x->fd, x->events);
+#else
       BOOL write = !!(x->events & POLLOUT);
       JSValueConst data[] = {
           JS_NewInt32(ctx, x->fd),
@@ -1294,6 +1308,7 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
       iohandler_set(lc, x->fd, fn, write);
 
       JS_FreeValue(ctx, fn);
+#endif
       return 0;
     }
 
@@ -1457,14 +1472,22 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       case LWS_CALLBACK_DEL_POLL_FD: {
         struct lws_pollargs* x = in;
 
+#ifdef USE_EPOLL
+        lws_epoll_del(lc, x->fd);
+#else
         iohandler_set(lc, x->fd, JS_NULL, 0);
         iohandler_set(lc, x->fd, JS_NULL, 1);
+#endif
         return 0;
       }
 
       case LWS_CALLBACK_ADD_POLL_FD:
       case LWS_CALLBACK_CHANGE_MODE_POLL_FD: {
         struct lws_pollargs* x = in;
+
+#ifdef USE_EPOLL
+        lws_epoll_ctl(lc, x->fd, x->events);
+#else
         BOOL write = !!(x->events & POLLOUT);
         JSValueConst data[] = {
             JS_NewInt32(ctx, x->fd),
@@ -1480,6 +1503,7 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         iohandler_set(lc, x->fd, fn, write);
 
         JS_FreeValue(ctx, fn);
+#endif
         return 0;
       }
 
