@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>raw-proxy-fallback</title>
+<style>
+  body { font-family: sans-serif; max-width: 40rem; margin: 3rem auto; line-height: 1.5; }
+  code { background: #eee; padding: 0.1em 0.3em; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>raw-proxy-fallback</h1>
+<p>
+  This is an ordinary HTTP response served by qjs-lws. If instead the first
+  bytes of a new connection on this port don't look like HTTP - for example
+  an SSH client's banner - the connection is transparently proxied to
+  another TCP server instead (by default, an SSH server on
+  <code>localhost:22</code>).
+</p>
+<p>Try: <code>ssh -p 7681 user@localhost</code></p>
+</body>
+</html>

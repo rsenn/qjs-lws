@@ -365,6 +365,16 @@ lwsjs_socket_create(JSContext* ctx, struct lws* wsi) {
   if((sock = socket_alloc(ctx))) {
     sock->wsi = wsi;
     ret = lwsjs_socket_wrap(ctx, sock);
+
+    /* lws never attaches opaque_user_data itself for server-accepted wsi's
+       (only our own METHOD_CLIENT_CONNECT does, via info.opaque_user_data) -
+       so without this, js_socket_get()/socket_get() never find a wrapper
+       for an accepted connection and lwsjs_socket_get_or_create() mints a
+       brand new one on every single callback, breaking wsi identity
+       (Map/Set keying, wsi.foo = x, etc.) across calls for HTTP/WS/raw
+       server connections. sock->obj already holds a dup'd reference to
+       `ret` for the wsi's whole lifetime, so this pointer never dangles. */
+    lws_set_opaque_user_data(wsi, JS_VALUE_GET_OBJ(ret));
   }
 
   return ret;
