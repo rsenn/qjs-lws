@@ -673,16 +673,29 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_conte
   JS_FreeValue(ctx, value);
 
 #ifdef LWS_ROLE_WS
-  struct lws_extension* exts;
+  /* permessage-deflate was previously forced on unconditionally for every
+     context. lws's own decompression-chunk boundaries get conflated with
+     WS message/frame boundaries once it's active: lws_is_final_fragment()
+     (wsi->ws->final && !wsi->ws->rx_packet_length) tracks the current
+     *decompression step*, not the underlying wire frame, so it reports
+     "final" for every intermediate fragment of an explicitly-fragmented
+     message, and a single large message can get delivered to JS as
+     several separate LWS_CALLBACK_CLIENT_RECEIVE/RECEIVE calls with no
+     reliable way to tell they belong together. Opt-in only now, off by
+     default, so callers who don't need compression get correct fragment
+     boundaries. */
+  if(to_boolfree(ctx, JS_GetPropertyStr(ctx, obj, "permessageDeflate"))) {
+    struct lws_extension* exts;
 
-  if((exts = js_mallocz(ctx, sizeof(struct lws_extension) * 2)))
-    exts[0] = (struct lws_extension){
-        "permessage-deflate",
-        lws_extension_callback_pm_deflate,
-        "permessage-deflate; client_no_context_takeover; client_max_window_bits",
-    };
+    if((exts = js_mallocz(ctx, sizeof(struct lws_extension) * 2)))
+      exts[0] = (struct lws_extension){
+          "permessage-deflate",
+          lws_extension_callback_pm_deflate,
+          "permessage-deflate; client_no_context_takeover; client_max_window_bits",
+      };
 
-  ci->extensions = exts;
+    ci->extensions = exts;
+  }
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -1627,13 +1640,19 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
       argv[argi++] = JS_NewInt64(ctx, len);
 
-      /*if(lws_ws_sending_multifragment(wsi)) {
+      /* lws_is_first_fragment()/lws_is_final_fragment() are receive-side
+         (unlike lws_ws_sending_multifragment(), which reports our own send
+         state and is never true here). A plain single-frame message is
+         simultaneously first and final; only surface `frame` when that's
+         not the case, matching the documented "only present for
+         multi-fragment messages" contract. */
+      if(is_ws && !(lws_is_first_fragment(wsi) && lws_is_final_fragment(wsi))) {
         argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
         JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);
         JS_SetPropertyStr(ctx, argv[argi], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
         JS_SetPropertyStr(ctx, argv[argi], "final", JS_NewBool(ctx, lws_is_final_fragment(wsi)));
         argi++;
-      }*/
+      }
 
     } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
       argv[argi++] = JS_NewString(ctx, in);

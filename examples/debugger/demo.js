@@ -1,10 +1,19 @@
 /**
- * Talks to server.js over the WebSocket at /debug. Each WS message is one
- * self-contained unit: a message starting with '{' is debug-wire JSON, one
- * starting with a byte < 0x20 is streamed target I/O (that byte is the
- * channel: 1 = stdout, 2 = stderr). server.js only shovels bytes; source
- * files are fetched as static assets from the same origin, so `qjs
- * target.js` must run from this directory for filenames to resolve.
+ * Talks to server.js over the WebSocket at /debug. Two kinds of WS message
+ * arrive:
+ *   - text messages carry debug-wire JSON, framed the same way as the raw
+ *     TCP side ("%08x '\n' <json> '\n'", the 8 hex digits counting json's
+ *     UTF-8 byte length + 1) rather than being one-message-per-frame - a
+ *     large frame can otherwise come out on the wire as several separate
+ *     WS messages, so it's decoded here by that explicit length prefix
+ *     instead of relying on WS message boundaries (see decodeFrames()).
+ *   - binary messages are streamed target I/O, the first byte the channel
+ *     (1 = stdout, 2 = stderr).
+ * server.js only shovels bytes; source files relative to this directory
+ * are fetched as static assets from the same origin, and absolute-path
+ * source files (e.g. modules the debug target loaded from elsewhere on
+ * disk) go through GET /source?path=... instead, which server.js
+ * restricts to .js files under the user's home.
  */
 
 // 0: silent, 1: std{out,err,in}, 2: + wire protocol. Set from devtools.
@@ -121,8 +130,13 @@ async function showSource(filename, line) {
   let text = sourceCache.get(filename);
 
   if(text === undefined) {
+    // Absolute paths point outside this directory (e.g. modules the debug
+    // target loaded from elsewhere on disk) and aren't reachable through
+    // the static mount at '/' - fetch those through /source instead, which
+    // is restricted server-side to .js files under the user's home dir.
+    const url = filename.startsWith('/') ? `/source?path=${encodeURIComponent(filename)}` : filename;
     try {
-      const res = await fetch(filename);
+      const res = await fetch(url);
       text = res.ok ? await res.text() : `(HTTP ${res.status} fetching ${filename})`;
     } catch(e) {
       text = `(could not load ${filename}: ${e})`;
@@ -211,11 +225,44 @@ document.addEventListener('keydown', e => {
 ws = new WebSocket(`ws://${location.host}/debug`, 'browser');
 ws.binaryType = 'arraybuffer';
 
+// JSON debug-wire frames arrive as WS text messages, framed the same way
+// server.js frames them on the raw TCP side to the debug target ("%08x '\n'
+// <json> '\n'", the 8 hex digits counting json's UTF-8 byte length + 1 for
+// the trailing '\n'). A large frame (e.g. a big variable listing) can come
+// out on the wire as several separate WS messages instead of one - this
+// decoder reassembles by the explicit length prefix rather than assuming
+// one WS message == one frame. Streamed stdout/stderr (WS binary messages)
+// stay small enough to not need this and are handled as before.
+let textBuf = new Uint8Array(0);
+
+function decodeFrames() {
+  for(;;) {
+    if(textBuf.length < 9) return;
+
+    const len = parseInt(new TextDecoder().decode(textBuf.subarray(0, 8)), 16);
+    const total = 9 + len;
+
+    if(textBuf.length < total) return;
+
+    onFrame(new TextDecoder().decode(textBuf.subarray(9, total - 1)));
+    textBuf = textBuf.subarray(total);
+  }
+}
+
 ws.onopen = () => setStatus('connected — waiting for a debug target…');
 ws.onclose = () => setStatus('disconnected');
 ws.onerror = () => setStatus('connection error');
 ws.onmessage = ({ data }) => {
-  const bytes = typeof data == 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
-  if(bytes[0] === 0x7b) onFrame(new TextDecoder().decode(bytes));
-  else onOutput(bytes[0], new TextDecoder().decode(bytes.subarray(1)));
+  if(typeof data == 'string') {
+    const chunk = new TextEncoder().encode(data);
+    const merged = new Uint8Array(textBuf.length + chunk.length);
+    merged.set(textBuf, 0);
+    merged.set(chunk, textBuf.length);
+    textBuf = merged;
+    decodeFrames();
+    return;
+  }
+
+  const bytes = new Uint8Array(data);
+  onOutput(bytes[0], new TextDecoder().decode(bytes.subarray(1)));
 };

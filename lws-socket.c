@@ -86,8 +86,21 @@ socket_flush(LWSSocket* s) {
       return;
     }
 
-    wc->off += n;
-    s->write_buffered -= n;
+    /* A single lws_write() call for a WS text/binary message IS the whole
+       message: if the OS can't take it all immediately, lws buffers the
+       remainder itself and flushes it autonomously (see the "Truncated
+       Writes" section in lws-write.h) - the caller isn't meant to retry.
+       Retrying here with wc->proto (always LWS_WRITE_TEXT/BINARY, never
+       LWS_WRITE_CONTINUATION) would send the leftover bytes as a brand-new,
+       separate WS frame, splitting one logical message into several the
+       receiver can't reassemble. HTTP body writes have no such
+       per-message-boundary concept, so those keep the retry loop, calling
+       lws_write() again with the remaining bytes and the same proto until
+       the whole chunk is out. */
+    BOOL is_ws_message = wc->proto != LWS_WRITE_HTTP && wc->proto != LWS_WRITE_HTTP_FINAL;
+
+    wc->off = is_ws_message ? wc->len : wc->off + (size_t)n;
+    s->write_buffered -= is_ws_message ? remaining : (size_t)n;
 
     if(wc->off >= wc->len) {
       if(wc->proto == LWS_WRITE_HTTP_FINAL)

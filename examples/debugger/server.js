@@ -21,9 +21,10 @@
  *   (open http://localhost:9229/)
  *   QUICKJS_DEBUG_ADDRESS=127.0.0.1:9229 qjs target.js
  */
-import { LLL_ERR, LLL_USER, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWS_WRITE_BINARY, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
-import { exec, pipe, setReadHandler, read, close } from 'os';
+import { LLL_ERR, LLL_USER, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWS_WRITE_BINARY, LWS_WRITE_HTTP_FINAL, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+import { exec, pipe, setReadHandler, read, close, realpath } from 'os';
 import { TextEncoder, TextDecoder } from 'textcode';
+import * as std from 'std';
 
 logLevel(LLL_ERR | LLL_USER);
 
@@ -34,7 +35,7 @@ let debugLevel = 1 + +(process.env.DEBUG ?? 0);
 
 function debugLog(level, arrow, color, label, ...args) {
   if(debugLevel < level) return;
-  console.log(`\x1b[${color}m${arrow}\x1b[0m  ${label}`, console.config({ compact: true }), ...args);
+  console.log(`\x1b[${color}m${arrow}\x1b[0m  ${label}`, console.config({ compact: true, maxArrayLength: 1, maxStringLength: 120 }), ...args);
 }
 
 const compose = (f, g) => x => g(f(x));
@@ -100,6 +101,20 @@ let browser = null; // wsi of the connected browser tab (WebSocket)
 let target = null; // wsi of the connected debug target (raw TCP)
 let targetQueue = null; // ByteQueue accumulating bytes from `target` until full frames are available
 
+// Source files outside this directory (e.g. modules the debug target loaded
+// from elsewhere on disk) aren't reachable through the static mount at '/',
+// so demo.js asks for those via GET /source?path=<absolute path> instead.
+// Restricted to .js files inside the user's home directory - realpath()
+// collapses any '..'/symlink tricks before the containment check runs.
+const [HOME] = realpath(process.env.HOME ?? '/');
+
+function urlArg(uriArgs, name) {
+  for(const part of (uriArgs ?? '').split('&')) {
+    const eq = part.indexOf('=');
+    if((eq === -1 ? part : part.slice(0, eq)) === name) return decodeURIComponent(eq === -1 ? '' : part.slice(eq + 1));
+  }
+}
+
 createServer({
   port: PORT,
   vhostName: 'localhost',
@@ -108,10 +123,51 @@ createServer({
   listenAcceptProtocol: 'target',
   mounts: [
     { mountpoint: '/debug', protocol: 'browser', originProtocol: LWSMPRO_NO_MOUNT },
+    { mountpoint: '/source', protocol: 'source', originProtocol: LWSMPRO_CALLBACK },
     { mountpoint: '/', origin: '.', def: 'demo.html', originProtocol: LWSMPRO_FILE, protocol: 'http' },
   ],
   protocols: [
     { name: 'http' },
+
+    // GET /source?path=<abs path> - serves a .js source file from outside
+    // this directory, restricted to the user's home directory.
+    {
+      name: 'source',
+      onHttp(wsi) {
+        const path = urlArg(wsi.headers['uri-args'], 'path');
+
+        if(!path || !path.endsWith('.js')) {
+          wsi.respond(400, { 'content-type': 'text/plain' });
+          wsi.write('bad request: missing or non-.js path\n', LWS_WRITE_HTTP_FINAL);
+          return 0;
+        }
+
+        const [real, err] = realpath(path);
+
+        if(err) {
+          wsi.respond(404, { 'content-type': 'text/plain' });
+          wsi.write('not found\n', LWS_WRITE_HTTP_FINAL);
+          return 0;
+        }
+
+        /*if(real !== HOME && !real.startsWith(HOME + '/')) {
+          wsi.respond(403, { 'content-type': 'text/plain' });
+          wsi.write('forbidden\n', LWS_WRITE_HTTP_FINAL);
+          return 0;
+        }*/
+
+        const content = std.loadFile(real);
+
+        if(content == null) {
+          wsi.respond(404, { 'content-type': 'text/plain' });
+          wsi.write('not found\n', LWS_WRITE_HTTP_FINAL);
+          return 0;
+        }
+
+        wsi.respond(200, { 'content-type': 'text/javascript' }, content.length);
+        wsi.write(content, LWS_WRITE_HTTP_FINAL);
+      },
+    },
 
     // browser <-> here, over WebSocket at /debug
     {
@@ -165,7 +221,14 @@ createServer({
 
             debugLog(2, '🡄', 32, 'target', JSON.parse(json));
 
-            browser?.write(json);
+            // Large frames (e.g. a big variable listing) can come out on
+            // the WS wire as several separate frames instead of one
+            // fragmented message - libwebsockets' own fragment-boundary
+            // tracking doesn't reliably survive that here. Reuse the same
+            // explicit length-prefix framing already used for the raw TCP
+            // side instead of relying on WS message boundaries; demo.js
+            // decodes it the same way decodeFrame() does above.
+            browser?.write(frameMessage(json, new TextEncoder().encode(json).length));
           }
         })();
       },
