@@ -21,7 +21,8 @@
  *   (open http://localhost:9229/)
  *   QUICKJS_DEBUG_ADDRESS=127.0.0.1:9229 qjs target.js
  */
-import { LLL_ERR, LLL_USER, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWS_WRITE_BINARY, LWS_WRITE_HTTP_FINAL, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+import { LLL_ERR, LLL_USER, logLevel, toString, createServer, LWSMPRO_FILE, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWS_WRITE_BINARY, LWS_WRITE_HTTP_FINAL, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, } from 'lws';
+import { ByteQueue } from '../../lib/lws/byte-queue.js';
 import { exec, pipe, setReadHandler, read, close, realpath } from 'os';
 import { TextEncoder, TextDecoder } from 'textcode';
 import * as std from 'std';
@@ -49,52 +50,6 @@ const toText = compose(
 /** Frame a JSON string. byteLength must be the UTF-8 byte count of `json`. */
 export function frameMessage(json, byteLength = json.length) {
   return (byteLength + 1).toString(16).padStart(8, '0') + '\n' + json + '\n';
-}
-
-// Bridges the push-driven onRawRx callback into pull-style reads, so the
-// frame decoder below can be written top-to-bottom like a synchronous
-// parser (mirrors readFully()'s contract: resolves the requested number of
-// bytes, or null once closed).
-class ByteQueue {
-  #buf = new Uint8Array(0);
-  #closed = false;
-  #waiting = null; // { n, resolve }
-
-  feed(chunk) {
-    const add = new Uint8Array(chunk);
-    const buf = new Uint8Array(this.#buf.length + add.length);
-    buf.set(this.#buf, 0);
-    buf.set(add, this.#buf.length);
-    this.#buf = buf;
-    this.#check();
-  }
-
-  close() {
-    this.#closed = true;
-    this.#check();
-  }
-
-  read(n) {
-    return new Promise(resolve => {
-      this.#waiting = { n, resolve };
-      this.#check();
-    });
-  }
-
-  #check() {
-    if(!this.#waiting) return;
-
-    const { n, resolve } = this.#waiting;
-
-    if(this.#buf.length >= n) {
-      resolve(this.#buf.slice(0, n));
-      this.#buf = this.#buf.subarray(n);
-      this.#waiting = null;
-    } else if(this.#closed) {
-      resolve(null);
-      this.#waiting = null;
-    }
-  }
 }
 
 let browser = null; // wsi of the connected browser tab (WebSocket)

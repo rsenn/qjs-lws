@@ -1460,55 +1460,13 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
   DEBUG_WSI(wsi, "\x1b[1;33m%-24s\x1b[0m %p %p %zu", lwsjs_callback_name(reason), user, in, len);
 
-  if(closure && countof(closure->callbacks) > reason && !is_nullish(closure->callbacks[reason])) {
+  /* Pollfd-management reasons (LOCK_POLL/UNLOCK_POLL/ADD_POLL_FD/DEL_POLL_FD/
+     CHANGE_MODE_POLL_FD) never reach this point: callback_js() never handles
+     them, so the callback_pollfd() call a few lines above this function's
+     entry already returns 0 for all five - there used to be a second,
+     unreachable copy of that same switch statement here. */
+  if(closure && countof(closure->callbacks) > reason && !is_nullish(closure->callbacks[reason]))
     cb = &closure->callbacks[reason];
-  } else
-
-    switch(reason) {
-      // case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
-      case LWS_CALLBACK_LOCK_POLL:
-      case LWS_CALLBACK_UNLOCK_POLL: return 0;
-
-      case LWS_CALLBACK_DEL_POLL_FD: {
-        struct lws_pollargs* x = in;
-
-#ifdef USE_EPOLL
-        lws_epoll_del(lc, x->fd);
-#else
-        iohandler_set(lc, x->fd, JS_NULL, 0);
-        iohandler_set(lc, x->fd, JS_NULL, 1);
-#endif
-        return 0;
-      }
-
-      case LWS_CALLBACK_ADD_POLL_FD:
-      case LWS_CALLBACK_CHANGE_MODE_POLL_FD: {
-        struct lws_pollargs* x = in;
-
-#ifdef USE_EPOLL
-        lws_epoll_ctl(lc, x->fd, x->events);
-#else
-        BOOL write = !!(x->events & POLLOUT);
-        JSValueConst data[] = {
-            JS_NewInt32(ctx, x->fd),
-            JS_NewInt32(ctx, x->events),
-            JS_NewBool(ctx, write),
-            JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
-        };
-        JSValue fn = JS_NewCFunctionData(ctx, protocol_handler, 0, 0, countof(data), data);
-
-        if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
-          iohandler_set(lc, x->fd, JS_NULL, !write);
-
-        iohandler_set(lc, x->fd, fn, write);
-
-        JS_FreeValue(ctx, fn);
-#endif
-        return 0;
-      }
-
-      default: break;
-    }
 
   /*if(((int32_t*)wsi)[58] & 2)
     return lws_callback_http_dummy(wsi, reason, user, in, len);*/
@@ -1716,7 +1674,14 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
 
     for(int j = 0; j < argi; j++) {
-      if(buffer_index == argi)
+      /* Detach the one ArrayBuffer that wraps lws's own transient
+         stack/heap memory (pha->p / *(uint8_t**)in) at its own index -
+         comparing against argi here instead of j would never match, since
+         every branch that sets buffer_index pushes at least one more arg
+         afterward, leaving buffer_index < argi always. Without detaching,
+         JS code that retains this ArrayBuffer past the callback returning
+         could read/write memory lws has already reused for something else. */
+      if(buffer_index == j)
         JS_DetachArrayBuffer(ctx, argv[j]);
       JS_FreeValue(ctx, argv[j]);
     }
