@@ -54,6 +54,8 @@ static int callback_js(struct lws*, enum lws_callback_reasons, void*, void*, siz
 static int callback_http(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
 static int callback_protocol(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
 static void patch_system_vhost_pollfd(struct lws_context*);
+static void schedule_service_tick(LWSContext*, int);
+static void cancel_service_tick(LWSContext*);
 static JSValue callback_c(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
 
 static struct lws_protocol_vhost_options* vhost_options_from(JSContext*, JSValueConst);
@@ -66,16 +68,104 @@ static JSValue lwsjs_context_proto, lwsjs_context_ctor;
 
 static JSValue
 protocol_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst func_data[]) {
-  void* cptr = to_ptr(ctx, func_data[3]);
+  struct lws_context* lws_ctx = to_ptr(ctx, func_data[3]);
   struct lws_pollfd lpfd = {
       .fd = to_int32(ctx, func_data[0]),
       .events = to_int32(ctx, func_data[1]),
       .revents = JS_ToBool(ctx, func_data[2]) ? POLLOUT : POLLIN,
   };
 
-  lws_service_fd((struct lws_context*)cptr, &lpfd);
+  lws_service_fd(lws_ctx, &lpfd);
+
+  /*
+   * A serviced wsi may still have buffered data left to parse (e.g. a
+   * full response that arrived in one read(), where lws only advances
+   * its role state machine one step per lws_service_fd() call) or other
+   * work pending that isn't tied to new socket activity. lws calls this
+   * "forced service": with lws's own poll()/libuv/libev loops it's
+   * handled internally, but external-poll integrations (this one) must
+   * drive it explicitly, or such a wsi silently waits forever for a
+   * poll() event that will never come - see lws_service_adjust_timeout()
+   * in lws-service.h.
+   */
+  while(lws_service_adjust_timeout(lws_ctx, 1, 0) == 0)
+    lws_service_tsi(lws_ctx, -1, 0);
 
   return JS_UNDEFINED;
+}
+
+/*
+ * Base interval (ms) for the periodic forced-service tick below. The
+ * forced-service check in protocol_handler() above only runs when some fd
+ * belonging to this context happens to fire - but lws can leave a wsi
+ * needing service (e.g. a scheduled retry/timeout, or an internal state
+ * that couldn't be resolved from within a single lws_service_fd() call)
+ * with no new socket activity ever occurring to trigger that check again.
+ * This periodic tick is the safety net: it re-checks regardless of fd
+ * activity, same as lws's own poll()/libuv/libev loops do internally.
+ */
+#define SERVICE_TICK_MS 250
+
+static JSValue
+service_tick(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst func_data[]) {
+  LWSContext* lc = to_ptr(ctx, func_data[0]);
+
+  lc->service_timer_id = 0;
+
+  if(!lc->ctx)
+    return JS_UNDEFINED;
+
+  if(lws_service_adjust_timeout(lc->ctx, SERVICE_TICK_MS, 0) == 0) {
+    lws_service_tsi(lc->ctx, -1, 0);
+    schedule_service_tick(lc, 1);
+  } else {
+    schedule_service_tick(lc, SERVICE_TICK_MS);
+  }
+
+  return JS_UNDEFINED;
+}
+
+static void
+schedule_service_tick(LWSContext* lc, int delay_ms) {
+  JSValue glob = JS_GetGlobalObject(lc->js);
+  JSValue os = JS_GetPropertyStr(lc->js, glob, "os");
+  JS_FreeValue(lc->js, glob);
+  JSValue fn = JS_GetPropertyStr(lc->js, os, "setTimeout");
+  JS_FreeValue(lc->js, os);
+
+  JSValueConst data[] = {JS_NewInt64(lc->js, (intptr_t)lc)};
+  JSValue cb = JS_NewCFunctionData(lc->js, service_tick, 0, 0, countof(data), data);
+
+  JSValue args[2] = {cb, JS_NewInt32(lc->js, delay_ms)};
+  JSValue ret = JS_Call(lc->js, fn, JS_NULL, 2, args);
+
+  int32_t id = 0;
+  JS_ToInt32(lc->js, &id, ret);
+  lc->service_timer_id = id;
+
+  JS_FreeValue(lc->js, ret);
+  JS_FreeValue(lc->js, cb);
+  JS_FreeValue(lc->js, fn);
+}
+
+static void
+cancel_service_tick(LWSContext* lc) {
+  if(!lc->service_timer_id || !lc->js)
+    return;
+
+  JSValue glob = JS_GetGlobalObject(lc->js);
+  JSValue os = JS_GetPropertyStr(lc->js, glob, "os");
+  JS_FreeValue(lc->js, glob);
+  JSValue fn = JS_GetPropertyStr(lc->js, os, "clearTimeout");
+  JS_FreeValue(lc->js, os);
+
+  JSValue arg = JS_NewInt32(lc->js, lc->service_timer_id);
+  JSValue ret = JS_Call(lc->js, fn, JS_NULL, 1, &arg);
+
+  JS_FreeValue(lc->js, ret);
+  JS_FreeValue(lc->js, fn);
+
+  lc->service_timer_id = 0;
 }
 
 JSValue
@@ -778,6 +868,7 @@ context_new(JSContext* ctx) {
 static void
 context_free(JSRuntime* rt, LWSContext* lc) {
   if(lc->js) {
+    cancel_service_tick(lc);
     JS_FreeContext(lc->js);
     lc->js = NULL;
   }
@@ -829,6 +920,9 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
   lc->ctx = lws_create_context(&lc->info);
 
   patch_system_vhost_pollfd(lc->ctx);
+
+  if(lc->ctx)
+    schedule_service_tick(lc, SERVICE_TICK_MS);
 
   JS_DefinePropertyValueStr(ctx, obj, "info", JS_DupValue(ctx, argv[0]), JS_PROP_CONFIGURABLE);
 
@@ -934,6 +1028,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       lws_cancel_service(lc->ctx);
 
       iohandler_cleanup(lc);
+      cancel_service_tick(lc);
       break;
     }
 

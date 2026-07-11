@@ -12,6 +12,7 @@ typedef struct LWSContext {
   struct lws_context_creation_info info;
   JSContext* js;
   struct list_head handlers;
+  int service_timer_id;
 } LWSContext;
 
 typedef struct {

@@ -166,11 +166,10 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
 
 void
 str_or_buf_property(const char** pptr, const void** mptr, unsigned int* mlen, JSContext* ctx, JSValueConst obj, const char* name) {
-
   if(js_has_property2(ctx, obj, name)) {
     JSValue value = js_get_property(ctx, obj, name);
 
-    if(!JS_IsString(value)) {
+    if(!JS_IsString(value) && JS_IsObject(value)) {
       size_t len;
       uint8_t* buf;
 
