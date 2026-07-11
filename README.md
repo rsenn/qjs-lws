@@ -15,6 +15,16 @@ import { LWSContext } from 'lws';
 const ctx = new LWSContext(info);
 ```
 
+When `info.port` is set (i.e. the context listens), prefer the
+equivalent `createServer(info)` — it's the same constructor call
+under a name that reads better at a server call site:
+
+```js
+import { createServer } from 'lws';
+
+const ctx = createServer(info);
+```
+
 `info` mirrors `struct lws_context_creation_info`. Recognised keys
 (see [`doc/LWSContext.md`](doc/LWSContext.md) for the full list):
 
@@ -80,9 +90,9 @@ The full table is in [`doc/callbacks.md`](doc/callbacks.md).
 ## Minimal WebSocket server
 
 ```js
-import { LWSContext, LWSMPRO_NO_MOUNT } from 'lws';
+import { createServer, LWSMPRO_NO_MOUNT } from 'lws';
 
-new LWSContext({
+createServer({
   port: 8080,
   vhostName: 'localhost',
   mounts: [{ mountpoint: '/chat', protocol: 'chat', originProtocol: LWSMPRO_NO_MOUNT }],
@@ -100,9 +110,9 @@ console.log('listening on ws://localhost:8080/chat');
 ## Minimal HTTP server
 
 ```js
-import { LWSContext, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
+import { createServer, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
 
-new LWSContext({
+createServer({
   port: 3000,
   vhostName: 'localhost',
   mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],

@@ -16,7 +16,19 @@ constants.
 
 ## Top-level functions
 
-Defined in `lws.c` (`lws_funcs[]`):
+Defined in `lws.c` (`lws_funcs[]`) unless noted otherwise:
+
+### Context construction
+
+```js
+createServer(info)   // === new LWSContext(info)
+```
+
+Defined in `lws-context.c` (`lwsjs_create_server`) — a thin alias
+(`JS_CallConstructor` on `LWSContext`) meant for call sites where
+`info.port` is set, so the code reads as creating a server rather
+than a bare context. Functionally identical to `new LWSContext(info)`;
+see [LWSContext.md](LWSContext.md#construction).
 
 ### Callback name / number conversion
 

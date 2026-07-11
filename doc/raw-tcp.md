@@ -41,12 +41,12 @@ connections through the protocol named in `listenAcceptProtocol`.
 
 ```js
 import {
-  LWSContext, toString,
+  createServer, toString,
   LWS_SERVER_OPTION_ONLY_RAW,
   LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
 } from 'lws';
 
-new LWSContext({
+createServer({
   port: 1234,
   options: LWS_SERVER_OPTION_ONLY_RAW
          | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
@@ -82,7 +82,9 @@ single port serve HTTP **and** drop to raw mode when the first
 bytes don't look like HTTP:
 
 ```js
-new LWSContext({
+import { createServer, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+
+createServer({
   port: 8080,
   options: LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
   listenAcceptRole:     'raw-skt',

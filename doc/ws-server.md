@@ -8,9 +8,9 @@ via `Sec-WebSocket-Protocol`).
 ## Minimal echo server
 
 ```js
-import { LWSContext, LWS_WRITE_TEXT, LWSMPRO_NO_MOUNT } from 'lws';
+import { createServer, LWS_WRITE_TEXT, LWSMPRO_NO_MOUNT } from 'lws';
 
-new LWSContext({
+createServer({
   port: 8080,
   vhostName: 'localhost',
   mounts: [{

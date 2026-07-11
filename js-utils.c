@@ -227,6 +227,16 @@ get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
 
     *lenp = len;
     ptr += ofs;
+  } else {
+    /* JS_GetArrayBuffer() throws when argv[0] isn't an ArrayBuffer, but
+       returning NULL here is a normal, expected outcome for callers using
+       this as a "try ArrayBuffer, else fall back" probe (e.g.
+       LWSSockAddr46's constructor also accepting a numeric-address string).
+       Callers that instead treat NULL as a hard error immediately throw
+       their own, more specific exception, which already discards this one -
+       but a caller that doesn't must not be left with a stray pending
+       exception that only surfaces later, unrelated to any real failure. */
+    JS_FreeValue(ctx, JS_GetException(ctx));
   }
 
   return ptr;

@@ -13,7 +13,9 @@ The `str_or_buf_property()` helper in `js-utils.c` picks the right
 field — file path or `*_mem` + `*_mem_len`.
 
 ```js
-new LWSContext({
+import { createServer, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX } from 'lws';
+
+createServer({
   port: 443,
   options: LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
            LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX,
@@ -31,8 +33,9 @@ In-memory form:
 
 ```js
 import { readFileSync } from 'fs';
+import { createServer } from 'lws';
 
-new LWSContext({
+createServer({
   serverSslCert: readFileSync('localhost.crt'),       // ArrayBuffer
   serverSslPrivateKey: readFileSync('localhost.key'), // ArrayBuffer
 });

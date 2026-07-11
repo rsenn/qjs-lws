@@ -153,6 +153,7 @@ macro(find_quickjs)
 
   find_program(QJS qjs PATHS "${CMAKE_CURRENT_BINARY_DIR}/.." "${QUICKJS_PREFIX}/bin" ENV PATH NO_DEFAULT_PATH)
   find_program(QJSC qjsc PATHS "${CMAKE_CURRENT_BINARY_DIR}/.." "${QUICKJS_PREFIX}/bin" ENV PATH NO_DEFAULT_PATH)
+  find_program(QJSM qjsm PATHS "${CMAKE_CURRENT_BINARY_DIR}/.." "${QUICKJS_PREFIX}/bin" ENV PATH NO_DEFAULT_PATH)
 
   set(CUTILS_H ${CMAKE_CURRENT_SOURCE_DIR}/../cutils.h)
   set(QUICKJS_H ${CMAKE_CURRENT_SOURCE_DIR}/../quickjs.h)
@@ -183,7 +184,13 @@ macro(configure_quickjs)
 
   if(NOT QUICKJS_CONFIGURATION_SHOWN)
     message(STATUS "QuickJS configuration")
-    message(STATUS "\tinterpreter: ${QJS}")
+
+    string(REGEX REPLACE ".*/" "" QJS ${QJS})
+    string(REGEX REPLACE ".*/" "" QJSM ${QJSM})
+
+    list(APPEND INTERPRETERS ${QJS} ${QJSM})
+    string(REPLACE ";" " " INTERPRETERS ${INTERPRETERS})
+    message(STATUS "\tinterpreter: ${INTERPRETERS}")
     message(STATUS "\tcompiler: ${QJSC}")
     message(STATUS "\tlibrary: ${QUICKJS_LIBRARY}")
     message(STATUS "\tinstall directory: ${QUICKJS_PREFIX}")

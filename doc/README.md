@@ -82,9 +82,9 @@ See [event-loop.md](event-loop.md).
 ## Quick example
 
 ```js
-import { LWSContext } from 'lws';
+import { createServer } from 'lws';
 
-const ctx = new LWSContext({
+const ctx = createServer({
   port: 8080,
   vhostName: 'localhost',
   protocols: [{

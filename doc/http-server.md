@@ -7,9 +7,9 @@ mounts (`/api` → callback, `/static` → file, etc.).
 ## Hello world
 
 ```js
-import { LWSContext, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
+import { createServer, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
 
-new LWSContext({
+createServer({
   port: 3000,
   vhostName: 'localhost',
   mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],
@@ -136,7 +136,7 @@ up to date by `addHeader`.
 ```js
 import extraMimetypes from './lib/lws/mimetypes.js';
 
-new LWSContext({
+createServer({
   port: 8080,
   mounts: [
     { mountpoint: '/static', origin: './public', def: 'index.html',

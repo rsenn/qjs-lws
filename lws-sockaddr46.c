@@ -218,6 +218,7 @@ lwsjs_sockaddr46_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, 
         case AF_INET: sa->sa4.sin_port = htons(to_uint32(ctx, value)); break;
         case AF_INET6: sa->sa6.sin6_port = htons(to_uint32(ctx, value)); break;
       }
+      break;
     }
 
     case PROP_ADDRESS: {
@@ -232,6 +233,31 @@ lwsjs_sockaddr46_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, 
           sa->sa6.sin6_family = AF_INET6;
           memcpy(&sa->sa6.sin6_addr, p, len);
         }
+      }
+
+      break;
+    }
+
+    case PROP_HOST: {
+      char* str;
+
+      if((str = to_string(ctx, value))) {
+        lws_sockaddr46 tmp = {0};
+
+        /* Parse into a scratch sockaddr46 and copy over just family+address,
+           leaving the existing port untouched - matches PROP_ADDRESS's
+           contract and the documented "host" setter (independent of port). */
+        if(lws_sa46_parse_numeric_address(str, &tmp) == 0) {
+          if(tmp.sa4.sin_family == AF_INET) {
+            sa->sa4.sin_family = AF_INET;
+            memcpy(&sa->sa4.sin_addr, &tmp.sa4.sin_addr, sizeof(sa->sa4.sin_addr));
+          } else if(tmp.sa6.sin6_family == AF_INET6) {
+            sa->sa6.sin6_family = AF_INET6;
+            memcpy(&sa->sa6.sin6_addr, &tmp.sa6.sin6_addr, sizeof(sa->sa6.sin6_addr));
+          }
+        }
+
+        js_free(ctx, str);
       }
 
       break;

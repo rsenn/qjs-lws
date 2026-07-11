@@ -10,6 +10,13 @@ mounts. Implemented in `lws-context.c`.
 const ctx = new LWSContext(info);
 ```
 
+`createServer(info)` (exported from `'lws'`) is a thin alias for the
+same constructor call — `JS_CallConstructor` on `LWSContext` under
+the hood — meant for call sites where `info.port` is set, i.e. the
+context will listen. It's purely a naming convenience; the two are
+otherwise identical, and either is fine for a client-only context
+too.
+
 `info` is a plain object mapped to `struct lws_context_creation_info`.
 **Properties whose JS name is `camelCase` are also accepted in their
 underscore form** (e.g. `vhostName` or `vhost_name`), thanks to the

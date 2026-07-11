@@ -24,10 +24,13 @@ if(USE_CURL)
 endif(USE_CURL)
 option(BUILD_MINIMAL_EXAMPLES "Build minimal-examples" OFF)
 option(DEBUG_OUTPUT "Output debug messages" OFF)
-option(USE_EPOLL "Use Linux epoll(7) for lws socket polling instead of quickjs-libc os.setReadHandler/setWriteHandler" OFF)
+option(USE_EPOLL "Use Linux epoll(7) for lws socket polling instead of quickjs-libc os.setReadHandler/setWriteHandler"
+       OFF)
 if(USE_EPOLL)
   add_definitions(-DUSE_EPOLL)
 endif(USE_EPOLL)
+
+option(DO_TESTS "Perform tests" ON)
 
 plugin(DEADDROP deaddrop ON)
 plugin(RAW_PROXY raw-proxy ON)
@@ -380,7 +383,7 @@ function(DUMP_TARGET TARGET)
     endif(VALUE)
   endforeach()
 endfunction(DUMP_TARGET TARGET)
-  
+
 check_includes(alloca.h)
 check_library_exists(iphlpapi GetNetworkParams "" HAVE_GETNETWORKPARAMS)
 check_library_exists(mincore GetAdaptersAddresses "" HAVE_GETADAPTERSADDRESSES)
@@ -390,7 +393,6 @@ if(WIN32)
 else(WIN32)
   add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
 endif(WIN32)
- 
 
 #add_dependencies(qjs-lws minnet.c)
 if(HAVE_GETNETWORKPARAMS)
@@ -514,3 +516,23 @@ install(FILES ${JS_LIB_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}")
 
 file(GLOB JS_LIB_FETCH_FILES lib/lws/*.js)
 install(FILES ${JS_LIB_FETCH_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}/lws")
+
+file(GLOB TESTS tests/unittests/test-*.js)
+relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
+
+if(DO_TESTS)
+  include(CTest)
+
+  foreach(TEST ${TESTS})
+    basename(BASE "${TEST}")
+    string(REPLACE "test_" "" NAME "${BASE}")
+
+    add_test(
+      NAME "${BASE}"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      COMMAND
+        env
+        "QUICKJS_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR};${CMAKE_CURRENT_SOURCE_DIR};${QUICKJS_C_MODULE_DIR};${QUICKJS_JS_MODULE_DIR}"
+        "${QJSM}" "${TEST}")
+  endforeach(TEST ${TESTS})
+endif(DO_TESTS)

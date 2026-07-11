@@ -8,9 +8,9 @@ under `lib/` are covered in [helpers.md](helpers.md).
 ## 1. WebSocket echo server
 
 ```js
-import { LWSContext, LWSMPRO_NO_MOUNT } from 'lws';
+import { createServer, LWSMPRO_NO_MOUNT } from 'lws';
 
-new LWSContext({
+createServer({
   port: 8080,
   vhostName: 'localhost',
   mounts: [{ mountpoint: '/echo', protocol: 'echo', originProtocol: LWSMPRO_NO_MOUNT }],
@@ -25,11 +25,11 @@ console.log('listening on ws://localhost:8080/echo');
 ## 2. WebSocket broadcast
 
 ```js
-import { LWSContext, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT, toString } from 'lws';
+import { createServer, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT, toString } from 'lws';
 
 const clients = new Set();
 
-new LWSContext({
+createServer({
   port: 8080,
   vhostName: 'localhost',
   mounts: [{ mountpoint: '/chat', protocol: 'chat', originProtocol: LWSMPRO_NO_MOUNT }],
@@ -66,10 +66,10 @@ ctx.clientConnect('wss://echo.websocket.events/');
 ## 4. Static-file server
 
 ```js
-import { LWSContext, LWSMPRO_FILE } from 'lws';
+import { createServer, LWSMPRO_FILE } from 'lws';
 import extraMimetypes from './lib/lws/mimetypes.js';
 
-new LWSContext({
+createServer({
   port: 8080,
   vhostName: 'localhost',
   mounts: [{
@@ -86,9 +86,9 @@ new LWSContext({
 ## 5. HTTP endpoint that dispatches to JS
 
 ```js
-import { LWSContext, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
+import { createServer, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
 
-new LWSContext({
+createServer({
   port: 8080,
   vhostName: 'localhost',
   mounts: [{ mountpoint: '/api', protocol: 'api', originProtocol: LWSMPRO_CALLBACK }],
@@ -107,13 +107,13 @@ new LWSContext({
 
 ```js
 import {
-  LWSContext, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL,
+  createServer, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL,
   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
   LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX,
   LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS,
 } from 'lws';
 
-new LWSContext({
+createServer({
   port: 443,
   vhostName: 'localhost',
   options:
@@ -191,11 +191,11 @@ ctx.clientConnect('https://httpbin.org/post', {
 ## 9. Multipart file upload (server)
 
 ```js
-import { LWSContext, LWSSPA, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
+import { createServer, LWSSPA, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
 
 const spaMap = new WeakMap();
 
-new LWSContext({
+createServer({
   port: 8080,
   vhostName: 'localhost',
   mounts: [{ mountpoint: '/upload', protocol: 'up', originProtocol: LWSMPRO_CALLBACK }],
@@ -224,12 +224,12 @@ new LWSContext({
 
 ```js
 import {
-  LWSContext,
+  createServer,
   LWS_SERVER_OPTION_ONLY_RAW,
   LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
 } from 'lws';
 
-new LWSContext({
+createServer({
   port: 1234,
   options:
       LWS_SERVER_OPTION_ONLY_RAW
