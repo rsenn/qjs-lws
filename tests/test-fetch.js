@@ -16,11 +16,11 @@
  * deterministic and needs no network access.
  */
 import { fetch } from '../lib/fetch.js';
-import { toString, createServer, logLevel, LWSMPRO_FILE, LLL_USER, LLL_DEBUG, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+import { toString, createServer, logLevel, LWSMPRO_FILE, LLL_USER,  LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
 import { mkdir } from 'os';
 import * as std from 'std';
 
-logLevel(LLL_USER | LLL_DEBUG);
+logLevel(LLL_USER);
 
 /*
  * Minimal http(s)-only URL resolution, used instead of the 'url' module's
