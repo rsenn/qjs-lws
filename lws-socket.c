@@ -376,6 +376,18 @@ lwsjs_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
 
   if((create = JS_IsUndefined(ret)))
     ret = lwsjs_socket_create(ctx, wsi);
+  else {
+    /* lws_client_connect_via_info() attaches opaque_user_data (what
+       socket_get()/js_socket_get() look the wrapper up by, via
+       lws_get_opaque_user_data()) to a new client wsi before it fills in
+       *info.pwsi (what originally set sock->wsi) - so a callback firing
+       in between sees a wrapper whose ->wsi is still stale/NULL. Since
+       we were just handed the real, current wsi, correct it here. */
+    LWSSocket* sock = lwsjs_socket_data(ret);
+
+    if(sock && sock->wsi != wsi)
+      sock->wsi = wsi;
+  }
 
   /*DEBUG("%s LWSSocket (wsi = %p, id = %d, ref_count = %d, obj = %p) = %p",
         create ? "create" : "get",
@@ -836,7 +848,6 @@ lwsjs_socket_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueC
 }
 
 enum {
-  PROP_VHOST,
   PROP_HEADERS,
   PROP_ID,
   PROP_CLIENT,
@@ -846,7 +857,9 @@ enum {
   PROP_URI,
   PROP_BODY_PENDING,
   PROP_REDIRECTED_TO_GET,
+  PROP_BUFFERED_AMOUNT,
   PROP_PROTOCOL,
+  PROP_VHOST,
   PROP_TAG,
   PROP_TLS,
   PROP_PEER,
@@ -858,7 +871,6 @@ enum {
   PROP_NETWORK,
   PROP_EXTENSIONS,
   PROP_H2,
-  PROP_BUFFERED_AMOUNT,
   PROP_PIPELINE_LEADER,
   PROP_IS_PIPELINE_LEADER,
   PROP_PIPELINE_QUEUE_DEPTH,
@@ -873,7 +885,7 @@ lwsjs_socket_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, int 
     return JS_EXCEPTION;
 
   if(!s->wsi)
-    return JS_UNINITIALIZED;
+    return JS_ThrowInternalError(ctx, "LWSSocket has no wsi yet");
 
   switch(magic) {
     case PROP_BODY_PENDING: {
@@ -894,17 +906,9 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     return JS_EXCEPTION;
 
   if(!s->wsi && magic > PROP_PROTOCOL)
-    return JS_UNINITIALIZED;
+    return JS_UNDEFINED;
 
   switch(magic) {
-    case PROP_VHOST: {
-      struct lws_vhost* vho;
-
-      if((vho = lws_get_vhost(s->wsi)))
-        ret = lws_vhost_object(ctx, vho);
-
-      break;
-    }
     case PROP_HEADERS: {
       ret = JS_DupValue(ctx, s->headers);
       break;
@@ -957,8 +961,22 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       break;
     }
 
+    case PROP_BUFFERED_AMOUNT: {
+      ret = JS_NewInt64(ctx, (int64_t)s->write_buffered);
+      break;
+    }
+
     case PROP_PROTOCOL: {
       ret = s->proto ? JS_NewString(ctx, s->proto) : JS_NULL;
+      break;
+    }
+
+    case PROP_VHOST: {
+      struct lws_vhost* vho;
+
+      if((vho = lws_get_vhost(s->wsi)))
+        ret = lws_vhost_object(ctx, vho);
+
       break;
     }
 
@@ -1080,11 +1098,6 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       if(s->wsi)
         ret = JS_NewBool(ctx, lws_wsi_is_h2(s->wsi));
 
-      break;
-    }
-
-    case PROP_BUFFERED_AMOUNT: {
-      ret = JS_NewInt64(ctx, (int64_t)s->write_buffered);
       break;
     }
 
