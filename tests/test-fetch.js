@@ -16,17 +16,14 @@
  * deterministic and needs no network access.
  */
 import { fetch } from '../lib/fetch.js';
-import { toString, createServer, logLevel, LWSMPRO_FILE, LLL_USER,  LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+import { toString, createServer, logLevel, LWSMPRO_FILE, LLL_USER, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
 import { mkdir } from 'os';
 import * as std from 'std';
 
 logLevel(LLL_USER);
 
 /*
- * Minimal http(s)-only URL resolution, used instead of the 'url' module's
- * URL class: that module's new URL(href, base) incorrectly treats an
- * already-absolute href as relative to base (e.g. resolving
- * "http://host/x" against a base yields "http://host/http:/host/x").
+ * Minimal http(s)-only URL resolution
  * Only what the crawl below actually needs: recognizing an absolute
  * http(s) URL, resolving a root/relative path against a base, and
  * extracting an origin for same-host comparison.
@@ -148,6 +145,7 @@ async function main(url) {
 
     const resp = await fetch(url, {
       keepAlive: true,
+      tls: { rejectUnauthorized: false, cert: 'localhost.crt', key: 'localhost.key', ca: '/etc/ssl/certs/ca-certificates.crt' },
       pwsi(wsi) {
         connections.push({ url, fd: wsi.network?.fd, isPipelineLeader: wsi.isPipelineLeader, queuedBehind: wsi.pipelineLeader?.network?.fd });
       },

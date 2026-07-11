@@ -8,7 +8,7 @@
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
 static JSContext* lwsjs_log_ctx = 0;
-static JSValue lwsjs_log_fn = { JS_TAG_UNDEFINED, 0 };
+static JSValue lwsjs_log_fn = {JS_TAG_UNDEFINED, 0};
 
 static void lwsjs_log_callback(int, const char*);
 
@@ -111,7 +111,9 @@ lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, struct lws_client_connect_inf
       str_replace(ctx, &info->method, js_strdup(ctx, "GET"));
 
     if(ssl)
-      info->ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE;
+      info->ssl_connection |= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE;
+    else
+      info->ssl_connection &= ~(LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE);
   }
 
   if(host)
@@ -358,7 +360,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
             JS_FreeContext(lwsjs_log_ctx);
             lwsjs_log_ctx = 0;
           }
-          
+
           JS_FreeValue(ctx, lwsjs_log_fn);
           lwsjs_log_fn = JS_UNDEFINED;
         }
