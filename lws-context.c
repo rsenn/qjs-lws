@@ -1095,6 +1095,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       JS_FreeValue(ctx, addr);
       break;
     }
+
     case METHOD_ASYNC_DNS_SERVER_REMOVE: {
       JSValue addr = lwsjs_sockaddr46_value(ctx, argv[0]);
       lws_sockaddr46* sa46 = lwsjs_sockaddr46_data(ctx, addr);
@@ -1104,6 +1105,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       JS_FreeValue(ctx, addr);
       break;
     }
+
     case METHOD_WSI_FROM_FD: {
       struct lws* wsi;
 

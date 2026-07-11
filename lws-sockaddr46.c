@@ -164,6 +164,7 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_NewInt32(ctx, sa->sa4.sin_family);
       break;
     }
+
     case PROP_PORT: {
       switch(sa->sa4.sin_family) {
         case AF_INET: ret = JS_NewUint32(ctx, ntohs(sa->sa4.sin_port)); break;
@@ -171,6 +172,7 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
       }
       break;
     }
+
     case PROP_ADDRESS: {
       switch(sa->sa4.sin_family) {
         case AF_INET: {
@@ -185,6 +187,7 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
       }
       break;
     }
+
     case PROP_HOST: {
       char buf[64];
       int r = lws_sa46_write_numeric_address(sa, buf, sizeof(buf));
@@ -216,6 +219,7 @@ lwsjs_sockaddr46_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, 
         case AF_INET6: sa->sa6.sin6_port = htons(to_uint32(ctx, value)); break;
       }
     }
+
     case PROP_ADDRESS: {
       uint8_t* p;
       size_t len;

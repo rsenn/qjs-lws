@@ -178,6 +178,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       break;
     }
+
     case FUNCTION_GET_LOG_LEVEL_COLOUR: {
       size_t level = to_uint32(ctx, argv[0]);
 
@@ -186,6 +187,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       break;
     }
+
     case FUNCTION_GET_CALLBACK_NAME: {
       int32_t reason = to_int32(ctx, argv[0]);
       const char* name = lwsjs_callback_name(reason);
@@ -356,6 +358,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
             JS_FreeContext(lwsjs_log_ctx);
             lwsjs_log_ctx = 0;
           }
+          
           JS_FreeValue(ctx, lwsjs_log_fn);
           lwsjs_log_fn = JS_UNDEFINED;
         }
@@ -427,6 +430,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       JS_FreeCString(ctx, mac);
       break;
     }
+
     case FUNCTION_PARSE_NUMERIC_ADDRESS: {
       size_t n;
       uint8_t buf[16];
@@ -449,6 +453,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       JS_FreeCString(ctx, addr);
       break;
     }
+
     case FUNCTION_WRITE_NUMERIC_ADDRESS: {
       size_t len, n;
       char out[64];
