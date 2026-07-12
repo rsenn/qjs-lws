@@ -362,6 +362,29 @@ include_directories(
   libwebsockets/lib/tls/openssl
   libwebsockets/plugins/ssh-base/include)
 
+file(READ precompiled.js PRECOMP_JS)
+string(REGEX REPLACE "[\n;]+" ";" PRECOMP_JS "${PRECOMP_JS}")
+list(FILTER PRECOMP_JS INCLUDE REGEX "import.*")
+
+set(PRECOMP_EXPORTS "")
+
+foreach(LINE ${PRECOMP_JS})
+  string(REGEX REPLACE ".*{\\s*" "" LINE "${LINE}")
+  string(REGEX REPLACE "\\s*}.*from\\s* ['\"`]" ";" LINE "${LINE}")
+  string(REGEX REPLACE "['\"`]\\s*;\?\\s*" "" LINE "${LINE}")
+
+  list(GET LINE 0 IDENTIFIERS)
+  list(GET LINE 1 MODULE)
+  string(REGEX REPLACE " *, *" ";" IDENTIFIERS "${IDENTIFIERS}")
+  list(FILTER IDENTIFIERS INCLUDE REGEX ".+")
+
+  message("${MODULE};${IDENTIFIERS}")
+
+  foreach(ID ${IDENTIFIERS})
+    list(APPEND PRECOMP_EXPORTS "${ID}")
+  endforeach()
+endforeach()
+
 compile_module(precompiled.js -D lws.so -M fs)
 
 file(GLOB JS_BINDINGS_SOURCES *.[ch])
@@ -539,8 +562,10 @@ if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.c")
 
   set(PRECOMP_H "")
 
+  set(I 0)
   foreach(NAME ${PRECOMP_LIST})
-    set(PRECOMP_H "${PRECOMP_H}X(${NAME})\n")
+    set(PRECOMP_H "${PRECOMP_H}X(${NAME}, ${I})\n")
+    math(EXPR I "1 + ${I}")
   endforeach()
   file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.h" "${PRECOMP_H}")
 endif()

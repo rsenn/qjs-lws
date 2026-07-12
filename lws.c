@@ -15,7 +15,7 @@ struct bytecode {
 #undef const
 
 static struct bytecode lwsjs_precompiled[] = {
-#define X(name) {qjsc_##name, qjsc_##name##_size},
+#define X(name, index) {qjsc_##name, qjsc_##name##_size},
 #include "precompiled.h"
 #undef X
 };
@@ -1024,8 +1024,10 @@ lwsjs_log_callback(int level, const char* line) {
    module's exports can only ever be *called* after that module has
    finished evaluating - by then 'lws' is JS_MODULE_STATUS_EVALUATED, which
    the resolver already treats as a terminal, reusable state. */
-static JSValue lwsjs_fetch_value = {JS_TAG_UNDEFINED, 0};
-static JSValue lwsjs_websocketstream_value = {JS_TAG_UNDEFINED, 0};
+#define X(name, index)  static JSValue lwsjs_ ## name ## _value  = {JS_TAG_UNDEFINED, 0};
+#include "precompiled.h"
+#undef X
+
 static int lwsjs_precompiled_status = 0; /* 0 = not loaded, 1 = loaded, -1 = failed */
 
 /* Called by the embedded precompiled.js bytecode once it has imported
@@ -1034,8 +1036,9 @@ static int lwsjs_precompiled_status = 0; /* 0 = not loaded, 1 = loaded, -1 = fai
    expose publicly. */
 static JSValue
 lwsjs_precompiled_ready(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  lwsjs_fetch_value = JS_DupValue(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
-  lwsjs_websocketstream_value = JS_DupValue(ctx, argc > 1 ? argv[1] : JS_UNDEFINED);
+#define X(name, index) lwsjs_ ## name ## _value = JS_DupValue(ctx, argc > index ? argv[index] : JS_UNDEFINED); 
+#include "precompiled.h"
+#undef X
   return JS_UNDEFINED;
 }
 
