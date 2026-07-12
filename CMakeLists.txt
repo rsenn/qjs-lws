@@ -52,7 +52,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/generators.cmake)
 
 #set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "PIC code")
 #set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
@@ -362,31 +362,6 @@ include_directories(
   libwebsockets/lib/tls/openssl
   libwebsockets/plugins/ssh-base/include)
 
-file(READ precompiled.js PRECOMP_JS)
-string(REGEX REPLACE "[\n;]+" ";" PRECOMP_JS "${PRECOMP_JS}")
-list(FILTER PRECOMP_JS INCLUDE REGEX "import.*")
-
-set(PRECOMP_EXPORTS "")
-
-foreach(LINE ${PRECOMP_JS})
-  string(REGEX REPLACE ".*{\\s*" "" LINE "${LINE}")
-  string(REGEX REPLACE "\\s*}.*from\\s* ['\"`]" ";" LINE "${LINE}")
-  string(REGEX REPLACE "['\"`]\\s*;\?\\s*" "" LINE "${LINE}")
-
-  list(GET LINE 0 IDENTIFIERS)
-  list(GET LINE 1 MODULE)
-  string(REGEX REPLACE " *, *" ";" IDENTIFIERS "${IDENTIFIERS}")
-  list(FILTER IDENTIFIERS INCLUDE REGEX ".+")
-
-  message("${MODULE};${IDENTIFIERS}")
-
-  foreach(ID ${IDENTIFIERS})
-    list(APPEND PRECOMP_EXPORTS "${ID}")
-  endforeach()
-endforeach()
-
-compile_module(precompiled.js -D lws.so -M fs)
-
 file(GLOB JS_BINDINGS_SOURCES *.[ch])
 
 #list(APPEND JS_BINDINGS_SOURCES )
@@ -422,7 +397,9 @@ if(WIN32)
 else(WIN32)
   add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
 endif(WIN32)
-add_dependencies(qjs-lws precompiled.c)
+
+
+#add_dependencies(qjs-lws modules/precompiled.c)
 
 target_include_directories(qjs-lws PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/modules)
 

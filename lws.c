@@ -1024,7 +1024,7 @@ lwsjs_log_callback(int level, const char* line) {
    module's exports can only ever be *called* after that module has
    finished evaluating - by then 'lws' is JS_MODULE_STATUS_EVALUATED, which
    the resolver already treats as a terminal, reusable state. */
-#define X(name, index)  static JSValue lwsjs_ ## name ## _value  = {JS_TAG_UNDEFINED, 0};
+#define X(name, index) static JSValue lwsjs_##name##_value = {JS_TAG_UNDEFINED, 0};
 #include "precompiled.h"
 #undef X
 
@@ -1036,7 +1036,7 @@ static int lwsjs_precompiled_status = 0; /* 0 = not loaded, 1 = loaded, -1 = fai
    expose publicly. */
 static JSValue
 lwsjs_precompiled_ready(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-#define X(name, index) lwsjs_ ## name ## _value = JS_DupValue(ctx, argc > index ? argv[index] : JS_UNDEFINED); 
+#define X(name, index) lwsjs_##name##_value = JS_DupValue(ctx, argc > index ? argv[index] : JS_UNDEFINED);
 #include "precompiled.h"
 #undef X
   return JS_UNDEFINED;
