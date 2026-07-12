@@ -73,7 +73,7 @@ await tests({
     t.dispatchEvent({ type: 'open' });
     eq(10, calls);
   },
- 
+
   async 'once(emitter, type) resolves with the next matching event'() {
     const t = new EventTarget();
     const p = once(t, 'ping');
