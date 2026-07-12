@@ -44,7 +44,7 @@ function(VAR2DEFINE NAME)
   endif("${ARGC}" LESS_EQUAL 1)
 
 endfunction(VAR2DEFINE NAME)
- 
+
 ##
 ## canonicalize <OUTPUT VARIABLE> <STR>
 ##
@@ -430,7 +430,6 @@ function(CHECK_FLAG FLAG VAR)
     message(STATUS "Compiler flag ${FLAG} ... supported")
   endif(RESULT)
 endfunction(CHECK_FLAG FLAG VAR)
-
 
 function(DEBUG)
   set(S "")
