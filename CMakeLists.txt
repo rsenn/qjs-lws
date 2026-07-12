@@ -362,7 +362,7 @@ include_directories(
   libwebsockets/lib/tls/openssl
   libwebsockets/plugins/ssh-base/include)
 
-compile_module(precompiled.js -M lws -M fs)
+compile_module(precompiled.js -D lws.so -M fs)
 
 file(GLOB JS_BINDINGS_SOURCES *.[ch])
 
@@ -399,7 +399,7 @@ if(WIN32)
 else(WIN32)
   add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
 endif(WIN32)
-#add_dependencies(qjs-lws precompiled.c)
+add_dependencies(qjs-lws precompiled.c)
 
 target_include_directories(qjs-lws PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/modules)
 
@@ -529,22 +529,23 @@ install(FILES ${JS_LIB_FETCH_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}/lws")
 file(GLOB TESTS tests/unittests/test-*.js)
 relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
 
-file(READ "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.c" PRECOMP_C)
-string(REGEX REPLACE "[^a-z0-9_]+" ";" PRECOMP_LIST "${PRECOMP_C}")
+if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.c")
+  file(READ "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.c" PRECOMP_C)
+  string(REGEX REPLACE "[^A-Za-z0-9_]+" ";" PRECOMP_LIST "${PRECOMP_C}")
 
-list(FILTER PRECOMP_LIST INCLUDE REGEX ".*jsc.*")
-list(FILTER PRECOMP_LIST EXCLUDE REGEX ".*_size$")
-string(REGEX REPLACE "qjsc_" "" PRECOMP_LIST "${PRECOMP_LIST}")
+  list(FILTER PRECOMP_LIST INCLUDE REGEX ".*jsc.*")
+  list(FILTER PRECOMP_LIST EXCLUDE REGEX ".*_size$")
+  string(REGEX REPLACE "qjsc_" "" PRECOMP_LIST "${PRECOMP_LIST}")
 
-set(PRECOMP_H "")
+  set(PRECOMP_H "")
 
-foreach(NAME ${PRECOMP_LIST})
-  set(PRECOMP_H "${PRECOMP_H}X(${NAME})\n")
-endforeach()
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.h" "${PRECOMP_H}")
+  foreach(NAME ${PRECOMP_LIST})
+    set(PRECOMP_H "${PRECOMP_H}X(${NAME})\n")
+  endforeach()
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.h" "${PRECOMP_H}")
+endif()
 
-  
-  dump(PRECOMP_LIST)
+dump(PRECOMP_LIST)
 
 if(DO_TESTS)
   include(CTest)

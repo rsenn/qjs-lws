@@ -1008,6 +1008,111 @@ lwsjs_log_callback(int level, const char* line) {
   }
 }
 
+/* Lazily evaluates the embedded precompiled.js bytecode (lib/fetch.js +
+   lib/websocketstream.js, bundled transitively) and captures its `fetch`/
+   `WebSocketStream` values.
+
+   This can NOT run synchronously from inside lwsjs_init(): that function
+   *is* the 'lws' C module's own JS_MODULE_STATUS_EVALUATING body, and the
+   bundled code itself does `import ... from 'lws'` - resolving that while
+   'lws' is still mid-evaluation re-enters JS_ResolveModule on a module
+   that isn't in any of its recognized "already handled" states, which
+   silently re-runs lwsjs_init from scratch (confirmed via a standalone
+   repro: hundreds of levels of re-entrant recursion, ending in corrupted
+   export values, not even a clean crash). Deferring the eval to the first
+   actual call of the trampolines below sidesteps this entirely, since a
+   module's exports can only ever be *called* after that module has
+   finished evaluating - by then 'lws' is JS_MODULE_STATUS_EVALUATED, which
+   the resolver already treats as a terminal, reusable state. */
+static JSValue lwsjs_fetch_value = {JS_TAG_UNDEFINED, 0};
+static JSValue lwsjs_websocketstream_value = {JS_TAG_UNDEFINED, 0};
+static int lwsjs_precompiled_status = 0; /* 0 = not loaded, 1 = loaded, -1 = failed */
+
+/* Called by the embedded precompiled.js bytecode once it has imported
+   fetch/WebSocketStream, handing the real values back to us. Avoids
+   needing JS_GetModuleNamespace(), which this quickjs build doesn't
+   expose publicly. */
+static JSValue
+lwsjs_precompiled_ready(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+  lwsjs_fetch_value = JS_DupValue(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+  lwsjs_websocketstream_value = JS_DupValue(ctx, argc > 1 ? argv[1] : JS_UNDEFINED);
+  return JS_UNDEFINED;
+}
+
+static int
+lwsjs_load_precompiled(JSContext* ctx) {
+  if(lwsjs_precompiled_status)
+    return lwsjs_precompiled_status > 0 ? 0 : -1;
+
+  JSValue global = JS_GetGlobalObject(ctx);
+  JS_SetPropertyStr(ctx, global, "__lwsPrecompiledReady", JS_NewCFunction(ctx, lwsjs_precompiled_ready, "__lwsPrecompiledReady", 2));
+  JS_FreeValue(ctx, global);
+
+  JSValue entry = JS_UNDEFINED;
+
+  /* Every blob but the last is a transitive local dependency (fetch.js,
+     websocketstream.js, and everything *they* import) - JS_ReadObject()
+     alone registers each by its embedded module name so the entry's
+     JS_ResolveModule() below finds them without touching the filesystem.
+     Only the last (precompiled.js itself) gets resolved and run. */
+  for(size_t i = 0; i < countof(lwsjs_precompiled); i++) {
+    JSValue mod = JS_ReadObject(ctx, lwsjs_precompiled[i].code, lwsjs_precompiled[i].size, JS_READ_OBJ_BYTECODE);
+
+    if(JS_IsException(mod)) {
+      lwsjs_precompiled_status = -1;
+      return -1;
+    }
+
+    if(i + 1 == countof(lwsjs_precompiled))
+      entry = mod;
+  }
+
+  if(JS_ResolveModule(ctx, entry) < 0) {
+    JS_FreeValue(ctx, entry);
+    lwsjs_precompiled_status = -1;
+    return -1;
+  }
+
+  JSValue ret = JS_EvalFunction(ctx, entry);
+
+  if(JS_IsException(ret)) {
+    JS_FreeValue(ctx, ret);
+    lwsjs_precompiled_status = -1;
+    return -1;
+  }
+
+  JS_FreeValue(ctx, ret);
+  lwsjs_precompiled_status = 1;
+  return 0;
+}
+
+static JSValue
+lwsjs_fetch_trampoline(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+  if(lwsjs_load_precompiled(ctx) < 0)
+    return JS_EXCEPTION;
+
+  return JS_Call(ctx, lwsjs_fetch_value, JS_UNDEFINED, argc, argv);
+}
+
+static JSValue
+lwsjs_websocketstream_trampoline(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst* argv) {
+  if(lwsjs_load_precompiled(ctx) < 0)
+    return JS_EXCEPTION;
+
+  return JS_CallConstructor(ctx, lwsjs_websocketstream_value, argc, argv);
+}
+
+static JSValue
+lwsjs_websocketstream_protocol_trampoline(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+  if(lwsjs_load_precompiled(ctx) < 0)
+    return JS_EXCEPTION;
+
+  JSValue protocol_fn = JS_GetPropertyStr(ctx, lwsjs_websocketstream_value, "protocol");
+  JSValue ret = JS_Call(ctx, protocol_fn, lwsjs_websocketstream_value, argc, argv);
+  JS_FreeValue(ctx, protocol_fn);
+  return ret;
+}
+
 int
 lwsjs_init(JSContext* ctx, JSModuleDef* m) {
   lwsjs_context_init(ctx, m);
@@ -1016,34 +1121,23 @@ lwsjs_init(JSContext* ctx, JSModuleDef* m) {
   lwsjs_spa_init(ctx, m);
   lwsjs_sockaddr46_init(ctx, m);
 
-  if(m)
+  if(m) {
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
+
+    JSValue fetch_fn = JS_NewCFunction(ctx, lwsjs_fetch_trampoline, "fetch", 2);
+    JSValue wss_ctor = JS_NewCFunction2(ctx, lwsjs_websocketstream_trampoline, "WebSocketStream", 1, JS_CFUNC_constructor, 0);
+    JS_SetPropertyStr(ctx, wss_ctor, "protocol", JS_NewCFunction(ctx, lwsjs_websocketstream_protocol_trampoline, "protocol", 2));
+
+    JS_SetModuleExport(ctx, m, "fetch", fetch_fn);
+    JS_SetModuleExport(ctx, m, "WebSocketStream", wss_ctor);
+  }
 
   return 0;
 }
 
-// #define JS_READ_OBJ_BYTECODE (1 << 0)  /* allow function/module */
-// #define JS_READ_OBJ_ROM_DATA (1 << 1)  /* avoid duplicating 'buf' data */
-// #define JS_READ_OBJ_SAB (1 << 2)       /* allow SharedArrayBuffer */
-// #define JS_READ_OBJ_REFERENCE (1 << 3) /* allow object references */
-// JSValue JS_ReadObject(JSContext* ctx, const uint8_t* buf, size_t buf_len, int flags);
-///* instantiate and evaluate a bytecode function. Only used when
-//   reading a script or module with JS_ReadObject() */
-// JSValue JS_EvalFunction(JSContext* ctx, JSValue fun_obj);
-///* load the dependencies of the module 'obj'. Useful when JS_ReadObject()
-//   returns a module. */
-// int JS_ResolveModule(JSContext* ctx, JSValueConst obj);
-//
-
 VISIBLE JSModuleDef*
 js_init_module(JSContext* ctx, const char* module_name) {
   JSModuleDef* m;
-
-  for(int i = 0; i < countof(lwsjs_precompiled); i++) {
-    JSValue module = JS_ReadObject(ctx, lwsjs_precompiled[i].code, lwsjs_precompiled[i].size, JS_READ_OBJ_BYTECODE);
-    JS_ResolveModule(ctx, module);
-    JSValue result = JS_EvalFunction(ctx, module);
-  }
 
   if((m = JS_NewCModule(ctx, module_name, lwsjs_init))) {
     JS_AddModuleExport(ctx, m, "LWSContext");
@@ -1052,6 +1146,8 @@ js_init_module(JSContext* ctx, const char* module_name) {
     JS_AddModuleExport(ctx, m, "LWSSocket");
     JS_AddModuleExport(ctx, m, "LWSSPA");
     JS_AddModuleExport(ctx, m, "LWSSockAddr46");
+    JS_AddModuleExport(ctx, m, "fetch");
+    JS_AddModuleExport(ctx, m, "WebSocketStream");
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
   }
 
