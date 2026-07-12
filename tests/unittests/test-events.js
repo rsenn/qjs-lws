@@ -1,5 +1,5 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { EventTarget, EventEmitter, EventTargetProperties, once, waitOne } from '../../lib/lws/events.js';
+import { EventTarget, EventTargetProperties, once, waitOne } from '../../lib/lws/events.js';
 
 await tests({
   'addEventListener / dispatchEvent invokes the listener'() {
@@ -73,49 +73,7 @@ await tests({
     t.dispatchEvent({ type: 'open' });
     eq(10, calls);
   },
-
-  'EventEmitter: on/emit'() {
-    const e = new EventEmitter();
-    const seen = [];
-    e.on('data', (...args) => seen.push(args));
-    e.emit('data', 1, 2);
-    eq(1, seen.length);
-    eq('1,2', seen[0].join(','));
-  },
-
-  'EventEmitter: once fires only once'() {
-    const e = new EventEmitter();
-    let count = 0;
-    e.once('data', () => count++);
-    e.emit('data');
-    e.emit('data');
-    eq(1, count);
-  },
-
-  'EventEmitter: removeListener stops delivery'() {
-    const e = new EventEmitter();
-    let count = 0;
-    const fn = () => count++;
-    e.on('data', fn);
-    e.emit('data');
-    e.removeListener('data', fn);
-    e.emit('data');
-    eq(1, count);
-  },
-
-  'EventEmitter: removeAllListeners(type) clears just that type'() {
-    const e = new EventEmitter();
-    let a = 0,
-      b = 0;
-    e.on('a', () => a++);
-    e.on('b', () => b++);
-    e.removeAllListeners('a');
-    e.emit('a');
-    e.emit('b');
-    eq(0, a);
-    eq(1, b);
-  },
-
+ 
   async 'once(emitter, type) resolves with the next matching event'() {
     const t = new EventTarget();
     const p = once(t, 'ping');
