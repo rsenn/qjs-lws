@@ -339,10 +339,13 @@ function(parse_jsimports FILENAME OUTVAR)
 
     string(REGEX REPLACE "[ \t]+" "" IDS "${IDS}")
 
-    message("Import module: ${MODULE}, specifiers: ${IDS}")
+    #message("Import module: ${MODULE}, specifiers: ${IDS}")
 
     list(APPEND IMPORTS "${MODULE}:${IDS}")
   endforeach()
+
+  #message("Imports:\n${IMPORTS}")
+  #dump(IMPORTS)
 
   set(${OUTVAR} "${IMPORTS}" PARENT_SCOPE)
 endfunction(parse_jsimports FILENAME OUTVAR)
@@ -389,7 +392,7 @@ function(generate_precompiled_js NAME)
 parse_jsimports(${IN} JSIMPORTS)
 get_jsimport_specifiers(\"\${JSIMPORTS}\" SPECIFIERS)
 
-string(REGEX REPLACE \";\" \", \" EXPORTS \"\${SPECIFIERS}\")
+string(REGEX REPLACE \";\" \",\\n  \" EXPORTS \"\${SPECIFIERS}\")
 configure_file(
   ${IN}
   ${OUT}
@@ -398,11 +401,11 @@ configure_file(
 
   add_custom_command(
     OUTPUT "${NAME}" BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" DEPENDS "${NAME}.cmake" #VERBATIM
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" DEPENDS "${INPUT_FILE}" #VERBATIM
   )
 
   add_custom_target(
-    "${NAME}" ALL BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${NAME}.cmake"
+    "${NAME}" ALL BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${INPUT_FILE}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake" SOURCES "${NAME}.cmake")
 endfunction(generate_precompiled_js NAME)
