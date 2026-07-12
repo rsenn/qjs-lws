@@ -48,6 +48,7 @@ if(DEBUG_OUTPUT)
   add_definitions(-DDEBUG_OUTPUT)
 endif(DEBUG_OUTPUT)
 
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
 
@@ -359,10 +360,18 @@ include_directories(
   libwebsockets/lib/tls/openssl
   libwebsockets/plugins/ssh-base/include)
 
+add_custom_command(
+  OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/precompiled.c"
+  COMMAND "${QJSC}" "${CMAKE_CURRENT_SOURCE_DIR}/precompiled.js" -M lws -M textcode -M fs -c -o precompiled.c
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/precompiled.js" 
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  COMMENT "Generate precompiled.c from precompiled.js using qjsc")
+
 file(GLOB JS_BINDINGS_SOURCES *.[ch])
 
 #list(APPEND JS_BINDINGS_SOURCES )
 
+list(FILTER JS_BINDINGS_SOURCES EXCLUDE REGEX "precompiled*")
 list(FILTER JS_BINDINGS_SOURCES EXCLUDE REGEX ".*-plugin-.*")
 if(NOT USE_EPOLL)
   list(FILTER JS_BINDINGS_SOURCES EXCLUDE REGEX ".*epoll.*")

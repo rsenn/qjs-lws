@@ -5,6 +5,10 @@
 #include "lws.h"
 #include "js-utils.h"
 
+#define const static const
+#include "precompiled.c"
+#undef const
+
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
 static JSContext* lwsjs_log_ctx = 0;
