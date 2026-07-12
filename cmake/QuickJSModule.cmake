@@ -401,13 +401,15 @@ configure_file(
 
   add_custom_command(
     OUTPUT "${NAME}" BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" DEPENDS "${INPUT_FILE}" #VERBATIM
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" DEPENDS "${INPUT_FILE}"
+    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake" SOURCES "${NAME}.cmake" #VERBATIM
   )
 
   add_custom_target(
     "${NAME}" ALL BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${INPUT_FILE}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake" SOURCES "${NAME}.cmake")
+    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake" SOURCES "${NAME}.cmake" #VERBATIM
+  )
 endfunction(generate_precompiled_js NAME)
 
 ##
@@ -424,28 +426,30 @@ function(generate_precompiled_h NAME)
   string(REGEX REPLACE "[^A-Za-z0-9_]" "_" CMAKE_FILE "generate_${NAME}")
 
   file(RELATIVE_PATH INCLUDEDIR "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+  file(RELATIVE_PATH OUT "${CMAKE_CURRENT_BINARY_DIR}" "${OUTPUT_FILE}")
+  file(RELATIVE_PATH IN "${CMAKE_CURRENT_BINARY_DIR}" "${INPUT_FILE}")
 
   file(
     GENERATE
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_FILE}.cmake"
     CONTENT
       "include(${INCLUDEDIR}/QuickJSModule.cmake)\n
-parse_precompiled_symbols(${C_FILE} LWSJS_LIBS)\ngenerate_precompiled_header(X LWSJS_H \"\${LWSJS_LIBS}\")\nwrite_module_file(${NAME} \"\${LWSJS_H}\")\n"
+parse_precompiled_symbols(${C_FILE} LWSJS_LIBS)
+generate_precompiled_header(X LWSJS_H \"\${LWSJS_LIBS}\")
+write_module_file(${NAME} \"\${LWSJS_H}\")"
   )
 
-  file(RELATIVE_PATH OUT "${CMAKE_CURRENT_BINARY_DIR}" "${OUTPUT_FILE}")
-  file(RELATIVE_PATH IN "${CMAKE_CURRENT_BINARY_DIR}" "${INPUT_FILE}")
-
-  message("generate_precompiled_h ${NAME}")
+  #message("generate_precompiled_h ${NAME}")
 
   add_custom_command(
-    OUTPUT "${NAME}" BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${C_FILE}"
-    #VERBATIM
+    OUTPUT "${NAME}" BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${INPUT_FILE}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake" SOURCES "${INPUT_FILE}" #VERBATIM
   )
   add_custom_target(
-    "${NAME}" ALL BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${C_FILE}"
+    "${NAME}" ALL BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${INPUT_FILE}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake" SOURCES "${IN}" #VERBATIM
+    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake" SOURCES "${INPUT_FILE}" #VERBATIM
   )
 endfunction(generate_precompiled_h NAME)
 
