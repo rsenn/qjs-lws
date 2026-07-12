@@ -5,9 +5,20 @@
 #include "lws.h"
 #include "js-utils.h"
 
+struct bytecode {
+  const uint8_t* code;
+  uint32_t size;
+};
+
 #define const static const
 #include "precompiled.c"
 #undef const
+
+static struct bytecode lwsjs_precompiled[] = {
+#define X(name) {qjsc_##name, qjsc_##name##_size},
+#include "precompiled.h"
+#undef X
+};
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
@@ -1011,9 +1022,28 @@ lwsjs_init(JSContext* ctx, JSModuleDef* m) {
   return 0;
 }
 
+// #define JS_READ_OBJ_BYTECODE (1 << 0)  /* allow function/module */
+// #define JS_READ_OBJ_ROM_DATA (1 << 1)  /* avoid duplicating 'buf' data */
+// #define JS_READ_OBJ_SAB (1 << 2)       /* allow SharedArrayBuffer */
+// #define JS_READ_OBJ_REFERENCE (1 << 3) /* allow object references */
+// JSValue JS_ReadObject(JSContext* ctx, const uint8_t* buf, size_t buf_len, int flags);
+///* instantiate and evaluate a bytecode function. Only used when
+//   reading a script or module with JS_ReadObject() */
+// JSValue JS_EvalFunction(JSContext* ctx, JSValue fun_obj);
+///* load the dependencies of the module 'obj'. Useful when JS_ReadObject()
+//   returns a module. */
+// int JS_ResolveModule(JSContext* ctx, JSValueConst obj);
+//
+
 VISIBLE JSModuleDef*
 js_init_module(JSContext* ctx, const char* module_name) {
   JSModuleDef* m;
+
+  for(int i = 0; i < countof(lwsjs_precompiled); i++) {
+    JSValue module = JS_ReadObject(ctx, lwsjs_precompiled[i].code, lwsjs_precompiled[i].size, JS_READ_OBJ_BYTECODE);
+    JS_ResolveModule(ctx, module);
+    JSValue result = JS_EvalFunction(ctx, module);
+  }
 
   if((m = JS_NewCModule(ctx, module_name, lwsjs_init))) {
     JS_AddModuleExport(ctx, m, "LWSContext");

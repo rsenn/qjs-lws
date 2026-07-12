@@ -675,7 +675,6 @@ void
 context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_context_creation_info* ci) {
   JSValue value;
 
-
   str_property(&ci->iface, ctx, obj, "iface");
   str_property(&ci->vhost_name, ctx, obj, "vhost_name");
 

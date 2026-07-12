@@ -18,11 +18,7 @@ function(compile_module SOURCE)
   set(MODULES_DIR "${MODULES_DIR}" PARENT_SCOPE)
   file(MAKE_DIRECTORY "${MODULES_DIR}")
 
-  if(ARGN)
-    set(OUTPUT_FILE ${ARGN})
-  else(ARGN)
-    set(OUTPUT_FILE "${MODULES_DIR}/${BASE}.c")
-  endif(ARGN)
+  set(OUTPUT_FILE "${MODULES_DIR}/${BASE}.c")
 
   list(APPEND COMPILED_MODULES "${OUTPUT_FILE}")
   list(APPEND COMPILED_TARGETS "${BASE}.c")
@@ -33,7 +29,7 @@ function(compile_module SOURCE)
   add_custom_target(
     "${BASE}.c" ALL
     BYPRODUCTS "${OUTPUT_FILE}"
-    COMMAND "${QJSC}" -v -c -o "${OUTPUT_FILE}" -m "${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE}"
+    COMMAND "${QJSC}" -v -c -o "${OUTPUT_FILE}" -m "${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE}" ${ARGN}
     DEPENDS ${QJSC_DEPS}
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     COMMENT "Generate ${OUTPUT_FILE} from ${SOURCE} using qjs compiler"

@@ -49,8 +49,10 @@ if(DEBUG_OUTPUT)
 endif(DEBUG_OUTPUT)
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
 
 #set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "PIC code")
 #set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
@@ -264,7 +266,7 @@ if(BUILD_LIBWEBSOCKETS)
   endif(TARGET libmbedtls)
   if(TARGET libbrotli)
     ExternalProject_Add_StepDependencies(websockets configure libbrotli)
-    #add_dependencies(libwebsockets libbrotli)
+    #aminnet.cedd_dependencies(libwebsockets libbrotli)
   endif(TARGET libbrotli)
 else(BUILD_LIBWEBSOCKETS)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindBrotli.cmake)
@@ -360,12 +362,7 @@ include_directories(
   libwebsockets/lib/tls/openssl
   libwebsockets/plugins/ssh-base/include)
 
-add_custom_command(
-  OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/precompiled.c"
-  COMMAND "${QJSC}" "${CMAKE_CURRENT_SOURCE_DIR}/precompiled.js" -M lws -M textcode -M fs -c -o precompiled.c
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/precompiled.js" 
-  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  COMMENT "Generate precompiled.c from precompiled.js using qjsc")
+compile_module(precompiled.js -M lws -M fs)
 
 file(GLOB JS_BINDINGS_SOURCES *.[ch])
 
@@ -402,6 +399,9 @@ if(WIN32)
 else(WIN32)
   add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
 endif(WIN32)
+#add_dependencies(qjs-lws precompiled.c)
+
+target_include_directories(qjs-lws PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/modules)
 
 #add_dependencies(qjs-lws minnet.c)
 if(HAVE_GETNETWORKPARAMS)
@@ -528,6 +528,23 @@ install(FILES ${JS_LIB_FETCH_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}/lws")
 
 file(GLOB TESTS tests/unittests/test-*.js)
 relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
+
+file(READ "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.c" PRECOMP_C)
+string(REGEX REPLACE "[^a-z0-9_]+" ";" PRECOMP_LIST "${PRECOMP_C}")
+
+list(FILTER PRECOMP_LIST INCLUDE REGEX ".*jsc.*")
+list(FILTER PRECOMP_LIST EXCLUDE REGEX ".*_size$")
+string(REGEX REPLACE "qjsc_" "" PRECOMP_LIST "${PRECOMP_LIST}")
+
+set(PRECOMP_H "")
+
+foreach(NAME ${PRECOMP_LIST})
+  set(PRECOMP_H "${PRECOMP_H}X(${NAME})\n")
+endforeach()
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.h" "${PRECOMP_H}")
+
+  
+  dump(PRECOMP_LIST)
 
 if(DO_TESTS)
   include(CTest)
