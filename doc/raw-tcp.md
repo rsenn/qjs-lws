@@ -34,7 +34,7 @@ into the JS protocols table.
 
 ## Raw listener
 
-`tcpSocket.js` shows the pattern: pass
+`tcpsocket.js` shows the pattern: pass
 `LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG`
 in `options` so the listener accepts plain TCP and routes new
 connections through the protocol named in `listenAcceptProtocol`.
@@ -96,14 +96,16 @@ createServer({
 });
 ```
 
-## High-level wrapper: `lib/tcpSocket.js`
+## High-level wrappers: `lib/tcpsocket.js` / `lib/tcpsocketstream.js`
 
-`TCPSocket` / `TCPSocketStream` from `lib/tcpSocket.js` wrap the raw
-protocol with an EventTarget and a WHATWG-streams view:
+`TCPSocket` (`lib/tcpsocket.js`) wraps the raw protocol with an
+EventTarget view. `TCPSocketStream` (`lib/tcpsocketstream.js`) is a
+separate, independent WHATWG-streams view - it doesn't wrap `TCPSocket`,
+it talks to the raw protocol directly via `lib/lws/protocols.js`.
 
 ```js
 import { toString } from 'lws';
-import { TCPSocket } from './lib/tcpSocket.js';
+import { TCPSocket } from './lib/tcpsocket.js';
 
 const s = new TCPSocket('example.com', 80);
 s.addEventListener('open',    () => s.send('GET / HTTP/1.0\r\n\r\n'));

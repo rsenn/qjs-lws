@@ -1,6 +1,7 @@
 import { fetch } from './lib/fetch.js';
 import { WebSocketStream } from './lib/websocketstream.js';
-import { TCPSocket, TCPSocketStream } from './lib/tcpSocket.js';
+import { TCPSocket } from './lib/tcpsocket.js';
+import { TCPSocketStream } from './lib/tcpsocketstream.js';
 import { WebSocket } from './lib/websocket.js';
 import { URLSearchParams, URL } from './lib/lws/url.js';
 import { Headers } from './lib/lws/headers.js';

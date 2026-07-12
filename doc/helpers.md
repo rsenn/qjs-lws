@@ -102,16 +102,20 @@ when the socket is writeable.
 ### `lib/websocketstream.js`
 
 WebSocket-stream proposal: pairs a `ReadableStream` with a
-`WritableStream` on top of a `WebSocket`.
+`WritableStream` on top of the WS protocol. Independent of the
+EventTarget-based `WebSocket` (lib/websocket.js) - both talk to
+`lib/lws/protocols.js` directly rather than one wrapping the other.
 
-### `lib/tcpSocket.js`
+### `lib/tcpsocket.js` / `lib/tcpsocketstream.js`
 
-EventTarget-style raw TCP socket plus a Streams-based
-`TCPSocketStream`:
+EventTarget-style raw TCP socket (`TCPSocket`) and an independent
+Streams-based view (`TCPSocketStream`, its own file) - same
+relationship as `WebSocket`/`WebSocketStream` above:
 
 ```js
 import { toString } from 'lws';
-import { TCPSocket, TCPSocketStream } from './lib/tcpSocket.js';
+import { TCPSocket } from './lib/tcpsocket.js';
+import { TCPSocketStream } from './lib/tcpsocketstream.js';
 
 // Client.
 const s = new TCPSocket('example.com', 80);
