@@ -396,7 +396,6 @@ else(WIN32)
   add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
 endif(WIN32)
 
-
 #add_dependencies(qjs-lws modules/precompiled.c)
 
 target_include_directories(qjs-lws PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/modules)
@@ -529,9 +528,9 @@ relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
 
-generate_precompiled(precompiled -D lws.so -M fs)
-parse_precompiled(precompiled LWSJS_LIBS)
-generate_precompiled_header(precompiled X ${LWSJS_LIBS})
+generate_precompiled_js(precompiled.js)
+compile_module(precompiled.js -D lws.so)
+generate_precompiled_h(precompiled.h)
 
 if(DO_TESTS)
   include(CTest)
