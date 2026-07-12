@@ -52,7 +52,6 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/generators.cmake)
 
 #set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "PIC code")
 #set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
@@ -64,7 +63,6 @@ elseif(NOT DEFINED CMAKE_INSTALL_LIBDIR)
 endif()
 
 include(CheckFunctionExists)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildCURL.cmake)
 if(USE_CURL AND NOT BUILD_CURL)
@@ -529,25 +527,11 @@ install(FILES ${JS_LIB_FETCH_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}/lws")
 file(GLOB TESTS tests/unittests/test-*.js)
 relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
 
-if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.c")
-  file(READ "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.c" PRECOMP_C)
-  string(REGEX REPLACE "[^A-Za-z0-9_]+" ";" PRECOMP_LIST "${PRECOMP_C}")
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
 
-  list(FILTER PRECOMP_LIST INCLUDE REGEX ".*jsc.*")
-  list(FILTER PRECOMP_LIST EXCLUDE REGEX ".*_size$")
-  string(REGEX REPLACE "qjsc_" "" PRECOMP_LIST "${PRECOMP_LIST}")
-
-  set(PRECOMP_H "")
-
-  set(I 0)
-  foreach(NAME ${PRECOMP_LIST})
-    set(PRECOMP_H "${PRECOMP_H}X(${NAME}, ${I})\n")
-    math(EXPR I "1 + ${I}")
-  endforeach()
-  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/modules/precompiled.h" "${PRECOMP_H}")
-endif()
-
-dump(PRECOMP_LIST)
+generate_precompiled(precompiled -D lws.so -M fs)
+parse_precompiled(precompiled LWSJS_LIBS)
+generate_precompiled_header(precompiled X ${LWSJS_LIBS})
 
 if(DO_TESTS)
   include(CTest)

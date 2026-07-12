@@ -1,3 +1,9 @@
+
+if(NOT PRECOMPILED_MODULE_DIR)
+  set(PRECOMPILED_MODULE_DIR modules/ CACHE PATH "subdirectory of build directory for precompiled .js modules")
+endif(NOT PRECOMPILED_MODULE_DIR)
+
+
 function(config_module TARGET_NAME)
   if(QUICKJS_LIBRARY_DIR)
     set_target_properties(${TARGET_NAME} PROPERTIES LINK_DIRECTORIES "${QUICKJS_LIBRARY_DIR}")
@@ -66,7 +72,7 @@ function(generate_module_header SOURCE)
       set(S "${S}\nextern const uint32_t qjsc_${NAME}_size;\nextern const uint8_t qjsc_${NAME}[];\n")
     endif(NOT DOES_CONTAIN)
   endforeach(NAME ${SYMBOLS})
-  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/modules/${BASE}.h" "${S}")
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${PRECOMPILED_MODULE_DIR}${BASE}.h" "${S}")
   #string(REGEX REPLACE "[\\n;]" "\\\\n" SYMBOLS "${SYMBOLS}")
   #message("Symbols: ${SYMBOLS}")
 endfunction(generate_module_header SOURCE)
@@ -153,7 +159,7 @@ function(remake_module SOURCE)
 
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
 
-  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/modules/${BASE}.c" "#include \"${BASE}.h\"\n\n${DEF}")
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${PRECOMPILED_MODULE_DIR}${BASE}.c" "#include \"${BASE}.h\"\n\n${DEF}")
   generate_module_header(${SOURCE} ${DEFLIST})
 
 endfunction(remake_module SOURCE)
@@ -273,3 +279,68 @@ endif(NOT LIBRARY_PREFIX)
 if(NOT LIBRARY_SUFFIX)
   set(LIBRARY_SUFFIX "${CMAKE_STATIC_LIBRARY_SUFFIX}")
 endif(NOT LIBRARY_SUFFIX)
+
+
+
+function(generate_precompiled NAME)
+  file(READ ${NAME}.js.cmake JS_CMAKE)
+  string(REGEX REPLACE "[\n;]+" ";" LINES "${JS_CMAKE}")
+  list(FILTER LINES INCLUDE REGEX "import.*")
+
+  unset(IMPORTS)
+
+  foreach(LINE ${LINES})
+    string(REGEX REPLACE ".*{\\s*" "" LINE "${LINE}")
+    string(REGEX REPLACE "\\s*}[^\\n]*from\\s* ['\"`]" ";" LINE "${LINE}")
+    string(REGEX REPLACE "['\"`]\\s*;\?\\s*" "" LINE "${LINE}")
+
+    list(GET LINE 0 IDS)
+    list(GET LINE 1 MODULE)
+
+    string(REGEX REPLACE "[ \t]+" "" IDS "${IDS}")
+    
+    list(APPEND IMPORTS "${MODULE}:${IDS}")
+  endforeach()
+
+  string(REGEX REPLACE "\.[^: ;]*:" "," EXPORTS "${IMPORTS}")
+  string(REPLACE "," ";" EXPORTS "${EXPORTS}")
+
+  list(FILTER EXPORTS INCLUDE REGEX "[A-Za-z0-9_]+")
+  list(JOIN EXPORTS ",\n  " EXPORTS)
+
+  configure_file(${NAME}.js.cmake ${PRECOMPILED_MODULE_DIR}${NAME}.js @ONLY)
+
+  #file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${PRECOMPILED_MODULE_DIR}${NAME}.js" "${JS_CMAKE}\n__lwsPrecompiledReady(\n  ${EXPORTS}\n);\n")
+
+  compile_module(${NAME}.js ${ARGN})
+endfunction(generate_precompiled NAME)
+
+function(parse_precompiled NAME OUTPUT)
+  if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${PRECOMPILED_MODULE_DIR}${NAME}.c")
+    file(READ "${CMAKE_CURRENT_BINARY_DIR}/${PRECOMPILED_MODULE_DIR}${NAME}.c" PRECOMP_C)
+    string(REGEX REPLACE "[^A-Za-z0-9_]+" ";" SYMBOLS "${PRECOMP_C}")
+
+    list(FILTER SYMBOLS INCLUDE REGEX ".*jsc.*")
+    list(FILTER SYMBOLS EXCLUDE REGEX ".*_size$")
+    string(REGEX REPLACE "qjsc_" "" SYMBOLS "${SYMBOLS}")
+
+    set(${OUTPUT} "${SYMBOLS}" PARENT_SCOPE)
+  endif()
+endfunction(parse_precompiled NAME)
+
+function(generate_precompiled_header NAME MACRO)
+  if(MACRO STREQUAL "")
+    set(MACRO "X")
+  endif()
+
+  set(OUTPUT "")
+  set(I 0)
+
+  foreach(NAME ${ARGN})
+    set(OUTPUT "${OUTPUT}${MACRO}(${NAME}, ${I})\n")
+    math(EXPR I "1 + ${I}")
+  endforeach()
+  
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${PRECOMPILED_MODULE_DIR}${NAME}.h" "${OUTPUT}")
+endfunction(generate_precompiled_header NAME)
+
