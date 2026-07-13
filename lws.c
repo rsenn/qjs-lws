@@ -2,6 +2,7 @@
 #include "lws-context.h"
 #include "lws-sockaddr46.h"
 #include "lws-vhost.h"
+#include "lws-tls.h"
 #include "lws.h"
 #include "js-utils.h"
 
@@ -538,6 +539,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("parseNumericAddress", 1, lwsjs_functions, FUNCTION_PARSE_NUMERIC_ADDRESS),
     JS_CFUNC_MAGIC_DEF("writeNumericAddress", 1, lwsjs_functions, FUNCTION_WRITE_NUMERIC_ADDRESS),
     JS_CFUNC_MAGIC_DEF("interfaceToSa", 1, lwsjs_functions, FUNCTION_INTERFACE_TO_SA),
+    JS_CFUNC_DEF("generateSelfSignedCert", 1, lwsjs_generate_self_signed_cert),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),
     JS_PROP_INT32_DEF("LWSMPRO_FILE", LWSMPRO_FILE, 0),

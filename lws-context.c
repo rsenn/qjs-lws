@@ -10,6 +10,7 @@
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws-sockaddr46.h"
+#include "lws-tls.h"
 #include "lws.h"
 #include "js-utils.h"
 #include "iohandler.h"
@@ -614,16 +615,7 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_
   if(js_has_property(ctx, obj, "port"))
     ci->port = to_integerfree(ctx, js_get_property(ctx, obj, "port"));
 
-  if(js_has_property(ctx, obj, "ssl_connection"))
-    ci->ssl_connection |= to_integerfree(ctx, js_get_property(ctx, obj, "ssl_connection"));
-
-  if(js_has_property(ctx, obj, "ssl")) {
-    value = js_get_property(ctx, obj, "ssl");
-    ci->ssl_connection |= !JS_IsNumber(value)
-                              ? (JS_ToBool(ctx, value) ? LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK : 0)
-                              : to_uint32(ctx, value);
-    JS_FreeValue(ctx, value);
-  }
+  tls_connect_info_fromobj(ctx, obj, ci);
 
   str_property(&ci->path, ctx, obj, "path");
   str_property(&ci->host, ctx, obj, "host");
@@ -746,24 +738,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_conte
   ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);
 #endif
 
-#ifdef LWS_WITH_TLS
-  str_property(&ci->ssl_private_key_password, ctx, obj, "ssl_private_key_password");
-
-  str_or_buf_property(&ci->ssl_cert_filepath, &ci->server_ssl_cert_mem, &ci->server_ssl_cert_mem_len, ctx, obj, "server_ssl_cert");
-  str_or_buf_property(&ci->ssl_private_key_filepath, &ci->server_ssl_private_key_mem, &ci->server_ssl_private_key_mem_len, ctx, obj, "server_ssl_private_key");
-  str_or_buf_property(&ci->ssl_ca_filepath, &ci->server_ssl_ca_mem, &ci->server_ssl_ca_mem_len, ctx, obj, "server_ssl_ca");
-
-  str_property(&ci->ssl_cipher_list, ctx, obj, "ssl_cipher_list");
-  str_property(&ci->tls1_3_plus_cipher_list, ctx, obj, "tls1_3_plus_cipher_list");
-  str_property(&ci->client_ssl_private_key_password, ctx, obj, "client_ssl_private_key_password");
-
-  str_or_buf_property(&ci->client_ssl_cert_filepath, &ci->client_ssl_cert_mem, &ci->client_ssl_cert_mem_len, ctx, obj, "client_ssl_cert");
-  str_or_buf_property(&ci->client_ssl_private_key_filepath, &ci->client_ssl_key_mem, &ci->client_ssl_key_mem_len, ctx, obj, "client_ssl_private_key");
-  str_or_buf_property(&ci->client_ssl_ca_filepath, &ci->client_ssl_ca_mem, &ci->client_ssl_ca_mem_len, ctx, obj, "client_ssl_ca");
-
-  str_property(&ci->client_ssl_cipher_list, ctx, obj, "client_ssl_cipher_list");
-  str_property(&ci->client_tls_1_3_plus_cipher_list, ctx, obj, "client_tls_1_3_plus_cipher_list");
-#endif
+  tls_creation_info_fromobj(ctx, obj, ci);
 
 #ifdef LWS_WITH_SOCKS5
   str_property(&ci->socks_proxy_address, ctx, obj, "socks_proxy_address");
@@ -828,43 +803,7 @@ context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) 
   }
 #endif
 
-#ifdef LWS_WITH_TLS
-  if(ci->ssl_private_key_password)
-    js_free_rt(rt, (char*)ci->ssl_private_key_password);
-
-  if(ci->ssl_cert_filepath)
-    js_free_rt(rt, (char*)ci->ssl_cert_filepath);
-
-  if(ci->ssl_private_key_filepath)
-    js_free_rt(rt, (char*)ci->ssl_private_key_filepath);
-
-  if(ci->ssl_ca_filepath)
-    js_free_rt(rt, (char*)ci->ssl_ca_filepath);
-
-  if(ci->ssl_cipher_list)
-    js_free_rt(rt, (char*)ci->ssl_cipher_list);
-
-  if(ci->tls1_3_plus_cipher_list)
-    js_free_rt(rt, (char*)ci->tls1_3_plus_cipher_list);
-
-  if(ci->client_ssl_private_key_password)
-    js_free_rt(rt, (char*)ci->client_ssl_private_key_password);
-
-  if(ci->client_ssl_cert_filepath)
-    js_free_rt(rt, (char*)ci->client_ssl_cert_filepath);
-
-  if(ci->client_ssl_private_key_filepath)
-    js_free_rt(rt, (char*)ci->client_ssl_private_key_filepath);
-
-  if(ci->client_ssl_ca_filepath)
-    js_free_rt(rt, (char*)ci->client_ssl_ca_filepath);
-
-  if(ci->client_ssl_cipher_list)
-    js_free_rt(rt, (char*)ci->client_ssl_cipher_list);
-
-  if(ci->client_tls_1_3_plus_cipher_list)
-    js_free_rt(rt, (char*)ci->client_tls_1_3_plus_cipher_list);
-#endif
+  tls_creation_info_free(rt, ci);
 
 #ifdef LWS_WITH_SOCKS5
   if(ci->socks_proxy_address)

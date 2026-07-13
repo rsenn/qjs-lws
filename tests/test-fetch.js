@@ -1,22 +1,21 @@
 /**
- * Demonstrates fetch()'s reused-connection (keep-alive) behaviour with a
- * tiny same-host crawler:
+ * Exercises fetch() across all 4 combinations of {HTTP/1.1, H2} x {plain,
+ * TLS}, each against its own fixture server - one crawl per combination,
+ * one server lifecycle per combination (started, used, destroyed, in
+ * sequence - never more than one live at a time). TLS combinations use a
+ * freshly generated self-signed certificate (lib/lws/tls.js) for both
+ * sides: the server presents it, the client trusts that exact cert via
+ * `tls.ca` rather than disabling verification - no dependency on
+ * checked-in cert files or the system CA bundle.
  *
- *   1. GET an HTML file.
- *   2. Scan it with RegExp for URLs: <a href>, <img src>, <script src>,
- *      <link href> (stylesheets), CSS url(...) (from <style> blocks), and
- *      bare http(s):// URLs anywhere in the markup.
- *   3. Queue same-origin links and fetch them too; foreign-origin links
- *      are only reported, never fetched.
- *   4. Report how many distinct TCP connections the whole crawl actually
- *      used - ideally exactly one, since every fetch() call after the
- *      first should reuse the connection via LCCSCF_PIPELINE.
- *
- * Serves its own tiny fixture site (LWSMPRO_FILE mount) so the crawl is
- * deterministic and needs no network access.
+ * Each combination crawls its own tiny fixture site (LWSMPRO_FILE mount)
+ * with a same-host link-following crawler - deterministic, no network
+ * access required - and asserts the whole site was actually reached.
  */
 import { fetch } from '../lib/fetch.js';
-import { toString, createServer, logLevel, LWSMPRO_FILE, LLL_USER, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+import createContext from '../lib/lws/context.js';
+import { generateSelfSignedCert } from '../lib/lws/tls.js';
+import { toString, logLevel, LWSMPRO_FILE, LLL_USER, LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE } from 'lws';
 import { mkdir } from 'os';
 import * as std from 'std';
 
@@ -57,13 +56,16 @@ function originOf(url) {
   return m[1];
 }
 
-const PORT = 8919;
+function assert(cond, message) {
+  if(!cond) throw new Error('assertion failed: ' + message);
+}
+
 const ROOT = '/tmp/test-fetch-fixture';
 
 const FIXTURE = {
   'index.html': `<html><body>
     <a href="/page2.html">page2</a>
-    <a href="http://127.0.0.1:${PORT}/page3.html">page3 (absolute, same host)</a>
+    <a href="/page3.html">page3 (absolute, same host)</a>
     <a href="https://example.com/">external</a>
     <img src="/img/logo.png">
     <script src="/js/app.js"></script>
@@ -91,11 +93,20 @@ function writeFixture() {
   }
 }
 
-function serveFixture() {
-  createServer({
-    port: PORT,
+/**
+ * Starts a single fixture server for one combination; caller destroy()s it
+ * when done. `h2c`, only meaningful without `tls`, opts the vhost into
+ * accepting an h2 client preface directly over plain TCP
+ * (LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE) - without it, a prior-knowledge h2
+ * connection attempt just gets dropped, since ALPN (TLS's usual way of
+ * negotiating h2) doesn't exist to negotiate it over plain TCP.
+ */
+function serveFixture(port, tls, h2c) {
+  return createContext({
+    port,
     vhostName: 'localhost',
-    options: LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
+    ...(tls ? { tls } : {}),
+    ...(h2c ? { options: LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE } : {}),
     mounts: [{ mountpoint: '/', origin: ROOT, def: 'index.html', originProtocol: LWSMPRO_FILE }],
     protocols: [{ name: 'http' }],
   });
@@ -124,19 +135,13 @@ function extractUrls(html) {
   return found;
 }
 
-async function main(url) {
-  writeFixture();
-  serveFixture();
-
-  const startUrl = url ?? `http://127.0.0.1:${PORT}/index.html`;
+/** Crawls `startUrl` same-host, fetching every page/asset it can reach. Returns a summary for the caller to assert on. */
+async function crawl(startUrl, fetchOptions) {
   const startOrigin = originOf(startUrl);
-
-  console.log('url', startUrl);
-
   const visited = new Set();
   const queue = [startUrl];
   const foreign = new Set();
-  const connections = []; // { url, fd } for every fetch, in order
+  const connections = []; // { url, fd, h2, tls } for every fetch, in order
 
   while(queue.length) {
     const url = queue.shift();
@@ -144,12 +149,13 @@ async function main(url) {
     visited.add(url);
 
     const resp = await fetch(url, {
-      keepAlive: true,
-      tls: { rejectUnauthorized: false, cert: 'localhost.crt', key: 'localhost.key', ca: '/etc/ssl/certs/ca-certificates.crt' },
+      ...fetchOptions,
       pwsi(wsi) {
-        connections.push({ url, fd: wsi.network?.fd, isPipelineLeader: wsi.isPipelineLeader, queuedBehind: wsi.pipelineLeader?.network?.fd });
+        connections.push({ url, fd: wsi.network?.fd, h2: wsi.h2, tls: !!wsi.tls });
       },
     });
+
+    assert(resp.status === 200, `${url} -> status ${resp.status}`);
 
     const contentType = resp.headers.get('content-type') ?? '';
     const isText = /html|css|javascript|text/.test(contentType);
@@ -158,7 +164,7 @@ async function main(url) {
     if(isText) for await(const chunk of resp.body) body += toString(chunk.buffer);
     else for await(const chunk of resp.body); // drain non-text bodies
 
-    console.log(`fetched ${url} -> ${resp.status} (${contentType || 'unknown type'}, ${body.length} bytes)`);
+    console.log(`  fetched ${url} -> ${resp.status} (${contentType || 'unknown type'}, ${body.length} bytes)`);
 
     if(!isText) continue;
 
@@ -181,20 +187,56 @@ async function main(url) {
     }
   }
 
-  console.log('\n--- crawl summary ---');
-  console.log('same-host pages/assets fetched:', visited.size, [...visited]);
-  console.log('foreign links (reported, not fetched):', foreign.size, [...foreign]);
-
-  const distinctFds = new Set(connections.map(c => c.fd));
-
-  console.log('\n--- connection reuse ---');
-  for(const c of connections) console.log(' ', c.url, '-> fd', c.fd, c.queuedBehind !== undefined ? `(queued behind fd ${c.queuedBehind})` : '(own connection)');
-
-  console.log(
-    `\n${connections.length} fetches used ${distinctFds.size} distinct TCP connection(s)` + (distinctFds.size === 1 ? ' - fully reused, as intended.' : ' - reuse did not happen for all requests.'),
-  );
+  return { visited, foreign, connections };
 }
 
-main(...scriptArgs.slice(1))
-  .catch(e => console.log('CRAWL ERROR', e, e?.stack))
+/** Runs one {h2, tls} combination against its own, freshly started fixture server. */
+async function runCombo(label, port, { h2, tls }) {
+  console.log(`\n=== ${label} (port ${port}) ===`);
+
+  const ctx = serveFixture(port, tls?.server, h2 && !tls);
+
+  try {
+    const scheme = tls ? 'https' : 'http';
+    const startUrl = `${scheme}://127.0.0.1:${port}/index.html`;
+
+    const { visited, foreign, connections } = await crawl(startUrl, { keepAlive: true, h2, tls: tls?.client });
+
+    assert(visited.size === 7, `expected 7 same-host pages/assets, got ${visited.size}: ${[...visited]}`);
+    assert(foreign.size === 1, `expected 1 foreign link, got ${foreign.size}: ${[...foreign]}`);
+
+    for(const c of connections) {
+      assert(c.tls === !!tls, `${c.url}: expected wsi.tls ${!!tls}, got ${c.tls}`);
+      console.log(`  ${c.url} -> fd ${c.fd}, h2=${c.h2}, tls=${c.tls}`);
+    }
+
+    console.log(`${label}: OK (${connections.length} fetches, ${new Set(connections.map(c => c.fd)).size} distinct connection(s))`);
+  } finally {
+    ctx.destroy();
+  }
+}
+
+async function main() {
+  writeFixture();
+
+  // Generated once, reused for both TLS combinations below - the server
+  // presents it, the client trusts that exact cert as its CA (a
+  // self-signed cert verifies fine against itself as a degenerate,
+  // one-node trust chain) rather than disabling verification.
+  const { cert, key } = generateSelfSignedCert({ commonName: 'localhost', altNames: ['localhost', '127.0.0.1'] });
+  const tls = { server: { cert, key }, client: { ca: cert } };
+
+  await runCombo('HTTP/1.1, plain', 8919, { h2: false, tls: null });
+  await runCombo('HTTP/1.1, TLS', 8920, { h2: false, tls });
+  await runCombo('H2, plain', 8921, { h2: true, tls: null });
+  await runCombo('H2, TLS', 8922, { h2: true, tls });
+
+  console.log('\nALL 4 COMBINATIONS PASSED');
+}
+
+main()
+  .catch(e => {
+    console.log('TEST FAILED:', e, e?.stack);
+    std.exit(1);
+  })
   .then(() => std.exit(0)); // the fixture server + shared fetch() context would otherwise keep the process alive
