@@ -436,8 +436,7 @@ function(generate_precompiled_h NAME)
       "include(${INCLUDEDIR}/QuickJSModule.cmake)\n
 parse_precompiled_symbols(${C_FILE} LWSJS_LIBS)
 generate_precompiled_header(X LWSJS_H \"\${LWSJS_LIBS}\")
-write_module_file(${NAME} \"\${LWSJS_H}\")"
-  )
+write_module_file(${NAME} \"\${LWSJS_H}\")")
 
   #message("generate_precompiled_h ${NAME}")
 

@@ -74,12 +74,10 @@ tls_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
 #else /* !LWS_WITH_TLS */
 
 void
-tls_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_context_creation_info* ci) {
-}
+tls_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_context_creation_info* ci) {}
 
 void
-tls_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
-}
+tls_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {}
 
 #endif /* LWS_WITH_TLS */
 

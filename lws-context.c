@@ -270,15 +270,16 @@ protocols_fromarray(JSContext* ctx, JSValueConst value) {
   LWSProtocols* pro = js_mallocz(ctx, (len + 13) * sizeof(LWSProtocols));
   size_t j = 0;
 
-  pro[j++] = (LWSProtocols){
-      "http-only",
-      callback_http,
-      0,
-      0,
-      0,
-      NULL,
-      0,
-  };
+  if(len == 0)
+    pro[j++] = (LWSProtocols){
+        "http-only",
+        callback_http,
+        0,
+        0,
+        0,
+        NULL,
+        0,
+    };
 
   for(size_t i = 0; i < len; i++) {
     pro[j++] = protocol_from(ctx, values[i]);
@@ -1376,9 +1377,10 @@ callback_js(struct lws* wsi, enum lws_callback_reasons reason, void* user, void*
 
 static int
 callback_http(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
-  if(callback_js(wsi, reason, user, in, len) != 0)
-    if(callback_pollfd(wsi, reason, user, in, len) == 0)
-      return 0;
+  if(callback_js(wsi, reason, user, in, len) == 0)
+    return 0;
+  if(callback_pollfd(wsi, reason, user, in, len) == 0)
+    return 0;
 
   LWSSocket* sock;
   BOOL client = FALSE;
@@ -1396,9 +1398,10 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
   if(reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS || reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS)
     return 0;
 
-  if(callback_js(wsi, reason, user, in, len) != 0)
-    if(callback_pollfd(wsi, reason, user, in, len) == 0)
-      return 0;
+  if(callback_js(wsi, reason, user, in, len) == 0)
+    return 0;
+  if(callback_pollfd(wsi, reason, user, in, len) == 0)
+    return 0;
 
   LWSProtocols const* pro = wsi ? lws_get_protocol(wsi) : 0;
   LWSProtocol* closure = pro ? pro->user : 0;
@@ -1586,6 +1589,8 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         argi++;
       }
 
+    } else if(reason == LWS_CALLBACK_FILTER_NETWORK_CONNECTION) {
+      argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
     } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
       argv[argi++] = JS_NewString(ctx, in);
     }

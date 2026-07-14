@@ -35,18 +35,22 @@ await tests({
     let ctx;
     const result = await new Promise((resolve, reject) => {
       ctx = new LWSContext({
-        protocols: [{
-          name: 'ws',
-          onClientEstablished(wsi) { wsi.write('ping-from-parent', LWS_WRITE_TEXT); },
-          onClientReceive(wsi, data) {
-            ctx.cancelService();
-            resolve(data);
+        protocols: [
+          {
+            name: 'ws',
+            onClientEstablished(wsi) {
+              wsi.write('ping-from-parent', LWS_WRITE_TEXT);
+            },
+            onClientReceive(wsi, data) {
+              ctx.cancelService();
+              resolve(data);
+            },
+            onClientConnectionError(wsi, msg) {
+              ctx.cancelService();
+              reject(new Error(msg));
+            },
           },
-          onClientConnectionError(wsi, msg) {
-            ctx.cancelService();
-            reject(new Error(msg));
-          },
-        }],
+        ],
       });
       ctx.clientConnect(`ws://localhost:${port}/echo`, { protocol: 'echo', localProtocolName: 'ws' });
     });
@@ -82,22 +86,26 @@ await tests({
     let ctx;
     const result = await new Promise((resolve, reject) => {
       ctx = new LWSContext({
-        protocols: [{
-          name: 'http',
-          onEstablishedClientHttp(wsi, status) { this.status = status; },
-          onReceiveClientHttp(wsi) {
-            const buf = new ArrayBuffer(4096);
-            if(wsi.httpClientRead(buf)) this.onReceiveClientHttpRead(wsi, buf);
+        protocols: [
+          {
+            name: 'http',
+            onEstablishedClientHttp(wsi, status) {
+              this.status = status;
+            },
+            onReceiveClientHttp(wsi) {
+              const buf = new ArrayBuffer(4096);
+              if(wsi.httpClientRead(buf)) this.onReceiveClientHttpRead(wsi, buf);
+            },
+            onReceiveClientHttpRead(wsi, buf, len) {
+              ctx.cancelService();
+              resolve({ status: this.status, body: toString(buf, 0, len) });
+            },
+            onClientConnectionError(wsi, msg) {
+              ctx.cancelService();
+              reject(new Error(msg));
+            },
           },
-          onReceiveClientHttpRead(wsi, buf, len) {
-            ctx.cancelService();
-            resolve({ status: this.status, body: toString(buf, 0, len) });
-          },
-          onClientConnectionError(wsi, msg) {
-            ctx.cancelService();
-            reject(new Error(msg));
-          },
-        }],
+        ],
       });
       // The string-URL form of clientConnect() for an http:// scheme never
       // actually starts the connection (see the final summary) - the
@@ -147,31 +155,35 @@ await tests({
     let ctx;
     const result = await new Promise((resolve, reject) => {
       ctx = new LWSContext({
-        protocols: [{
-          name: 'http',
-          onClientAppendHandshakeHeader(wsi, buf, len) {
-            wsi.addHeader('content-type', 'text/plain', buf, len);
-            wsi.addHeader('content-length', String(toArrayBuffer(payload).byteLength), buf, len);
-            if(!wsi.redirectedToGet && wsi.method === 'POST') wsi.bodyPending = 1;
+        protocols: [
+          {
+            name: 'http',
+            onClientAppendHandshakeHeader(wsi, buf, len) {
+              wsi.addHeader('content-type', 'text/plain', buf, len);
+              wsi.addHeader('content-length', String(toArrayBuffer(payload).byteLength), buf, len);
+              if(!wsi.redirectedToGet && wsi.method === 'POST') wsi.bodyPending = 1;
+            },
+            onClientHttpWriteable(wsi) {
+              wsi.write(payload, LWS_WRITE_HTTP_FINAL);
+              wsi.bodyPending = 0;
+            },
+            onEstablishedClientHttp(wsi, status) {
+              this.status = status;
+            },
+            onReceiveClientHttp(wsi) {
+              const buf = new ArrayBuffer(4096);
+              if(wsi.httpClientRead(buf)) this.onReceiveClientHttpRead(wsi, buf);
+            },
+            onReceiveClientHttpRead(wsi, buf, len) {
+              ctx.cancelService();
+              resolve({ status: this.status, body: toString(buf, 0, len) });
+            },
+            onClientConnectionError(wsi, msg) {
+              ctx.cancelService();
+              reject(new Error(msg));
+            },
           },
-          onClientHttpWriteable(wsi) {
-            wsi.write(payload, LWS_WRITE_HTTP_FINAL);
-            wsi.bodyPending = 0;
-          },
-          onEstablishedClientHttp(wsi, status) { this.status = status; },
-          onReceiveClientHttp(wsi) {
-            const buf = new ArrayBuffer(4096);
-            if(wsi.httpClientRead(buf)) this.onReceiveClientHttpRead(wsi, buf);
-          },
-          onReceiveClientHttpRead(wsi, buf, len) {
-            ctx.cancelService();
-            resolve({ status: this.status, body: toString(buf, 0, len) });
-          },
-          onClientConnectionError(wsi, msg) {
-            ctx.cancelService();
-            reject(new Error(msg));
-          },
-        }],
+        ],
       });
       ctx.clientConnect({ address: 'localhost', port, path: '/', host: 'localhost', method: 'POST', protocol: 'http' });
     });
@@ -206,18 +218,22 @@ await tests({
     let ctx;
     const result = await new Promise((resolve, reject) => {
       ctx = new LWSContext({
-        protocols: [{
-          name: 'raw',
-          onRawConnected(wsi) { wsi.write(toArrayBuffer('raw-from-parent')); },
-          onRawRx(wsi, data) {
-            ctx.cancelService();
-            resolve(toString(data));
+        protocols: [
+          {
+            name: 'raw',
+            onRawConnected(wsi) {
+              wsi.write(toArrayBuffer('raw-from-parent'));
+            },
+            onRawRx(wsi, data) {
+              ctx.cancelService();
+              resolve(toString(data));
+            },
+            onClientConnectionError(wsi, msg) {
+              ctx.cancelService();
+              reject(new Error(msg));
+            },
           },
-          onClientConnectionError(wsi, msg) {
-            ctx.cancelService();
-            reject(new Error(msg));
-          },
-        }],
+        ],
       });
       ctx.clientConnect({ address: 'localhost', port, method: 'RAW', protocol: 'raw' });
     });
