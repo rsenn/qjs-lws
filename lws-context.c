@@ -1511,10 +1511,18 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
     BOOL process_html_args = reason == LWS_CALLBACK_ADD_HEADERS || reason == LWS_CALLBACK_CHECK_ACCESS_RIGHTS || reason == LWS_CALLBACK_PROCESS_HTML;
 
-    if(reason == LWS_CALLBACK_CLIENT_HTTP_REDIRECT) {
-      argv[argi++] = JS_NewString(ctx, in);
-      argv[argi++] = JS_NewInt32(ctx, len);
-    } else if(reason == LWS_CALLBACK_CLIENT_RECEIVE && (((char*)in)[-2] & 0x7f) == 8) {
+    /* This rewrite has to happen before the switch below, not as one of its
+       cases, since it decides *which* reason to dispatch as. Note it builds
+       its own args here rather than falling into the switch's
+       WS_PEER_INITIATED_CLOSE case below: that case's real (non-rewritten)
+       dispatch pushes the reason text as an ArrayBuffer and guards `code` on
+       len >= 2, while this synthesized-from-a-close-frame path has always
+       pushed it as a plain string and always pushed `code` - two genuinely
+       different argument shapes for the same reason value, so they can't
+       share one case. */
+    BOOL args_built = FALSE;
+
+    if(reason == LWS_CALLBACK_CLIENT_RECEIVE && (((char*)in)[-2] & 0x7f) == 8) {
       BOOL has_reason = cb == &closure->callback;
       int code = (int)(((uint8_t*)in)[0]) << 8 | ((uint8_t*)in)[1];
 
@@ -1528,71 +1536,112 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 
       if(len > 2)
         argv[argi++] = JS_NewStringLen(ctx, (char*)in + 2, len - 2);
-    } else if(process_html_args) {
-      struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
 
-      if(reason == LWS_CALLBACK_ADD_HEADERS)
-        pha->len = 0;
+      args_built = TRUE;
+    }
 
-      if(pha->len < pha->max_len)
-        memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
-
-      argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
-      argv[argi] = JS_NewArray(ctx);
-      JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
-      argi++;
-    } else if(reason == LWS_CALLBACK_ESTABLISHED) {
-      argv[argi++] = js_fmt_pointer(ctx, in, "(SSL*)");
-      argv[argi++] = JS_NewInt32(ctx, len);
-    } else if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
-      memset(*(uint8_t**)in, 0, len);
-      argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
-      argv[argi] = JS_NewArray(ctx);
-      JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, 0));
-      argi++;
-    } else if(reason == LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION) {
-      argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
-      argv[argi++] = JS_NewInt32(ctx, len);
-    } else if(reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP) {
-      int response = lws_http_client_http_response(wsi);
-
-      assert(s);
-      s->response_code = response;
-
-      argv[argi++] = JS_NewInt32(ctx, response);
-    } else if(reason == LWS_CALLBACK_CONNECTING) {
-      argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
-    } else if(reason == LWS_CALLBACK_WS_PEER_INITIATED_CLOSE) {
-      if(len >= 2)
-        argv[argi++] = JS_NewInt32(ctx, ntohs(*(uint16_t*)in));
-
-      if(len > 2)
-        argv[argi++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
-
-    } else if(in && (len > 0 || reason == LWS_CALLBACK_ADD_HEADERS) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
-      BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
-
-      argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
-      argv[argi++] = JS_NewInt64(ctx, len);
-
-      /* lws_is_first_fragment()/lws_is_final_fragment() are receive-side
-         (unlike lws_ws_sending_multifragment(), which reports our own send
-         state and is never true here). A plain single-frame message is
-         simultaneously first and final; only surface `frame` when that's
-         not the case, matching the documented "only present for
-         multi-fragment messages" contract. */
-      if(is_ws && !(lws_is_first_fragment(wsi) && lws_is_final_fragment(wsi))) {
-        argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
-        JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);
-        JS_SetPropertyStr(ctx, argv[argi], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
-        JS_SetPropertyStr(ctx, argv[argi], "final", JS_NewBool(ctx, lws_is_final_fragment(wsi)));
-        argi++;
+    if(!args_built) {
+    switch(reason) {
+      case LWS_CALLBACK_CLIENT_HTTP_REDIRECT: {
+        argv[argi++] = JS_NewString(ctx, in);
+        argv[argi++] = JS_NewInt32(ctx, len);
+        break;
       }
 
-    } else if(reason == LWS_CALLBACK_FILTER_NETWORK_CONNECTION) {
-      argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
-    } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
-      argv[argi++] = JS_NewString(ctx, in);
+      case LWS_CALLBACK_ADD_HEADERS:
+      case LWS_CALLBACK_CHECK_ACCESS_RIGHTS:
+      case LWS_CALLBACK_PROCESS_HTML: {
+        struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
+
+        if(reason == LWS_CALLBACK_ADD_HEADERS)
+          pha->len = 0;
+
+        if(pha->len < pha->max_len)
+          memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
+
+        argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
+        argv[argi] = JS_NewArray(ctx);
+        JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
+        argi++;
+        break;
+      }
+
+      case LWS_CALLBACK_ESTABLISHED: {
+        argv[argi++] = js_fmt_pointer(ctx, in, "(SSL*)");
+        argv[argi++] = JS_NewInt32(ctx, len);
+        break;
+      }
+
+      case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+        memset(*(uint8_t**)in, 0, len);
+        argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
+        argv[argi] = JS_NewArray(ctx);
+        JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, 0));
+        argi++;
+        break;
+      }
+
+      case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION: {
+        argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
+        argv[argi++] = JS_NewInt32(ctx, len);
+        break;
+      }
+
+      case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
+        int response = lws_http_client_http_response(wsi);
+
+        assert(s);
+        s->response_code = response;
+
+        argv[argi++] = JS_NewInt32(ctx, response);
+        break;
+      }
+
+      case LWS_CALLBACK_CONNECTING: {
+        argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
+        break;
+      }
+
+      case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: {
+        if(len >= 2)
+          argv[argi++] = JS_NewInt32(ctx, ntohs(*(uint16_t*)in));
+
+        if(len > 2)
+          argv[argi++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
+        break;
+      }
+
+      case LWS_CALLBACK_FILTER_NETWORK_CONNECTION: {
+        argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
+        break;
+      }
+
+      default: {
+        if(in && (len > 0) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
+          BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
+
+          argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
+          argv[argi++] = JS_NewInt64(ctx, len);
+
+          /* lws_is_first_fragment()/lws_is_final_fragment() are receive-side
+             (unlike lws_ws_sending_multifragment(), which reports our own send
+             state and is never true here). A plain single-frame message is
+             simultaneously first and final; only surface `frame` when that's
+             not the case, matching the documented "only present for
+             multi-fragment messages" contract. */
+          if(is_ws && !(lws_is_first_fragment(wsi) && lws_is_final_fragment(wsi))) {
+            argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
+            JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);
+            JS_SetPropertyStr(ctx, argv[argi], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
+            JS_SetPropertyStr(ctx, argv[argi], "final", JS_NewBool(ctx, lws_is_final_fragment(wsi)));
+            argi++;
+          }
+        } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
+          argv[argi++] = JS_NewString(ctx, in);
+        }
+        break;
+      }
+    }
     }
 
     if(reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
