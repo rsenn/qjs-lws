@@ -86,6 +86,13 @@ socket_flush(LWSSocket* s) {
       return;
     }
 
+    if(n > 0) {
+      char preview[41];
+
+      log_preview(preview, sizeof(preview), wc->buf + LWS_PRE + wc->off, (size_t)n);
+      lwsl_wsi_user(s->wsi, "TX %d bytes (proto=%d): %s%s\n", n, wc->proto, preview, (size_t)n > sizeof(preview) - 1 ? "..." : "");
+    }
+
     /* A single lws_write() call for a WS text/binary message IS the whole
        message: if the OS can't take it all immediately, lws buffers the
        remainder itself and flushes it autonomously (see the "Truncated
@@ -684,6 +691,13 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       if(ptr && len > 0) {
         if((n = lws_write(s->wsi, (uint8_t*)ptr, (unsigned int)len, LWS_WRITE_HTTP_FINAL)) < 0)
           return JS_ThrowInternalError(ctx, "lws_write");
+
+        if(n > 0) {
+          char preview[41];
+
+          log_preview(preview, sizeof(preview), ptr, (size_t)n);
+          lwsl_wsi_user(s->wsi, "TX %d bytes (proto=%d): %s%s\n", n, LWS_WRITE_HTTP_FINAL, preview, (size_t)n > sizeof(preview) - 1 ? "..." : "");
+        }
 
         written += n;
       }

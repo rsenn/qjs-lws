@@ -25,6 +25,20 @@ under `Unreleased` until that changes.
   `setWriteHandler` registration per fd. Previously these sources
   existed but were unconditionally excluded from the build. See
   [doc/event-loop.md](doc/event-loop.md#optional-epoll7-backend-use_epoll).
+- Traffic logging under `LLL_USER`: every payload actually handed to
+  `lws_write()` via `wsi.write()`/`wsi.respond()` now logs a `TX <n>
+  bytes (proto=<p>): <preview>` line (`lws-socket.c`), and every
+  `LWS_CALLBACK_{CLIENT_RECEIVE,CLIENT_RECEIVE_PONG,MQTT_CLIENT_RX,
+  RAW_PROXY_CLI_RX,RAW_PROXY_SRV_RX,RAW_RX,RAW_RX_FILE,RECEIVE,
+  RECEIVE_CLIENT_HTTP,RECEIVE_CLIENT_HTTP_READ,RECEIVE_PONG}` fires a
+  matching `RX <reason>: <n> bytes: <preview>` line (`lws-context.c`,
+  `callback_protocol()`). The preview is the first 40 bytes with
+  non-printable bytes replaced by `.` (`log_preview()`, `lws.h`) — no
+  new logging plumbing, this rides the existing `logLevel()`
+  mechanism, so it's silent unless `LLL_USER` is enabled (as
+  `lib/lws/context.js`'s default logger already does when `DEBUG` is
+  set) and colorized/filtered the same way any other `LLL_USER`
+  message is.
 
 ### Fixed
 

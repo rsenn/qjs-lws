@@ -1393,6 +1393,26 @@ callback_http(struct lws* wsi, enum lws_callback_reasons reason, void* user, voi
   return ret;
 }
 
+/* The reasons that carry a payload worth logging under LLL_USER - every
+   client/server receive path across WS, HTTP, MQTT, and raw (proxy). */
+static BOOL
+is_rx_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_CLIENT_RECEIVE:
+    case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
+    case LWS_CALLBACK_MQTT_CLIENT_RX:
+    case LWS_CALLBACK_RAW_PROXY_CLI_RX:
+    case LWS_CALLBACK_RAW_PROXY_SRV_RX:
+    case LWS_CALLBACK_RAW_RX:
+    case LWS_CALLBACK_RAW_RX_FILE:
+    case LWS_CALLBACK_RECEIVE:
+    case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+    case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+    case LWS_CALLBACK_RECEIVE_PONG: return TRUE;
+    default: return FALSE;
+  }
+}
+
 static int
 callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   if(reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS || reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS)
@@ -1402,6 +1422,17 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     return 0;
   if(callback_pollfd(wsi, reason, user, in, len) == 0)
     return 0;
+
+  if(wsi && is_rx_reason(reason)) {
+    if(in && len > 0) {
+      char preview[41];
+
+      log_preview(preview, sizeof(preview), in, len);
+      lwsl_wsi_user(wsi, "RX %s: %zu bytes: %s%s\n", lwsjs_callback_name(reason), len, preview, len > sizeof(preview) - 1 ? "..." : "");
+    } else {
+      lwsl_wsi_user(wsi, "RX %s\n", lwsjs_callback_name(reason));
+    }
+  }
 
   LWSProtocols const* pro = wsi ? lws_get_protocol(wsi) : 0;
   LWSProtocol* closure = pro ? pro->user : 0;
