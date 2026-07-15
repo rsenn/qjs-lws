@@ -161,6 +161,55 @@ const TESTS = {
     server.stop();
   },
 
+  async 'callback mode: req.body is a real ReadableStream - reads the POST body incrementally, not buffered whole'() {
+    // A large-enough body that it can't possibly arrive in a single socket
+    // read (confirmed empirically: ~4KB reads off the wire, so a 500KB body
+    // lands in ~120+ separate LWS_CALLBACK_HTTP_BODY events) - proves
+    // req.body's reader sees chunks as lws hands them off, rather than
+    // req.stream() (lib/lws/app.js) silently waiting for the whole upload
+    // to finish before ever enqueuing anything.
+    const port = nextPort();
+    let chunkCount = 0;
+
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      fetch: async req => {
+        const reader = req.body.getReader();
+        const chunks = [];
+        let total = 0;
+
+        for(;;) {
+          const { value, done } = await reader.read();
+          if(done) break;
+
+          chunkCount++;
+          chunks.push(value);
+          total += value.byteLength;
+        }
+
+        const merged = new Uint8Array(total);
+        let offset = 0;
+        for(const chunk of chunks) {
+          merged.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+
+        return new Response(merged);
+      },
+    });
+
+    const body = '0123456789'.repeat(50000); // 500,000 bytes
+    const resp = await fetch(`http://127.0.0.1:${port}/`, { method: 'POST', body });
+    const received = await resp.text();
+
+    assert(received.length === body.length, `expected ${body.length} bytes back, got ${received.length}`);
+    assert(received === body, 'expected the reconstructed body to match what was sent, byte for byte');
+    assert(chunkCount > 1, `expected the body to arrive as more than one chunk (streaming), got ${chunkCount}`);
+
+    server.stop();
+  },
+
   async 'callback mode: an explicit content-length header streams the body as-is'() {
     const port = nextPort();
     const body = 'exact-length-body';
