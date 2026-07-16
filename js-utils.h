@@ -30,6 +30,7 @@ void js_error_print(JSContext*, JSValueConst);
 JSValue js_fmt_pointer(JSContext*, void*, const char*);
 JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
 char** to_stringarray(JSContext*, JSValueConst);
+JSValue from_stringarray(JSContext* ctx, const char* const* strs);
 void str_or_buf_property(const char**, const void**, unsigned int*, JSContext*, JSValueConst, const char*);
 size_t get_offset_length(JSContext*, int, JSValueConst[], size_t, size_t*);
 void* get_buffer(JSContext*, int, JSValueConst[], size_t*);

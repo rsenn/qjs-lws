@@ -138,7 +138,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    iterator mode, WS-via-iterator, raw fallback vs. `raw: { always }`,
    `Class` selection, `content-length` handling) - but it's root-level,
    not `tests/unittests/`, so it's still not wired into `DO_TESTS` (see
-   item 6 below).
+   item 5 below).
 
 2. **No dedicated `tests/unittests/` coverage for `lib/lws/protocols.js`.**
    `HttpProtocol`/`HttpClientProtocol`/`WsProtocol`/`WsClientProtocol`/
@@ -153,20 +153,14 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    `LWSMPRO_CALLBACK` mount specifically - see `test-serve.js`'s note next
    to its dropped `options.headers` test).
 
-3. **No `tests/unittests/` coverage for `lib/fetch.js`** - only the manual,
-   non-assertion-based crawl script `tests/test-fetch.js` (root-level, not
-   in `unittests/`). The redirect-following and POST-body-actually-gets-sent
-   behavior added/fixed this session have no regression test pinning them
-   down.
-
-4. **`lib/lws/app.js`, `middleware.js`, `session.js` have no
+3. **`lib/lws/app.js`, `middleware.js`, `session.js` have no
    `tests/unittests/` coverage** - only the informal `tests/test-app.js`
    (root-level).
 
-5. **`lib/lws/byte-queue.js` and `subprocess-stream.js` have zero test
+4. **`lib/lws/byte-queue.js` and `subprocess-stream.js` have zero test
    coverage anywhere.**
 
-6. **`tests/test-{app,client,server,websocket,fetch,serve}.js` (repo root)
+5. **`tests/test-{app,client,server,websocket,fetch,serve}.js` (repo root)
    aren't wired into the automated run** - `CMakeLists.txt`'s `DO_TESTS`
    only globs `tests/unittests/test-*.js`. Worth a deliberate call:
    promote these into the automated suite (`test-serve.js` already is
@@ -174,13 +168,13 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    the rest are mostly demo/manual scripts today), or document clearly
    that they're manual-only.
 
-7. **No example for the new `lib/serve.js` API.** `examples/` has
+6. **No example for the new `lib/serve.js` API.** `examples/` has
    `debugger/`, `raw-proxy-fallback/`, `websocket-chat/` - all built
    directly on the low-level `createServer()` API. A `examples/serve/`
    showing the Bun-shaped `serve(options, fetch)` (and maybe the
    async-iterator form) would be the most direct proof this session's main
    deliverable is actually pleasant to use.
 
-8. **`examples/debugger/` has what look like accidental artifacts** -
+7. **`examples/debugger/` has what look like accidental artifacts** -
    `core.2404642` (a core dump), `gmon.out` (gprof output), a
    `*.sublime-workspace` file - probably shouldn't be tracked in the repo.

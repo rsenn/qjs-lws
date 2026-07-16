@@ -21,6 +21,7 @@ typedef struct {
   SPACallbacks callbacks;
   JSValue name, filename;
   struct lws_spa_create_info info;
+  struct lwsac* sac;
 } LWSSPA;
 
 static const char* const lws_spa_callback_names[] = {
@@ -115,15 +116,49 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
   if(!JS_IsFunction(ctx, s->callbacks.on.finalcontent) && JS_IsFunction(ctx, s->callbacks.on.content))
     s->callbacks.on.finalcontent = JS_DupValue(ctx, s->callbacks.on.content);
 
-  uint32_t count_params = to_uint32free_default(ctx, js_get_property(ctx, this_val, "count_params"), 1024);
+  /* `param_names`/`paramNames`: an (optional) array/iterable of expected
+     form field names, e.g. ['username', 'email'] - populates the same
+     array lws_spa_create_via_info() itself reads field names from, and is
+     what lwsjs_spa_get_property() below matches a string property lookup
+     against. Without it, param_names entries stay NULL ("arbitrary POST
+     items" mode per lws-spa.h), and name-based/`.length` lookups have
+     nothing to match. `count_params` defaults to the given array's length
+     when one is given (was always 1024 before), so the allocation isn't
+     needlessly oversized for the common "I know my field names" case. */
+  JSValue param_names_val = js_get_property(ctx, this_val, "param_names");
+  size_t param_names_len = 0;
+  JSValue* param_names_arr = to_valuearray(ctx, param_names_val, &param_names_len);
+  JS_FreeValue(ctx, param_names_val);
+
+  uint32_t count_params = to_uint32free_default(ctx, js_get_property(ctx, this_val, "count_params"), param_names_arr ? (uint32_t)param_names_len : 1024);
+
+  char** param_names = count_params ? js_mallocz(ctx, sizeof(char*) * (count_params + 1)) : 0;
+
+  uint32_t chunk_size = to_uint32free(ctx, js_get_property(ctx, this_val, "ac_chunk_size"));
+
+  if(param_names_arr) {
+    for(size_t i = 0; i < param_names_len; i++) {
+      if(param_names && i < count_params) {
+        size_t len;
+        const char* str = JS_ToCStringLen(ctx, &len, param_names_arr[i]);
+        param_names[i] = lwsac_use(&s->sac, len + 1, chunk_size);
+        memcpy(param_names[i], str, len + 1);
+        JS_FreeCString(ctx, str);
+        JS_FreeValue(ctx, param_names_arr[i]);
+      }
+    }
+
+    js_free(ctx, param_names_arr);
+  }
 
   s->info = (struct lws_spa_create_info){
-      .param_names = count_params ? js_mallocz(ctx, sizeof(char*) * (count_params + 1)) : 0,
+      .param_names = (const char* const*)param_names,
       .count_params = count_params,
       .max_storage = to_uint32free_default(ctx, js_get_property(ctx, this_val, "max_storage"), 512) + 1,
       .opt_cb = &lwsjs_spa_callback,
       .opt_data = s,
-      .ac_chunk_size = to_uint32free(ctx, js_get_property(ctx, this_val, "ac_chunk_size")),
+      .ac_chunk_size = chunk_size,
+      .ac = &s->sac,
   };
 
   s->spa = lws_spa_create_via_info(sock->wsi, &s->info);
@@ -171,6 +206,39 @@ lwsjs_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
 
   return ret;
 }
+enum {
+  PROP_PARAMNAMES,
+  PROP_LENGTH,
+};
+
+static JSValue
+lwsjs_spa_get(JSContext* ctx, JSValueConst this_val, int magic) {
+  LWSSPA* s;
+  JSValue ret = JS_UNDEFINED;
+
+  if(!(s = lwsjs_spa_data2(ctx, this_val)))
+    return JS_EXCEPTION;
+
+  switch(magic) {
+    case PROP_PARAMNAMES: {
+      ret = from_stringarray(ctx, s->info.param_names);
+      break;
+    }
+
+    case PROP_LENGTH: {
+      uint32_t i;
+
+      for(i = 0; i < s->info.count_params; i++)
+        if(s->info.param_names[i] == NULL)
+          break;
+
+      ret = JS_NewUint32(ctx, i);
+      break;
+    }
+  }
+
+  return ret;
+}
 
 static JSValue
 lwsjs_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSValueConst receiver) {
@@ -186,14 +254,48 @@ lwsjs_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSVal
     if((str = lws_spa_get_string(s->spa, prop & JS_ATOM_MAX_INT)))
       value = JS_NewStringLen(ctx, str, lws_spa_get_length(s->spa, prop & JS_ATOM_MAX_INT));
   } else {
-    JSValue proto = JS_GetPrototype(ctx, this_val);
+    LWSSPA* s;
+    const char* name;
+    BOOL found = FALSE;
 
-    if(!JS_IsObject(proto))
-      proto = JS_DupValue(ctx, lwsjs_spa_proto);
+    if(!(s = lwsjs_spa_data2(ctx, this_val)))
+      return JS_EXCEPTION;
 
-    value = JS_GetProperty(ctx, proto, prop);
+    if((name = JS_AtomToCString(ctx, prop))) {
+      if(strcmp(name, "length"))
+        if(s->info.param_names) {
+          for(int i = 0; i < s->info.count_params; i++) {
+            if(s->info.param_names[i] && !strcmp(s->info.param_names[i], name)) {
+              const char* str = lws_spa_get_string(s->spa, i);
 
-    JS_FreeValue(ctx, proto);
+              if(str)
+                value = JS_NewStringLen(ctx, str, lws_spa_get_length(s->spa, i));
+
+              found = TRUE;
+              break;
+            }
+          }
+        }
+
+      JS_FreeCString(ctx, name);
+    } else {
+      /* JS_AtomToCString() fails for e.g. a Symbol-valued prop (Symbol.
+         toStringTag, Symbol.iterator, ...) - not a param-name match either
+         way, just clear whatever it threw and fall through to the proto
+         lookup below like any other miss. */
+      JS_FreeValue(ctx, JS_GetException(ctx));
+    }
+
+    if(!found) {
+      JSValue proto = JS_GetPrototype(ctx, this_val);
+
+      if(!JS_IsObject(proto))
+        proto = JS_DupValue(ctx, lwsjs_spa_proto);
+
+      value = JS_GetPropertyInternal(ctx, proto, prop, this_val, 0);
+
+      JS_FreeValue(ctx, proto);
+    }
   }
 
   return value;
@@ -210,13 +312,9 @@ lwsjs_spa_finalizer(JSRuntime* rt, JSValue val) {
 
     JS_FreeValueRT(rt, s->callbacks.this_obj);
 
-    if(s->info.param_names) {
-      for(int i = 0; i < s->info.count_params; i++)
-        if(s->info.param_names[i])
-          js_free_rt(rt, (void*)s->info.param_names[i]);
+    lwsac_free(&s->sac);
 
-      js_free_rt(rt, (void*)s->info.param_names);
-    }
+    js_free_rt(rt, (void*)s->info.param_names);
 
     if(s->spa)
       lws_spa_destroy(s->spa);
@@ -238,6 +336,8 @@ static const JSClassDef lws_spa_class = {
 static const JSCFunctionListEntry lws_spa_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("process", 1, lwsjs_spa_methods, METHOD_PROCESS),
     JS_CFUNC_MAGIC_DEF("finalize", 0, lwsjs_spa_methods, METHOD_FINALIZE),
+    JS_CGETSET_MAGIC_DEF("paramNames", lwsjs_spa_get, 0, PROP_PARAMNAMES),
+    JS_CGETSET_MAGIC_DEF("length", lwsjs_spa_get, 0, PROP_LENGTH),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSPA", JS_PROP_CONFIGURABLE),
 };
 
@@ -247,7 +347,6 @@ lwsjs_spa_init(JSContext* ctx, JSModuleDef* m) {
   JS_NewClass(JS_GetRuntime(ctx), lwsjs_spa_class_id, &lws_spa_class);
 
   lwsjs_spa_proto = JS_NewObjectProto(ctx, JS_NULL);
-
   JS_SetPropertyFunctionList(ctx, lwsjs_spa_proto, lws_spa_proto_funcs, countof(lws_spa_proto_funcs));
 
   lwsjs_spa_ctor = JS_NewCFunction2(ctx, lwsjs_spa_constructor, "LWSSPA", 1, JS_CFUNC_constructor, 0);

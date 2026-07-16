@@ -164,6 +164,17 @@ to_stringarray(JSContext* ctx, JSValueConst obj) {
   return ret;
 }
 
+JSValue
+from_stringarray(JSContext* ctx, const char* const* strs) {
+  uint32_t i;
+  JSValue ret = JS_NewArray(ctx);
+
+  for(i = 0; strs[i]; ++i)
+    JS_SetPropertyUint32(ctx, ret, i, JS_NewString(ctx, strs[i]));
+
+  return ret;
+}
+
 void
 str_or_buf_property(const char** pptr, const void** mptr, unsigned int* mlen, JSContext* ctx, JSValueConst obj, const char* name) {
   if(js_has_property2(ctx, obj, name)) {
