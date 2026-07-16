@@ -14,8 +14,10 @@
  */
 import { serve, Request, Response } from '../lib/serve.js';
 import { fetch } from '../lib/fetch.js';
+import { WebSocket } from '../lib/websocket.js';
 import { WebSocketStream } from '../lib/websocketstream.js';
 import { TCPSocket } from '../lib/tcpsocket.js';
+import { TCPSocketStream } from '../lib/tcpsocketstream.js';
 import { URL } from '../lib/lws/url.js';
 import { generateSelfSignedCert } from '../lib/lws/tls.js';
 import { toString, logLevel, LLL_ERR, LLL_USER, LWSMPRO_CALLBACK } from 'lws';
@@ -370,6 +372,39 @@ const TESTS = {
     server.stop();
   },
 
+  async 'WebSocket: the `websocket` option as {Class} selects the evented WebSocket instead of WebSocketStream'() {
+    const port = nextPort();
+    let seenClass = null;
+
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      websocket: { Class: WebSocket },
+      fetch: x => {
+        if(x instanceof WebSocket) {
+          seenClass = 'WebSocket';
+          x.addEventListener('message', e => x.send('echo:' + (typeof e.data === 'string' ? e.data : toString(e.data))));
+          return;
+        }
+        return new Response('not-ws');
+      },
+    });
+
+    const client = new WebSocketStream(`ws://127.0.0.1:${port}/ws`);
+    const { readable, writable } = await client.opened;
+    const writer = writable.getWriter();
+    const reader = readable.getReader();
+
+    await writer.write('class-ping');
+    const { value } = await reader.read();
+
+    eq('WebSocket', seenClass);
+    eq('echo:class-ping', asText(value));
+
+    client.close();
+    server.stop();
+  },
+
   async 'WebSocket: `websocket: false` disables the special mount - the path is handled as plain HTTP'() {
     const port = nextPort();
     const server = serve({
@@ -487,6 +522,43 @@ const TESTS = {
 
     eq('raw-saw:' + httpLooking, await received);
     assert(!httpFired, 'expected the HTTP-looking request to be treated as raw, not parsed as HTTP');
+
+    server.stop();
+  },
+
+  async 'Raw TCP: the `raw` option as {Class} selects TCPSocketStream instead of TCPSocket'() {
+    const port = nextPort();
+    let seenClass = null;
+
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      raw: { Class: TCPSocketStream },
+      fetch: x => {
+        if(x instanceof TCPSocketStream) {
+          seenClass = 'TCPSocketStream';
+          x.opened.then(async ({ readable, writable }) => {
+            const reader = readable.getReader();
+            const writer = writable.getWriter();
+            const { value } = await reader.read();
+            await writer.write('echo:' + toString(value.buffer ?? value));
+          });
+          return;
+        }
+        return new Response('not-raw');
+      },
+    });
+
+    const client = new TCPSocket('127.0.0.1', port);
+    client.addEventListener('open', () => client.send('raw-class-ping'));
+
+    const received = new Promise((resolve, reject) => {
+      client.addEventListener('message', e => resolve(toString(e.data)));
+      client.addEventListener('error', e => reject(new Error(e.message)));
+    });
+
+    eq('echo:raw-class-ping', await received);
+    eq('TCPSocketStream', seenClass);
 
     server.stop();
   },

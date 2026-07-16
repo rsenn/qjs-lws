@@ -33,6 +33,28 @@ handler as a bare `WebSocketStream` / `TCPSocket` instead of a
 for why that needs `lib/serve.js` and can't just be a `createServer()`
 option flag by itself.
 
+`websocket`/`raw`, given as objects, also take a `Class` - the
+constructor used to wrap accepted connections in place of the
+defaults (`WebSocketStream` / `TCPSocket`):
+
+```js
+import { serve, Response } from './lib/serve.js';
+import { WebSocket } from './lib/websocket.js';
+import { TCPSocketStream } from './lib/tcpsocketstream.js';
+
+serve({
+  websocket: { Class: WebSocket },               // evented, not streams
+  raw: { always: true, Class: TCPSocketStream }, // streams, not evented
+  fetch: x => { /* … */ },
+});
+```
+
+This works because `WebSocket`, `WebSocketStream`, `TCPSocket`, and
+`TCPSocketStream` each expose a `.protocol(name, callback)` static -
+see their sections below - that's an interchangeable
+`createServer()`-compatible protocol descriptor, so `lib/serve.js`
+just calls whichever `Class.protocol(...)` it was given.
+
 ### `lib/fetch.js`
 
 WHATWG-`fetch`-shaped client built on `LWSContext.clientConnect`.
@@ -107,18 +129,43 @@ ws.addEventListener('error',   e => console.error(e.message));
 needs. `WebSocket.waitWrite(ws)` returns a promise that resolves
 when the socket is writeable.
 
+`WebSocket.protocol(name, callback)` is the server-side counterpart:
+synthesizes a `createServer()`-compatible protocol descriptor that
+wraps every accepted connection as a `WebSocket` and hands it to
+`callback` once established - built on `lib/lws/protocols.js`'s `ws()`
+server-role adapter, same shape as `WebSocketStream.protocol()` below.
+
+```js
+import { createServer, LWSMPRO_NO_MOUNT } from 'lws';
+import { WebSocket } from './lib/websocket.js';
+
+createServer({
+  port: 8080,
+  mounts: [{ mountpoint: '/echo', protocol: 'echo', originProtocol: LWSMPRO_NO_MOUNT }],
+  protocols: [
+    WebSocket.protocol('echo', ws => ws.addEventListener('message', e => ws.send(e.data))),
+  ],
+});
+```
+
 ### `lib/websocketstream.js`
 
 WebSocket-stream proposal: pairs a `ReadableStream` with a
 `WritableStream` on top of the WS protocol. Independent of the
 EventTarget-based `WebSocket` (lib/websocket.js) - both talk to
 `lib/lws/protocols.js` directly rather than one wrapping the other.
+`WebSocketStream.protocol(name, callback)` is its server-side
+counterpart - see `lib/serve.js`'s own use of it for the shape.
 
 ### `lib/tcpsocket.js` / `lib/tcpsocketstream.js`
 
 EventTarget-style raw TCP socket (`TCPSocket`) and an independent
 Streams-based view (`TCPSocketStream`, its own file) - same
-relationship as `WebSocket`/`WebSocketStream` above:
+relationship as `WebSocket`/`WebSocketStream` above. Both also expose
+a `.protocol(name, callback)` static (see [doc/raw-tcp.md](raw-tcp.md)
+for the underlying `raw()` role adapter) as a `createServer()`-
+integrated alternative to the `TCPSocket#bind()`/`.listen()` shown
+below:
 
 ```js
 import { toString } from 'lws';
