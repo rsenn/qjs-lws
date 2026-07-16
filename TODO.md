@@ -23,7 +23,21 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    casings, or - cheaper and safer - throw/warn on any object key that
    isn't a recognized option name, so a typo fails loud instead of silent.
 
-2. **`toString()` (`lws.c`, `FUNCTION_TO_STRING`) silently returns
+2. **`wsi.close()` segfaults when called synchronously from the raw
+   role's very first callback** (`onRawAdopt` server-side, `onRawConnected`
+   client-side) - confirmed directly and reproducibly, both directions,
+   in isolation against a plain `createServer()`/`LWSContext` pair (see
+   `tests/unittests/test-tcpsocket.js`'s comments on the two tests that
+   had to route around it). Closing from a *later* callback (`onRawRx`,
+   or a `setTimeout(() => wsi.close(), 0)`-deferred call right after
+   adopt/connect) works fine - only the immediate, same-call-stack close
+   crashes. Smells like a use-after-free/double-free in wsi teardown
+   racing the adopt/connect callback's own still-in-progress bookkeeping.
+   Not chased further at the C level this session (scope was JS-side
+   wrapper classes + tests), but a real crash, not just a hang - highest
+   severity of anything in this file, even though the trigger is narrow.
+
+3. **`toString()` (`lws.c`, `FUNCTION_TO_STRING`) silently returns
    `undefined` for typed-array views** instead of accepting them or
    throwing. Confirmed directly: `toString(new Uint8Array(...))` →
    `undefined`, `toString(view.buffer)` → the correct string. This is what
@@ -35,7 +49,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    `TypeError` for unsupported input so a similar future mismatch fails at
    the call site instead of several layers up.
 
-3. **Break up `callback_protocol()`** (`lws-context.c:1456-1736`, ~280
+4. **Break up `callback_protocol()`** (`lws-context.c:1456-1736`, ~280
    lines) - one long if/else-if cascade doing per-`reason` argument
    marshalling for the JS callback dispatch (deciding whether `in`/`len`
    become a string, an ArrayBuffer, an int, a `[buf, len]` pair to mutate,
@@ -45,11 +59,11 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    reason's argument shape without re-deriving the whole cascade - this is
    exactly the class of bug that ate the most debugging time this session.
 
-4. **Break up `lwsjs_socket_methods()` / `lwsjs_socket_get()`**
+5. **Break up `lwsjs_socket_methods()` / `lwsjs_socket_get()`**
    (`lws-socket.c`, ~470 / ~460 lines) - same shape, same rationale: one
    giant `magic`-keyed switch each for every `LWSSocket` method/property.
 
-5. **`LWSContext.vhost` getter is commented out**
+6. **`LWSContext.vhost` getter is commented out**
    (`lws-context.c:1234`). Right now the only way to reach a vhost object
    is `ctx.getVhostByName(name)`, and `serve()` (`lib/serve.js`) has no
    reliable way to report the *actual* bound port - `Server.port` just
@@ -58,7 +72,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    only one exists) is a small, contained win that unblocks a real gap in
    `lib/serve.js` (see §2).
 
-6. **MQTT is only reachable generically.** `LWS_CALLBACK_MQTT_*` reasons
+7. **MQTT is only reachable generically.** `LWS_CALLBACK_MQTT_*` reasons
    are named in the reason table (`lws.c`) so they already dispatch through
    the generic `on<CamelCase>` mechanism, but there's no MQTT-specific
    convenience surface (subscribe/publish/QoS, `lws_mqtt_client_send_publish`,
@@ -119,55 +133,54 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
 
 ## 3. Tests / examples
 
-1. **No `tests/unittests/` coverage for `lib/serve.js`** - the main new
-   deliverable this session (callback mode, iterator mode, WS-via-iterator,
-   raw fallback, `content-length` handling) was only exercised through ad
-   hoc scratch scripts, none of them committed.
+1. **`lib/serve.js` has real assertion-based coverage now**
+   (`tests/test-serve.js`, 27+ `tinytest`-style cases: callback mode,
+   iterator mode, WS-via-iterator, raw fallback vs. `raw: { always }`,
+   `Class` selection, `content-length` handling) - but it's root-level,
+   not `tests/unittests/`, so it's still not wired into `DO_TESTS` (see
+   item 6 below).
 
 2. **No dedicated `tests/unittests/` coverage for `lib/lws/protocols.js`.**
    `HttpProtocol`/`HttpClientProtocol`/`WsProtocol`/`WsClientProtocol`/
    `RawProtocol`/`StreamAdapter` are only exercised indirectly (through
-   `test-websocketstream.js` and `test-client.js`'s low-level scenarios).
-   The newer hooks specifically (`redirect`/`read`/`handshake`/`filter` on
-   the client side, `headers`/`html`/`access`/`upgrade`/`auth` on the
-   server side) have essentially zero automated coverage - `headers`/
-   `upgrade`/etc. weren't even confirmed to *fire* under any tested mount
-   configuration, only confirmed not to crash when wired in.
+   `test-websocketstream.js`/`test-tcpsocket.js`/`test-websocket.js` and
+   `test-client.js`'s low-level scenarios). The newer hooks specifically
+   (`redirect`/`read`/`handshake`/`filter` on the client side,
+   `headers`/`html`/`access`/`upgrade`/`auth` on the server side) have
+   essentially zero automated coverage - `headers`/`upgrade`/etc. weren't
+   even confirmed to *fire* under any tested mount configuration, only
+   confirmed not to crash when wired in (confirmed *not* to fire for a
+   `LWSMPRO_CALLBACK` mount specifically - see `test-serve.js`'s note next
+   to its dropped `options.headers` test).
 
-3. **No `tests/unittests/` coverage for `lib/tcpsocket.js` /
-   `lib/tcpsocketstream.js`** at all - validated only via this session's
-   scratch scripts (accept/connect/message/close round-trip,
-   `TCPSocketStream` open/message/close). `test-websocketstream.js` is the
-   template to follow (client vs `.protocol()` server, tested
-   independently against plain `LWSContext` peers on each side).
-
-4. **No `tests/unittests/` coverage for `lib/fetch.js`** - only the manual,
+3. **No `tests/unittests/` coverage for `lib/fetch.js`** - only the manual,
    non-assertion-based crawl script `tests/test-fetch.js` (root-level, not
    in `unittests/`). The redirect-following and POST-body-actually-gets-sent
    behavior added/fixed this session have no regression test pinning them
    down.
 
-5. **`lib/lws/app.js`, `middleware.js`, `session.js` have no
+4. **`lib/lws/app.js`, `middleware.js`, `session.js` have no
    `tests/unittests/` coverage** - only the informal `tests/test-app.js`
    (root-level).
 
-6. **`lib/lws/byte-queue.js` and `subprocess-stream.js` have zero test
+5. **`lib/lws/byte-queue.js` and `subprocess-stream.js` have zero test
    coverage anywhere.**
 
-7. **`tests/test-{app,client,server,websocket,fetch}.js` (repo root) aren't
-   wired into the automated run** - `CMakeLists.txt`'s `DO_TESTS` only
-   globs `tests/unittests/test-*.js`. Worth a deliberate call: promote
-   these into the automated suite (they're mostly demo/manual scripts
-   today, not `tinytest`-style assertions), or document clearly that
-   they're manual-only.
+6. **`tests/test-{app,client,server,websocket,fetch,serve}.js` (repo root)
+   aren't wired into the automated run** - `CMakeLists.txt`'s `DO_TESTS`
+   only globs `tests/unittests/test-*.js`. Worth a deliberate call:
+   promote these into the automated suite (`test-serve.js` already is
+   `tinytest`-shaped in spirit, just not using the `tinytest.js` harness;
+   the rest are mostly demo/manual scripts today), or document clearly
+   that they're manual-only.
 
-8. **No example for the new `lib/serve.js` API.** `examples/` has
+7. **No example for the new `lib/serve.js` API.** `examples/` has
    `debugger/`, `raw-proxy-fallback/`, `websocket-chat/` - all built
    directly on the low-level `createServer()` API. A `examples/serve/`
    showing the Bun-shaped `serve(options, fetch)` (and maybe the
    async-iterator form) would be the most direct proof this session's main
    deliverable is actually pleasant to use.
 
-9. **`examples/debugger/` has what look like accidental artifacts** -
+8. **`examples/debugger/` has what look like accidental artifacts** -
    `core.2404642` (a core dump), `gmon.out` (gprof output), a
    `*.sublime-workspace` file - probably shouldn't be tracked in the repo.
