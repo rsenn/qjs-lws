@@ -97,7 +97,7 @@ await tests({
     destroy();
   },
 
-  async 'LWSSPA: length defaults to paramNames.length when count_params isn\'t given'() {
+  async "LWSSPA: length defaults to paramNames.length when count_params isn't given"() {
     const { spa, destroy } = await parseForm({ paramNames: ['a', 'b', 'c'] }, 'a=1');
 
     eq(3, spa.length);

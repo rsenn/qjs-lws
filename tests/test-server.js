@@ -3,6 +3,7 @@ import { setTimeout } from 'os';
 import extraMimetypes from '../lib/lws/mimetypes.js';
 import { verbose, debug, weakMapper, interactive } from '../lib/lws/util.js';
 import { MultipartParser } from '../lib/lws/multipart.js';
+import { http } from '../lib/lws/protocols.js';
 
 logLevel(LLL_ERR | LLL_USER);
 
@@ -35,74 +36,24 @@ function main(...args) {
 
           console.log('multipart done');
         }),
-        /*onHttpBody(wsi, buf, len) {
-          const s = wsi2spa(wsi);
 
-          debug('onHttpBody', s, buf);
+        ...http(
+          async (req, resp) => {
+            console.log('http', { req, resp });
+            //console.log('req.arrayBuffer()', await req.arrayBuffer());
+            console.log('req.body', await req.body);
 
-          s.process(buf, 0,  buf.byteLength);
-        },
-        onHttpBodyCompletion(wsi) {
-          verbose('onHttpBodyCompletion', wsi);
-          const s = wsi2spa(wsi);
-
-          s.finalize();
-
-          wsi.wantWrite(() => {
-            verbose('respond.onHttpBodyCompletion', wsi);
-
-            const b = toArrayBuffer('POST completed!\r\n');
-
-            wsi.respond(200, { 'content-type': 'text/html', test: 'blah' }, b.byteLength);
-            wsi.write(b, LWS_WRITE_HTTP_FINAL);
-
-            return -1;
-          });
-        },*/
-        onHttpWriteable(wsi) {
-          verbose('onHttpWriteable', wsi);
-          const obj = wsi2obj(wsi);
-
-          if(!obj.responded) {
-            obj.lines = (JSON.stringify({ blah: 1234, test: [1, 2, 3, 4], x: true }, null, 2) + '\n').split('\n');
-
-            wsi.respond(200, LWS_ILLEGAL_HTTP_CONTENT_LEN ?? obj.lines.length, {
-              'content-type': 'text/html' /*, connection: 'close'*/,
-            });
-
-            obj.index = 0;
-            setTimeout(() => wsi.wantWrite(), 0);
-
-            obj.responded = 1;
-            return 0;
-          }
-
-          wsi.write(obj.lines[obj.index] + '\n', obj.lines[++obj.index] ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL);
-
-          if(obj.lines[obj.index]) {
-            setTimeout(() => wsi.wantWrite(), 100);
-            return 0;
-          }
-
-          return -1;
-        },
-        onHttp(wsi, buf) {
-          const { protocol, method, uri, headers } = wsi;
-          verbose('onHttp', wsi, { protocol, method, uri }, console.config({ compact: false }), headers);
-
-          globalThis.wsi = wsi;
-
-          if(method != 'POST') wsi.wantWrite();
-        },
-        onAddHeaders(wsi, buf, len) {
-          wsi.addHeader('test', 'blah', buf, len);
-
-          verbose('onAddHeaders', wsi, { buf, len });
-        },
-        callback(wsi, reason, ...args) {
-          verbose('http ' + getCallbackName(reason), wsi, args);
-          return 0;
-        },
+            //  resp.status(200).type('text/plain').end('This is a test');
+          },
+          {
+            post: async (wsi, parser) => {
+              for await(let stream of parser) {
+                const { name, filename } = stream;
+                console.log('POST', { name, filename });
+              }
+            },
+          },
+        ),
       },
 
       {
