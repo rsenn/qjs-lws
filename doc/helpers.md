@@ -24,6 +24,14 @@ serve({ port: 8080, host: 'localhost' }, async req => {
 
 The handler receives a `Request` and may return a `Response` (or a
 plain `{ body, status, headers }` object that the helper wraps).
+WebSocket connections (`options.websocket`, default mountpoint
+`/ws`) and, with `options.raw` set, raw TCP connections hit the same
+handler as a bare `WebSocketStream` / `TCPSocket` instead of a
+`Request` - check with `instanceof`. `raw: { always: true }` treats
+*every* connection as raw, even ones that look like valid HTTP; see
+[`doc/raw-tcp.md`](raw-tcp.md#always-raw-listener-even-for-http-looking-traffic)
+for why that needs `lib/serve.js` and can't just be a `createServer()`
+option flag by itself.
 
 ### `lib/fetch.js`
 

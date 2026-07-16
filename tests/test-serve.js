@@ -442,6 +442,55 @@ const TESTS = {
     server.stop();
   },
 
+  async 'Raw TCP: plain raw:true still lets a genuinely valid HTTP request through to onRequest (regression guard)'() {
+    const port = nextPort();
+    const server = serve({ port, hostname: 'localhost', raw: true, fetch: () => new Response('http-ok') });
+
+    const resp = await fetch(`http://127.0.0.1:${port}/`, { keepAlive: false });
+    eq(200, resp.status);
+    eq('http-ok', await resp.text());
+
+    server.stop();
+  },
+
+  async 'Raw TCP: raw:{always:true} treats every connection as raw, even ones that look like valid HTTP'() {
+    // Unlike plain raw:true (LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
+    // which only falls back to raw once the first bytes fail to parse as
+    // HTTP), always:true uses LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG -
+    // every connection is bound to raw unconditionally. Send an actual,
+    // well-formed HTTP request line and confirm it reaches the TCPSocket
+    // handler verbatim rather than being parsed as HTTP.
+    const port = nextPort();
+    let httpFired = false;
+
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      raw: { always: true },
+      fetch: x => {
+        if(x instanceof TCPSocket) x.addEventListener('message', e => x.send('raw-saw:' + toString(e.data)));
+        else {
+          httpFired = true;
+          return new Response('should not happen');
+        }
+      },
+    });
+
+    const client = new TCPSocket('127.0.0.1', port);
+    const httpLooking = 'GET / HTTP/1.1\r\nHost: x\r\n\r\n';
+    client.addEventListener('open', () => client.send(httpLooking));
+
+    const received = new Promise((resolve, reject) => {
+      client.addEventListener('message', e => resolve(toString(e.data)));
+      client.addEventListener('error', e => reject(new Error(e.message)));
+    });
+
+    eq('raw-saw:' + httpLooking, await received);
+    assert(!httpFired, 'expected the HTTP-looking request to be treated as raw, not parsed as HTTP');
+
+    server.stop();
+  },
+
   async 'options.mounts, when given, is used instead of the automatic default mount'() {
     // Only asserts that a custom mount is honored and reachable - *not*
     // that an un-mounted path misses it. lws's LWSMPRO_CALLBACK dispatch

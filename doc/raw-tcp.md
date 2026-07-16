@@ -96,6 +96,61 @@ createServer({
 });
 ```
 
+## Always-raw listener (even for HTTP-looking traffic)
+
+`LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG` above only
+drops to raw when the first bytes *fail* to parse as HTTP. To route
+*every* connection to raw unconditionally - including one that starts
+with a well-formed `GET / HTTP/1.1`  - use
+`LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG` instead:
+
+```js
+import { createServer, LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+
+createServer({
+  port: 8080,
+  options: LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG,
+  listenAcceptRole:     'raw-skt',
+  listenAcceptProtocol: 'raw',
+  protocols: [
+    { name: 'raw',  onRawRx(wsi, d) { wsi.write(d); } }, // must come first - see below
+    { name: 'http', onHttp(wsi)     { /* never reached while raw is adopting everything */ } },
+  ],
+});
+```
+
+**Gotcha, confirmed empirically against this vendored lws build:**
+even though `listen_accept_role`/`listen_accept_protocol` are given
+explicitly (so lws's own docs say the protocol is looked up by name,
+not position), `LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG`
+only actually binds new connections to the named raw protocol when
+that protocol is `protocols[0]`. With an `'http'` (or any other)
+protocol listed first, adopted connections are silently dropped -
+none of `onRawAdopt`/`onRawRx`/`onHttp` ever fire for them. This is a
+libwebsockets behavior, not something these C bindings do - nothing
+in `protocols_fromarray()`/`protocol_from()` (`lws-context.c`) treats
+array position specially.
+
+`lib/serve.js`'s `raw: { always: true }` option takes care of this
+ordering for you:
+
+```js
+import { serve, Response } from './lib/serve.js';
+import { TCPSocket } from './lib/tcpsocket.js';
+
+serve({
+  port: 8080,
+  raw: { always: true }, // every connection is raw, even HTTP-looking ones
+  fetch: x => (x instanceof TCPSocket ? x.addEventListener('message', e => x.send(e.data)) : new Response('unreachable')),
+});
+```
+
+Plain `raw: true` (or `raw: { protocol: 'name' }`) keeps the
+fallback-only behavior instead - HTTP still works normally, and only
+non-HTTP-looking connections fall through to the raw handler; see
+`serve()`'s own doc comment in `lib/serve.js` for the full option
+shape.
+
 ## High-level wrappers: `lib/tcpsocket.js` / `lib/tcpsocketstream.js`
 
 `TCPSocket` (`lib/tcpsocket.js`) wraps the raw protocol with an
