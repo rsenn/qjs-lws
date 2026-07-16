@@ -1,25 +1,10 @@
-import { logLevel, LWSSPA, getCallbackName, LLL_ERR, LLL_WARN, LLL_INFO, LLL_NOTICE, LLL_USER, LLL_CLIENT, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, toArrayBuffer, toString, } from 'lws';
+import { logLevel, getCallbackName, LWS_WRITE_HTTP, LLL_ERR, LLL_WARN, LLL_INFO, LLL_NOTICE, LLL_USER, LLL_CLIENT, LWS_ILLEGAL_HTTP_CONTENT_LEN, LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_HTTPS, LWSMPRO_HTTP, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWSContext, toArrayBuffer, toString, } from 'lws';
 import { setTimeout } from 'os';
 import extraMimetypes from '../lib/lws/mimetypes.js';
 import { verbose, debug, weakMapper, interactive } from '../lib/lws/util.js';
+import { MultipartParser } from '../lib/lws/multipart.js';
 
 logLevel(LLL_ERR | LLL_USER);
-
-const wsi2spa = weakMapper(
-  () =>
-    new LWSSPA(wsi, {
-      maxStorage: 1 << 17,
-      onOpen(name, filename) {
-        verbose('spa.onOpen', { [name]: filename });
-      },
-      onContent(name, filename, buf) {
-        verbose('spa.onContent', { [name]: filename, buf });
-      },
-      onClose(name, filename) {
-        verbose('spa.onClose', { [name]: filename });
-      },
-    }),
-);
 
 const wsi2obj = weakMapper(() => ({}));
 
@@ -38,40 +23,24 @@ function main(...args) {
     listenAcceptProtocol: 'raw-echo',
     protocols: [
       {
-        name: 'ws',
-        onOpensslPerformServerCertVerification(wsi, ssl, preverify_ok) {
-          verbose('onOpensslPerformServerCertVerification', wsi, '0x' + ssl.toString(16), preverify_ok);
-          return 0;
-        },
-        onHttpConfirmUpgrade(wsi, type) {
-          verbose('onHttpConfirmUpgrade', wsi, type, wsi.protocol);
-        },
-        onReceive(wsi, data, len) {
-          if(!('byteLength' in data)) data = data.toString().replace(/\n/g, '\\n');
-
-          verbose('onReceive', wsi, data, len);
-          wsi.write(data);
-        },
-        onFilterHttpConnection(wsi, url) {
-          const { headers } = wsi;
-
-          verbose('onFilterHttpConnection', wsi, url, headers);
-
-          if(/multipart/.test(headers['content-type'])) wsi2spa(wsi);
-        },
-        callback(wsi, reason, ...args) {
-          verbose('ws ' + getCallbackName(reason), wsi, args);
-          return 0;
-        },
-      },
-      {
         name: 'http',
-        onHttpBody(wsi, buf, len) {
+        ...MultipartParser.protocol(async parser => {
+          console.log('multipart parser', parser);
+
+          for await(const stream of parser) {
+            debug(`multipart file [${stream.filename}]`);
+            for await(const chunk of stream) debug(`multipart data [${stream.filename}]`, chunk);
+            debug(`multipart file [${stream.filename}] \x1b[1;31mdone!\x1b[0m`);
+          }
+
+          console.log('multipart done');
+        }),
+        /*onHttpBody(wsi, buf, len) {
           const s = wsi2spa(wsi);
 
           debug('onHttpBody', s, buf);
 
-          s.process(buf, 0, buf.byteLength);
+          s.process(buf, 0,  buf.byteLength);
         },
         onHttpBodyCompletion(wsi) {
           verbose('onHttpBodyCompletion', wsi);
@@ -89,7 +58,7 @@ function main(...args) {
 
             return -1;
           });
-        },
+        },*/
         onHttpWriteable(wsi) {
           verbose('onHttpWriteable', wsi);
           const obj = wsi2obj(wsi);
@@ -135,6 +104,34 @@ function main(...args) {
           return 0;
         },
       },
+
+      {
+        name: 'ws',
+        onOpensslPerformServerCertVerification(wsi, ssl, preverify_ok) {
+          verbose('onOpensslPerformServerCertVerification', wsi, '0x' + ssl.toString(16), preverify_ok);
+          return 0;
+        },
+        onHttpConfirmUpgrade(wsi, type) {
+          verbose('onHttpConfirmUpgrade', wsi, type, wsi.protocol);
+        },
+        onReceive(wsi, data, len) {
+          if(!('byteLength' in data)) data = data.toString().replace(/\n/g, '\\n');
+
+          verbose('onReceive', wsi, data, len);
+          wsi.write(data);
+        },
+        onFilterHttpConnection(wsi, url) {
+          const { headers } = wsi;
+
+          verbose('onFilterHttpConnection', wsi, url, headers);
+
+          //if(/multipart/.test(headers['content-type'])) wsi2spa(wsi);
+        },
+        callback(wsi, reason, ...args) {
+          verbose('ws ' + getCallbackName(reason), wsi, args);
+          return 0;
+        },
+      },
     ],
     serverSslCa: 'ca.crt',
     serverSslCert: 'localhost.crt',
@@ -157,4 +154,4 @@ function main(...args) {
 
 main(...scriptArgs.slice(1));
 
-interactive();
+//interactive();
