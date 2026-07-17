@@ -15,7 +15,10 @@
 import { fetch } from '../lib/fetch.js';
 import createContext from '../lib/lws/context.js';
 import { generateSelfSignedCert } from '../lib/lws/tls.js';
-import { toString, logLevel, LWSMPRO_FILE, LLL_USER, LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE } from 'lws.so';
+import { http } from '../lib/lws/protocols.js';
+import { MultipartFormData, File } from '../lib/lws/multipart.js';
+import { ReadableStream } from '../lib/lws/streams.js';
+import { toString, toArrayBuffer, logLevel, LWSMPRO_FILE, LWSMPRO_CALLBACK, LLL_USER, LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE } from 'lws.so';
 import { mkdir } from 'os';
 import * as std from 'std';
 
@@ -216,6 +219,65 @@ async function runCombo(label, port, { h2, tls }) {
   }
 }
 
+/**
+ * A multipart/form-data POST, end to end: `MultipartFormData` (lib/lws/
+ * multipart.js) encodes a text field and a `File` field as a request body -
+ * `Request` (lib/lws/request.js) picks up its `.contentType` on its own, so
+ * the `fetch()` call below never sets `Content-Type` by hand - and the
+ * server decodes it back via `req.formData()` (lib/lws/body.js, backed by
+ * the same MultipartParser that HttpProtocol - lib/lws/protocols.js - wires
+ * up automatically for any multipart/form-data request).
+ */
+async function testMultipartPost() {
+  console.log('\n=== multipart POST (file + form field) ===');
+
+  const port = 8923;
+  let received;
+
+  const ctx = createContext({
+    port,
+    vhostName: 'localhost',
+    mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],
+    protocols: [
+      {
+        name: 'http',
+        ...http(async (req, resp) => {
+          received = await req.formData();
+          resp.status(200).end('ok');
+        }),
+      },
+    ],
+  });
+
+  try {
+    const fileContent = 'line one\nline two\nline three\n'.repeat(20);
+    let controller;
+    const fileStream = new ReadableStream({ start: c => (controller = c) });
+    controller.enqueue(toArrayBuffer(fileContent));
+    controller.close();
+
+    const file = new File(fileStream, 'notes.txt', { type: 'text/plain' });
+    const body = new MultipartFormData({ username: 'alice', bio: 'hello world', notes: file });
+
+    const resp = await fetch(`http://127.0.0.1:${port}/upload`, { method: 'POST', body, keepAlive: false });
+
+    assert(resp.status === 200, `expected 200, got ${resp.status}`);
+    assert((await resp.text()) === 'ok', 'expected the server\'s ack body');
+
+    assert(received.username === 'alice', `expected username "alice", got ${JSON.stringify(received.username)}`);
+    assert(received.bio === 'hello world', `expected bio "hello world", got ${JSON.stringify(received.bio)}`);
+    assert(typeof received.notes?.text === 'function', 'expected notes to be a File (with a .text() method)');
+    assert(received.notes.name === 'notes.txt', `expected file name "notes.txt", got ${JSON.stringify(received.notes.name)}`);
+
+    const receivedText = await received.notes.text();
+    assert(receivedText === fileContent, `expected the file content to survive the round trip byte for byte (got ${receivedText.length} of ${fileContent.length} bytes)`);
+
+    console.log(`multipart POST: OK (username=${received.username}, bio=${received.bio}, file=${received.notes.name} ${receivedText.length} bytes)`);
+  } finally {
+    ctx.destroy();
+  }
+}
+
 async function main() {
   writeFixture();
 
@@ -230,6 +292,8 @@ async function main() {
   await runCombo('HTTP/1.1, TLS', 8920, { h2: false, tls });
   await runCombo('H2, plain', 8921, { h2: true, tls: null });
   await runCombo('H2, TLS', 8922, { h2: true, tls });
+
+  await testMultipartPost();
 
   console.log('\nALL 4 COMBINATIONS PASSED');
 }
