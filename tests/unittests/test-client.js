@@ -17,7 +17,7 @@ await tests({
     const port = freePort();
 
     const serverCode = `
-      import { createServer, LWS_WRITE_TEXT, LWSMPRO_NO_MOUNT } from 'lws';
+      import { createServer, LWS_WRITE_TEXT, LWSMPRO_NO_MOUNT } from 'lws.so';
       createServer({
         port: ${port},
         vhostName: 'localhost',
@@ -65,7 +65,7 @@ await tests({
     const port = freePort();
 
     const serverCode = `
-      import { createServer, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK } from 'lws';
+      import { createServer, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK } from 'lws.so';
       createServer({
         port: ${port},
         vhostName: 'localhost',
@@ -124,7 +124,7 @@ await tests({
     const port = freePort();
 
     const serverCode = `
-      import { createServer, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK } from 'lws';
+      import { createServer, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK } from 'lws.so';
       createServer({
         port: ${port},
         vhostName: 'localhost',
@@ -199,7 +199,7 @@ await tests({
     const port = freePort();
 
     const serverCode = `
-      import { createServer, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+      import { createServer, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws.so';
       createServer({
         port: ${port},
         options: LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,

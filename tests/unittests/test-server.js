@@ -38,7 +38,7 @@ await tests({
     });
 
     const clientCode = `
-      import { LWSContext, LWS_WRITE_TEXT } from 'lws';
+      import { LWSContext, LWS_WRITE_TEXT } from 'lws.so';
       const ctx = new LWSContext({
         protocols: [{
           name: 'ws',
@@ -80,7 +80,7 @@ await tests({
     });
 
     const clientCode = `
-      import { LWSContext, toString } from 'lws';
+      import { LWSContext, toString } from 'lws.so';
       const ctx = new LWSContext({
         protocols: [{
           name: 'http',
@@ -117,7 +117,7 @@ await tests({
     });
 
     const clientCode = `
-      import { LWSContext, toString } from 'lws';
+      import { LWSContext, toString } from 'lws.so';
       const ctx = new LWSContext({
         protocols: [{
           name: 'http',
@@ -162,7 +162,7 @@ await tests({
     });
 
     const clientCode = `
-      import { LWSContext, toArrayBuffer, toString } from 'lws';
+      import { LWSContext, toArrayBuffer, toString } from 'lws.so';
       const ctx = new LWSContext({
         protocols: [{
           name: 'raw',
