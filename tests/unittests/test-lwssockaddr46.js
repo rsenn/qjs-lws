@@ -1,5 +1,5 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { LWSSockAddr46 } from 'lws';
+import { LWSSockAddr46 } from 'lws.so';
 
 const AF_INET = 2;
 const AF_INET6 = 10;

@@ -5,7 +5,7 @@
  * process and event loop, not an in-process fake.
  */
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { createServer, LWS_WRITE_TEXT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, } from 'lws';
+import { createServer, LWS_WRITE_TEXT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWSMPRO_FILE, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, } from 'lws.so';
 import { spawnAndWaitFor, stopProcess, readLog, freePort } from './subprocess-utils.js';
 
 const REPO_ROOT = '/mnt/data/Projects/plot-cv/quickjs/qjs-lws';

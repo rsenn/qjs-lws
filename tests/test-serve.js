@@ -20,7 +20,7 @@ import { TCPSocket } from '../lib/tcpsocket.js';
 import { TCPSocketStream } from '../lib/tcpsocketstream.js';
 import { URL } from '../lib/lws/url.js';
 import { generateSelfSignedCert } from '../lib/lws/tls.js';
-import { toString, logLevel, LLL_ERR, LLL_USER, LWSMPRO_CALLBACK } from 'lws';
+import { toString, logLevel, LLL_ERR, LLL_USER, LWSMPRO_CALLBACK } from 'lws.so';
 import { TextDecoder } from 'textcode';
 import * as std from 'std';
 

@@ -5,7 +5,7 @@
  * event loop, not an in-process fake.
  */
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { LWSContext, LWS_WRITE_TEXT, LWS_WRITE_HTTP_FINAL, toString, toArrayBuffer } from 'lws';
+import { LWSContext, LWS_WRITE_TEXT, LWS_WRITE_HTTP_FINAL, toString, toArrayBuffer } from 'lws.so';
 import { spawnAndWaitFor, stopProcess, readLog, freePort } from './subprocess-utils.js';
 
 async function runServer(code, marker = 'READY') {

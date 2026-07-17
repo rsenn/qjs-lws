@@ -90,7 +90,13 @@ socket_flush(LWSSocket* s) {
       char preview[41];
 
       log_preview(preview, sizeof(preview), wc->buf + LWS_PRE + wc->off, (size_t)n);
-      lwsl_wsi_user(s->wsi, "TX %d bytes (proto=%d): %s%s\n", n, wc->proto, preview, (size_t)n > sizeof(preview) - 1 ? "..." : "");
+      lwsl_wsi_user(s->wsi,
+                    "TX %d bytes (proto=%s): %s%s\n",
+                    n,
+                    ((const char*[]){
+                        "TEXT", "BINARY", "CONTINUATION", "HTTP", 0, "PING", "PONG", "HTTP_FINAL", "HTTP_HEADERS", "HTTP_HEADERS_CONTINUATION", "BUFLIST", "NO_FIN", "H2_STREAM_END"})[wc->proto & 0xf],
+                    preview,
+                    (size_t)n > sizeof(preview) - 1 ? "..." : "");
     }
 
     /* A single lws_write() call for a WS text/binary message IS the whole

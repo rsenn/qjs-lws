@@ -10,7 +10,7 @@
  *    LWSContext client that echoes back whatever it receives.
  */
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { createServer, LWSContext, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT } from 'lws';
+import { createServer, LWSContext, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT } from 'lws.so';
 import { WebSocketStream } from '../../lib/websocketstream.js';
 import { TextDecoder } from 'textcode';
 import { freePort } from './subprocess-utils.js';

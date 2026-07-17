@@ -15,7 +15,7 @@
 import { fetch } from '../lib/fetch.js';
 import createContext from '../lib/lws/context.js';
 import { generateSelfSignedCert } from '../lib/lws/tls.js';
-import { toString, logLevel, LWSMPRO_FILE, LLL_USER, LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE } from 'lws';
+import { toString, logLevel, LWSMPRO_FILE, LLL_USER, LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE } from 'lws.so';
 import { mkdir } from 'os';
 import * as std from 'std';
 

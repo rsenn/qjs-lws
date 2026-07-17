@@ -9,7 +9,7 @@
  * protocol-matrix coverage.
  */
 import { tests, eq, assert, assertStrictEquals } from './tinytest.js';
-import { createServer, toString, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
+import { createServer, toString, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws.so';
 import { fetch } from '../../lib/fetch.js';
 import { freePort } from './subprocess-utils.js';
 import * as std from 'std';

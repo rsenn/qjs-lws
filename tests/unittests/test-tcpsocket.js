@@ -13,7 +13,7 @@
  *    tested against a plain LWSContext raw client.
  */
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { createServer, LWSContext, toArrayBuffer, toString, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+import { createServer, LWSContext, toArrayBuffer, toString, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws.so';
 import { TCPSocket, CLOSED } from '../../lib/tcpsocket.js';
 import { TCPSocketStream } from '../../lib/tcpsocketstream.js';
 import { freePort } from './subprocess-utils.js';

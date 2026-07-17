@@ -15,7 +15,7 @@
  * actually shown up.
  */
 import { tests, eq, assert, assertStrictEquals } from './tinytest.js';
-import { createServer, LWSSPA, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws';
+import { createServer, LWSSPA, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws.so';
 import { fetch } from '../../lib/fetch.js';
 import { freePort } from './subprocess-utils.js';
 import * as std from 'std';

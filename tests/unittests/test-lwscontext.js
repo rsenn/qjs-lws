@@ -1,5 +1,5 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { LWSContext, createServer } from 'lws';
+import { LWSContext, createServer } from 'lws.so';
 
 function freePort() {
   // Unlikely-to-collide high port range for this test file's own use.

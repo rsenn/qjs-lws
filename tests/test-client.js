@@ -25,7 +25,7 @@ import { TCPSocket } from '../lib/tcpsocket.js';
 import { TCPSocketStream } from '../lib/tcpsocketstream.js';
 import { generateSelfSignedCert } from '../lib/lws/tls.js';
 import { SubprocessStream } from '../lib/lws/subprocess-stream.js';
-import { toString } from 'lws';
+import { toString } from 'lws.so';
 import { mkdir, sleepAsync, kill, SIGTERM, open, O_WRONLY } from 'os';
 import * as std from 'std';
 
