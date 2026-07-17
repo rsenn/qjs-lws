@@ -4,8 +4,10 @@
  * callback vs the no-callback async-iterator form, plain HTTP request/
  * response handling (including error/404/content-length edge cases), the
  * `headers` hook, WebSocket connections (default + custom mountpoints +
- * disabled), raw TCP fallback connections, a custom `mounts` array, and TLS
- * vhost construction.
+ * disabled + Bun's evented `open`/`message`/`close` shape), raw TCP
+ * fallback connections, `options.routes` (static/param/per-method entries,
+ * 405s, fallthrough to `fetch`), a custom `mounts` array, and TLS vhost
+ * construction.
  *
  * Runs entirely in-process: the server side is a real `serve()` instance,
  * the client side is this project's own high-level client classes (`fetch`,
@@ -405,6 +407,61 @@ const TESTS = {
     server.stop();
   },
 
+  async 'WebSocket: options.websocket.{open,message,close} wires an evented WebSocket directly, bypassing fetch/iterator'() {
+    const port = nextPort();
+    const events = [];
+    let closeInfo;
+    let resolveClosed;
+    const closed = new Promise(resolve => (resolveClosed = resolve));
+
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      websocket: {
+        open(ws) {
+          ws.data = { greeted: false };
+          events.push('open');
+          ws.send('hello');
+        },
+        message(ws, data) {
+          ws.data.greeted = true;
+          events.push('message:' + asText(data));
+          ws.send('echo:' + asText(data));
+        },
+        close(ws, code, reason) {
+          events.push('close');
+          closeInfo = { code, reason: asText(reason), greeted: ws.data.greeted };
+          resolveClosed();
+        },
+      },
+      // A fetch/iterator-mode handler must never see this connection - Bun-style
+      // websocket handlers take the mount over entirely.
+      fetch: () => new Response('should not be reached'),
+    });
+
+    const client = new WebSocketStream(`ws://127.0.0.1:${port}/ws`);
+    const { readable, writable } = await client.opened;
+    const writer = writable.getWriter();
+    const reader = readable.getReader();
+
+    const { value: greeting } = await reader.read();
+    eq('hello', asText(greeting), 'open() greeting');
+
+    await writer.write('ping');
+    const { value: echoed } = await reader.read();
+    eq('echo:ping', asText(echoed), 'message() echo');
+
+    client.close({ closeCode: 1000, reason: 'bye' });
+    await closed;
+
+    eq(JSON.stringify(['open', 'message:ping', 'close']), JSON.stringify(events), 'open/message/close fired once each, in order');
+    assert(closeInfo, 'expected close() to have fired');
+    eq(1000, closeInfo.code, 'close() code');
+    assert(closeInfo.greeted, 'expected ws.data set in open() to still be visible in close()');
+
+    server.stop();
+  },
+
   async 'WebSocket: `websocket: false` disables the special mount - the path is handled as plain HTTP'() {
     const port = nextPort();
     const server = serve({
@@ -559,6 +616,114 @@ const TESTS = {
 
     eq('echo:raw-class-ping', await received);
     eq('TCPSocketStream', seenClass);
+
+    server.stop();
+  },
+
+  async 'routes: a static Response entry is served as-is, for any method'() {
+    const port = nextPort();
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      routes: { '/api/status': Response.json({ ok: true }) },
+      fetch: () => new Response('should not be reached'),
+    });
+
+    const resp = await fetch(`http://127.0.0.1:${port}/api/status`);
+    eq(200, resp.status);
+    eq(JSON.stringify({ ok: true }), await resp.text());
+
+    server.stop();
+  },
+
+  async 'routes: a static Response entry is reusable across multiple requests'() {
+    // keepAlive: false on each fetch - see the note on the iterator-mode
+    // "consecutive requests" test above (reusing a connection for a second
+    // request trips an unrelated native read-state bug).
+    const port = nextPort();
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      routes: { '/api/status': Response.json({ ok: true }) },
+    });
+
+    const r1 = await fetch(`http://127.0.0.1:${port}/api/status`, { keepAlive: false });
+    eq(JSON.stringify({ ok: true }), await r1.text());
+
+    const r2 = await fetch(`http://127.0.0.1:${port}/api/status`, { keepAlive: false });
+    eq(JSON.stringify({ ok: true }), await r2.text());
+
+    server.stop();
+  },
+
+  async 'routes: a `:param` route handler gets req.params populated'() {
+    const port = nextPort();
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      routes: { '/users/:id': req => new Response(`user:${req.params.id}`) },
+    });
+
+    const resp = await fetch(`http://127.0.0.1:${port}/users/42`);
+    eq('user:42', await resp.text());
+
+    server.stop();
+  },
+
+  async 'routes: a {METHOD: handler} entry dispatches by request method'() {
+    const port = nextPort();
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      routes: {
+        '/api/posts': {
+          GET: () => new Response('list-posts'),
+          POST: async req => new Response('created:' + (await req.text())),
+        },
+      },
+    });
+
+    const getResp = await fetch(`http://127.0.0.1:${port}/api/posts`, { keepAlive: false });
+    eq('list-posts', await getResp.text());
+
+    const postResp = await fetch(`http://127.0.0.1:${port}/api/posts`, { method: 'POST', body: 'hi', keepAlive: false });
+    eq('created:hi', await postResp.text());
+
+    server.stop();
+  },
+
+  async 'routes: a {METHOD: handler} entry 405s (with an Allow header) for an unhandled method'() {
+    const port = nextPort();
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      routes: {
+        '/api/posts': {
+          GET: () => new Response('list-posts'),
+          POST: () => new Response('created'),
+        },
+      },
+    });
+
+    const resp = await fetch(`http://127.0.0.1:${port}/api/posts`, { method: 'DELETE' });
+    eq(405, resp.status);
+    eq('GET, POST', resp.headers.get('allow'));
+
+    server.stop();
+  },
+
+  async 'routes: a path matching no route falls through to fetch'() {
+    const port = nextPort();
+    const server = serve({
+      port,
+      hostname: 'localhost',
+      routes: { '/api/status': Response.json({ ok: true }) },
+      fetch: req => new Response('fallback:' + new URL(req.url).pathname, { status: 404 }),
+    });
+
+    const resp = await fetch(`http://127.0.0.1:${port}/nope`);
+    eq(404, resp.status);
+    eq('fallback:/nope', await resp.text());
 
     server.stop();
   },
