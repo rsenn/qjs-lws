@@ -224,9 +224,10 @@ async function runCombo(label, port, { h2, tls }) {
  * multipart.js) encodes a text field and a `File` field as a request body -
  * `Request` (lib/lws/request.js) picks up its `.contentType` on its own, so
  * the `fetch()` call below never sets `Content-Type` by hand - and the
- * server decodes it back via `req.formData()` (lib/lws/body.js, backed by
- * the same MultipartParser that HttpProtocol - lib/lws/protocols.js - wires
- * up automatically for any multipart/form-data request).
+ * server decodes it back via `req.formData()` (`ServerRequest`,
+ * lib/lws/request.js, gets that from `MultipartMixin` - lib/lws/
+ * multipart.js - which `HttpProtocol`, lib/lws/protocols.js, drives
+ * automatically for any multipart/form-data request).
  */
 async function testMultipartPost() {
   console.log('\n=== multipart POST (file + form field) ===');

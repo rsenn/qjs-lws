@@ -1493,6 +1493,32 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         goto end;
   }
 
+  /* LWSSocket `s` is allocated once per connection, not once per HTTP
+     transaction - with keep-alive, a single wsi now carries several
+     requests in turn (see lib/lws/response.js's Content-Length fix). The
+     uri/method/headers/proto cached below assume a wsi only ever sees one
+     transaction; without dropping the previous transaction's values first,
+     every request after the first on a reused wsi would keep reading the
+     *first* request's cached uri/method/headers forever. LWS_CALLBACK_HTTP
+     fires once per transaction, including subsequent ones on a reused wsi,
+     so this is the right point to reset them back to "not yet derived"
+     before the population logic below runs. */
+  if(reason == LWS_CALLBACK_HTTP && s) {
+    if(s->uri) {
+      js_free(ctx, s->uri);
+      s->uri = 0;
+    }
+    if(s->proto) {
+      js_free(ctx, s->proto);
+      s->proto = 0;
+    }
+    if(!is_nullish(s->headers)) {
+      JS_FreeValue(ctx, s->headers);
+      s->headers = JS_UNDEFINED;
+    }
+    s->method = -1;
+  }
+
   if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH || reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP) {
     if(s && is_nullish(s->headers)) {
       s->headers = lwsjs_socket_headers(ctx, s->wsi, &s->proto);

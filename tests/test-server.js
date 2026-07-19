@@ -2,7 +2,6 @@ import { logLevel, getCallbackName, LWS_WRITE_HTTP, LLL_ERR, LLL_WARN, LLL_INFO,
 import { setTimeout } from 'os';
 import extraMimetypes from '../lib/lws/mimetypes.js';
 import { verbose, debug, weakMapper, interactive } from '../lib/lws/util.js';
-import { MultipartParser } from '../lib/lws/multipart.js';
 import { http, ws } from '../lib/lws/protocols.js';
 
 logLevel(LLL_ERR | LLL_USER);
