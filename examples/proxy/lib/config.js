@@ -11,9 +11,18 @@ export const defaults = {
   tlsCert: null,
   tlsKey: null,
   tlsDir: './tls',
-  onward: { mode: 'direct', host: null, port: null },
+  onward: { mode: 'direct', host: null, port: null, dnsServers: null },
   verbose: 0,
 };
+
+/** Accepts either a comma-separated string ("8.8.8.8, 1.1.1.1") - from the config file, or a CLI flag given verbatim - or an already-split array, and normalizes to an array (or null for "use the system default", i.e. /etc/resolv.conf via lib/lws/context.js's createContext()). */
+function toDnsList(v) {
+  if(v == null) return null;
+  const list = Array.isArray(v) ? v : String(v).split(',');
+  const trimmed = list.map(s => s.trim()).filter(Boolean);
+
+  return trimmed.length ? trimmed : null;
+}
 
 /**
  * Parses a Polipo-style config file: `key = value` per line, `#` starts a
@@ -49,6 +58,7 @@ const cliOptions = {
   'onward-mode': [true, null], // direct | socks5 | socks4 | http-connect
   'onward-host': [true, null],
   'onward-port': [true, Number],
+  'dns-servers': [true, null], // comma-separated - resolves onward hostnames via these instead of /etc/resolv.conf
   verbose: [false, (_v, prev) => (prev ?? 0) + 1, 'v'],
   '@': [],
 };
@@ -82,6 +92,7 @@ export function loadConfig(args, defaultConfigPath = './proxy.conf') {
       mode: pick(cli['onward-mode'], 'onwardMode', defaults.onward.mode),
       host: pick(cli['onward-host'], 'onwardHost', defaults.onward.host),
       port: (v => (v != null ? Number(v) : null))(pick(cli['onward-port'], 'onwardPort', defaults.onward.port)),
+      dnsServers: toDnsList(pick(cli['dns-servers'], 'dnsServers', defaults.onward.dnsServers)),
     },
     verbose: cli.verbose || Number(fileConfig.verbose ?? defaults.verbose),
   };

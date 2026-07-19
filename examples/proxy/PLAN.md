@@ -228,3 +228,18 @@ helper `lib/lws/context.js` already uses for this, rather than re-implementing
 cert handling. Verified end-to-end: plain HTTP forwarding, TLS-to-proxy plain
 forwarding, and TLS-to-proxy CONNECT-tunneled HTTPS (with h2 inside) all work
 simultaneously on the one port.
+
+## Addendum: configurable onward DNS servers
+
+Onward hostname resolution (destination host, and any onward SOCKS4/5/
+http-connect upstream) already went through libwebsockets' own async DNS
+resolver (`asyncDnsServers` on the `LWSContext`) - `lib/lws/context.js`'s
+`createContext()` already fills that from `/etc/resolv.conf` when it's not
+given. The gap: every onward dial used `TCPSocketStream`
+(`lib/tcpsocketstream.js`), whose context is an internal lazy singleton with
+no way to pass `asyncDnsServers` in. `onward.js` now builds its own dedicated
+context (same `stream()`/`raw()` primitives `TCPSocketStream` itself uses
+internally) so `--dns-servers`/`dnsServers` can actually reach it - one
+context shared by every onward dial (destination *and* upstream bridge
+servers alike), created lazily on first use with whatever DNS servers the
+config specifies.

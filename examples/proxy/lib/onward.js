@@ -5,10 +5,46 @@
  * plan's "everything reduces to piping bytes once a destination is known"
  * insight actually lives.
  */
-import { TCPSocketStream } from '../../../lib/tcpsocketstream.js';
+import createContext from '../../../lib/lws/context.js';
+import { raw, stream } from '../../../lib/lws/protocols.js';
 import { ReadableStream } from '../../../lib/lws/streams.js';
 import { accumulateUntil, bytesToString, writeBytes } from './byte-utils.js';
 import { decodeSocks4Reply, decodeSocks5MethodSelection, decodeSocks5Reply, encodeSocks4Request, encodeSocks5Greeting, encodeSocks5Request, SOCKS5_REP_SUCCEEDED } from './socks-protocol.js';
+
+/**
+ * All onward TCP dials (the actual destination, and any upstream bridge
+ * server) go through one dedicated context here rather than
+ * lib/tcpsocketstream.js's `TCPSocketStream` - that class's own context is
+ * a lazily-created internal singleton with no hook for configuring DNS, so
+ * there'd be no way to honour `onward.dnsServers` (config.js's
+ * `--dns-servers`/`dnsServers`) otherwise. `createContext()`
+ * (lib/lws/context.js) already resolves `asyncDnsServers` from
+ * /etc/resolv.conf when none are given - this only overrides that when the
+ * config explicitly asks for specific servers instead.
+ */
+let onwardCtx, onwardAdapter;
+
+function onwardContext(dnsServers) {
+  if(!onwardCtx) {
+    onwardAdapter = stream({ extra: () => ({}), closeInfo: () => undefined });
+    onwardCtx = createContext({
+      ...(dnsServers && dnsServers.length ? { asyncDnsServers: dnsServers } : {}),
+      protocols: [{ name: 'raw', ...raw(onwardAdapter) }],
+    });
+  }
+
+  return { ctx: onwardCtx, adapter: onwardAdapter };
+}
+
+/** Opens a plain raw TCP connection to host:port, resolved via `onward.dnsServers` if given. */
+function dialRaw(host, port, onward) {
+  const { ctx, adapter } = onwardContext(onward.dnsServers);
+  const session = adapter.session();
+
+  ctx.clientConnect({ host, port, method: 'RAW', protocol: 'raw' });
+
+  return session.opened;
+}
 
 /** Bidirectionally pumps bytes between two `{readable, writable}` pairs until either side ends. Neither stream may already have an active reader/writer lock. */
 export function pipePair(a, b) {
@@ -46,9 +82,8 @@ async function readExact(reader, n) {
  * direct - plain TCP, no bridging
  * ------------------------------------------------------------------ */
 
-async function dialDirect({ host, port }) {
-  const tcp = new TCPSocketStream({ host, port });
-  return tcp.opened;
+async function dialDirect(destination, onward) {
+  return dialRaw(destination.host, destination.port, onward);
 }
 
 /* ------------------------------------------------------------------ *
@@ -63,8 +98,7 @@ async function dialDirect({ host, port }) {
  * ------------------------------------------------------------------ */
 
 async function dialViaSocks5(destination, onward) {
-  const tcp = new TCPSocketStream({ host: onward.host, port: onward.port });
-  const { readable, writable } = await tcp.opened;
+  const { readable, writable } = await dialRaw(onward.host, onward.port, onward);
 
   await writeBytes(writable, encodeSocks5Greeting());
 
@@ -94,8 +128,7 @@ async function dialViaSocks5(destination, onward) {
  * ------------------------------------------------------------------ */
 
 async function dialViaSocks4(destination, onward) {
-  const tcp = new TCPSocketStream({ host: onward.host, port: onward.port });
-  const { readable, writable } = await tcp.opened;
+  const { readable, writable } = await dialRaw(onward.host, onward.port, onward);
 
   await writeBytes(writable, encodeSocks4Request({ host: destination.host, port: destination.port }));
 
@@ -115,8 +148,7 @@ async function dialViaSocks4(destination, onward) {
  * ------------------------------------------------------------------ */
 
 async function dialViaHttpConnect(destination, onward) {
-  const tcp = new TCPSocketStream({ host: onward.host, port: onward.port });
-  const { readable, writable } = await tcp.opened;
+  const { readable, writable } = await dialRaw(onward.host, onward.port, onward);
 
   const target = `${destination.host}:${destination.port}`;
   await writeBytes(writable, `CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\nProxy-Connection: keep-alive\r\n\r\n`);
@@ -163,7 +195,7 @@ function prependTo(readable, leftover) {
 
 /**
  * @param  {{host:string, port:number}} destination
- * @param  {{mode:string, host?:string, port?:number}} onward
+ * @param  {{mode:string, host?:string, port?:number, dnsServers?:string[]}} onward
  * @return {Promise<{readable:ReadableStream, writable:WritableStream}>}
  */
 export function dial(destination, onward) {
@@ -176,6 +208,6 @@ export function dial(destination, onward) {
       return dialViaHttpConnect(destination, onward);
     case 'direct':
     default:
-      return dialDirect(destination);
+      return dialDirect(destination, onward);
   }
 }

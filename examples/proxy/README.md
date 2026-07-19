@@ -32,6 +32,8 @@ qjs server.js --tls-cert cert.pem --tls-key key.pem
       --onward-mode   direct | socks5 | socks4 | http-connect (default direct)
       --onward-host   upstream host, required for every onward mode except direct
       --onward-port   upstream port, required for every onward mode except direct
+      --dns-servers   comma-separated IPs to resolve onward hostnames with, instead
+                      of the system default (/etc/resolv.conf)
   -v, --verbose       log each proxied connection (repeatable)
 ```
 
@@ -47,8 +49,17 @@ socksPort   = 1080
 onwardMode  = socks5
 onwardHost  = 127.0.0.1
 onwardPort  = 9050
+dnsServers  = 8.8.8.8, 1.1.1.1
 verbose     = 1
 ```
+
+Onward hostname resolution (the actual destination, and any onward SOCKS4/5
+or http-connect upstream given as a hostname rather than an IP) goes through
+libwebsockets' own async DNS resolver, sourced from `/etc/resolv.conf` by
+default. `dnsServers`/`--dns-servers` overrides that with a specific list
+instead - handy for a proxy that shouldn't leak DNS queries to whatever the
+host's default resolver happens to be, or that needs a resolver that can
+actually reach the onward destinations (e.g. a split-horizon internal DNS).
 
 ## Limitations (deliberate, to keep the example focused)
 
