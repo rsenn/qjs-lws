@@ -1,0 +1,120 @@
+Newly discovered bugs get appended here as they're found -- not fixed
+inline unless that's the task at hand (see CLAUDE.md, "Track Newly
+Discovered Bugs"). One entry per bug, appended in the order found,
+each shaped like:
+
+    - <canonical-name>: <description of what's broken, where, and how
+      it was found/confirmed>
+
+        <JS code that triggers it>
+
+<canonical-name> is a short kebab-case handle for referring back to
+the bug elsewhere (commit messages, other BUGS entries). The
+description should say enough to re-find the bug without re-deriving
+it: which file/function, how it was confirmed (not just suspected),
+and how severe/likely it is to bite someone. The repro is real,
+runnable JS against this codebase's API, indented under the entry,
+with a comment noting the actual vs. expected output where that's not
+obvious from the code alone.
+
+- option-key-casing-silently-ignored: option-object parsers are split
+  between camelCase (`createContext()`'s info, `vhostName`, `sslCa`,
+  ...) and snake_case (`client_connect_info_fromobj()` in
+  `lws-context.c`: `local_protocol_name`, `ssl_connection`,
+  `local_port`, `keep_warm_secs`, `auth_username`, `auth_password`) --
+  a wrong-cased key is silently *ignored*, not rejected. Caused a real,
+  multi-hour-to-diagnose hang: the connection opens and negotiates,
+  then just sits there because no protocol object ever got bound.
+  Found via `localProtocolName` vs. `local_protocol_name` in
+  `HttpClientProtocol.connect()` (`lib/lws/protocols.js`).
+
+    import { LWSContext } from 'lws';
+
+    const ctx = new LWSContext({
+      protocols: [{
+        name: 'chat',
+        onClientEstablished(wsi) { console.log('connected'); },
+      }],
+    });
+
+    ctx.clientConnect({
+      address: 'example.com',
+      port: 443,
+      path: '/',
+      host: 'example.com',
+      ssl_connection: 1,
+      localProtocolName: 'chat',  // WRONG casing for this parser --
+                                  // silently dropped, no error
+    });
+    // TCP/TLS/WS handshake all complete, but onClientEstablished never
+    // fires -- no protocol object was ever bound to the connection.
+    // Correct key here is `local_protocol_name` (snake_case).
+
+- wsi-close-segfault-in-first-raw-callback: `wsi.close()` segfaults
+  when called synchronously from the raw role's very first callback
+  (`onRawAdopt` server-side, `onRawConnected` client-side) -- confirmed
+  directly and reproducibly, both directions, in isolation against a
+  plain `createServer()`/`LWSContext` pair. Closing from a *later*
+  callback (`onRawRx`, or a `setTimeout(() => wsi.close(), 0)`-deferred
+  call right after adopt/connect) works fine -- only the immediate,
+  same-call-stack close crashes. Smells like a use-after-free/double-
+  free in wsi teardown racing the adopt/connect callback's own still-
+  in-progress bookkeeping. See `tests/unittests/test-tcpsocket.js`'s
+  comments on the two tests that had to route around it.
+
+    import { createServer, LWSMPRO_NO_MOUNT } from 'lws';
+
+    createServer({
+      port: 9001,
+      vhostName: 'localhost',
+      mounts: [{ mountpoint: '/', protocol: 'raw', originProtocol: LWSMPRO_NO_MOUNT }],
+      protocols: [{
+        name: 'raw',
+        onRawAdopt(wsi) {
+          wsi.close();  // segfaults -- called synchronously, same call
+                        // stack as the adopt callback itself
+        },
+      }],
+    });
+
+- tostring-undefined-for-typed-array-view: `toString()` (`lws.c`,
+  `FUNCTION_TO_STRING`) silently returns `undefined` for typed-array
+  views instead of accepting them or throwing. Confirmed directly:
+  `toString(view)` -> `undefined`, `toString(view.buffer)` -> the
+  correct string. This is what caused `lib/lws/stream-utils.js`'s
+  `concatArrayBuffer()` (which used to return a `Uint8Array`, not the
+  `ArrayBuffer` its own JSDoc promised) to silently break
+  `Body.text()`/`.json()` for every body, everywhere, with no error to
+  point at.
+
+    import { toString } from 'lws';
+
+    const buf = new ArrayBuffer(16);
+    const view = new Uint8Array(buf);
+    view.set([104, 101, 108, 108, 111]); // "hello"
+
+    console.log(toString(view));         // undefined -- wrong
+    console.log(toString(view.buffer));  // "hello\0..." -- correct
+    // toString() only accepts a bare ArrayBuffer; a typed-array view
+    // over one silently yields undefined instead of being accepted
+    // (or throwing a TypeError) for unsupported input.
+
+- body-null-throws-instead-of-empty: `Body.prototype.arrayBuffer()`/
+  `.text()`/`.json()` (`lib/lws/body.js`) throw for a `null`/omitted
+  body instead of resolving to an empty buffer/`''`, unlike a real
+  WHATWG `Request`/`Response` (`new Request(url).text()` is `''`, not
+  a throw). The `Body` constructor only builds `this.body` (a stream)
+  when `body !== undefined && body !== null`; for a null body
+  `this.body` stays `undefined`, and `arrayBuffer()` unconditionally
+  does `readWholeStream(this.body)`, which does `for await (chunk of
+  st)` over `undefined` and throws. Hit directly while writing
+  `serve()`'s own request handler, worked around there as `req.body ?
+  await req.text() : ''`.
+
+    import { Response } from './lib/lws/response.js';
+
+    const res = new Response(null, { status: 204 });
+    await res.text();
+    // throws (undefined is not async iterable) instead of resolving
+    // to '' the way a real Response with a null/omitted body does
+
