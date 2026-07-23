@@ -11,6 +11,7 @@ struct bytecode {
   uint32_t size;
 };
 
+#ifdef LWSJS_PRECOMPILED
 #define const static const
 #include "precompiled.c"
 #undef const
@@ -20,6 +21,7 @@ static struct bytecode lwsjs_precompiled[] = {
 #include "precompiled.h"
 #undef X
 };
+#endif
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 
@@ -1010,6 +1012,8 @@ lwsjs_log_callback(int level, const char* line) {
   }
 }
 
+#ifdef LWSJS_PRECOMPILED
+
 /* Lazily evaluates the embedded precompiled.js bytecode (lib/fetch.js +
    lib/websocketstream.js, bundled transitively) and captures its `fetch`/
    `WebSocketStream` values.
@@ -1117,6 +1121,7 @@ lwsjs_websocketstream_protocol_trampoline(JSContext* ctx, JSValueConst this_val,
   JS_FreeValue(ctx, protocol_fn);
   return ret;
 }
+#endif
 
 int
 lwsjs_init(JSContext* ctx, JSModuleDef* m) {
@@ -1128,13 +1133,13 @@ lwsjs_init(JSContext* ctx, JSModuleDef* m) {
 
   if(m) {
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
-
+#ifdef LWSJS_PRECOMPILED
     JSValue fetch_fn = JS_NewCFunction(ctx, lwsjs_fetch_trampoline, "fetch", 2);
     JSValue wss_ctor = JS_NewCFunction2(ctx, lwsjs_websocketstream_trampoline, "WebSocketStream", 1, JS_CFUNC_constructor, 0);
     JS_SetPropertyStr(ctx, wss_ctor, "protocol", JS_NewCFunction(ctx, lwsjs_websocketstream_protocol_trampoline, "protocol", 2));
-
     JS_SetModuleExport(ctx, m, "fetch", fetch_fn);
     JS_SetModuleExport(ctx, m, "WebSocketStream", wss_ctor);
+#endif
   }
 
   return 0;
