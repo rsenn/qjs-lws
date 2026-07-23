@@ -50,17 +50,37 @@ obvious from the code alone.
     // fires -- no protocol object was ever bound to the connection.
     // Correct key here is `local_protocol_name` (snake_case).
 
-- wsi-close-segfault-in-first-raw-callback: `wsi.close()` segfaults
+## Fixed
+
+- wsi-close-segfault-in-first-raw-callback: `wsi.close()` segfaulted
   when called synchronously from the raw role's very first callback
   (`onRawAdopt` server-side, `onRawConnected` client-side) -- confirmed
   directly and reproducibly, both directions, in isolation against a
   plain `createServer()`/`LWSContext` pair. Closing from a *later*
   callback (`onRawRx`, or a `setTimeout(() => wsi.close(), 0)`-deferred
-  call right after adopt/connect) works fine -- only the immediate,
-  same-call-stack close crashes. Smells like a use-after-free/double-
-  free in wsi teardown racing the adopt/connect callback's own still-
-  in-progress bookkeeping. See `tests/unittests/test-tcpsocket.js`'s
-  comments on the two tests that had to route around it.
+  call right after adopt/connect) worked fine -- only the immediate,
+  same-call-stack close crashed.
+
+  Root cause: `METHOD_CLOSE` (`lws-socket.c`) called
+  `lws_close_free_wsi()` synchronously and unconditionally. libwebsockets
+  itself keeps using the same `wsi` right after `LWS_CALLBACK_RAW_ADOPT`/
+  `RAW_CONNECTED` return (`lws_role_call_adoption_bind()` etc., see
+  `libwebsockets/lib/core-net/adopt.c`), so freeing it from inside that
+  same callback was a use-after-free.
+
+  Fix: added a `dispatching` flag to `LWSSocket` (`lws-socket.h`), set
+  around both `JS_Call` sites in `callback_protocol()`
+  (`lws-context.c`). `wsi.close()` now checks it: if called reentrantly
+  (still dispatching), it marks `s->closed = TRUE` instead of freeing --
+  `callback_protocol()` already turned that into a `return -1` for the
+  in-progress callback (the mechanism existed, just wasn't wired up),
+  and lws frees the wsi itself once its callback call actually returns.
+  Outside a dispatch (the common case), `wsi.close()` still frees
+  directly, unchanged. Verified: the repro below segfaulted reliably
+  before the fix, runs clean (no crash, `onRawClose` fires) after; full
+  `ctest` suite (19/19) still passes. See
+  `tests/unittests/test-tcpsocket.js`'s comments on the two tests that
+  had to route around this before the fix.
 
     import { createServer, LWSMPRO_NO_MOUNT } from 'lws';
 
@@ -71,8 +91,8 @@ obvious from the code alone.
       protocols: [{
         name: 'raw',
         onRawAdopt(wsi) {
-          wsi.close();  // segfaults -- called synchronously, same call
-                        // stack as the adopt callback itself
+          wsi.close();  // used to segfault -- called synchronously, same
+                        // call stack as the adopt callback itself
         },
       }],
     });

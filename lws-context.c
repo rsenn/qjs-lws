@@ -1477,10 +1477,14 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       if(!JS_IsUndefined(s->write_handler)) {
         JSValue fn = s->write_handler;
         s->write_handler = JS_UNDEFINED;
+        s->dispatching = TRUE;
         JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 1, &sock);
+        s->dispatching = FALSE;
         ret = to_int32(ctx, result);
         JS_FreeValue(ctx, result);
         JS_FreeValue(ctx, fn);
+        if(s->closed)
+          ret = -1;
         goto end;
       }
     }
@@ -1712,7 +1716,11 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
       argv[argi++] = JS_NewInt32(ctx, errno);
     }
 
+    if(s)
+      s->dispatching = TRUE;
     JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, argi, argv);
+    if(s)
+      s->dispatching = FALSE;
 
     if(JS_IsException(result)) {
       JSValue error = JS_GetException(ctx);
