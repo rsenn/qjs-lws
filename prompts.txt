@@ -1,0 +1,34 @@
+the fetch() API in lib/fetch.js must be able to reuse keep-alive connections for use in a crawler...
+
+write tests/test-fetch.js which demonstrates grabbing a HTML file,
+scanning it for URLs (in https:// form and relative <a href=""> and <img src=""> and <script> and <style>) using RegExp,
+then queueing and launching new requests based on the retrieved links. 
+It has to stay on the same host and foreign links are only reported..
+Ideally it crawls using only 1 TCP connection...
+
+among the changes in fetch.js is reuse of LWSContext... API has to stay whatwg/w3c compatible.
+
+first check, is there everything needed to achieve on the C binding layer?
+
+document in ChangeLog.md
+
+
+--------------------------------------------------------------------------------
+
+
+dissatisfaction with logging:
+
+ - low-level log messages from libwebsockets are not so useful
+
+ - logging the callbacks in callback_protocol() helps somewhat for useful output
+
+measures: 
+
+  - filter and cosmetically process libwebsockets low-level log messages
+
+  - additionally: 
+        - log every that's sent using lws_write() under LLL_USER...
+        - log everything received in LWS_CALLBACK_{CLIENT_RECEIVE,CLIENT_RECEIVE_PONG,MQTT_CLIENT_RX,RAW_PROXY_CLI_RX,RAW_PROXY_SRV_RX,RAW_RX,RAW_RX_FILE,RECEIVE,RECEIVE_CLIENT_HTTP,RECEIVE_CLIENT_HTTP_READ,RECEIVE_PONG}
+}
+
+--------------------------------------------------------------------------------
