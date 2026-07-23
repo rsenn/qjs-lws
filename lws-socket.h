@@ -18,7 +18,7 @@ typedef struct {
   int id;
   LWSSocketType type;
   char *uri, *proto;
-  JSObject* obj;
+  void* obj;
   BOOL client, want_write, redirected_to_get, completed, closed, dispatching;
   JSValue headers, write_handler;
   int response_code, body_pending, method;

@@ -30,7 +30,7 @@ const PORT = 7681;
 const ONWARD_ADDRESS = process.env.ONWARD_ADDRESS ?? 'localhost';
 const ONWARD_PORT = +(process.env.ONWARD_PORT ?? 22);
 
-// wsi -> { peer: wsi|null, queue: ArrayBuffer[] }. `peer` is the other leg
+// wsi -> { peer: wsi|null, queue: [] }. `peer` is the other leg
 // of the proxied connection - null on the incoming side until the onward
 // connection actually establishes, so data arriving in the meantime goes
 // to `queue` instead of being written to a socket that isn't up yet.

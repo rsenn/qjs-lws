@@ -5,6 +5,7 @@
 #include "lws.h"
 #include "js-utils.h"
 #include <assert.h>
+#include <sys/socket.h>
 
 #include "libwebsockets/lib/core/private-lib-core.h"
 // #include "libwebsockets/lib/roles/private-lib-roles.h"
@@ -263,7 +264,7 @@ socket_find(struct lws* wsi) {
 
 LWSSocket*
 socket_get(struct lws* wsi) {
-  JSObject* obj;
+  void* obj;
 
   if((obj = lws_get_opaque_user_data(wsi)))
     return lwsjs_socket_data(JS_MKPTR(JS_TAG_OBJECT, obj));
@@ -273,7 +274,7 @@ socket_get(struct lws* wsi) {
 
 JSValue
 js_socket_get(JSContext* ctx, struct lws* wsi) {
-  JSObject* obj;
+  void* obj;
 
   if((obj = lws_get_opaque_user_data(wsi)))
     return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
@@ -387,7 +388,7 @@ lwsjs_socket_create(JSContext* ctx, struct lws* wsi) {
        (Map/Set keying, wsi.foo = x, etc.) across calls for HTTP/WS/raw
        server connections. sock->obj already holds a dup'd reference to
        `ret` for the wsi's whole lifetime, so this pointer never dangles. */
-    lws_set_opaque_user_data(wsi, JS_VALUE_GET_OBJ(ret));
+    lws_set_opaque_user_data(wsi, JS_VALUE_GET_PTR(ret));
   }
 
   return ret;
@@ -527,6 +528,7 @@ enum {
   METHOD_HTTP_CLIENT_READ,
   METHOD_ADD_HEADER,
   METHOD_CLIENT_HTTP_MULTIPART,
+  METHOD_SEND_TO,
 };
 
 static JSValue
@@ -604,6 +606,46 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       ret = JS_NewInt32(ctx, (int)n);
       break;
     }
+
+#ifdef LWS_WITH_UDP
+    case METHOD_SEND_TO: {
+      /* UDP-only: sends immediately via sendto(), bypassing the
+         write_queue/socket_flush path METHOD_WRITE uses. That queue (and
+         plain lws_write()) implicitly target wsi->udp->sa46, which is only
+         ever the *most recently received-from* peer - fine for a
+         connected client wsi (one fixed peer), wrong for a listener wsi
+         serving many peers concurrently, where by the time a queued write
+         reached the front of the queue a different peer's datagram could
+         have already overwritten sa46. Sending synchronously against an
+         explicit destination (typically the sockaddr46 handed to onRawRx)
+         sidesteps that race entirely. */
+      size_t len = 0;
+      BOOL text = JS_IsString(argv[0]);
+      const void* ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0]) : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
+      lws_sockaddr46* sa;
+
+      if(!ptr) {
+        ret = JS_ThrowTypeError(ctx, "wsi.sendTo: argument 1 must be string or ArrayBuffer");
+        break;
+      }
+
+      if(!(sa = lwsjs_sockaddr46_data(ctx, argv[1]))) {
+        if(text)
+          JS_FreeCString(ctx, (const char*)ptr);
+        ret = JS_ThrowTypeError(ctx, "wsi.sendTo: argument 2 must be a LWSSockAddr46");
+        break;
+      }
+
+      lws_sockfd_type fd = lws_get_socket_fd(s->wsi);
+      ssize_t n = fd == -1 ? -1 : sendto(fd, ptr, len, 0, sa46_sockaddr(sa), sa46_socklen(sa));
+
+      if(text)
+        JS_FreeCString(ctx, (const char*)ptr);
+
+      ret = JS_NewInt32(ctx, (int)n);
+      break;
+    }
+#endif
 
     case METHOD_RESPOND: {
       uint8_t result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE], *p = (uint8_t*)result + LWS_PRE, *start = p;
@@ -1206,6 +1248,9 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("httpClientRead", 1, lwsjs_socket_methods, METHOD_HTTP_CLIENT_READ),
     JS_CFUNC_MAGIC_DEF("addHeader", 4, lwsjs_socket_methods, METHOD_ADD_HEADER),
     JS_CFUNC_MAGIC_DEF("clientHttpMultipart", 4, lwsjs_socket_methods, METHOD_CLIENT_HTTP_MULTIPART),
+#ifdef LWS_WITH_UDP
+    JS_CFUNC_MAGIC_DEF("sendTo", 2, lwsjs_socket_methods, METHOD_SEND_TO),
+#endif
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lwsjs_socket_get, 0, PROP_ID, 0),
     JS_CGETSET_MAGIC_FLAGS_DEF("tag", lwsjs_socket_get, 0, PROP_TAG, JS_PROP_CONFIGURABLE),
     JS_CGETSET_MAGIC_DEF("vhost", lwsjs_socket_get, 0, PROP_VHOST),

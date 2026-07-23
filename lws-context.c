@@ -925,6 +925,7 @@ enum {
   METHOD_ASYNC_DNS_SERVER_ADD,
   METHOD_ASYNC_DNS_SERVER_REMOVE,
   METHOD_WSI_FROM_FD,
+  METHOD_CREATE_UDP,
 };
 
 static JSValue
@@ -1084,6 +1085,84 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         ret = js_socket_get(ctx, wsi);
       break;
     }
+
+#ifdef LWS_WITH_UDP
+    case METHOD_CREATE_UDP: {
+      /* lws_create_adopt_udp() has no client-connect equivalent of its own:
+         UDP is connectionless, so both "bind a listening socket that will
+         receive datagrams from any peer" and "create a socket pre-connected
+         to one fixed remote peer" go through this single entry point,
+         distinguished only by whether an address was given / LWS_CAUDP_BIND
+         is set. See onRawRx's extra sockaddr46 argument (below, in
+         callback_protocol) for how a listener tells its many peers apart -
+         a single UDP wsi, unlike TCP, never gets one child wsi per peer. */
+      JSValueConst opts = argv[0];
+      char *address = 0, *protocol = 0, *iface = 0, *vhost_name = 0;
+      int32_t port = -1;
+      BOOL bind = FALSE, broadcast = FALSE;
+      struct lws_vhost* vh;
+
+      if(JS_IsObject(opts)) {
+        str_property((const char**)&address, ctx, opts, "address");
+        str_property((const char**)&protocol, ctx, opts, "protocol");
+        str_property((const char**)&iface, ctx, opts, "iface");
+        str_property((const char**)&vhost_name, ctx, opts, "vhost");
+
+        if(js_has_property(ctx, opts, "port"))
+          port = to_integerfree(ctx, js_get_property(ctx, opts, "port"));
+
+        bind = to_boolfree(ctx, js_get_property(ctx, opts, "bind"));
+        broadcast = to_boolfree(ctx, js_get_property(ctx, opts, "broadcast"));
+      }
+
+      if(!protocol) {
+        ret = JS_ThrowTypeError(ctx, "createUdp: 'protocol' is required (name of a protocol on the vhost)");
+        goto udp_out;
+      }
+
+      if(!(vh = lws_get_vhost_by_name(lc->ctx, vhost_name ? vhost_name : (lc->info.vhost_name ? lc->info.vhost_name : "default")))) {
+        ret = JS_ThrowInternalError(ctx, "createUdp: no such vhost");
+        goto udp_out;
+      }
+
+      {
+        int flags = ((bind || !address) ? LWS_CAUDP_BIND : 0) | (broadcast ? LWS_CAUDP_BROADCAST : 0);
+        LWSSocket* sock = socket_alloc(ctx);
+
+        sock->type = SOCKET_OTHER;
+        ret = lwsjs_socket_wrap(ctx, sock);
+
+        /* lws_create_adopt_udp2() (adopt.c) runs whatever `ads` resolves to
+           through lws_sort_dns(), and lws_sort_dns() unconditionally
+           returns "failed" for a NULL addrinfo list (sort-dns.c) - so a
+           NULL `ads` (the natural way to ask for "bind any interface")
+           makes wsi creation fail outright, regardless of LWS_CAUDP_BIND.
+           Passing an explicit "any" address instead gives it a one-result
+           addrinfo list to sort (even a literal numeric address still
+           round-trips through getaddrinfo()/async-dns), which works. */
+        struct lws* wsi = lws_create_adopt_udp(vh, address ? address : "0.0.0.0", port, flags, protocol, iface, NULL, obj_ptr(ctx, ret), NULL, NULL);
+
+        if(!wsi) {
+          JS_FreeValue(ctx, ret);
+          ret = JS_ThrowInternalError(ctx, "createUdp: lws_create_adopt_udp failed");
+        } else {
+          sock->wsi = wsi;
+        }
+      }
+
+    udp_out:
+      if(address)
+        js_free(ctx, address);
+      if(protocol)
+        js_free(ctx, protocol);
+      if(iface)
+        js_free(ctx, iface);
+      if(vhost_name)
+        js_free(ctx, vhost_name);
+
+      break;
+    }
+#endif
   }
 
   return ret;
@@ -1170,6 +1249,9 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, METHOD_ASYNC_DNS_SERVER_ADD),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, METHOD_ASYNC_DNS_SERVER_REMOVE),
     JS_CFUNC_MAGIC_DEF("wsiFromFd", 1, lwsjs_context_methods, METHOD_WSI_FROM_FD),
+#ifdef LWS_WITH_UDP
+    JS_CFUNC_MAGIC_DEF("createUdp", 1, lwsjs_context_methods, METHOD_CREATE_UDP),
+#endif
     JS_CGETSET_MAGIC_DEF("hostname", lwsjs_context_get, 0, PROP_HOSTNAME),
     // JS_CGETSET_MAGIC_DEF("vhost", lwsjs_context_get, 0, PROP_VHOST),
     JS_CGETSET_MAGIC_DEF("deprecated", lwsjs_context_get, 0, PROP_DEPRECATED),
@@ -1209,7 +1291,7 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
   JSContext* ctx = closure && closure->ctx ? closure->ctx : lc ? lc->js : 0;
 
   if(!ctx && lc && lc->ctx) {
-    JSObject* obj = lws_context_user(lc->ctx);
+    void* obj = lws_context_user(lc->ctx);
     LWSContext* lwsctx;
 
     if((lwsctx = JS_GetOpaque(JS_MKPTR(JS_TAG_OBJECT, obj), lwsjs_context_class_id)))
@@ -1676,6 +1758,38 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
         argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
         break;
       }
+
+#ifdef LWS_WITH_UDP
+      case LWS_CALLBACK_RAW_RX: {
+        const struct lws_udp* udp;
+
+        argv[argi++] = in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL;
+        argv[argi++] = JS_NewInt64(ctx, len);
+
+        /* A UDP listener wsi fields datagrams from many different peers on
+           one socket (unlike TCP, which gets a separate wsi per accepted
+           connection) - wsi->udp->sa46 only ever holds the *most recent*
+           sender, so it can't be relied on later (e.g. once a recursive
+           resolver's upstream reply comes back and it's time to answer the
+           original client - other clients' datagrams may have arrived on
+           this wsi in the meantime). Snapshot the sender's address here,
+           at RX time, so JS can hold onto it and hand it back to
+           wsi.sendTo() whenever the reply is actually ready. NULL for a
+           non-UDP (plain TCP raw) wsi - lws_get_udp() only returns
+           non-NULL for UDP. */
+        if((udp = lws_get_udp(wsi))) {
+          JSValue peer = lwsjs_sockaddr46_new(ctx);
+          lws_sockaddr46* sa = lwsjs_sockaddr46_data(ctx, peer);
+
+          if(sa)
+            *sa = udp->sa46;
+
+          argv[argi++] = peer;
+        }
+
+        break;
+      }
+#endif
 
       default: {
         if(in && (len > 0) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {

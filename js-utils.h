@@ -37,7 +37,7 @@ void* get_buffer(JSContext*, int, JSValueConst[], size_t*);
 JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*opaque_finalize)(void*));
 
 static inline JSValue
-ptr_obj(JSContext* ctx, JSObject* obj) {
+ptr_obj(JSContext* ctx, void* obj) {
   return obj ? JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj)) : JS_NULL;
 }
 
@@ -205,13 +205,13 @@ str_property(const char** pptr, JSContext* ctx, JSValueConst obj, const char* na
     str_replace(ctx, pptr, to_stringfree(ctx, js_get_property(ctx, obj, name)));
 }
 
-static inline JSObject*
+static inline void*
 obj_ptr(JSContext* ctx, JSValueConst obj) {
-  return JS_VALUE_GET_OBJ(JS_DupValue(ctx, obj));
+  return JS_VALUE_GET_PTR(JS_DupValue(ctx, obj));
 }
 
 static inline void
-obj_free(JSRuntime* rt, JSObject* obj) {
+obj_free(JSRuntime* rt, void* obj) {
   JS_FreeValueRT(rt, JS_MKPTR(JS_TAG_OBJECT, obj));
 }
 

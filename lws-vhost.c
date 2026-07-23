@@ -219,7 +219,7 @@ lwsjs_vhost_init(JSContext* ctx, JSModuleDef* m) {
 
 JSValue
 lws_vhost_object(JSContext* ctx, struct lws_vhost* vho) {
-  JSObject* obj;
+  void* obj;
 
   if((obj = lws_get_vhost_user(vho)))
     return ptr_obj(ctx, obj);

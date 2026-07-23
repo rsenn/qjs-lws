@@ -28,7 +28,7 @@ typedef struct LWSContext {
 
 typedef struct {
   JSContext* ctx;
-  JSObject* obj;
+  void* obj;
   JSValue callback, callbacks[LWS_CALLBACK_USER + 1];
 } LWSProtocol;
 
@@ -64,7 +64,7 @@ lwsjs_wsi_context(struct lws* wsi) {
   struct lws_context* lws;
 
   if((lws = lws_get_context(wsi))) {
-    JSObject* obj;
+    void* obj;
 
     if((obj = lws_context_user(lws)))
       return lwsjs_context_data(JS_MKPTR(JS_TAG_OBJECT, obj));

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(qjs-lws C)
+project(qjs-lws VERSION 0.9 LANGUAGES C)
 
 #cmake_policy(SET CMP0007 OLD)
 
@@ -528,9 +528,9 @@ relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
 
-generate_precompiled_js(precompiled.js)
-compile_module(precompiled.js -D lws.so)
-generate_precompiled_h(precompiled.h)
+#generate_precompiled_js(precompiled.js)
+#compile_module(precompiled.js -D lws.so)
+#generate_precompiled_h(precompiled.h)
 
 if(DO_TESTS)
   include(CTest)
