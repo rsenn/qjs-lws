@@ -22,42 +22,6 @@
 #include "lws-vhost-option.h"
 #include "lws-protocol.h"
 
-#define LWS_PLUGIN_STATIC
-
-#ifdef PLUGIN_PROTOCOL_DEADDROP
-#include "libwebsockets/plugins/deaddrop/protocol_lws_deaddrop.c"
-#endif
-#ifdef PLUGIN_PROTOCOL_RAW_PROXY
-#include "libwebsockets/plugins/raw-proxy/protocol_lws_raw_proxy.c"
-#endif
-#ifdef PLUGIN_PROTOCOL_FULLTEXT_DEMO
-#include "libwebsockets/plugins/protocol_fulltext_demo.c"
-#endif
-/*#ifdef PLUGIN_PROTOCOL_LWS_STATUS
-#include "libwebsockets/plugins/protocol_lws_status.c"
-#endif*/
-#ifdef PLUGIN_PROTOCOL_LWS_ACME_CLIENT
-#include "libwebsockets/plugins/acme-client/protocol_lws_acme_client.c"
-#endif
-#ifdef PLUGIN_PROTOCOL_LWS_SSHD_DEMO
-#include "libwebsockets/plugins/protocol_lws_sshd_demo.c"
-#endif
-#ifdef PLUGIN_PROTOCOL_DUMB_INCREMENT
-#include "libwebsockets/plugins/protocol_dumb_increment.c"
-#endif
-#ifdef PLUGIN_PROTOCOL_MIRROR
-#include "libwebsockets/plugins/protocol_lws_mirror.c"
-#endif
-#ifdef PLUGIN_PROTOCOL_LWS_RAW_SSHD
-#include "libwebsockets/plugins/ssh-base/sshd.c"
-#endif
-#ifdef PLUGIN_PROTOCOL_RAW_TEST
-#include "libwebsockets/plugins/protocol_lws_raw_test.c"
-#endif
-
-static int callback_pollfd(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
-static JSValue callback_c(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
-
 static void callback_patch_system_vhost(struct lws_context*);
 static void service_tick_schedule(LWSContext*, int);
 static void service_tick_cancel(LWSContext*);
@@ -245,7 +209,7 @@ client_connect_info_free(JSRuntime* rt, struct lws_client_connect_info* ci) {
 }
 
 void
-context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_context_creation_info* ci) {
+lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_context_creation_info* ci) {
   str_property(&ci->iface, ctx, obj, "iface");
   str_property(&ci->vhost_name, ctx, obj, "vhost_name");
 
@@ -342,7 +306,7 @@ context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_conte
 }
 
 void
-context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
+lwsjs_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
   if(ci->iface)
     js_free_rt(rt, (char*)ci->iface);
 
@@ -432,7 +396,7 @@ context_free(JSRuntime* rt, LWSContext* lws) {
     lws->ctx = NULL;
   }
 
-  context_creation_info_free(rt, &lws->info);
+  lwsjs_context_creation_info_free(rt, &lws->info);
 
   js_free_rt(rt, lws);
 }
@@ -460,7 +424,7 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
     goto fail;
 
   if(JS_IsObject(argv[0]))
-    context_creation_info_fromobj(ctx, argv[0], &lws->info);
+    lwsjs_context_creation_info_fromobj(ctx, argv[0], &lws->info);
 
   JS_SetOpaque(obj, lws);
 
@@ -861,8 +825,8 @@ lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
   return 0;
 }
 
-static int
-callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+ int
+lwsjs_pollfd_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   struct lws_protocols const* pro = wsi ? lws_get_protocol(wsi) : NULL;
   LWSHandlers* handlers = pro ? pro->user : NULL;
   LWSContext* lws = lwsjs_wsi_context(wsi);
@@ -929,14 +893,14 @@ callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, v
  * ADD_POLL_FD, etc.) is always dispatched via vhost->protocols[0].callback
  * regardless of which protocol a given wsi is actually bound to, poll-fd
  * events for wsi living on the system vhost (e.g. the async-DNS resolver's
- * UDP socket) were never reaching callback_pollfd()/iohandler_set() at
+ * UDP socket) were never reaching lwsjs_pollfd_callback()/iohandler_set() at
  * all - they went to lws's own internal protocol callback instead, which
  * has no idea about our iohandler-driven event loop. That left async DNS
  * lookups (and hence any fetch() to a hostname rather than a literal IP)
  * silently stuck forever waiting for a write-ready notification that
  * never arrived. Fix: after context creation, wrap the system vhost's
  * protocols[0] callback so pollfd-management reasons go to
- * callback_pollfd() first, falling through to the original callback
+ * lwsjs_pollfd_callback() first, falling through to the original callback
  * (real DNS/ntp/etc. protocol logic) for everything else.
  */
 static lws_callback_function* callback_asyncdns_system_vhost;
@@ -944,7 +908,7 @@ static lws_callback_function* callback_asyncdns_system_vhost;
 static int
 callback_pollfd_system_vhost(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   if(is_pollfd_reason(reason))
-    if(callback_pollfd(wsi, reason, user, in, len) == 0)
+    if(lwsjs_pollfd_callback(wsi, reason, user, in, len) == 0)
       return 0;
 
   return callback_asyncdns_system_vhost ? callback_asyncdns_system_vhost(wsi, reason, user, in, len) : 0;

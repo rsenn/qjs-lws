@@ -6,6 +6,39 @@
 #include "iohandler.h"
 #include <assert.h>
 
+#define LWS_PLUGIN_STATIC
+
+#ifdef PLUGIN_PROTOCOL_DEADDROP
+#include "libwebsockets/plugins/deaddrop/protocol_lws_deaddrop.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_RAW_PROXY
+#include "libwebsockets/plugins/raw-proxy/protocol_lws_raw_proxy.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_FULLTEXT_DEMO
+#include "libwebsockets/plugins/protocol_fulltext_demo.c"
+#endif
+/*#ifdef PLUGIN_PROTOCOL_LWS_STATUS
+#include "libwebsockets/plugins/protocol_lws_status.c"
+#endif*/
+#ifdef PLUGIN_PROTOCOL_LWS_ACME_CLIENT
+#include "libwebsockets/plugins/acme-client/protocol_lws_acme_client.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_SSHD_DEMO
+#include "libwebsockets/plugins/protocol_lws_sshd_demo.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_DUMB_INCREMENT
+#include "libwebsockets/plugins/protocol_dumb_increment.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_MIRROR
+#include "libwebsockets/plugins/protocol_lws_mirror.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_LWS_RAW_SSHD
+#include "libwebsockets/plugins/ssh-base/sshd.c"
+#endif
+#ifdef PLUGIN_PROTOCOL_RAW_TEST
+#include "libwebsockets/plugins/protocol_lws_raw_test.c"
+#endif
+
 static JSValue
 callback_c(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* closure) {
   const struct lws_protocols* proto = closure;

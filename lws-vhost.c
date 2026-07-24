@@ -1,5 +1,6 @@
 #include "lws-vhost.h"
 #include "lws-socket.h"
+#include "lws-protocol.h"
 #include "js-utils.h"
 
 JSClassID lwsjs_vhost_class_id;
@@ -27,7 +28,7 @@ lwsjs_vhost_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     goto fail;
 
   if(JS_IsObject(argv[1]))
-    context_creation_info_fromobj(ctx, argv[1], &vh->info);
+    lwsjs_context_creation_info_fromobj(ctx, argv[1], &vh->info);
 
   vh->info.user = obj_ptr(ctx, obj);
 
@@ -176,7 +177,7 @@ lwsjs_vhost_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
         const struct lws_protocols* pro;
 
         if((pro = lws_vhost_name_to_protocol(vh->vho, name)))
-          ret = pro->user ? ptr_obj(ctx, pro->user) : protocol_obj(ctx, pro);
+          ret = pro->user ? ptr_obj(ctx, pro->user) : lwsjs_protocol_obj(ctx, pro);
         else
           ret = JS_NULL;
 
@@ -252,7 +253,7 @@ lwsjs_vhost_finalizer(JSRuntime* rt, JSValue val) {
   LWSVhost* vh;
 
   if((vh = lwsjs_vhost_data(val))) {
-    context_creation_info_free(rt, &vh->info);
+    lwsjs_context_creation_info_free(rt, &vh->info);
 
     /* Both are normally already cleared by destroy() (see
        lwsjs_vhost_methods' METHOD_DESTROY) - guarded here for the case

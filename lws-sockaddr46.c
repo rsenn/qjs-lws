@@ -322,7 +322,7 @@ lwsjs_sockaddr46_value(JSContext* ctx, JSValueConst value) {
 }
 
 lws_sockaddr46*
-lwsjs_sockaddr46_data2(JSContext* ctx, JSValueConst value) {
+lwsjs_sockaddr46_data(JSContext* ctx, JSValueConst value) {
   size_t len;
   lws_sockaddr46* sa;
 
@@ -345,6 +345,6 @@ lwsjs_sockaddr46_new(JSContext* ctx) {
 JSValue
 lwsjs_sockaddr46_wrap(JSContext* ctx, lws_sockaddr46 sa) {
   JSValue ret = lwsjs_sockaddr46_new(ctx);
-  *lwsjs_sockaddr46_data2(ctx, ret) = sa;
+  *lwsjs_sockaddr46_data(ctx, ret) = sa;
   return ret;
 }

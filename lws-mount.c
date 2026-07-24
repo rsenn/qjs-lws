@@ -3,7 +3,7 @@
 #include "js-utils.h"
 
 struct lws_http_mount*
-lwsjs_http_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
+lwsjs_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
   struct lws_http_mount* m;
   JSValue value;
 
@@ -92,7 +92,7 @@ lwsjs_http_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
 }
 
 const struct lws_http_mount*
-lwsjs_http_mounts_from(JSContext* ctx, JSValueConst value) {
+lwsjs_mounts_from(JSContext* ctx, JSValueConst value) {
   const struct lws_http_mount *m = 0, **ptr = &m, *tmp;
   uint32_t len;
 
@@ -103,7 +103,7 @@ lwsjs_http_mounts_from(JSContext* ctx, JSValueConst value) {
     for(uint32_t i = 0; i < len; i++) {
       JSValue obj = JS_GetPropertyUint32(ctx, value, i);
 
-      if((*ptr = tmp = lwsjs_http_mount_from(ctx, obj, 0)))
+      if((*ptr = tmp = lwsjs_mount_from(ctx, obj, 0)))
         ptr = (const struct lws_http_mount**)&(*ptr)->mount_next;
 
       JS_FreeValue(ctx, obj);
@@ -119,7 +119,7 @@ lwsjs_http_mounts_from(JSContext* ctx, JSValueConst value) {
         const char* name = JS_AtomToCString(ctx, tmp_tab[i].atom);
         JSValue obj = JS_GetProperty(ctx, value, tmp_tab[i].atom);
 
-        if((*ptr = tmp = lwsjs_http_mount_from(ctx, obj, name)))
+        if((*ptr = tmp = lwsjs_mount_from(ctx, obj, name)))
           ptr = (const struct lws_http_mount**)&(*ptr)->mount_next;
 
         JS_FreeCString(ctx, name);
@@ -135,7 +135,7 @@ lwsjs_http_mounts_from(JSContext* ctx, JSValueConst value) {
 }
 
 void
-lwsjs_http_mounts_free(JSRuntime* rt, struct lws_http_mount* m) {
+lwsjs_mounts_free(JSRuntime* rt, struct lws_http_mount* m) {
   do {
     if(m->mountpoint) {
       js_free_rt(rt, (char*)m->mountpoint);

@@ -35,9 +35,8 @@ typedef struct LWSHandlers {
 extern JSClassID lwsjs_context_class_id;
 
 int lwsjs_context_init(JSContext*, JSModuleDef*);
-void context_creation_info_fromobj(JSContext*, JSValueConst, struct lws_context_creation_info*);
-void context_creation_info_free(JSRuntime*, struct lws_context_creation_info*);
-JSValue protocol_obj(JSContext* ctx, const struct lws_protocols* proto);
+void lwsjs_context_creation_info_fromobj(JSContext*, JSValueConst, struct lws_context_creation_info*);
+void lwsjs_context_creation_info_free(JSRuntime*, struct lws_context_creation_info*);
 
 static inline LWSContext*
 lwsjs_context_data(JSValueConst value) {
