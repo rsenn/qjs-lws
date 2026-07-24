@@ -2,6 +2,7 @@
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws-sockaddr46.h"
+#include "lws-tls.h"
 #include "js-utils.h"
 #include "iohandler.h"
 #include <assert.h>
@@ -496,11 +497,10 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     s->method = -1;
   }
 
-  if(reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH || reason == LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_HTTP)
+  if(is_headers_reason(reason) || reason == LWS_CALLBACK_HTTP) {
     if(s && is_nullish(s->headers))
       s->headers = lwsjs_socket_headers(ctx, s->wsi, &s->proto);
 
-  if(reason == LWS_CALLBACK_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
     if(s && (s->uri == 0 || s->method == -1)) {
       char* uri = 0;
       int len = 0, method = lws_http_get_uri_and_method(s->wsi, &uri, &len);
@@ -533,8 +533,6 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     if(reason == LWS_CALLBACK_CLIENT_ESTABLISHED || reason == LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION)
       if(s)
         s->type = SOCKET_WS;
-
-    BOOL process_html_args = reason == LWS_CALLBACK_ADD_HEADERS || reason == LWS_CALLBACK_CHECK_ACCESS_RIGHTS || reason == LWS_CALLBACK_PROCESS_HTML;
 
     /* This rewrite has to happen before the switch below, not as one of its
        cases, since it decides *which* reason to dispatch as. Note it builds
@@ -598,17 +596,11 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
         }
 
         case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
-          memset(*(uint8_t**)in, 0, len);
+          // memset(*(uint8_t**)in, 0, len);
           argv[buffer_index = i++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
           argv[i] = JS_NewArray(ctx);
           JS_SetPropertyUint32(ctx, argv[i], 0, JS_NewUint32(ctx, 0));
           i++;
-          break;
-        }
-
-        case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION: {
-          argv[i++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
-          argv[i++] = JS_NewInt32(ctx, len);
           break;
         }
 
@@ -633,6 +625,14 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
 
           if(len > 2)
             argv[i++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
+          break;
+        }
+
+        case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
+        case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION: {
+          /* user/in/len here are X509_STORE_CTX* / SSL* / preverify_ok, not
+             the generic buffer+length shape the default case below assumes -
+             handled separately after this switch, via is_certverify_reason(). */
           break;
         }
 
@@ -694,6 +694,17 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
       }
     }
 
+    /* is_certverify_reason() also covers LOAD_EXTRA_{CLIENT,SERVER}_VERIFY_CERTS,
+       but those are already handled (accepted with reason 0) by is_loadcerts_reason()
+       at the top of lwsjs_callback_protocol(), before this point is ever reached -
+       so in practice this only ever fires for the two PERFORM_*_CERT_VERIFICATION
+       reasons, where user/in/len really are X509_STORE_CTX* / SSL* / preverify_ok. */
+    if(is_certverify_reason(reason)) {
+      argv[i++] = lwsjs_x509_wrap(ctx, (X509_STORE_CTX*)user);
+      argv[i++] = lwsjs_tls_socket_wrap(ctx, (SSL*)in);
+      argv[i++] = JS_NewBool(ctx, len);
+    }
+
     if(reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
       argv[i++] = JS_NewInt32(ctx, errno);
     } else if(reason == LWS_CALLBACK_RAW_CLOSE) {
@@ -721,13 +732,13 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
       int64_t n = to_int64free(ctx, JS_GetPropertyUint32(ctx, argv[i - 1], 0));
 
-      *(uint8_t**)in += CLAMP(n, 0, (int64_t)len);
+      *(uint8_t**)in += CLAMP(n, 0, len);
 
-    } else if(process_html_args) {
+    } else if(is_htmlargs_reason(reason)) {
       struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
       int64_t n = to_int64free(ctx, JS_GetPropertyUint32(ctx, argv[i - 1], 0));
 
-      pha->p += CLAMP(n, 0, (int64_t)(pha->max_len - pha->len));
+      pha->p += CLAMP(n, 0, pha->max_len);
     }
 
     for(int j = 0; j < i; j++) {

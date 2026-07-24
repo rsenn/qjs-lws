@@ -1138,6 +1138,9 @@ lwsjs_init(JSContext* ctx, JSModuleDef* m) {
   lwsjs_socket_init(ctx, m);
   lwsjs_spa_init(ctx, m);
   lwsjs_sockaddr46_init(ctx, m);
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+  lwsjs_tls_certverify_init(ctx, m);
+#endif
 
   if(m) {
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
@@ -1164,6 +1167,9 @@ js_init_module(JSContext* ctx, const char* module_name) {
     JS_AddModuleExport(ctx, m, "LWSSocket");
     JS_AddModuleExport(ctx, m, "LWSSPA");
     JS_AddModuleExport(ctx, m, "LWSSockAddr46");
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+    JS_AddModuleExport(ctx, m, "X509Certificate");
+#endif
     JS_AddModuleExport(ctx, m, "fetch");
     JS_AddModuleExport(ctx, m, "WebSocketStream");
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));

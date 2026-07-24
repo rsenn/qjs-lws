@@ -241,6 +241,8 @@ socket_alloc(JSContext* ctx) {
   sock->write_handler = JS_UNDEFINED;
   sock->id = ++socket_id;
   sock->method = -1;
+  sock->dispatching = FALSE;
+  sock->dispatch_reason = -1;
 
   init_list_head(&sock->write_queue);
 
@@ -1283,7 +1285,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       ret = JS_NewBool(ctx, s->dispatching);
       break;
     }
-    
+
     case PROP_DISPATCH_REASON: {
       ret = JS_NewInt32(ctx, s->dispatch_reason);
       break;
