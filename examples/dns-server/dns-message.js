@@ -34,8 +34,7 @@ function encodeName(name) {
     for(const label of name.replace(/\.$/, '').split('.')) {
       const lb = labelBytes(label);
 
-      if(lb.length > 63)
-        throw new Error(`label too long: ${label}`);
+      if(lb.length > 63) throw new Error(`label too long: ${label}`);
 
       parts.push(Uint8Array.of(lb.length), lb);
     }
@@ -56,33 +55,27 @@ function decodeName(buf, offset) {
   let jumps = 0;
 
   for(;;) {
-    if(pos >= buf.length)
-      throw new Error('name runs past end of message');
+    if(pos >= buf.length) throw new Error('name runs past end of message');
 
     const len = buf[pos];
 
     if((len & 0xc0) === 0xc0) {
-      if(pos + 1 >= buf.length)
-        throw new Error('truncated compression pointer');
+      if(pos + 1 >= buf.length) throw new Error('truncated compression pointer');
 
-      if(next === -1)
-        next = pos + 2;
+      if(next === -1) next = pos + 2;
 
-      if(++jumps > 128)
-        throw new Error('too many compression pointers');
+      if(++jumps > 128) throw new Error('too many compression pointers');
 
       pos = ((len & 0x3f) << 8) | buf[pos + 1];
       continue;
     }
 
     if(len === 0) {
-      if(next === -1)
-        next = pos + 1;
+      if(next === -1) next = pos + 1;
       break;
     }
 
-    if(pos + 1 + len > buf.length)
-      throw new Error('label runs past end of message');
+    if(pos + 1 + len > buf.length) throw new Error('label runs past end of message');
 
     labels.push(bytesToLabel(buf.subarray(pos + 1, pos + 1 + len)));
     pos += 1 + len;
@@ -94,8 +87,7 @@ function decodeName(buf, offset) {
 function ipv4ToBytes(str) {
   const parts = str.split('.').map(Number);
 
-  if(parts.length !== 4 || parts.some(n => !(n >= 0 && n <= 255)))
-    throw new Error(`bad IPv4 address: ${str}`);
+  if(parts.length !== 4 || parts.some(n => !(n >= 0 && n <= 255))) throw new Error(`bad IPv4 address: ${str}`);
 
   return Uint8Array.from(parts);
 }
@@ -111,8 +103,7 @@ function ipv6ToBytes(str) {
   const fillCount = 8 - headParts.length - tailParts.length;
   const groups = str.includes('::') ? [...headParts, ...Array(Math.max(fillCount, 0)).fill('0'), ...tailParts] : headParts;
 
-  if(groups.length !== 8)
-    throw new Error(`bad IPv6 address: ${str}`);
+  if(groups.length !== 8) throw new Error(`bad IPv6 address: ${str}`);
 
   const bytes = new Uint8Array(16);
 
@@ -128,14 +119,13 @@ function ipv6ToBytes(str) {
 function ipv6ToString(buf) {
   const groups = [];
 
-  for(let i = 0; i < 16; i += 2)
-    groups.push(((buf[i] << 8) | buf[i + 1]).toString(16));
+  for(let i = 0; i < 16; i += 2) groups.push(((buf[i] << 8) | buf[i + 1]).toString(16));
 
   return groups.join(':');
 }
 
 function decodeRdata(type, buf, start, end) {
-  switch(type) {
+  switch (type) {
     case TYPE.A:
       return { address: ipv4ToString(buf.subarray(start, end)) };
 
@@ -188,7 +178,7 @@ function decodeRdata(type, buf, start, end) {
 }
 
 function encodeRdata(rr) {
-  switch(rr.type) {
+  switch (rr.type) {
     case TYPE.A:
       return ipv4ToBytes(rr.rdata.address);
 
@@ -267,11 +257,9 @@ function encodeRR(rr) {
 }
 
 export function decodeMessage(buf) {
-  if(!(buf instanceof Uint8Array))
-    buf = new Uint8Array(buf);
+  if(!(buf instanceof Uint8Array)) buf = new Uint8Array(buf);
 
-  if(buf.length < 12)
-    throw new Error('message shorter than DNS header');
+  if(buf.length < 12) throw new Error('message shorter than DNS header');
 
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const flags = dv.getUint16(2);

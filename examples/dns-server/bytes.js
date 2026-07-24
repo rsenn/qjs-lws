@@ -25,8 +25,7 @@ export function toArrayBuffer(u8) {
 export function labelBytes(str) {
   const buf = new Uint8Array(str.length);
 
-  for(let i = 0; i < str.length; i++)
-    buf[i] = str.charCodeAt(i) & 0xff;
+  for(let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i) & 0xff;
 
   return buf;
 }
@@ -34,8 +33,7 @@ export function labelBytes(str) {
 export function bytesToLabel(buf) {
   let s = '';
 
-  for(let i = 0; i < buf.length; i++)
-    s += String.fromCharCode(buf[i]);
+  for(let i = 0; i < buf.length; i++) s += String.fromCharCode(buf[i]);
 
   return s;
 }

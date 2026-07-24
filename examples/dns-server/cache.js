@@ -4,8 +4,7 @@ export class Cache {
 
   get(key) {
     const entry = this.#map.get(key);
-    if(!entry)
-      return null;
+    if(!entry) return null;
 
     const remaining = Math.floor((entry.expiresAt - Date.now()) / 1000);
 
@@ -20,8 +19,7 @@ export class Cache {
   }
 
   set(key, rrs, ttlSeconds) {
-    if(!rrs.length || ttlSeconds <= 0)
-      return;
+    if(!rrs.length || ttlSeconds <= 0) return;
 
     this.#map.set(key, { rrs, expiresAt: Date.now() + ttlSeconds * 1000 });
   }

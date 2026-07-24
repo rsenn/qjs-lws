@@ -33,14 +33,12 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
       const timer = setTimeout(() => finish(new Error(`udp query to ${ip} timed out`)), timeoutMs);
 
       function finish(err, data) {
-        if(settled)
-          return;
+        if(settled) return;
 
         settled = true;
         clearTimeout(timer);
 
-        if(wsi)
-          pendingUdp.delete(wsi);
+        if(wsi) pendingUdp.delete(wsi);
 
         try {
           wsi?.close();
@@ -69,14 +67,12 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
       const timer = setTimeout(() => finish(new Error(`tcp query to ${ip} timed out`)), timeoutMs);
 
       function finish(err, data) {
-        if(settled)
-          return;
+        if(settled) return;
 
         settled = true;
         clearTimeout(timer);
 
-        if(wsi)
-          pendingTcp.delete(wsi);
+        if(wsi) pendingTcp.delete(wsi);
 
         try {
           wsi?.close();
@@ -102,8 +98,7 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
       name: 'resolver-udp',
       onRawAdopt(wsi) {
         const p = pendingUdp.get(wsi);
-        if(p)
-          wsi.write(toArrayBuffer(p.queryBuf));
+        if(p) wsi.write(toArrayBuffer(p.queryBuf));
       },
       onRawRx(wsi, data) {
         pendingUdp.get(wsi)?.resolve(new Uint8Array(data));
@@ -116,8 +111,7 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
       name: 'resolver-tcp',
       onRawConnected(wsi) {
         const p = pendingTcp.get(wsi);
-        if(!p)
-          return;
+        if(!p) return;
 
         const len = p.queryBuf.length;
         const prefix = Uint8Array.of(len >> 8, len & 0xff);
@@ -126,18 +120,15 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
       },
       onRawRx(wsi, data) {
         const p = pendingTcp.get(wsi);
-        if(!p)
-          return;
+        if(!p) return;
 
         p.chunks.push(new Uint8Array(data));
 
         const merged = concatBytes(p.chunks);
-        if(merged.length < 2)
-          return;
+        if(merged.length < 2) return;
 
         const msgLen = (merged[0] << 8) | merged[1];
-        if(merged.length >= 2 + msgLen)
-          p.resolve(merged.subarray(2, 2 + msgLen));
+        if(merged.length >= 2 + msgLen) p.resolve(merged.subarray(2, 2 + msgLen));
       },
       onRawClose(wsi) {
         pendingTcp.get(wsi)?.reject(new Error('tcp socket closed before a reply arrived'));
@@ -164,8 +155,7 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
       return decodeMessage(await queryTcp(ip, port, queryBuf));
     }
 
-    if(msg.header.tc)
-      return decodeMessage(await queryTcp(ip, port, queryBuf));
+    if(msg.header.tc) return decodeMessage(await queryTcp(ip, port, queryBuf));
 
     return msg;
   }
@@ -175,8 +165,7 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
   }
 
   function cacheRRs(name, type, rrs) {
-    if(!rrs.length)
-      return;
+    if(!rrs.length) return;
 
     cache.set(
       cacheKey(name, type),
@@ -191,11 +180,9 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
      needing more glueless lookups) can't recurse forever. */
   async function resolveGlue(name, glueDepth) {
     const cached = cache.get(cacheKey(name, TYPE.A));
-    if(cached)
-      return cached[0]?.rdata.address;
+    if(cached) return cached[0]?.rdata.address;
 
-    if(glueDepth >= maxGlueDepth)
-      return null;
+    if(glueDepth >= maxGlueDepth) return null;
 
     try {
       const result = await resolve(name, TYPE.A, glueDepth + 1);
@@ -211,12 +198,10 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
    * @returns {Promise<{header, answers, authorities, additionals}>}
    */
   async function resolve(name, type, glueDepth = 0) {
-    if(!name.endsWith('.'))
-      name += '.';
+    if(!name.endsWith('.')) name += '.';
 
     const direct = cache.get(cacheKey(name, type));
-    if(direct)
-      return { header: { rcode: RCODE.NOERROR }, answers: direct, authorities: [], additionals: [] };
+    if(direct) return { header: { rcode: RCODE.NOERROR }, answers: direct, authorities: [], additionals: [] };
 
     let servers = ROOT_SERVERS.map(s => s.address);
     let currentName = name;
@@ -236,8 +221,7 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
         }
       }
 
-      if(!msg)
-        throw lastErr || new Error(`no reachable server while resolving ${currentName}`);
+      if(!msg) throw lastErr || new Error(`no reachable server while resolving ${currentName}`);
 
       const wanted = msg.answers.filter(rr => rr.name.toLowerCase() === currentName.toLowerCase() && rr.type === type);
       const cname = msg.answers.find(rr => rr.name.toLowerCase() === currentName.toLowerCase() && rr.type === TYPE.CNAME);
@@ -248,8 +232,7 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
       }
 
       if(cname) {
-        if(seenCnames.has(cname.rdata.target))
-          throw new Error(`CNAME loop detected resolving ${name}`);
+        if(seenCnames.has(cname.rdata.target)) throw new Error(`CNAME loop detected resolving ${name}`);
 
         seenCnames.add(cname.rdata.target);
         cacheRRs(currentName, TYPE.CNAME, [cname]);
@@ -259,8 +242,7 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
         continue;
       }
 
-      if(msg.header.rcode === RCODE.NXDOMAIN || (!msg.authorities.length && msg.header.rcode !== RCODE.NOERROR))
-        return { header: msg.header, answers: cnameChain, authorities: [], additionals: [] };
+      if(msg.header.rcode === RCODE.NXDOMAIN || (!msg.authorities.length && msg.header.rcode !== RCODE.NOERROR)) return { header: msg.header, answers: cnameChain, authorities: [], additionals: [] };
 
       const nsRecords = msg.authorities.filter(rr => rr.type === TYPE.NS);
       if(!nsRecords.length)
@@ -271,9 +253,7 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
         return { header: msg.header, answers: cnameChain, authorities: [], additionals: [] };
 
       const glue = {};
-      for(const rr of msg.additionals)
-        if(rr.type === TYPE.A)
-          glue[rr.name.toLowerCase()] = rr.rdata.address;
+      for(const rr of msg.additionals) if(rr.type === TYPE.A) glue[rr.name.toLowerCase()] = rr.rdata.address;
 
       const nextServers = [];
 
@@ -286,12 +266,10 @@ export function createResolver({ timeoutMs = 4000, maxHops = 32, maxGlueDepth = 
         }
 
         const ip = await resolveGlue(ns.rdata.target, glueDepth);
-        if(ip)
-          nextServers.push(ip);
+        if(ip) nextServers.push(ip);
       }
 
-      if(!nextServers.length)
-        throw new Error(`referral for ${currentName} had no usable nameserver address`);
+      if(!nextServers.length) throw new Error(`referral for ${currentName} had no usable nameserver address`);
 
       servers = nextServers;
     }

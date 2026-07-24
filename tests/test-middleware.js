@@ -87,7 +87,10 @@ app.get('/cors-creds', (req, res) => res.send('ok'));
 /* ---- logger() --------------------------------------------------------- */
 
 const captured = [];
-app.use('/logger', logger(entry => captured.push(entry)));
+app.use(
+  '/logger',
+  logger(entry => captured.push(entry)),
+);
 app.get('/logger', (req, res) => res.send('logged'));
 
 app.use('/logger-tiny', logger());

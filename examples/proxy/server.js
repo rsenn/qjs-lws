@@ -14,15 +14,7 @@
  * Or via a Polipo-style config file (default: ./proxy.conf next to this
  * script) - see README.md for the format.
  */
-import {
-  createServer,
-  LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT,
-  LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX,
-  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
-  LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
-  LWS_SERVER_OPTION_IGNORE_MISSING_CERT,
-  LWS_SERVER_OPTION_ONLY_RAW,
-} from 'lws.so';
+import { createServer, LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, LWS_SERVER_OPTION_ONLY_RAW, } from 'lws.so';
 import * as std from 'std';
 import { loadOrCreateCert } from '../../lib/lws/tls.js';
 import { loadConfig } from './lib/config.js';
