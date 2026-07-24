@@ -589,10 +589,9 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
     }
 
     case METHOD_WSIFROMFD: {
-      struct lws* wsi;
+      struct lws* wsi = wsi_from_fd(lws->ctx, to_int32(ctx, argv[0]));
 
-      if((wsi = wsi_from_fd(lws->ctx, to_int32(ctx, argv[0]))))
-        ret = lwsjs_socket_fromwsi(ctx, wsi);
+      ret = wsi ? lwsjs_socket_fromwsi(ctx, wsi) : JS_NULL;
       break;
     }
 

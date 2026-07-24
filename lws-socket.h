@@ -19,7 +19,8 @@ typedef struct {
   LWSSocketType type;
   char *uri, *proto;
   void* obj;
-  BOOL client, want_write, redirected_to_get, completed, closed, dispatching;
+  BOOL client : 1, want_write : 1, redirected_to_get : 1, completed : 1, closed : 1, dispatching : 1;
+  int dispatch_reason;
   JSValue headers, write_handler;
   int response_code, body_pending, method;
   struct list_head write_queue; /* pending WriteChunks, FIFO */

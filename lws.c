@@ -403,10 +403,10 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       buf = (uint8_t*)str;
 
-      struct lws_process_html_args a = {0}, b;
+      struct lws_process_html_args a = {0};
       int i = lwsjs_html_process_args(ctx, &a, argc - 1, argv + 1);
 
-      b = a;
+      struct lws_process_html_args b = a;
       b.p += b.len;
       b.max_len -= b.len;
 

@@ -445,8 +445,10 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
         JSValue fn = s->write_handler;
         s->write_handler = JS_UNDEFINED;
         s->dispatching = TRUE;
+        s->dispatch_reason = reason;
         JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 1, &sock);
         s->dispatching = FALSE;
+        s->dispatch_reason = -1;
         ret = to_int32free(ctx, result);
         JS_FreeValue(ctx, fn);
 
@@ -698,13 +700,17 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
       argv[i++] = JS_NewInt32(ctx, errno);
     }
 
-    if(s)
+    if(s) {
       s->dispatching = TRUE;
+      s->dispatch_reason = reason;
+    }
 
     JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, i, argv);
 
-    if(s)
+    if(s) {
       s->dispatching = FALSE;
+      s->dispatch_reason = -1;
+    }
 
     if(JS_IsException(result)) {
       JSValue error = JS_GetException(ctx);
