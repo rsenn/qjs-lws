@@ -1,10 +1,10 @@
 #ifndef IOHANDLER_H
 #define IOHANDLER_H
 
-#include "lws-context.h"
 #include <quickjs.h>
 #include <cutils.h>
 #include <list.h>
+#include "lws.h"
 
 typedef struct {
   struct list_head link;

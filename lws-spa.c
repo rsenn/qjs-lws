@@ -37,7 +37,7 @@ lwsjs_spa_data2(JSContext* ctx, JSValueConst value) {
 }
 
 static int
-lwsjs_spa_callback(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
+lwsjs_callback_spa(void* data, const char* name, const char* filename, char* buf, int len, enum lws_spa_fileupload_states state) {
   LWSSPA* s = data;
   SPACallbacks* cb = &s->callbacks;
 
@@ -155,7 +155,7 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
       .param_names = (const char* const*)param_names,
       .count_params = count_params,
       .max_storage = to_uint32free_default(ctx, js_get_property(ctx, this_val, "max_storage"), 512) + 1,
-      .opt_cb = &lwsjs_spa_callback,
+      .opt_cb = &lwsjs_callback_spa,
       .opt_data = s,
       .ac_chunk_size = chunk_size,
       .ac = &s->sac,

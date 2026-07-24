@@ -2,10 +2,8 @@
 #define QJS_LWS_CONTEXT_H
 
 #include <quickjs.h>
-#include <cutils.h>
 #include <list.h>
 #include <libwebsockets.h>
-#include "lws.h"
 
 #ifdef USE_EPOLL
 typedef struct LWSEpoll LWSEpoll;

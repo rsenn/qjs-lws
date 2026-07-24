@@ -1,6 +1,8 @@
+#ifdef USE_EPOLL
 #include "lws-epoll.h"
 #include "iohandler.h"
 #include "js-utils.h"
+
 #include <sys/epoll.h>
 #include <poll.h>
 #include <unistd.h>
@@ -13,7 +15,7 @@ typedef struct {
 
 struct LWSEpoll {
   int epfd;
-  LWSContext* lc;
+  LWSContext* lws;
   struct list_head fds;
 };
 
@@ -57,7 +59,7 @@ epoll_drain(LWSEpoll* ep) {
       if(events[i].events & (EPOLLERR | EPOLLHUP))
         pfd.revents |= POLLHUP;
 
-      lws_service_fd(ep->lc->ctx, &pfd);
+      lws_service_fd(ep->lws->ctx, &pfd);
     }
 
     if(n < (int)countof(events))
@@ -72,86 +74,87 @@ epoll_readable(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* ar
 }
 
 static LWSEpoll*
-epoll_new(LWSContext* lc) {
+epoll_new(LWSContext* lws) {
   LWSEpoll* ep;
 
-  if(!(ep = js_mallocz(lc->js, sizeof(LWSEpoll))))
+  if(!(ep = js_mallocz(lws->js, sizeof(LWSEpoll))))
     return NULL;
 
   if((ep->epfd = epoll_create1(EPOLL_CLOEXEC)) < 0) {
-    js_free(lc->js, ep);
+    js_free(lws->js, ep);
     return NULL;
   }
 
-  ep->lc = lc;
+  ep->lws = lws;
   init_list_head(&ep->fds);
 
-  JSValue fn = js_function_cclosure(lc->js, epoll_readable, 0, 0, ep, NULL);
-  iohandler_set(lc, ep->epfd, fn, FALSE);
-  JS_FreeValue(lc->js, fn);
+  JSValue fn = js_function_cclosure(lws->js, epoll_readable, 0, 0, ep, NULL);
+  iohandler_set(lws, ep->epfd, fn, FALSE);
+  JS_FreeValue(lws->js, fn);
 
   return ep;
 }
 
 void
-lws_epoll_ctl(LWSContext* lc, int fd, int pollevents) {
+lws_epoll_ctl(LWSContext* lws, int fd, int events) {
   LWSEpoll* ep;
   LWSEpollFd* e;
   struct epoll_event ev = {0};
 
-  if(!(ep = lc->epoll) && !(ep = lc->epoll = epoll_new(lc)))
+  if(!(ep = lws->epoll) && !(ep = lws->epoll = epoll_new(lws)))
     return;
 
-  if(pollevents & POLLIN)
+  if(events & POLLIN)
     ev.events |= EPOLLIN;
-  if(pollevents & POLLOUT)
+  if(events & POLLOUT)
     ev.events |= EPOLLOUT;
   ev.data.fd = fd;
 
   if((e = epoll_fd_find(ep, fd))) {
-    e->events = pollevents;
+    e->events = events;
     epoll_ctl(ep->epfd, EPOLL_CTL_MOD, fd, &ev);
-  } else if((e = js_mallocz(lc->js, sizeof(LWSEpollFd)))) {
+  } else if((e = js_mallocz(lws->js, sizeof(LWSEpollFd)))) {
     e->fd = fd;
-    e->events = pollevents;
+    e->events = events;
     list_add(&e->link, &ep->fds);
     epoll_ctl(ep->epfd, EPOLL_CTL_ADD, fd, &ev);
   }
 }
 
 void
-lws_epoll_del(LWSContext* lc, int fd) {
+lws_epoll_del(LWSContext* lws, int fd) {
   LWSEpoll* ep;
   LWSEpollFd* e;
 
-  if(!(ep = lc->epoll))
+  if(!(ep = lws->epoll))
     return;
 
   if((e = epoll_fd_find(ep, fd))) {
     epoll_ctl(ep->epfd, EPOLL_CTL_DEL, fd, NULL);
     list_del(&e->link);
-    js_free(lc->js, e);
+    js_free(lws->js, e);
   }
 }
 
 void
-lws_epoll_destroy(LWSContext* lc) {
+lws_epoll_destroy(LWSContext* lws) {
   LWSEpoll* ep;
   struct list_head *el, *next;
 
-  if(!(ep = lc->epoll))
+  if(!(ep = lws->epoll))
     return;
 
-  iohandler_set(lc, ep->epfd, JS_NULL, FALSE);
+  iohandler_set(lws, ep->epfd, JS_NULL, FALSE);
 
   list_for_each_safe(el, next, &ep->fds) {
     LWSEpollFd* e = list_entry(el, LWSEpollFd, link);
 
     list_del(&e->link);
-    js_free(lc->js, e);
+    js_free(lws->js, e);
   }
 
   close(ep->epfd);
-  js_free(lc->js, ep);
-  lc->epoll = NULL;
+  js_free(lws->js, ep);
+  lws->epoll = NULL;
 }
+#endif /* defined(USE_EPOLL) */

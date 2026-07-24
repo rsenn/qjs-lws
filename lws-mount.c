@@ -1,5 +1,5 @@
 #include "lws-mount.h"
-#include "lws-vhost-option.h"
+#include "lws-vhost.h"
 #include "js-utils.h"
 
 struct lws_http_mount*

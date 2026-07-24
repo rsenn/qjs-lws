@@ -1,6 +1,8 @@
 #ifndef QJS_LWS_EPOLL_H
 #define QJS_LWS_EPOLL_H
 
+#ifdef USE_EPOLL
+
 #include "lws-context.h"
 
 /* Add or modify epoll interest for fd (POLLIN/POLLOUT bitmask). Lazily
@@ -13,5 +15,7 @@ void lws_epoll_del(LWSContext*, int fd);
 
 /* Tear down the epoll instance: close epfd and unregister its read handler. */
 void lws_epoll_destroy(LWSContext*);
+
+#endif /* defined(USE_EPOLL) */
 
 #endif /* defined QJS_LWS_EPOLL_H */

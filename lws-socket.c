@@ -807,13 +807,13 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       }
 
       /* Freeing the wsi here is only safe when we're not still inside the
-         protocol callback dispatch for this same wsi (lwsjs_protocol_callback(),
+         protocol callback dispatch for this same wsi (lwsjs_callback_protocol(),
          lws-context.c). Some reasons (LWS_CALLBACK_RAW_ADOPT/RAW_CONNECTED
          in particular) keep using the wsi right after the callback returns
          (lws_role_call_adoption_bind(), etc. - see libwebsockets/lib/core-
          net/adopt.c), so freeing it synchronously from inside that same
          callback is a use-after-free/segfault. When dispatching, just mark
-         the socket closed - lwsjs_protocol_callback() already turns that into a
+         the socket closed - lwsjs_callback_protocol() already turns that into a
          `return -1` for the in-progress callback, and lws's own state
          machine (which is what invoked us) frees the wsi safely once its
          callback call actually returns. */

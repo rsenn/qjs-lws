@@ -19,40 +19,11 @@
 #include "lws-epoll.h"
 #endif
 #include "lws-mount.h"
-#include "lws-vhost-option.h"
 #include "lws-protocol.h"
 
 static void callback_patch_system_vhost(struct lws_context*);
 static void service_tick_schedule(LWSContext*, int);
 static void service_tick_cancel(LWSContext*);
-
-static JSValue
-pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst data[]) {
-  struct lws_context* lws = to_ptr(ctx, data[3]);
-  struct lws_pollfd pf = {
-      .fd = to_int32(ctx, data[0]),
-      .events = to_int32(ctx, data[1]),
-      .revents = JS_ToBool(ctx, data[2]) ? POLLOUT : POLLIN,
-  };
-
-  lws_service_fd(lws, &pf);
-
-  /*
-   * A serviced wsi may still have buffered data left to parse (e.g. a
-   * full response that arrived in one read(), where lws only advances
-   * its role state machine one step per lws_service_fd() call) or other
-   * work pending that isn't tied to new socket activity. lws calls this
-   * "forced service": with lws's own poll()/libuv/libev loops it's
-   * handled internally, but external-poll integrations (this one) must
-   * drive it explicitly, or such a wsi silently waits forever for a
-   * poll() event that will never come - see lws_service_adjust_timeout()
-   * in lws-service.h.
-   */
-  while(lws_service_adjust_timeout(lws, 1, 0) == 0)
-    lws_service_tsi(lws, -1, 0);
-
-  return JS_UNDEFINED;
-}
 
 /*
  * Base interval (ms) for the periodic forced-service tick below. The
@@ -633,7 +604,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
          to one fixed remote peer" go through this single entry point,
          distinguished only by whether an address was given / LWS_CAUDP_BIND
          is set. See onRawRx's extra sockaddr46 argument (below, in
-         lwsjs_protocol_callback) for how a listener tells its many peers apart -
+         lwsjs_callback_protocol) for how a listener tells its many peers apart -
          a single UDP wsi, unlike TCP, never gets one child wsi per peer. */
       JSValueConst opts = argv[0];
       char *address = 0, *protocol = 0, *iface = 0, *vhost_name = 0;
@@ -825,66 +796,6 @@ lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
   return 0;
 }
 
- int
-lwsjs_pollfd_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
-  struct lws_protocols const* pro = wsi ? lws_get_protocol(wsi) : NULL;
-  LWSHandlers* handlers = pro ? pro->user : NULL;
-  LWSContext* lws = lwsjs_wsi_context(wsi);
-  JSContext* ctx = handlers && handlers->ctx ? handlers->ctx : lwsjs_context_jsctx(lws);
-
-  switch(reason) {
-    case LWS_CALLBACK_LOCK_POLL:
-    case LWS_CALLBACK_UNLOCK_POLL: {
-      return 0;
-    }
-
-    case LWS_CALLBACK_DEL_POLL_FD: {
-      struct lws_pollargs* x = in;
-
-#ifdef USE_EPOLL
-      lws_epoll_del(lws, x->fd);
-#else
-      iohandler_set(lws, x->fd, JS_NULL, 0);
-      iohandler_set(lws, x->fd, JS_NULL, 1);
-#endif
-      return 0;
-    }
-
-    case LWS_CALLBACK_ADD_POLL_FD:
-    case LWS_CALLBACK_CHANGE_MODE_POLL_FD: {
-      struct lws_pollargs* x = in;
-
-      if(x->events == x->prev_events)
-        return 0;
-
-#ifdef USE_EPOLL
-      lws_epoll_ctl(lws, x->fd, x->events);
-#else
-      BOOL write = !!(x->events & POLLOUT);
-      JSValueConst data[] = {
-          JS_NewInt32(ctx, x->fd),
-          JS_NewInt32(ctx, x->events),
-          JS_NewBool(ctx, write),
-          JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
-      };
-      JSValue fn = JS_NewCFunctionData(ctx, pollfd_handler, 0, 0, countof(data), data);
-
-      if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
-        iohandler_set(lws, x->fd, JS_NULL, !write);
-
-      iohandler_set(lws, x->fd, fn, write);
-
-      JS_FreeValue(ctx, fn);
-#endif
-      return 0;
-    }
-
-    default: break;
-  }
-
-  return -1;
-}
-
 /*
  * lws_create_context() always creates its own internal "system" vhost
  * (context->vhost_system) for async-dns/ntp/dhcp/stdin, built from lws's
@@ -893,14 +804,14 @@ lwsjs_pollfd_callback(struct lws* wsi, enum lws_callback_reasons reason, void* u
  * ADD_POLL_FD, etc.) is always dispatched via vhost->protocols[0].callback
  * regardless of which protocol a given wsi is actually bound to, poll-fd
  * events for wsi living on the system vhost (e.g. the async-DNS resolver's
- * UDP socket) were never reaching lwsjs_pollfd_callback()/iohandler_set() at
+ * UDP socket) were never reaching lwsjs_callback_pollfd()/iohandler_set() at
  * all - they went to lws's own internal protocol callback instead, which
  * has no idea about our iohandler-driven event loop. That left async DNS
  * lookups (and hence any fetch() to a hostname rather than a literal IP)
  * silently stuck forever waiting for a write-ready notification that
  * never arrived. Fix: after context creation, wrap the system vhost's
  * protocols[0] callback so pollfd-management reasons go to
- * lwsjs_pollfd_callback() first, falling through to the original callback
+ * lwsjs_callback_pollfd() first, falling through to the original callback
  * (real DNS/ntp/etc. protocol logic) for everything else.
  */
 static lws_callback_function* callback_asyncdns_system_vhost;
@@ -908,7 +819,7 @@ static lws_callback_function* callback_asyncdns_system_vhost;
 static int
 callback_pollfd_system_vhost(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   if(is_pollfd_reason(reason))
-    if(lwsjs_pollfd_callback(wsi, reason, user, in, len) == 0)
+    if(lwsjs_callback_pollfd(wsi, reason, user, in, len) == 0)
       return 0;
 
   return callback_asyncdns_system_vhost ? callback_asyncdns_system_vhost(wsi, reason, user, in, len) : 0;

@@ -6,6 +6,10 @@
 #include "iohandler.h"
 #include <assert.h>
 
+#ifdef USE_EPOLL
+#include "lws-epoll.h"
+#endif
+
 #define LWS_PLUGIN_STATIC
 
 #ifdef PLUGIN_PROTOCOL_DEADDROP
@@ -38,6 +42,34 @@
 #ifdef PLUGIN_PROTOCOL_RAW_TEST
 #include "libwebsockets/plugins/protocol_lws_raw_test.c"
 #endif
+
+static JSValue
+pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst data[]) {
+  struct lws_context* lws = to_ptr(ctx, data[3]);
+  struct lws_pollfd pf = {
+      .fd = to_int32(ctx, data[0]),
+      .events = to_int32(ctx, data[1]),
+      .revents = JS_ToBool(ctx, data[2]) ? POLLOUT : POLLIN,
+  };
+
+  lws_service_fd(lws, &pf);
+
+  /*
+   * A serviced wsi may still have buffered data left to parse (e.g. a
+   * full response that arrived in one read(), where lws only advances
+   * its role state machine one step per lws_service_fd() call) or other
+   * work pending that isn't tied to new socket activity. lws calls this
+   * "forced service": with lws's own poll()/libuv/libev loops it's
+   * handled internally, but external-poll integrations (this one) must
+   * drive it explicitly, or such a wsi silently waits forever for a
+   * poll() event that will never come - see lws_service_adjust_timeout()
+   * in lws-service.h.
+   */
+  while(lws_service_adjust_timeout(lws, 1, 0) == 0)
+    lws_service_tsi(lws, -1, 0);
+
+  return JS_UNDEFINED;
+}
 
 static JSValue
 callback_c(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* closure) {
@@ -110,7 +142,7 @@ lwsjs_protocol_from(JSContext* ctx, JSValueConst obj) {
   handlers->callback = value;
   handlers->obj = obj_ptr(ctx, obj);
 
-  pro.callback = lwsjs_protocol_callback;
+  pro.callback = lwsjs_callback_protocol;
   pro.user = handlers;
 
   lwsjs_get_lws_callbacks(ctx, obj, handlers->callbacks, countof(handlers->callbacks));
@@ -161,7 +193,7 @@ lwsjs_protocols_fromarray(JSContext* ctx, JSValueConst value) {
   if(len == 0)
     pro[j++] = (struct lws_protocols){
         "http-only",
-        lwsjs_dummy_callback,
+        lwsjs_callback_dummy,
         0,
         0,
         0,
@@ -221,11 +253,11 @@ lwsjs_protocols_free(JSRuntime* rt, struct lws_protocols* pro) {
 }
 
 int
-lwsjs_dummy_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
-  if(lwsjs_js_callback(wsi, reason, user, in, len) == 0)
+lwsjs_callback_dummy(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+  if(lwsjs_callback_js(wsi, reason, user, in, len) == 0)
     return 0;
 
-  if(is_pollfd_reason(reason) && lwsjs_pollfd_callback(wsi, reason, user, in, len) == 0)
+  if(is_pollfd_reason(reason) && lwsjs_callback_pollfd(wsi, reason, user, in, len) == 0)
     return 0;
 
   LWSSocket* sock;
@@ -238,7 +270,7 @@ lwsjs_dummy_callback(struct lws* wsi, enum lws_callback_reasons reason, void* us
 }
 
 int
-lwsjs_js_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+lwsjs_callback_js(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   if(!wsi)
     return -1;
 
@@ -290,14 +322,74 @@ lwsjs_js_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user,
 }
 
 int
-lwsjs_protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+lwsjs_callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
+  struct lws_protocols const* pro = wsi ? lws_get_protocol(wsi) : NULL;
+  LWSHandlers* handlers = pro ? pro->user : NULL;
+  LWSContext* lws = lwsjs_wsi_context(wsi);
+  JSContext* ctx = handlers && handlers->ctx ? handlers->ctx : lwsjs_context_jsctx(lws);
+
+  switch(reason) {
+    case LWS_CALLBACK_LOCK_POLL:
+    case LWS_CALLBACK_UNLOCK_POLL: {
+      return 0;
+    }
+
+    case LWS_CALLBACK_DEL_POLL_FD: {
+      struct lws_pollargs* x = in;
+
+#ifdef USE_EPOLL
+      lws_epoll_del(lws, x->fd);
+#else
+      iohandler_set(lws, x->fd, JS_NULL, 0);
+      iohandler_set(lws, x->fd, JS_NULL, 1);
+#endif
+      return 0;
+    }
+
+    case LWS_CALLBACK_ADD_POLL_FD:
+    case LWS_CALLBACK_CHANGE_MODE_POLL_FD: {
+      struct lws_pollargs* x = in;
+
+      if(x->events == x->prev_events)
+        return 0;
+
+#ifdef USE_EPOLL
+      lws_epoll_ctl(lws, x->fd, x->events);
+#else
+      BOOL write = !!(x->events & POLLOUT);
+      JSValueConst data[] = {
+          JS_NewInt32(ctx, x->fd),
+          JS_NewInt32(ctx, x->events),
+          JS_NewBool(ctx, write),
+          JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
+      };
+      JSValue fn = JS_NewCFunctionData(ctx, pollfd_handler, 0, 0, countof(data), data);
+
+      if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
+        iohandler_set(lws, x->fd, JS_NULL, !write);
+
+      iohandler_set(lws, x->fd, fn, write);
+
+      JS_FreeValue(ctx, fn);
+#endif
+      return 0;
+    }
+
+    default: break;
+  }
+
+  return -1;
+}
+
+int
+lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   if(reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS || reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS)
     return 0;
 
-  if(lwsjs_js_callback(wsi, reason, user, in, len) == 0)
+  if(lwsjs_callback_js(wsi, reason, user, in, len) == 0)
     return 0;
 
-  if(is_pollfd_reason(reason) && lwsjs_pollfd_callback(wsi, reason, user, in, len) == 0)
+  if(is_pollfd_reason(reason) && lwsjs_callback_pollfd(wsi, reason, user, in, len) == 0)
     return 0;
 
   if(wsi && is_rx_reason(reason)) {
@@ -322,8 +414,8 @@ lwsjs_protocol_callback(struct lws* wsi, enum lws_callback_reasons reason, void*
   DEBUG_WSI(wsi, "\x1b[1;33m%-24s\x1b[0m %p %p %zu", lwsjs_callback_name(reason), user, in, len);
 
   /* Pollfd-management reasons (LOCK_POLL/UNLOCK_POLL/ADD_POLL_FD/DEL_POLL_FD/
-     CHANGE_MODE_POLL_FD) never reach this point: lwsjs_js_callback() never handles
-     them, so the lwsjs_pollfd_callback() call a few lines above this function's
+     CHANGE_MODE_POLL_FD) never reach this point: lwsjs_callback_js() never handles
+     them, so the lwsjs_callback_pollfd() call a few lines above this function's
      entry already returns 0 for all five - there used to be a second,
      unreachable copy of that same switch statement here. */
   if(handlers && countof(handlers->callbacks) > reason && !is_nullish(handlers->callbacks[reason]))

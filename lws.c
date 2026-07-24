@@ -28,7 +28,7 @@ static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LL
 static JSContext* lwsjs_log_ctx = 0;
 static JSValue lwsjs_log_fn = {JS_TAG_UNDEFINED, 0};
 
-static void lwsjs_log_callback(int, const char*);
+static void lwsjs_callback_log(int, const char*);
 
 static const char* lwsjs_log_levels[] = {
     "ERR",
@@ -383,7 +383,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
           lwsjs_log_fn = JS_UNDEFINED;
         }
 
-        lws_set_log_level(lwsjs_loglevel, &lwsjs_log_callback);
+        lws_set_log_level(lwsjs_loglevel, &lwsjs_callback_log);
       } else {
         ret = JS_NewUint32(ctx, lwsjs_loglevel);
       }
@@ -981,7 +981,7 @@ lwsjs_get_lws_callbacks(JSContext* ctx, JSValueConst obj, JSValue callbacks[], s
 }
 
 static void
-lwsjs_log_callback(int level, const char* line) {
+lwsjs_callback_log(int level, const char* line) {
   line = strstr(line, ": ");
   line += 2;
 
@@ -1170,8 +1170,8 @@ js_init_module(JSContext* ctx, const char* module_name) {
   }
 
   // lws_set_log_level((LLL_USER << 1) - 1, 0);
-  // lws_set_log_level((LLL_USER << 1) - 1, &lwsjs_log_callback);
-  lws_set_log_level(lwsjs_loglevel, &lwsjs_log_callback);
+  // lws_set_log_level((LLL_USER << 1) - 1, &lwsjs_callback_log);
+  lws_set_log_level(lwsjs_loglevel, &lwsjs_callback_log);
 
   return m;
 }

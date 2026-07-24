@@ -9,9 +9,9 @@ struct lws_protocols lwsjs_protocol_from(JSContext*, JSValueConst);
 const struct lws_protocols* lwsjs_protocols_fromarray(JSContext*, JSValueConst);
 void lwsjs_protocols_free(JSRuntime*, struct lws_protocols*);
 void lwsjs_protocol_free(JSRuntime*, struct lws_protocols*);
-int lwsjs_protocol_callback(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
-int lwsjs_dummy_callback(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
-int lwsjs_js_callback(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
-int lwsjs_pollfd_callback(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
+int lwsjs_callback_dummy(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
+int lwsjs_callback_js(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
+int lwsjs_callback_pollfd(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
+int lwsjs_callback_protocol(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
 
 #endif
