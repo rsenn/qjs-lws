@@ -341,3 +341,11 @@ JSValue
 lwsjs_sockaddr46_new(JSContext* ctx) {
   return lwsjs_sockaddr46_constructor(ctx, lwsjs_sockaddr46_ctor, 0, 0);
 }
+
+JSValue
+lwsjs_sockaddr46_wrap(JSContext* ctx, lws_sockaddr46 sa) {
+  JSValue ret = lwsjs_sockaddr46_new(ctx);
+  *lwsjs_sockaddr46_data(ctx, ret) = sa;
+  return ret;
+}
+

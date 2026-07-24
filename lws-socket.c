@@ -620,19 +620,31 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
          explicit destination (typically the sockaddr46 handed to onRawRx)
          sidesteps that race entirely. */
       size_t len = 0;
-      BOOL text = JS_IsString(argv[0]);
-      const void* ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0]) : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
-      lws_sockaddr46* sa;
+      BOOL text;
+      const void* ptr;
+      lws_sockaddr46* sa = NULL;
+
+      if(!lws_wsi_is_udp(s->wsi)) {
+        ret = JS_ThrowTypeError(ctx, "wsi.sendTo: wsi is not UDP");
+        break;
+      }
+
+      text = JS_IsString(argv[0]);
+      ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0]) : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
 
       if(!ptr) {
         ret = JS_ThrowTypeError(ctx, "wsi.sendTo: argument 1 must be string or ArrayBuffer");
         break;
       }
 
-      if(!(sa = lwsjs_sockaddr46_data(ctx, argv[1]))) {
+      for(int i = 1; i < argc; i++)
+        if((sa = lwsjs_sockaddr46_data(ctx, argv[i])))
+          break;
+
+      if(!sa) {
         if(text)
           JS_FreeCString(ctx, (const char*)ptr);
-        ret = JS_ThrowTypeError(ctx, "wsi.sendTo: argument 2 must be a LWSSockAddr46");
+        ret = JS_ThrowTypeError(ctx, "wsi.sendTo: expected a LWSSockAddr46 argument after the payload");
         break;
       }
 
@@ -963,6 +975,7 @@ enum {
   PROP_TLS,
   PROP_PEER,
   PROP_LOCAL,
+  PROP_UDP,
   PROP_CONTEXT,
   PROP_PEER_WRITE_ALLOWANCE,
   PROP_PARENT,
@@ -1139,6 +1152,22 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       break;
     }
 
+    case PROP_UDP: {
+      struct lws_udp* udp;
+
+      if(lws_wsi_is_udp(s->wsi) && (udp = lws_get_udp(s->wsi))) {
+        ret = JS_NewObjectProto(ctx, JS_NULL);
+
+        JS_SetPropertyStr(ctx, ret, "peer", lwsjs_sockaddr46_wrap(ctx, udp->sa46));
+        JS_SetPropertyStr(ctx, ret, "pending", lwsjs_sockaddr46_wrap(ctx, udp->sa46_pending));
+        JS_SetPropertyStr(ctx, ret, "connected", JS_NewBool(ctx, udp->connected));
+      } else {
+        ret = JS_NULL;
+      }
+
+      break;
+    }
+
     case PROP_CONTEXT: {
       struct lws_context* lws;
 
@@ -1258,6 +1287,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("tls", lwsjs_socket_get, 0, PROP_TLS),
     JS_CGETSET_MAGIC_DEF("peer", lwsjs_socket_get, 0, PROP_PEER),
     JS_CGETSET_MAGIC_DEF("local", lwsjs_socket_get, 0, PROP_LOCAL),
+    JS_CGETSET_MAGIC_DEF("udp", lwsjs_socket_get, 0, PROP_UDP),
     JS_CGETSET_MAGIC_FLAGS_DEF("fd", lwsjs_socket_get, 0, PROP_FD, JS_PROP_ENUMERABLE),
     JS_CGETSET_MAGIC_DEF("parent", lwsjs_socket_get, 0, PROP_PARENT),
     JS_CGETSET_MAGIC_DEF("child", lwsjs_socket_get, 0, PROP_CHILD),

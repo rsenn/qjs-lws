@@ -1684,139 +1684,132 @@ callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user,
     }
 
     if(!args_built) {
-    switch(reason) {
-      case LWS_CALLBACK_CLIENT_HTTP_REDIRECT: {
-        argv[argi++] = JS_NewString(ctx, in);
-        argv[argi++] = JS_NewInt32(ctx, len);
-        break;
-      }
+      switch(reason) {
+        case LWS_CALLBACK_CLIENT_HTTP_REDIRECT: {
+          argv[argi++] = JS_NewString(ctx, in);
+          argv[argi++] = JS_NewInt32(ctx, len);
+          break;
+        }
 
-      case LWS_CALLBACK_ADD_HEADERS:
-      case LWS_CALLBACK_CHECK_ACCESS_RIGHTS:
-      case LWS_CALLBACK_PROCESS_HTML: {
-        struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
+        case LWS_CALLBACK_ADD_HEADERS:
+        case LWS_CALLBACK_CHECK_ACCESS_RIGHTS:
+        case LWS_CALLBACK_PROCESS_HTML: {
+          struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
 
-        if(reason == LWS_CALLBACK_ADD_HEADERS)
-          pha->len = 0;
+          if(reason == LWS_CALLBACK_ADD_HEADERS)
+            pha->len = 0;
 
-        if(pha->len < pha->max_len)
-          memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
+          if(pha->len < pha->max_len)
+            memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
 
-        argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
-        argv[argi] = JS_NewArray(ctx);
-        JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
-        argi++;
-        break;
-      }
+          argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
+          argv[argi] = JS_NewArray(ctx);
+          JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
+          argi++;
+          break;
+        }
 
-      case LWS_CALLBACK_ESTABLISHED: {
-        argv[argi++] = js_fmt_pointer(ctx, in, "(SSL*)");
-        argv[argi++] = JS_NewInt32(ctx, len);
-        break;
-      }
+        case LWS_CALLBACK_ESTABLISHED: {
+          argv[argi++] = js_fmt_pointer(ctx, in, "(SSL*)");
+          argv[argi++] = JS_NewInt32(ctx, len);
+          break;
+        }
 
-      case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
-        memset(*(uint8_t**)in, 0, len);
-        argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
-        argv[argi] = JS_NewArray(ctx);
-        JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, 0));
-        argi++;
-        break;
-      }
+        case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+          memset(*(uint8_t**)in, 0, len);
+          argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
+          argv[argi] = JS_NewArray(ctx);
+          JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, 0));
+          argi++;
+          break;
+        }
 
-      case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION: {
-        argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
-        argv[argi++] = JS_NewInt32(ctx, len);
-        break;
-      }
+        case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION: {
+          argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
+          argv[argi++] = JS_NewInt32(ctx, len);
+          break;
+        }
 
-      case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
-        int response = lws_http_client_http_response(wsi);
+        case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: {
+          int response = lws_http_client_http_response(wsi);
 
-        assert(s);
-        s->response_code = response;
+          assert(s);
+          s->response_code = response;
 
-        argv[argi++] = JS_NewInt32(ctx, response);
-        break;
-      }
+          argv[argi++] = JS_NewInt32(ctx, response);
+          break;
+        }
 
-      case LWS_CALLBACK_CONNECTING: {
-        argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
-        break;
-      }
+        case LWS_CALLBACK_CONNECTING: {
+          argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
+          break;
+        }
 
-      case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: {
-        if(len >= 2)
-          argv[argi++] = JS_NewInt32(ctx, ntohs(*(uint16_t*)in));
+        case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: {
+          if(len >= 2)
+            argv[argi++] = JS_NewInt32(ctx, ntohs(*(uint16_t*)in));
 
-        if(len > 2)
-          argv[argi++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
-        break;
-      }
+          if(len > 2)
+            argv[argi++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
+          break;
+        }
 
-      case LWS_CALLBACK_FILTER_NETWORK_CONNECTION: {
-        argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
-        break;
-      }
+        case LWS_CALLBACK_FILTER_NETWORK_CONNECTION: {
+          argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
+          break;
+        }
 
 #ifdef LWS_WITH_UDP
-      case LWS_CALLBACK_RAW_RX: {
-        const struct lws_udp* udp;
+        case LWS_CALLBACK_RAW_RX: {
+          const struct lws_udp* udp;
 
-        argv[argi++] = in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL;
-        argv[argi++] = JS_NewInt64(ctx, len);
-
-        /* A UDP listener wsi fields datagrams from many different peers on
-           one socket (unlike TCP, which gets a separate wsi per accepted
-           connection) - wsi->udp->sa46 only ever holds the *most recent*
-           sender, so it can't be relied on later (e.g. once a recursive
-           resolver's upstream reply comes back and it's time to answer the
-           original client - other clients' datagrams may have arrived on
-           this wsi in the meantime). Snapshot the sender's address here,
-           at RX time, so JS can hold onto it and hand it back to
-           wsi.sendTo() whenever the reply is actually ready. NULL for a
-           non-UDP (plain TCP raw) wsi - lws_get_udp() only returns
-           non-NULL for UDP. */
-        if((udp = lws_get_udp(wsi))) {
-          JSValue peer = lwsjs_sockaddr46_new(ctx);
-          lws_sockaddr46* sa = lwsjs_sockaddr46_data(ctx, peer);
-
-          if(sa)
-            *sa = udp->sa46;
-
-          argv[argi++] = peer;
-        }
-
-        break;
-      }
-#endif
-
-      default: {
-        if(in && (len > 0) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
-          BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
-
-          argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
+          argv[argi++] = in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL;
           argv[argi++] = JS_NewInt64(ctx, len);
 
-          /* lws_is_first_fragment()/lws_is_final_fragment() are receive-side
-             (unlike lws_ws_sending_multifragment(), which reports our own send
-             state and is never true here). A plain single-frame message is
-             simultaneously first and final; only surface `frame` when that's
-             not the case, matching the documented "only present for
-             multi-fragment messages" contract. */
-          if(is_ws && !(lws_is_first_fragment(wsi) && lws_is_final_fragment(wsi))) {
-            argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
-            JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);
-            JS_SetPropertyStr(ctx, argv[argi], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
-            JS_SetPropertyStr(ctx, argv[argi], "final", JS_NewBool(ctx, lws_is_final_fragment(wsi)));
-            argi++;
-          }
-        } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
-          argv[argi++] = JS_NewString(ctx, in);
+          /* A UDP listener wsi fields datagrams from many different peers on
+             one socket (unlike TCP, which gets a separate wsi per accepted
+             connection) - wsi->udp->sa46 only ever holds the *most recent*
+             sender, so it can't be relied on later (e.g. once a recursive
+             resolver's upstream reply comes back and it's time to answer the
+             original client - other clients' datagrams may have arrived on
+             this wsi in the meantime). Snapshot the sender's address here,
+             at RX time, so JS can hold onto it and hand it back to
+             wsi.sendTo() whenever the reply is actually ready. NULL for a
+             non-UDP (plain TCP raw) wsi - lws_get_udp() only returns
+             non-NULL for UDP. */
+          if((udp = lws_get_udp(wsi)) && udp->sa46.sa4.sin_family)
+            argv[argi++] = lwsjs_sockaddr46_wrap(ctx, udp->sa46);
+
+          break;
         }
-        break;
+#endif
+
+        default: {
+          if(in && (len > 0) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
+            BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
+
+            argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
+            argv[argi++] = JS_NewInt64(ctx, len);
+
+            /* lws_is_first_fragment()/lws_is_final_fragment() are receive-side
+               (unlike lws_ws_sending_multifragment(), which reports our own send
+               state and is never true here). A plain single-frame message is
+               simultaneously first and final; only surface `frame` when that's
+               not the case, matching the documented "only present for
+               multi-fragment messages" contract. */
+            if(is_ws && !(lws_is_first_fragment(wsi) && lws_is_final_fragment(wsi))) {
+              argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
+              JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);
+              JS_SetPropertyStr(ctx, argv[argi], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
+              JS_SetPropertyStr(ctx, argv[argi], "final", JS_NewBool(ctx, lws_is_final_fragment(wsi)));
+              argi++;
+            }
+          } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
+            argv[argi++] = JS_NewString(ctx, in);
+          }
+          break;
+        }
       }
-    }
     }
 
     if(reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
