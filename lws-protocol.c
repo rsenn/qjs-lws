@@ -105,6 +105,167 @@ callback_c(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[],
   return ret;
 }
 
+static const char* callback_names[] = {
+    [LWS_CALLBACK_ESTABLISHED] = "ESTABLISHED",
+    [LWS_CALLBACK_CLIENT_CONNECTION_ERROR] = "CLIENT_CONNECTION_ERROR",
+    [LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH] = "CLIENT_FILTER_PRE_ESTABLISH",
+    [LWS_CALLBACK_CLIENT_ESTABLISHED] = "CLIENT_ESTABLISHED",
+    [LWS_CALLBACK_CLOSED] = "CLOSED",
+    [LWS_CALLBACK_CLOSED_HTTP] = "CLOSED_HTTP",
+    [LWS_CALLBACK_RECEIVE] = "RECEIVE",
+    [LWS_CALLBACK_RECEIVE_PONG] = "RECEIVE_PONG",
+    [LWS_CALLBACK_CLIENT_RECEIVE] = "CLIENT_RECEIVE",
+    [LWS_CALLBACK_CLIENT_RECEIVE_PONG] = "CLIENT_RECEIVE_PONG",
+    [LWS_CALLBACK_CLIENT_WRITEABLE] = "CLIENT_WRITEABLE",
+    [LWS_CALLBACK_SERVER_WRITEABLE] = "SERVER_WRITEABLE",
+    [LWS_CALLBACK_HTTP] = "HTTP",
+    [LWS_CALLBACK_HTTP_BODY] = "HTTP_BODY",
+    [LWS_CALLBACK_HTTP_BODY_COMPLETION] = "HTTP_BODY_COMPLETION",
+    [LWS_CALLBACK_HTTP_FILE_COMPLETION] = "HTTP_FILE_COMPLETION",
+    [LWS_CALLBACK_HTTP_WRITEABLE] = "HTTP_WRITEABLE",
+    [LWS_CALLBACK_FILTER_NETWORK_CONNECTION] = "FILTER_NETWORK_CONNECTION",
+    [LWS_CALLBACK_FILTER_HTTP_CONNECTION] = "FILTER_HTTP_CONNECTION",
+    [LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED] = "SERVER_NEW_CLIENT_INSTANTIATED",
+    [LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION] = "FILTER_PROTOCOL_CONNECTION",
+    [LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS] = "OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS",
+    [LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS] = "OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS",
+    [LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION] = "OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION",
+    [LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER] = "CLIENT_APPEND_HANDSHAKE_HEADER",
+    [LWS_CALLBACK_CONFIRM_EXTENSION_OKAY] = "CONFIRM_EXTENSION_OKAY",
+    [LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED] = "CLIENT_CONFIRM_EXTENSION_SUPPORTED",
+    [LWS_CALLBACK_PROTOCOL_INIT] = "PROTOCOL_INIT",
+    [LWS_CALLBACK_PROTOCOL_DESTROY] = "PROTOCOL_DESTROY",
+    [LWS_CALLBACK_WSI_CREATE] = "WSI_CREATE",
+    [LWS_CALLBACK_WSI_DESTROY] = "WSI_DESTROY",
+    [LWS_CALLBACK_GET_THREAD_ID] = "GET_THREAD_ID",
+    [LWS_CALLBACK_ADD_POLL_FD] = "ADD_POLL_FD",
+    [LWS_CALLBACK_DEL_POLL_FD] = "DEL_POLL_FD",
+    [LWS_CALLBACK_CHANGE_MODE_POLL_FD] = "CHANGE_MODE_POLL_FD",
+    [LWS_CALLBACK_LOCK_POLL] = "LOCK_POLL",
+    [LWS_CALLBACK_UNLOCK_POLL] = "UNLOCK_POLL",
+    [LWS_CALLBACK_WS_PEER_INITIATED_CLOSE] = "WS_PEER_INITIATED_CLOSE",
+    [LWS_CALLBACK_WS_EXT_DEFAULTS] = "WS_EXT_DEFAULTS",
+    [LWS_CALLBACK_CGI] = "CGI",
+    [LWS_CALLBACK_CGI_TERMINATED] = "CGI_TERMINATED",
+    [LWS_CALLBACK_CGI_STDIN_DATA] = "CGI_STDIN_DATA",
+    [LWS_CALLBACK_CGI_STDIN_COMPLETED] = "CGI_STDIN_COMPLETED",
+    [LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP] = "ESTABLISHED_CLIENT_HTTP",
+    [LWS_CALLBACK_CLOSED_CLIENT_HTTP] = "CLOSED_CLIENT_HTTP",
+    [LWS_CALLBACK_RECEIVE_CLIENT_HTTP] = "RECEIVE_CLIENT_HTTP",
+    [LWS_CALLBACK_COMPLETED_CLIENT_HTTP] = "COMPLETED_CLIENT_HTTP",
+    [LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ] = "RECEIVE_CLIENT_HTTP_READ",
+    [LWS_CALLBACK_HTTP_BIND_PROTOCOL] = "HTTP_BIND_PROTOCOL",
+    [LWS_CALLBACK_HTTP_DROP_PROTOCOL] = "HTTP_DROP_PROTOCOL",
+    [LWS_CALLBACK_CHECK_ACCESS_RIGHTS] = "CHECK_ACCESS_RIGHTS",
+    [LWS_CALLBACK_PROCESS_HTML] = "PROCESS_HTML",
+    [LWS_CALLBACK_ADD_HEADERS] = "ADD_HEADERS",
+    [LWS_CALLBACK_SESSION_INFO] = "SESSION_INFO",
+    [LWS_CALLBACK_GS_EVENT] = "GS_EVENT",
+    [LWS_CALLBACK_HTTP_PMO] = "HTTP_PMO",
+    [LWS_CALLBACK_CLIENT_HTTP_WRITEABLE] = "CLIENT_HTTP_WRITEABLE",
+    [LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION] = "OPENSSL_PERFORM_SERVER_CERT_VERIFICATION",
+    [LWS_CALLBACK_RAW_RX] = "RAW_RX",
+    [LWS_CALLBACK_RAW_CLOSE] = "RAW_CLOSE",
+    [LWS_CALLBACK_RAW_WRITEABLE] = "RAW_WRITEABLE",
+    [LWS_CALLBACK_RAW_ADOPT] = "RAW_ADOPT",
+    [LWS_CALLBACK_RAW_ADOPT_FILE] = "RAW_ADOPT_FILE",
+    [LWS_CALLBACK_RAW_RX_FILE] = "RAW_RX_FILE",
+    [LWS_CALLBACK_RAW_WRITEABLE_FILE] = "RAW_WRITEABLE_FILE",
+    [LWS_CALLBACK_RAW_CLOSE_FILE] = "RAW_CLOSE_FILE",
+    [LWS_CALLBACK_SSL_INFO] = "SSL_INFO",
+    [LWS_CALLBACK_CHILD_CLOSING] = "CHILD_CLOSING",
+    [LWS_CALLBACK_CGI_PROCESS_ATTACH] = "CGI_PROCESS_ATTACH",
+    [LWS_CALLBACK_EVENT_WAIT_CANCELLED] = "EVENT_WAIT_CANCELLED",
+    [LWS_CALLBACK_VHOST_CERT_AGING] = "VHOST_CERT_AGING",
+    [LWS_CALLBACK_TIMER] = "TIMER",
+    [LWS_CALLBACK_VHOST_CERT_UPDATE] = "VHOST_CERT_UPDATE",
+    [LWS_CALLBACK_CLIENT_CLOSED] = "CLIENT_CLOSED",
+    [LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL] = "CLIENT_HTTP_DROP_PROTOCOL",
+    [LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL] = "WS_SERVER_BIND_PROTOCOL",
+    [LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL] = "WS_SERVER_DROP_PROTOCOL",
+    [LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL] = "WS_CLIENT_BIND_PROTOCOL",
+    [LWS_CALLBACK_WS_CLIENT_DROP_PROTOCOL] = "WS_CLIENT_DROP_PROTOCOL",
+    [LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL] = "RAW_SKT_BIND_PROTOCOL",
+    [LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL] = "RAW_SKT_DROP_PROTOCOL",
+    [LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL] = "RAW_FILE_BIND_PROTOCOL",
+    [LWS_CALLBACK_RAW_FILE_DROP_PROTOCOL] = "RAW_FILE_DROP_PROTOCOL",
+    [LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL] = "CLIENT_HTTP_BIND_PROTOCOL",
+    [LWS_CALLBACK_HTTP_CONFIRM_UPGRADE] = "HTTP_CONFIRM_UPGRADE",
+    [LWS_CALLBACK_RAW_PROXY_CLI_RX] = "RAW_PROXY_CLI_RX",
+    [LWS_CALLBACK_RAW_PROXY_SRV_RX] = "RAW_PROXY_SRV_RX",
+    [LWS_CALLBACK_RAW_PROXY_CLI_CLOSE] = "RAW_PROXY_CLI_CLOSE",
+    [LWS_CALLBACK_RAW_PROXY_SRV_CLOSE] = "RAW_PROXY_SRV_CLOSE",
+    [LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE] = "RAW_PROXY_CLI_WRITEABLE",
+    [LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE] = "RAW_PROXY_SRV_WRITEABLE",
+    [LWS_CALLBACK_RAW_PROXY_CLI_ADOPT] = "RAW_PROXY_CLI_ADOPT",
+    [LWS_CALLBACK_RAW_PROXY_SRV_ADOPT] = "RAW_PROXY_SRV_ADOPT",
+    [LWS_CALLBACK_RAW_PROXY_CLI_BIND_PROTOCOL] = "RAW_PROXY_CLI_BIND_PROTOCOL",
+    [LWS_CALLBACK_RAW_PROXY_SRV_BIND_PROTOCOL] = "RAW_PROXY_SRV_BIND_PROTOCOL",
+    [LWS_CALLBACK_RAW_PROXY_CLI_DROP_PROTOCOL] = "RAW_PROXY_CLI_DROP_PROTOCOL",
+    [LWS_CALLBACK_RAW_PROXY_SRV_DROP_PROTOCOL] = "RAW_PROXY_SRV_DROP_PROTOCOL",
+    [LWS_CALLBACK_RAW_CONNECTED] = "RAW_CONNECTED",
+    [LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION] = "VERIFY_BASIC_AUTHORIZATION",
+    [LWS_CALLBACK_WSI_TX_CREDIT_GET] = "WSI_TX_CREDIT_GET",
+    [LWS_CALLBACK_CLIENT_HTTP_REDIRECT] = "CLIENT_HTTP_REDIRECT",
+    [LWS_CALLBACK_CONNECTING] = "CONNECTING",
+    [LWS_CALLBACK_MQTT_NEW_CLIENT_INSTANTIATED] = "MQTT_NEW_CLIENT_INSTANTIATED",
+    [LWS_CALLBACK_MQTT_IDLE] = "MQTT_IDLE",
+    [LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED] = "MQTT_CLIENT_ESTABLISHED",
+    [LWS_CALLBACK_MQTT_SUBSCRIBED] = "MQTT_SUBSCRIBED",
+    [LWS_CALLBACK_MQTT_CLIENT_WRITEABLE] = "MQTT_CLIENT_WRITEABLE",
+    [LWS_CALLBACK_MQTT_CLIENT_RX] = "MQTT_CLIENT_RX",
+    [LWS_CALLBACK_MQTT_UNSUBSCRIBED] = "MQTT_UNSUBSCRIBED",
+    [LWS_CALLBACK_MQTT_DROP_PROTOCOL] = "MQTT_DROP_PROTOCOL",
+    [LWS_CALLBACK_MQTT_CLIENT_CLOSED] = "MQTT_CLIENT_CLOSED",
+    [LWS_CALLBACK_MQTT_ACK] = "MQTT_ACK",
+    [LWS_CALLBACK_MQTT_RESEND] = "MQTT_RESEND",
+    [LWS_CALLBACK_MQTT_UNSUBSCRIBE_TIMEOUT] = "MQTT_UNSUBSCRIBE_TIMEOUT",
+    [LWS_CALLBACK_MQTT_SHADOW_TIMEOUT] = "MQTT_SHADOW_TIMEOUT",
+    [LWS_CALLBACK_USER] = "USER",
+};
+
+static const char*
+callback_name(enum lws_callback_reasons reason) {
+  if(reason >= 0 && reason < countof(callback_names))
+    return callback_names[reason];
+
+  return 0;
+}
+
+static /*enum lws_callback_reasons*/ int
+callback_find(const char* name) {
+  char buf[128];
+
+  decamelize(buf, sizeof(buf), name);
+
+  for(size_t i = 0; i < countof(callback_names); i++)
+    if(callback_names[i])
+      if(!strcmp(callback_names[i], buf))
+        return i;
+
+  return -1;
+}
+
+static void
+callbacks_from_obj(JSContext* ctx, JSValueConst obj, JSValue callbacks[], size_t callback_count) {
+  for(size_t i = 0; i < callback_count; i++) {
+    if(callback_names[i]) {
+      char buf[128];
+
+      buf[0] = 'o';
+      buf[1] = 'n';
+
+      camelize(&buf[2], sizeof(buf) - 2, callback_names[i]);
+      buf[2] = toupper(buf[2]);
+
+      callbacks[i] = JS_GetPropertyStr(ctx, obj, buf);
+      continue;
+    }
+
+    callbacks[i] = JS_NULL;
+  }
+}
+
 JSValue
 lwsjs_protocol_obj(JSContext* ctx, const struct lws_protocols* proto) {
   JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
@@ -125,17 +286,16 @@ lwsjs_protocol_obj(JSContext* ctx, const struct lws_protocols* proto) {
   return ret;
 }
 
-struct lws_protocols
-lwsjs_protocol_from(JSContext* ctx, JSValueConst obj) {
-  struct lws_protocols pro = {0};
+int
+lwsjs_protocol_from(JSContext* ctx, JSValueConst obj, struct lws_protocols* pro) {
   LWSHandlers* handlers;
 
   if(!(handlers = js_mallocz(ctx, sizeof(LWSHandlers))))
-    return pro;
+    return -1;
 
   BOOL is_array = JS_IsArray(ctx, obj);
   JSValue value = is_array ? JS_GetPropertyUint32(ctx, obj, 0) : JS_GetPropertyStr(ctx, obj, "name");
-  pro.name = to_stringfree(ctx, value);
+  pro->name = to_stringfree(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 1) : JS_GetPropertyStr(ctx, obj, "callback");
 
@@ -143,23 +303,23 @@ lwsjs_protocol_from(JSContext* ctx, JSValueConst obj) {
   handlers->callback = value;
   handlers->obj = obj_ptr(ctx, obj);
 
-  pro.callback = lwsjs_callback_protocol;
-  pro.user = handlers;
+  pro->callback = lwsjs_callback_protocol;
+  pro->user = handlers;
 
-  lwsjs_get_lws_callbacks(ctx, obj, handlers->callbacks, countof(handlers->callbacks));
+  callbacks_from_obj(ctx, obj, handlers->callbacks, countof(handlers->callbacks));
 
-  pro.per_session_data_size = sizeof(JSValue);
+  pro->per_session_data_size = sizeof(JSValue);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 2) : js_get_property(ctx, obj, "rx_buffer_size");
-  pro.rx_buffer_size = to_integerfree(ctx, value);
+  pro->rx_buffer_size = to_integerfree(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 3) : JS_GetPropertyStr(ctx, obj, "id");
-  pro.id = to_integerfree(ctx, value);
+  pro->id = to_integerfree(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 4) : js_get_property(ctx, obj, "tx_packet_size");
-  pro.tx_packet_size = to_integerfree(ctx, value);
+  pro->tx_packet_size = to_integerfree(ctx, value);
 
-  return pro;
+  return 0;
 }
 
 void
@@ -206,7 +366,7 @@ lwsjs_protocols_fromarray(JSContext* ctx, JSValueConst value) {
     };
 
   for(size_t i = 0; i < len; i++) {
-    pro[j++] = lwsjs_protocol_from(ctx, values[i]);
+    lwsjs_protocol_from(ctx, values[i], &pro[j++]);
 
     JS_FreeValue(ctx, values[i]);
   }

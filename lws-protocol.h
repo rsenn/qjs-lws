@@ -5,7 +5,7 @@
 #include <libwebsockets.h>
 
 JSValue lwsjs_protocol_obj(JSContext*, const struct lws_protocols*);
-struct lws_protocols lwsjs_protocol_from(JSContext*, JSValueConst);
+int lwsjs_protocol_from(JSContext*, JSValueConst, struct lws_protocols*);
 const struct lws_protocols* lwsjs_protocols_fromarray(JSContext*, JSValueConst);
 void lwsjs_protocols_free(JSRuntime*, struct lws_protocols*);
 void lwsjs_protocol_free(JSRuntime*, struct lws_protocols*);
