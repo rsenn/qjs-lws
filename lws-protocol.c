@@ -713,15 +713,15 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     }
 
     if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
-      int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[i - 1], 0));
+      int64_t n = to_int64free(ctx, JS_GetPropertyUint32(ctx, argv[i - 1], 0));
 
-      *(uint8_t**)in += MIN(MAX(0, n), (int64_t)len);
+      *(uint8_t**)in += CLAMP(n, 0, (int64_t)len);
 
     } else if(process_html_args) {
       struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
-      int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[i - 1], 0));
+      int64_t n = to_int64free(ctx, JS_GetPropertyUint32(ctx, argv[i - 1], 0));
 
-      pha->p += MIN(MAX(0, n), (int64_t)(pha->max_len - pha->len));
+      pha->p += CLAMP(n, 0, (int64_t)(pha->max_len - pha->len));
     }
 
     for(int j = 0; j < i; j++) {

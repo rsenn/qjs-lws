@@ -16,6 +16,7 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define CLAMP(a, min, max) MIN( MAX((a), (min)),  (max))
 #define WRAPAROUND(n, len) ((n) < 0 ? (n) + (len) : (n))
 
 typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
