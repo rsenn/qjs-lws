@@ -10,42 +10,42 @@ static JSValue lwsjs_sockaddr46_proto, lwsjs_sockaddr46_ctor;
 static JSValue
 lwsjs_sockaddr46_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
   lws_sockaddr46 sa = {0};
-  int argi = 0;
+  int i = 0;
 
-  if(argc > argi && JS_IsNumber(argv[argi])) {
-    sa.sa4.sin_family = to_uint32(ctx, argv[argi]);
-    argi++;
+  if(argc > i && JS_IsNumber(argv[i])) {
+    sa.sa4.sin_family = to_uint32(ctx, argv[i]);
+    i++;
   }
 
-  if(argc > argi) {
-    uint8_t* p;
+  if(argc > i) {
+    uint8_t* buf;
     size_t len;
     char* str;
 
-    if((p = get_buffer(ctx, argc - argi, argv - argi, &len))) {
+    if((buf = get_buffer(ctx, argc - i, argv - i, &len))) {
       if(len == 4 && (sa.sa4.sin_family == 0 || sa.sa4.sin_family == AF_INET)) {
         sa.sa4.sin_family = AF_INET;
-        memcpy(&sa.sa4.sin_addr, p, len);
-        argi++;
+        memcpy(&sa.sa4.sin_addr, buf, len);
+        i++;
       } else if(len == 16 && (sa.sa6.sin6_family == 0 || sa.sa6.sin6_family == AF_INET6)) {
         sa.sa6.sin6_family = AF_INET6;
-        memcpy(&sa.sa6.sin6_addr, p, len);
-        argi++;
-      } else if(argi == 0) {
-        memcpy(&sa, p, MIN(len, sizeof(sa)));
-        argi++;
+        memcpy(&sa.sa6.sin6_addr, buf, len);
+        i++;
+      } else if(i == 0) {
+        memcpy(&sa, buf, MIN(len, sizeof(sa)));
+        i++;
       }
-    } else if((str = to_string(ctx, argv[argi]))) {
+    } else if((str = to_string(ctx, argv[i]))) {
       if(lws_sa46_parse_numeric_address(str, &sa) == 0)
-        argi++;
+        i++;
 
       js_free(ctx, str);
     }
   }
 
-  if(argc > argi && JS_IsNumber(argv[argi])) {
-    sa.sa4.sin_port = htons(to_uint32(ctx, argv[argi]));
-    argi++;
+  if(argc > i && JS_IsNumber(argv[i])) {
+    sa.sa4.sin_port = htons(to_uint32(ctx, argv[i]));
+    i++;
   }
 
   JSValue obj = JS_NewArrayBufferCopy(ctx, (uint8_t*)&sa, sizeof(sa));
@@ -172,7 +172,7 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
       }
       break;
     }
-
+    
     case PROP_ADDRESS: {
       switch(sa->sa4.sin_family) {
         case AF_INET: {
@@ -272,15 +272,15 @@ static const JSClassDef lws_sockaddr46_class = {
 };
 
 static const JSCFunctionListEntry lws_sockaddr46_proto_funcs[] = {
-    JS_CGETSET_MAGIC_FLAGS_DEF("family", lwsjs_sockaddr46_get, 0, PROP_FAMILY, JS_PROP_ENUMERABLE),
-    JS_CGETSET_MAGIC_FLAGS_DEF("port", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_PORT, 0),
-    JS_CGETSET_MAGIC_DEF("address", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_ADDRESS),
-    JS_CGETSET_MAGIC_FLAGS_DEF("host", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_HOST, JS_PROP_ENUMERABLE),
-    JS_CFUNC_MAGIC_DEF("toString", 0, lwsjs_sockaddr46_methods, METHOD_TO_STRING),
-    JS_CFUNC_MAGIC_DEF("compare", 1, lwsjs_sockaddr46_methods, METHOD_COMPARE),
-    JS_CFUNC_MAGIC_DEF("onNet", 2, lwsjs_sockaddr46_methods, METHOD_ON_NET),
+  JS_CGETSET_MAGIC_FLAGS_DEF("family", lwsjs_sockaddr46_get, 0, PROP_FAMILY, JS_PROP_ENUMERABLE),
+  JS_CGETSET_MAGIC_FLAGS_DEF("port", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_PORT, 0),
+  JS_CGETSET_MAGIC_DEF("address", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_ADDRESS),
+  JS_CGETSET_MAGIC_FLAGS_DEF("host", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_HOST, JS_PROP_ENUMERABLE),
+  JS_CFUNC_MAGIC_DEF("toString", 0, lwsjs_sockaddr46_methods, METHOD_TO_STRING),
+  JS_CFUNC_MAGIC_DEF("compare", 1, lwsjs_sockaddr46_methods, METHOD_COMPARE),
+  JS_CFUNC_MAGIC_DEF("onNet", 2, lwsjs_sockaddr46_methods, METHOD_ON_NET),
 
-    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSockAddr46", JS_PROP_CONFIGURABLE),
+  JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSockAddr46", JS_PROP_CONFIGURABLE),
 };
 
 static JSValue

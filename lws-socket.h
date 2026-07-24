@@ -41,7 +41,7 @@ JSValue lwsjs_socket_headers(JSContext*, struct lws*, char**);
 int lwsjs_socket_init(JSContext*, JSModuleDef*);
 int lwsjs_method_index(const char* method);
 const char* lwsjs_method_name(int index);
-JSValue js_socket_get(JSContext* ctx, struct lws* wsi);
+JSValue lwsjs_socket_fromwsi(JSContext* ctx, struct lws* wsi);
 
 static inline LWSSocket*
 lwsjs_socket_data(JSValueConst value) {

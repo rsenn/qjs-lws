@@ -592,7 +592,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       struct lws* wsi;
 
       if((wsi = wsi_from_fd(lws->ctx, to_int32(ctx, argv[0]))))
-        ret = js_socket_get(ctx, wsi);
+        ret = lwsjs_socket_fromwsi(ctx, wsi);
       break;
     }
 
@@ -717,14 +717,19 @@ lwsjs_context_get(JSContext* ctx, JSValueConst this_val, int magic) {
       lws_get_effective_uid_gid(lws->ctx, &uid, &gid);
 
       ret = JS_NewInt32(ctx, magic == PROP_EUID ? uid : gid);
-
       break;
     }
 
     case PROP_PROTOCOLS: {
+
+      if(lws->info.protocols == NULL) {
+        ret = JS_NULL;
+        break;
+      }
+
       ret = JS_NewArray(ctx);
 
-      for(uint32_t i = 0; lws->info.protocols[i].name; i++)
+      for(int i = 0; lws->info.protocols[i].name; i++)
         JS_SetPropertyUint32(ctx, ret, i, lwsjs_protocol_obj(ctx, &lws->info.protocols[i]));
 
       break;

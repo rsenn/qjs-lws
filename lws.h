@@ -130,4 +130,28 @@ is_pollfd_reason(enum lws_callback_reasons reason) {
   }
 }
 
+static inline BOOL
+is_writeable_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_HTTP_WRITEABLE:
+    case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+    case LWS_CALLBACK_SERVER_WRITEABLE:
+    case LWS_CALLBACK_CLIENT_WRITEABLE:
+    case LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE:
+    case LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE:
+    case LWS_CALLBACK_RAW_WRITEABLE:
+    case LWS_CALLBACK_RAW_WRITEABLE_FILE:
+    case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE: return TRUE;
+    default: return FALSE;
+  }
+}
+static inline BOOL
+is_loadcerts_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
+    case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS: return TRUE;
+    default: return FALSE;
+  }
+}
+
 #endif /* defined QJS_LWS_H */

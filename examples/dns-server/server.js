@@ -65,9 +65,9 @@ async function handleQuery(wsi, data, len, peer) {
   });
 
   try {
-    wsi.sendTo(toArrayBuffer(response), peer);
+    wsi.write(toArrayBuffer(response), peer);
   } catch(e) {
-    console.error(`[dns] failed to reply to ${peer}: ${e.message}`);
+    console.error(`[dns] failed to reply to ${peer}: ${e.message}` + e.stack);
   }
 }
 

@@ -383,7 +383,7 @@ lwsjs_callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* u
 
 int
 lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
-  if(reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS || reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS)
+  if(is_loadcerts_reason(reason))
     return 0;
 
   if(lwsjs_callback_js(wsi, reason, user, in, len) == 0)
@@ -424,9 +424,7 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   JSValue sock = wsi && reason != LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL && reason != LWS_CALLBACK_PROTOCOL_INIT ? lwsjs_socket_get_or_create(ctx, wsi) : JS_UNDEFINED;
   LWSSocket* s = lwsjs_socket_data(sock);
 
-  if(reason == LWS_CALLBACK_HTTP_WRITEABLE || reason == LWS_CALLBACK_CLIENT_HTTP_WRITEABLE || reason == LWS_CALLBACK_SERVER_WRITEABLE || reason == LWS_CALLBACK_CLIENT_WRITEABLE ||
-     reason == LWS_CALLBACK_RAW_PROXY_CLI_WRITEABLE || reason == LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE || reason == LWS_CALLBACK_RAW_WRITEABLE || reason == LWS_CALLBACK_RAW_WRITEABLE_FILE ||
-     reason == LWS_CALLBACK_MQTT_CLIENT_WRITEABLE) {
+  if(is_writeable_reason(reason)) {
     /* Drain any queued wsi.write() chunks first; socket_flush re-arms the
        writeable callback if it couldn't push everything out this round. */
     if(s)
@@ -446,8 +444,7 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
         s->dispatching = TRUE;
         JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 1, &sock);
         s->dispatching = FALSE;
-        ret = to_int32(ctx, result);
-        JS_FreeValue(ctx, result);
+        ret = to_int32free(ctx, result);
         JS_FreeValue(ctx, fn);
 
         if(s->closed)
@@ -500,11 +497,11 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
 
   if(reason == LWS_CALLBACK_HTTP || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH) {
     if(s && (s->uri == 0 || s->method == -1)) {
-      char* uri_ptr = 0;
-      int uri_len = 0, method = lws_http_get_uri_and_method(s->wsi, &uri_ptr, &uri_len);
+      char* uri = 0;
+      int len = 0, method = lws_http_get_uri_and_method(s->wsi, &uri, &len);
 
-      if(uri_ptr && s->uri == 0)
-        s->uri = js_strndup(ctx, uri_ptr, uri_len);
+      if(uri && s->uri == 0)
+        s->uri = js_strndup(ctx, uri, len);
 
       if(method >= 0 && s->method == -1)
         s->method = method;
@@ -512,13 +509,13 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   }
 
   if(cb && !is_nullish(*cb)) {
-    int argi = 1, buffer_index = -1;
+    int i = 1, buffer_index = -1;
     JSValue argv[5] = {
         JS_DupValue(ctx, sock),
     };
 
     if(cb == &handlers->callback)
-      argv[argi++] = JS_NewInt32(ctx, reason);
+      argv[i++] = JS_NewInt32(ctx, reason);
 
     if(reason == LWS_CALLBACK_HTTP_CONFIRM_UPGRADE)
       if(s && !strcmp(in, "websocket"))
@@ -553,12 +550,12 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
       cb = is_nullish(handlers->callbacks[reason]) ? &handlers->callback : &handlers->callbacks[reason];
 
       if(!has_reason && cb == &handlers->callback)
-        argv[argi++] = JS_NewInt32(ctx, reason);
+        argv[i++] = JS_NewInt32(ctx, reason);
 
-      argv[argi++] = JS_NewInt32(ctx, code);
+      argv[i++] = JS_NewInt32(ctx, code);
 
       if(len > 2)
-        argv[argi++] = JS_NewStringLen(ctx, (char*)in + 2, len - 2);
+        argv[i++] = JS_NewStringLen(ctx, (char*)in + 2, len - 2);
 
       args_built = TRUE;
     }
@@ -566,8 +563,8 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     if(!args_built) {
       switch(reason) {
         case LWS_CALLBACK_CLIENT_HTTP_REDIRECT: {
-          argv[argi++] = JS_NewString(ctx, in);
-          argv[argi++] = JS_NewInt32(ctx, len);
+          argv[i++] = JS_NewString(ctx, in);
+          argv[i++] = JS_NewInt32(ctx, len);
           break;
         }
 
@@ -582,31 +579,31 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
           if(pha->len < pha->max_len)
             memset(&pha->p[pha->len], 0, pha->max_len - pha->len);
 
-          argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
-          argv[argi] = JS_NewArray(ctx);
-          JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, pha->len));
-          argi++;
+          argv[buffer_index = i++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->max_len, 0, 0, FALSE);
+          argv[i] = JS_NewArray(ctx);
+          JS_SetPropertyUint32(ctx, argv[i], 0, JS_NewUint32(ctx, pha->len));
+          i++;
           break;
         }
 
         case LWS_CALLBACK_ESTABLISHED: {
-          argv[argi++] = js_fmt_pointer(ctx, in, "(SSL*)");
-          argv[argi++] = JS_NewInt32(ctx, len);
+          argv[i++] = js_fmt_pointer(ctx, in, "(SSL*)");
+          argv[i++] = JS_NewInt32(ctx, len);
           break;
         }
 
         case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
           memset(*(uint8_t**)in, 0, len);
-          argv[buffer_index = argi++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
-          argv[argi] = JS_NewArray(ctx);
-          JS_SetPropertyUint32(ctx, argv[argi], 0, JS_NewUint32(ctx, 0));
-          argi++;
+          argv[buffer_index = i++] = JS_NewArrayBuffer(ctx, *(uint8_t**)in, len, 0, 0, FALSE);
+          argv[i] = JS_NewArray(ctx);
+          JS_SetPropertyUint32(ctx, argv[i], 0, JS_NewUint32(ctx, 0));
+          i++;
           break;
         }
 
         case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION: {
-          argv[argi++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
-          argv[argi++] = JS_NewInt32(ctx, len);
+          argv[i++] = JS_NewInt64(ctx, (int64_t)(intptr_t)in);
+          argv[i++] = JS_NewInt32(ctx, len);
           break;
         }
 
@@ -616,26 +613,26 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
           assert(s);
           s->response_code = response;
 
-          argv[argi++] = JS_NewInt32(ctx, response);
+          argv[i++] = JS_NewInt32(ctx, response);
           break;
         }
 
         case LWS_CALLBACK_CONNECTING: {
-          argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
+          argv[i++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
           break;
         }
 
         case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE: {
           if(len >= 2)
-            argv[argi++] = JS_NewInt32(ctx, ntohs(*(uint16_t*)in));
+            argv[i++] = JS_NewInt32(ctx, ntohs(*(uint16_t*)in));
 
           if(len > 2)
-            argv[argi++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
+            argv[i++] = JS_NewArrayBufferCopy(ctx, (const uint8_t*)in + 2, len - 2);
           break;
         }
 
         case LWS_CALLBACK_FILTER_NETWORK_CONNECTION: {
-          argv[argi++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
+          argv[i++] = JS_NewInt32(ctx, (int32_t)(intptr_t)in);
           break;
         }
 
@@ -643,8 +640,8 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
         case LWS_CALLBACK_RAW_RX: {
           const struct lws_udp* udp;
 
-          argv[argi++] = in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL;
-          argv[argi++] = JS_NewInt64(ctx, len);
+          argv[i++] = in ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NULL;
+          argv[i++] = JS_NewInt64(ctx, len);
 
           /* A UDP listener wsi fields datagrams from many different peers on
              one socket (unlike TCP, which gets a separate wsi per accepted
@@ -658,7 +655,7 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
              non-UDP (plain TCP raw) wsi - lws_get_udp() only returns
              non-NULL for UDP. */
           if((udp = lws_get_udp(wsi)) && udp->sa46.sa4.sin_family)
-            argv[argi++] = lwsjs_sockaddr46_wrap(ctx, udp->sa46);
+            argv[i++] = lwsjs_sockaddr46_wrap(ctx, udp->sa46);
 
           break;
         }
@@ -668,8 +665,8 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
           if(in && (len > 0) && reason != LWS_CALLBACK_FILTER_HTTP_CONNECTION && reason != LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
             BOOL is_ws = reason == LWS_CALLBACK_CLIENT_RECEIVE || reason == LWS_CALLBACK_RECEIVE;
 
-            argv[argi++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
-            argv[argi++] = JS_NewInt64(ctx, len);
+            argv[i++] = in ? ((!is_ws || lws_frame_is_binary(wsi))) ? JS_NewArrayBufferCopy(ctx, in, len) : JS_NewStringLen(ctx, in, len) : JS_NULL;
+            argv[i++] = JS_NewInt64(ctx, len);
 
             /* lws_is_first_fragment()/lws_is_final_fragment() are receive-side
                (unlike lws_ws_sending_multifragment(), which reports our own send
@@ -678,14 +675,14 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
                not the case, matching the documented "only present for
                multi-fragment messages" contract. */
             if(is_ws && !(lws_is_first_fragment(wsi) && lws_is_final_fragment(wsi))) {
-              argv[argi] = JS_NewObjectProto(ctx, JS_NULL);
-              JS_SetPropertyStr(ctx, argv[argi], "multifragment", JS_TRUE);
-              JS_SetPropertyStr(ctx, argv[argi], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
-              JS_SetPropertyStr(ctx, argv[argi], "final", JS_NewBool(ctx, lws_is_final_fragment(wsi)));
-              argi++;
+              argv[i] = JS_NewObjectProto(ctx, JS_NULL);
+              JS_SetPropertyStr(ctx, argv[i], "multifragment", JS_TRUE);
+              JS_SetPropertyStr(ctx, argv[i], "first", JS_NewBool(ctx, lws_is_first_fragment(wsi)));
+              JS_SetPropertyStr(ctx, argv[i], "final", JS_NewBool(ctx, lws_is_final_fragment(wsi)));
+              i++;
             }
           } else if(in && (len == 0 || reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION || reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR)) {
-            argv[argi++] = JS_NewString(ctx, in);
+            argv[i++] = JS_NewString(ctx, in);
           }
           break;
         }
@@ -693,15 +690,15 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     }
 
     if(reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
-      argv[argi++] = JS_NewInt32(ctx, errno);
+      argv[i++] = JS_NewInt32(ctx, errno);
     } else if(reason == LWS_CALLBACK_RAW_CLOSE) {
-      argv[argi++] = JS_NewInt32(ctx, errno);
+      argv[i++] = JS_NewInt32(ctx, errno);
     }
 
     if(s)
       s->dispatching = TRUE;
 
-    JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, argi, argv);
+    JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, i, argv);
 
     if(s)
       s->dispatching = FALSE;
@@ -713,23 +710,23 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     }
 
     if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER) {
-      int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
+      int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[i - 1], 0));
 
       *(uint8_t**)in += MIN(MAX(0, n), (int64_t)len);
 
     } else if(process_html_args) {
       struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
-      int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[argi - 1], 0));
+      int64_t n = to_int64(ctx, JS_GetPropertyUint32(ctx, argv[i - 1], 0));
 
       pha->p += MIN(MAX(0, n), (int64_t)(pha->max_len - pha->len));
     }
 
-    for(int j = 0; j < argi; j++) {
+    for(int j = 0; j < i; j++) {
       /* Detach the one ArrayBuffer that wraps lws's own transient
          stack/heap memory (pha->p / *(uint8_t**)in) at its own index -
-         comparing against argi here instead of j would never match, since
+         comparing against i here instead of j would never match, since
          every branch that sets buffer_index pushes at least one more arg
-         afterward, leaving buffer_index < argi always. Without detaching,
+         afterward, leaving buffer_index < i always. Without detaching,
          JS code that retains this ArrayBuffer past the callback returning
          could read/write memory lws has already reused for something else. */
       if(buffer_index == j)

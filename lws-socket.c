@@ -17,14 +17,14 @@ static struct list_head socket_list;
 static uint32_t socket_id;
 
 /* Per-write queue entry. The payload sits at buf + LWS_PRE so libwebsockets
-   has room to fill the WebSocket frame header in place. off is how many
+   has room to fill the WebSocket frame header in place. pos is how many
    payload bytes have already been handed to lws_write(). */
 typedef struct {
   struct list_head link;
   uint8_t* buf;
-  size_t len, off;
+  size_t len, pos;
   enum lws_write_protocol proto;
-  lws_sockaddr46 sa46;
+  lws_sockaddr46 addr;
 } WriteChunk;
 
 static WriteChunk*
@@ -45,7 +45,7 @@ write_chunk_new(const void* data, size_t len, enum lws_write_protocol proto) {
     memcpy(wc->buf + LWS_PRE, data, len);
 
   wc->len = len;
-  wc->off = 0;
+  wc->pos = 0;
   wc->proto = proto;
   return wc;
 }
@@ -60,9 +60,11 @@ static void
 socket_write_queue_clear(LWSSocket* s) {
   while(!list_empty(&s->write_queue)) {
     WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
+
     list_del(&wc->link);
     write_chunk_free(wc);
   }
+
   s->write_buffered = 0;
 }
 
@@ -79,18 +81,18 @@ socket_flush(LWSSocket* s) {
       break;
 
     WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
-    size_t remaining = wc->len - wc->off;
+    size_t remaining = wc->len - wc->pos;
 
     if(lws_wsi_is_udp(s->wsi)) {
       struct lws_udp* udp;
 
       if((udp = (struct lws_udp*)lws_get_udp(s->wsi)))
-        udp->sa46 = udp->sa46_pending = wc->sa46;
+        udp->sa46 = udp->sa46_pending = wc->addr;
     }
 
-    int n = lws_write(s->wsi, wc->buf + LWS_PRE + wc->off, remaining, wc->proto);
+    int n;
 
-    if(n < 0) {
+    if((n = lws_write(s->wsi, wc->buf + LWS_PRE + wc->pos, remaining, wc->proto)) < 0) {
       /* Connection is dead — drop everything so we don't keep re-arming. */
       socket_write_queue_clear(s);
       return;
@@ -99,12 +101,25 @@ socket_flush(LWSSocket* s) {
     if(n > 0) {
       char preview[41];
 
-      log_preview(preview, sizeof(preview), wc->buf + LWS_PRE + wc->off, (size_t)n);
+      log_preview(preview, sizeof(preview), wc->buf + LWS_PRE + wc->pos, (size_t)n);
       lwsl_wsi_user(s->wsi,
                     "TX %d bytes (proto=%s): %s%s\n",
                     n,
                     ((const char*[]){
-                        "TEXT", "BINARY", "CONTINUATION", "HTTP", 0, "PING", "PONG", "HTTP_FINAL", "HTTP_HEADERS", "HTTP_HEADERS_CONTINUATION", "BUFLIST", "NO_FIN", "H2_STREAM_END"})[wc->proto & 0xf],
+                        "TEXT",
+                        "BINARY",
+                        "CONTINUATION",
+                        "HTTP",
+                        0,
+                        "PING",
+                        "PONG",
+                        "HTTP_FINAL",
+                        "HTTP_HEADERS",
+                        "HTTP_HEADERS_CONTINUATION",
+                        "BUFLIST",
+                        "NO_FIN",
+                        "H2_STREAM_END",
+                    })[wc->proto & 0xf],
                     preview,
                     (size_t)n > sizeof(preview) - 1 ? "..." : "");
     }
@@ -122,13 +137,12 @@ socket_flush(LWSSocket* s) {
        the whole chunk is out. */
     BOOL is_ws_message = wc->proto != LWS_WRITE_HTTP && wc->proto != LWS_WRITE_HTTP_FINAL;
 
-    wc->off = is_ws_message ? wc->len : wc->off + (size_t)n;
+    wc->pos = is_ws_message ? wc->len : wc->pos + (size_t)n;
     s->write_buffered -= is_ws_message ? remaining : (size_t)n;
 
-    if(wc->off >= wc->len) {
-      if(wc->proto == LWS_WRITE_HTTP_FINAL)
-        if(lws_http_transaction_completed(s->wsi))
-          s->completed = TRUE;
+    if(wc->pos >= wc->len) {
+      if(wc->proto == LWS_WRITE_HTTP_FINAL && lws_http_transaction_completed(s->wsi))
+        s->completed = TRUE;
 
       list_del(&wc->link);
       write_chunk_free(wc);
@@ -188,9 +202,8 @@ is_uri(enum lws_token_indexes ti) {
 int
 lwsjs_method_index(const char* method) {
   for(int i = 0; i < (int)countof(lwsjs_method_names); ++i)
-    if(lwsjs_method_names[i])
-      if(!strcasecmp(method, lwsjs_method_names[i]))
-        return i;
+    if(lwsjs_method_names[i] && !strcasecmp(method, lwsjs_method_names[i]))
+      return i;
 
   return -1;
 }
@@ -228,6 +241,7 @@ socket_alloc(JSContext* ctx) {
   sock->write_handler = JS_UNDEFINED;
   sock->id = ++socket_id;
   sock->method = -1;
+
   init_list_head(&sock->write_queue);
 
   return sock;
@@ -253,6 +267,7 @@ socket_getid(struct lws* wsi) {
 
   if((sock = socket_get(wsi)))
     return sock->id;
+
   return -1;
 }
 
@@ -261,9 +276,9 @@ socket_find(struct lws* wsi) {
   struct list_head* n;
 
   list_for_each(n, &socket_list) {
-    LWSSocket* sock = list_entry(n, LWSSocket, link);
+    LWSSocket* sock;
 
-    if(sock)
+    if((sock = list_entry(n, LWSSocket, link)))
       if((uintptr_t)sock != (uintptr_t)-1 && sock->wsi == wsi)
         return sock;
   }
@@ -281,26 +296,12 @@ socket_get(struct lws* wsi) {
   return 0;
 }
 
-JSValue
-js_socket_get(JSContext* ctx, struct lws* wsi) {
-  void* obj;
-
-  if((obj = lws_get_opaque_user_data(wsi)))
-    return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
-
-  return JS_UNDEFINED;
-}
-
 static LWSSocket*
 socket_get_by_id(int id) {
   struct list_head* n;
   LWSSocket* sock;
 
-  list_for_each(n, &socket_list) {
-    if((sock = list_entry(n, LWSSocket, link)))
-      if(sock->id == id)
-        return sock;
-  }
+  list_for_each(n, &socket_list) if((sock = list_entry(n, LWSSocket, link)) && sock->id == id) return sock;
 
   return 0;
 }
@@ -308,6 +309,7 @@ socket_get_by_id(int id) {
 static void
 socket_free(LWSSocket* sock, JSRuntime* rt) {
   DEBUG("free LWSSocket: %p (ref_count = %d)", sock, sock->ref_count);
+
   if(--sock->ref_count == 0) {
     if(!JS_IsUndefined(sock->write_handler)) {
       JS_FreeValueRT(rt, sock->write_handler);
@@ -324,6 +326,7 @@ socket_free(LWSSocket* sock, JSRuntime* rt) {
       js_free_rt(rt, sock->uri);
       sock->uri = 0;
     }
+
     if(sock->proto) {
       js_free_rt(rt, sock->proto);
       sock->proto = 0;
@@ -337,9 +340,6 @@ static void
 socket_delete(LWSSocket* sock, JSRuntime* rt) {
   assert(socket_list.next);
   assert(socket_list.prev);
-
-  /*  assert(sock->link.next);
-    assert(sock->link.prev);*/
 
   if(sock->link.next)
     list_del(&sock->link);
@@ -357,6 +357,16 @@ socket_delete(LWSSocket* sock, JSRuntime* rt) {
 static JSValue
 socket_obj2(LWSSocket* sock, JSContext* ctx) {
   return sock ? JS_DupValue(ctx, ptr_obj(ctx, sock->obj)) : JS_NULL;
+}
+
+JSValue
+lwsjs_socket_fromwsi(JSContext* ctx, struct lws* wsi) {
+  void* obj;
+
+  if((obj = lws_get_opaque_user_data(wsi)))
+    return JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj));
+
+  return JS_UNDEFINED;
 }
 
 struct lws*
@@ -391,7 +401,7 @@ lwsjs_socket_create(JSContext* ctx, struct lws* wsi) {
 
     /* lws never attaches opaque_user_data itself for server-accepted wsi's
        (only our own METHOD_CLIENT_CONNECT does, via info.opaque_user_data) -
-       so without this, js_socket_get()/socket_get() never find a wrapper
+       so without this, lwsjs_socket_fromwsi()/socket_get() never find a wrapper
        for an accepted connection and lwsjs_socket_get_or_create() mints a
        brand new one on every single callback, breaking wsi identity
        (Map/Set keying, wsi.foo = x, etc.) across calls for HTTP/WS/raw
@@ -405,9 +415,9 @@ lwsjs_socket_create(JSContext* ctx, struct lws* wsi) {
 
 void
 lwsjs_socket_destroy(JSContext* ctx, struct lws* wsi) {
-  LWSSocket* sock = socket_get(wsi);
+  LWSSocket* sock;
 
-  if(sock) {
+  if((sock = socket_get(wsi))) {
     assert(sock->wsi);
     sock->wsi = 0;
 
@@ -417,21 +427,21 @@ lwsjs_socket_destroy(JSContext* ctx, struct lws* wsi) {
 
 JSValue
 lwsjs_socket_get_or_create(JSContext* ctx, struct lws* wsi) {
-  JSValue ret = js_socket_get(ctx, wsi);
+  JSValue ret = lwsjs_socket_fromwsi(ctx, wsi);
   BOOL create;
 
-  if((create = JS_IsUndefined(ret)))
+  if((create = JS_IsUndefined(ret))) {
     ret = lwsjs_socket_create(ctx, wsi);
-  else {
+  } else {
     /* lws_client_connect_via_info() attaches opaque_user_data (what
-       socket_get()/js_socket_get() look the wrapper up by, via
+       socket_get()/lwsjs_socket_fromwsi() look the wrapper up by, via
        lws_get_opaque_user_data()) to a new client wsi before it fills in
        *info.pwsi (what originally set sock->wsi) - so a callback firing
        in between sees a wrapper whose ->wsi is still stale/NULL. Since
        we were just handed the real, current wsi, correct it here. */
-    LWSSocket* sock = lwsjs_socket_data(ret);
+    LWSSocket* sock;
 
-    if(sock && sock->wsi != wsi)
+    if((sock = lwsjs_socket_data(ret)) && sock->wsi != wsi)
       sock->wsi = wsi;
   }
 
@@ -455,6 +465,7 @@ typedef struct {
 static void
 set_property(JSContext* ctx, JSValueConst obj, const char* name, int nlen, const char* value, int vlen) {
   JSAtom prop = JS_NewAtomLen(ctx, name, nlen);
+
   JS_SetProperty(ctx, obj, prop, JS_NewStringLen(ctx, value, vlen));
   JS_FreeAtom(ctx, prop);
 }
@@ -464,8 +475,7 @@ custom_headers_callback(const char* name, int nlen, void* opaque) {
   CustomHeaders* ch = opaque;
   int namelen = nlen, len = lws_hdr_custom_length(ch->wsi, name, nlen);
   char buf[len + 1];
-  int r = lws_hdr_custom_copy(ch->wsi, buf, len + 1, name, nlen);
-  int i = 0, j;
+  int i = 0, j, r = lws_hdr_custom_copy(ch->wsi, buf, len + 1, name, nlen);
 
   while((j = findb_charset(&name[i], nlen - i, ": ", 2)) < (nlen - i - 1)) {
     int k = i + j;
@@ -495,49 +505,55 @@ JSValue
 lwsjs_socket_headers(JSContext* ctx, struct lws* wsi, char** pproto) {
   JSValue ret = JS_NewObjectProto(ctx, JS_NULL);
 
-  for(int i = WSI_TOKEN_GET_URI; i < WSI_TOKEN_COUNT; ++i) {
-    if(!is_uri(i) && i != WSI_TOKEN_HTTP) {
-      size_t len = lws_hdr_total_length(wsi, i);
+  for(int i = WSI_TOKEN_GET_URI; i < WSI_TOKEN_COUNT; i++) {
+    if(is_uri(i))
+      continue;
 
-      if(len > 0) {
-        const char* name = (const char*)lws_token_to_string(i);
+    if(i == WSI_TOKEN_HTTP)
+      continue;
 
-        if(name == NULL)
-          continue;
+    size_t len;
 
-        size_t namelen = find_charset(name, ": ", 2);
-        JSAtom prop = JS_NewAtomLen(ctx, name, namelen);
-        char buf[len + 1];
-        int r = lws_hdr_copy(wsi, buf, len + 1, i);
+    if((len = lws_hdr_total_length(wsi, i)) <= 0)
+      continue;
 
-        if(namelen == 0) {
-          if(*pproto)
-            js_free(ctx, *pproto);
-          *pproto = js_strndup(ctx, buf, r);
-        } else {
-          JS_SetProperty(ctx, ret, prop, JS_NewStringLen(ctx, buf, r));
-        }
-        JS_FreeAtom(ctx, prop);
-      }
+    const char* name;
+
+    if(!(name = (const char*)lws_token_to_string(i)))
+      continue;
+
+    size_t namelen = find_charset(name, ": ", 2);
+    JSAtom prop = JS_NewAtomLen(ctx, name, namelen);
+    char buf[len + 1];
+    int r = lws_hdr_copy(wsi, buf, len + 1, i);
+
+    if(namelen == 0) {
+      if(*pproto)
+        js_free(ctx, *pproto);
+
+      *pproto = js_strndup(ctx, buf, r);
+    } else {
+      JS_SetProperty(ctx, ret, prop, JS_NewStringLen(ctx, buf, r));
     }
+
+    JS_FreeAtom(ctx, prop);
   }
 
-  CustomHeaders c = {ret, ctx, wsi};
+  CustomHeaders ch = {ret, ctx, wsi};
 
-  lws_hdr_custom_name_foreach(wsi, custom_headers_callback, &c);
+  lws_hdr_custom_name_foreach(wsi, custom_headers_callback, &ch);
 
   return ret;
 }
 
 enum {
-  METHOD_WANT_WRITE = 0,
+  METHOD_WANTWRITE = 0,
   METHOD_WRITE,
   METHOD_RESPOND,
   METHOD_CLOSE,
-  METHOD_HTTP_CLIENT_READ,
-  METHOD_ADD_HEADER,
-  METHOD_CLIENT_HTTP_MULTIPART,
-  METHOD_SEND_TO,
+  METHOD_HTTPCLIENTREAD,
+  METHOD_ADDHEADER,
+  METHOD_CLIENTHTTPMULTIPART,
 };
 
 static JSValue
@@ -553,11 +569,11 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
   BOOL is_ws = lwsi_role_ws(s->wsi), is_http = lwsi_role_http(s->wsi);
 
-  /*if(!is_http && (magic == METHOD_ADD_HEADER || magic == METHOD_HTTP_CLIENT_READ))
+  /*if(!is_http && (magic == METHOD_ADDHEADER || magic == METHOD_HTTPCLIENTREAD))
     return JS_ThrowInternalError(ctx, "%s (magic=%d) wsi is not HTTP", __func__, magic);*/
 
   switch(magic) {
-    case METHOD_WANT_WRITE: {
+    case METHOD_WANTWRITE: {
       if(!s->want_write) {
         lws_callback_on_writable(s->wsi);
 
@@ -622,7 +638,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       }
 
       if(sa)
-        wc->sa46 = *sa;
+        wc->addr = *sa;
 
       list_add_tail(&wc->link, &s->write_queue);
       s->write_buffered += len;
@@ -634,48 +650,6 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       ret = JS_NewInt32(ctx, (int)len);
       break;
     }
-
-      /*#ifdef LWS_WITH_UDP
-          case METHOD_SEND_TO: {
-            size_t len = 0;
-            BOOL text;
-            const void* ptr;
-            lws_sockaddr46* sa = NULL;
-
-            if(!lws_wsi_is_udp(s->wsi)) {
-              ret = JS_ThrowTypeError(ctx, "wsi.sendTo: wsi is not UDP");
-              break;
-            }
-
-            text = JS_IsString(argv[0]);
-            ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0]) : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
-
-            if(!ptr) {
-              ret = JS_ThrowTypeError(ctx, "wsi.sendTo: argument 1 must be string or ArrayBuffer");
-              break;
-            }
-
-            for(int i = 1; i < argc; i++)
-              if((sa = lwsjs_sockaddr46_data(ctx, argv[i])))
-                break;
-
-            if(!sa) {
-              if(text)
-                JS_FreeCString(ctx, (const char*)ptr);
-              ret = JS_ThrowTypeError(ctx, "wsi.sendTo: expected a LWSSockAddr46 argument after the payload");
-              break;
-            }
-
-            lws_sockfd_type fd = lws_get_socket_fd(s->wsi);
-            ssize_t n = fd == -1 ? -1 : sendto(fd, ptr, len, 0, sa46_sockaddr(sa), sa46_socklen(sa));
-
-            if(text)
-              JS_FreeCString(ctx, (const char*)ptr);
-
-            ret = JS_NewInt32(ctx, (int)n);
-            break;
-          }
-      #endif*/
 
     case METHOD_RESPOND: {
       uint8_t result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE], *p = (uint8_t*)result + LWS_PRE, *start = p;
@@ -825,7 +799,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       break;
     }
 
-    case METHOD_HTTP_CLIENT_READ: {
+    case METHOD_HTTPCLIENTREAD: {
       size_t n;
       uint8_t *p, *q;
       int l, result;
@@ -841,7 +815,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       break;
     }
 
-    case METHOD_ADD_HEADER: {
+    case METHOD_ADDHEADER: {
       const char *name = 0, *value;
       size_t vlen, blen;
       unsigned char *buf, *ptr;
@@ -885,7 +859,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       break;
     }
 
-    case METHOD_CLIENT_HTTP_MULTIPART: {
+    case METHOD_CLIENTHTTPMULTIPART: {
 
       if(!s->wsi->http.multipart)
         break;
@@ -1288,16 +1262,13 @@ static const JSClassDef lws_socket_class = {
 };
 
 static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
-    JS_CFUNC_MAGIC_DEF("wantWrite", 0, lwsjs_socket_methods, METHOD_WANT_WRITE),
+    JS_CFUNC_MAGIC_DEF("wantWrite", 0, lwsjs_socket_methods, METHOD_WANTWRITE),
     JS_CFUNC_MAGIC_DEF("write", 1, lwsjs_socket_methods, METHOD_WRITE),
     JS_CFUNC_MAGIC_DEF("respond", 1, lwsjs_socket_methods, METHOD_RESPOND),
     JS_CFUNC_MAGIC_DEF("close", 0, lwsjs_socket_methods, METHOD_CLOSE),
-    JS_CFUNC_MAGIC_DEF("httpClientRead", 1, lwsjs_socket_methods, METHOD_HTTP_CLIENT_READ),
-    JS_CFUNC_MAGIC_DEF("addHeader", 4, lwsjs_socket_methods, METHOD_ADD_HEADER),
-    JS_CFUNC_MAGIC_DEF("clientHttpMultipart", 4, lwsjs_socket_methods, METHOD_CLIENT_HTTP_MULTIPART),
-#ifdef LWS_WITH_UDP
-    JS_CFUNC_MAGIC_DEF("sendTo", 2, lwsjs_socket_methods, METHOD_SEND_TO),
-#endif
+    JS_CFUNC_MAGIC_DEF("httpClientRead", 1, lwsjs_socket_methods, METHOD_HTTPCLIENTREAD),
+    JS_CFUNC_MAGIC_DEF("addHeader", 4, lwsjs_socket_methods, METHOD_ADDHEADER),
+    JS_CFUNC_MAGIC_DEF("clientHttpMultipart", 4, lwsjs_socket_methods, METHOD_CLIENTHTTPMULTIPART),
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lwsjs_socket_get, 0, PROP_ID, 0),
     JS_CGETSET_MAGIC_FLAGS_DEF("tag", lwsjs_socket_get, 0, PROP_TAG, JS_PROP_CONFIGURABLE),
     JS_CGETSET_MAGIC_DEF("vhost", lwsjs_socket_get, 0, PROP_VHOST),
