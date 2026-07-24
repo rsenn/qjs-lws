@@ -30,7 +30,7 @@ typedef struct {
   JSContext* ctx;
   void* obj;
   JSValue callback, callbacks[LWS_CALLBACK_USER + 1];
-} LWSProtocol;
+} LWSHandlers;
 
 extern JSClassID lwsjs_context_class_id;
 
@@ -49,6 +49,18 @@ lwsjs_context_data2(JSContext* ctx, JSValueConst value) {
   return JS_GetOpaque2(ctx, value, lwsjs_context_class_id);
 }
 
+static inline JSContext*
+lwsjs_context_jsctx(LWSContext* lc) {
+  return lc ? lc->js : NULL;
+}
+
+static inline LWSContext*
+lwsjs_context_fromlws(struct lws_context* context) {
+  void* obj = lws_context_user(context);
+
+  return JS_GetOpaque(JS_MKPTR(JS_TAG_OBJECT, obj), lwsjs_context_class_id);
+}
+
 static inline struct lws_context*
 lws_context_data(JSValueConst value) {
   LWSContext* lws;
@@ -63,7 +75,7 @@ static inline LWSContext*
 lwsjs_wsi_context(struct lws* wsi) {
   struct lws_context* lws;
 
-  if((lws = lws_get_context(wsi))) {
+  if(wsi && (lws = lws_get_context(wsi))) {
     void* obj;
 
     if((obj = lws_context_user(lws)))
@@ -76,7 +88,7 @@ lwsjs_wsi_context(struct lws* wsi) {
 static inline JSContext*
 lwsjs_wsi_jscontext(struct lws* wsi) {
   struct lws_protocols const* pro = lws_get_protocol(wsi);
-  LWSProtocol* closure = pro ? pro->user : 0;
+  LWSHandlers* closure = pro ? pro->user : 0;
   JSContext* ctx = closure ? closure->ctx : 0;
 
   if(!ctx) {

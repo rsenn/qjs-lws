@@ -24,6 +24,7 @@ typedef struct {
   uint8_t* buf;
   size_t len, off;
   enum lws_write_protocol proto;
+  lws_sockaddr46 sa46;
 } WriteChunk;
 
 static WriteChunk*
@@ -79,6 +80,14 @@ socket_flush(LWSSocket* s) {
 
     WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
     size_t remaining = wc->len - wc->off;
+
+    if(lws_wsi_is_udp(s->wsi)) {
+      struct lws_udp* udp;
+
+      if((udp = (struct lws_udp*)lws_get_udp(s->wsi)))
+        udp->sa46 = udp->sa46_pending = wc->sa46;
+    }
+
     int n = lws_write(s->wsi, wc->buf + LWS_PRE + wc->off, remaining, wc->proto);
 
     if(n < 0) {
@@ -235,7 +244,7 @@ socket_type(struct lws* wsi) {
   if(lwsi_role_h2(wsi))
     return SOCKET_HTTP;
 
-  return SOCKET_OTHER;
+  return SOCKET_RAW;
 }
 
 int
@@ -565,99 +574,108 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     case METHOD_WRITE: {
-      BOOL text = JS_IsString(argv[0]);
-      size_t len = 0;
-      const void* ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0]) : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
+      const void* buf = NULL;
+      BOOL text = FALSE, have_len = FALSE, have_proto = FALSE;
+      int i = 0;
+      enum lws_write_protocol proto = is_http ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
+      size_t size = 0, len = 0;
+      lws_sockaddr46* sa = 0;
 
-      if(!ptr) {
-        ret = JS_ThrowTypeError(ctx, "wsi.write: expected string or ArrayBuffer");
-        break;
+      if(!buf) {
+        if(JS_IsString(argv[i])) {
+          text = TRUE;
+        }
+
+        if(!(buf = text ? (const void*)JS_ToCStringLen(ctx, &size, argv[i]) : (const void*)JS_GetArrayBuffer(ctx, &size, argv[i]))) {
+          ret = JS_ThrowTypeError(ctx, "wsi.write: expected string or ArrayBuffer");
+          break;
+        }
+
+        len = size;
       }
 
-      size_t n = len;
-      enum lws_write_protocol proto = is_http ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
+      while(i < argc) {
+        if(!have_len && i + 1 < argc && JS_IsNumber(argv[i])) {
+          len = to_int32(ctx, argv[i++]);
+          have_len = TRUE;
+        } else if(!have_proto) {
+          proto = to_int32(ctx, argv[i++]);
+          have_proto = TRUE;
+        } else if(!sa && (sa = lwsjs_sockaddr46_data(ctx, argv[i]))) {
+          i++;
+        } else {
+          break;
+        }
+      }
 
-      if(argc > 2)
-        n = to_int32(ctx, argv[1]);
+      if(len > size)
+        len = size;
 
-      if(argc > 1)
-        proto = to_int32(ctx, argv[argc > 2 ? 2 : 1]);
-
-      if(n > len)
-        n = len;
-
-      WriteChunk* wc = write_chunk_new(ptr, n, proto);
+      WriteChunk* wc = write_chunk_new(buf, len, proto);
 
       if(text)
-        JS_FreeCString(ctx, (const char*)ptr);
+        JS_FreeCString(ctx, (const char*)buf);
 
       if(!wc) {
         ret = JS_ThrowOutOfMemory(ctx);
         break;
       }
 
+      if(sa)
+        wc->sa46 = *sa;
+
       list_add_tail(&wc->link, &s->write_queue);
-      s->write_buffered += n;
+      s->write_buffered += len;
 
       socket_flush(s);
 
-      DEBUG_WSI(s->wsi, "queued %zu bytes, %zu buffered, partial=%d", n, s->write_buffered, lws_partial_buffered(s->wsi));
+      DEBUG_WSI(s->wsi, "queued %zu bytes, %zu buffered, partial=%d", len, s->write_buffered, lws_partial_buffered(s->wsi));
 
-      ret = JS_NewInt32(ctx, (int)n);
+      ret = JS_NewInt32(ctx, (int)len);
       break;
     }
 
-#ifdef LWS_WITH_UDP
-    case METHOD_SEND_TO: {
-      /* UDP-only: sends immediately via sendto(), bypassing the
-         write_queue/socket_flush path METHOD_WRITE uses. That queue (and
-         plain lws_write()) implicitly target wsi->udp->sa46, which is only
-         ever the *most recently received-from* peer - fine for a
-         connected client wsi (one fixed peer), wrong for a listener wsi
-         serving many peers concurrently, where by the time a queued write
-         reached the front of the queue a different peer's datagram could
-         have already overwritten sa46. Sending synchronously against an
-         explicit destination (typically the sockaddr46 handed to onRawRx)
-         sidesteps that race entirely. */
-      size_t len = 0;
-      BOOL text;
-      const void* ptr;
-      lws_sockaddr46* sa = NULL;
+      /*#ifdef LWS_WITH_UDP
+          case METHOD_SEND_TO: {
+            size_t len = 0;
+            BOOL text;
+            const void* ptr;
+            lws_sockaddr46* sa = NULL;
 
-      if(!lws_wsi_is_udp(s->wsi)) {
-        ret = JS_ThrowTypeError(ctx, "wsi.sendTo: wsi is not UDP");
-        break;
-      }
+            if(!lws_wsi_is_udp(s->wsi)) {
+              ret = JS_ThrowTypeError(ctx, "wsi.sendTo: wsi is not UDP");
+              break;
+            }
 
-      text = JS_IsString(argv[0]);
-      ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0]) : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
+            text = JS_IsString(argv[0]);
+            ptr = text ? (const void*)JS_ToCStringLen(ctx, &len, argv[0]) : (const void*)JS_GetArrayBuffer(ctx, &len, argv[0]);
 
-      if(!ptr) {
-        ret = JS_ThrowTypeError(ctx, "wsi.sendTo: argument 1 must be string or ArrayBuffer");
-        break;
-      }
+            if(!ptr) {
+              ret = JS_ThrowTypeError(ctx, "wsi.sendTo: argument 1 must be string or ArrayBuffer");
+              break;
+            }
 
-      for(int i = 1; i < argc; i++)
-        if((sa = lwsjs_sockaddr46_data(ctx, argv[i])))
-          break;
+            for(int i = 1; i < argc; i++)
+              if((sa = lwsjs_sockaddr46_data(ctx, argv[i])))
+                break;
 
-      if(!sa) {
-        if(text)
-          JS_FreeCString(ctx, (const char*)ptr);
-        ret = JS_ThrowTypeError(ctx, "wsi.sendTo: expected a LWSSockAddr46 argument after the payload");
-        break;
-      }
+            if(!sa) {
+              if(text)
+                JS_FreeCString(ctx, (const char*)ptr);
+              ret = JS_ThrowTypeError(ctx, "wsi.sendTo: expected a LWSSockAddr46 argument after the payload");
+              break;
+            }
 
-      lws_sockfd_type fd = lws_get_socket_fd(s->wsi);
-      ssize_t n = fd == -1 ? -1 : sendto(fd, ptr, len, 0, sa46_sockaddr(sa), sa46_socklen(sa));
+            lws_sockfd_type fd = lws_get_socket_fd(s->wsi);
+            ssize_t n = fd == -1 ? -1 : sendto(fd, ptr, len, 0, sa46_sockaddr(sa), sa46_socklen(sa));
 
-      if(text)
-        JS_FreeCString(ctx, (const char*)ptr);
+            if(text)
+              JS_FreeCString(ctx, (const char*)ptr);
 
-      ret = JS_NewInt32(ctx, (int)n);
-      break;
-    }
-#endif
+            ret = JS_NewInt32(ctx, (int)n);
+            break;
+          }
+      #endif*/
 
     case METHOD_RESPOND: {
       uint8_t result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE], *p = (uint8_t*)result + LWS_PRE, *start = p;
@@ -1153,7 +1171,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_UDP: {
-      struct lws_udp* udp;
+      const struct lws_udp* udp;
 
       if(lws_wsi_is_udp(s->wsi) && (udp = lws_get_udp(s->wsi))) {
         ret = JS_NewObjectProto(ctx, JS_NULL);

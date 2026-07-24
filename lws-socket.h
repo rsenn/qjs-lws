@@ -6,7 +6,7 @@
 #include <list.h>
 
 typedef enum {
-  SOCKET_OTHER = 0,
+  SOCKET_RAW = 0,
   SOCKET_WS,
   SOCKET_HTTP,
 } LWSSocketType;

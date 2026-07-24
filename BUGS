@@ -138,3 +138,36 @@ obvious from the code alone.
     // throws (undefined is not async iterable) instead of resolving
     // to '' the way a real Response with a null/omitted body does
 
+- context-self-ref-leaks-forever: `LWSContext`'s constructor
+  (lws-context.c, `lwsjs_context_constructor`) sets `lc->info.user =
+  obj_ptr(ctx, obj)` - a `JS_DupValue`'d strong ref from the native
+  side back onto the very JS object that owns `lc`. `lws_context_class`
+  registers no `.gc_mark`, so QuickJS's cycle collector can't see that
+  hidden ref either - it isn't a JS-visible property, just raw opaque
+  data. Net effect: every `LWSContext` ever constructed is unreachable
+  by refcounting (nothing can ever bring it to 0) and invisible to the
+  cycle GC (nothing tells the collector this object points at itself),
+  so `lwsjs_context_finalizer` never runs on its own. `.destroy()`
+  (`METHOD_DESTROY`) only calls `lws_context_destroy(lc->ctx)` - it
+  never frees `lc->info.user`, so even explicit `.destroy()` leaves the
+  JS wrapper (and the `LWSContext` struct, and everything it
+  transitively holds - protocols, mounts, TLS info, etc.) permanently
+  leaked. Found while fixing the identical pattern in `LWSVhost`
+  (lws-vhost.c) for the current task: `LWSVhost.destroy()` now
+  explicitly drops that self-ref (see `METHOD_DESTROY` there) so a
+  vhost's JS wrapper actually becomes collectible after `destroy()` -
+  `LWSContext` needs the same fix (drop `lc->info.user` in
+  `METHOD_DESTROY`, guard `context_free`'s copy of it staying
+  consistent), but that's a different file than what was asked here.
+
+    import { LWSContext } from 'lws.so';
+
+    // run under a build with alloc tracking (e.g. -T/--trace, or an
+    // ASAN/leak-sanitizer build) - each iteration's LWSContext (and
+    // its info.protocols/mounts/etc) is still live after .destroy(),
+    // confirmed by refcount never reaching the finalizer
+    for(let i = 0; i < 1000; i++) {
+      const ctx = new LWSContext({ port: -1 });
+      ctx.destroy();
+    }
+
