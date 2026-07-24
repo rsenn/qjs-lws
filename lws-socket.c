@@ -807,13 +807,13 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       }
 
       /* Freeing the wsi here is only safe when we're not still inside the
-         protocol callback dispatch for this same wsi (callback_protocol(),
+         protocol callback dispatch for this same wsi (lwsjs_protocol_callback(),
          lws-context.c). Some reasons (LWS_CALLBACK_RAW_ADOPT/RAW_CONNECTED
          in particular) keep using the wsi right after the callback returns
          (lws_role_call_adoption_bind(), etc. - see libwebsockets/lib/core-
          net/adopt.c), so freeing it synchronously from inside that same
          callback is a use-after-free/segfault. When dispatching, just mark
-         the socket closed - callback_protocol() already turns that into a
+         the socket closed - lwsjs_protocol_callback() already turns that into a
          `return -1` for the in-progress callback, and lws's own state
          machine (which is what invoked us) frees the wsi safely once its
          callback call actually returns. */
@@ -1228,13 +1228,13 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_EXTENSIONS: {
-      LWSContext* lc;
+      LWSContext* lws;
 
-      if((lc = lwsjs_wsi_context(s->wsi)) && lc->info.extensions) {
+      if((lws = lwsjs_wsi_context(s->wsi)) && lws->info.extensions) {
         ret = JS_NewArray(ctx);
 
-        for(int i = 0; lc->info.extensions[i].name; i++)
-          JS_SetPropertyUint32(ctx, ret, i, JS_NewString(ctx, lc->info.extensions[i].name));
+        for(int i = 0; lws->info.extensions[i].name; i++)
+          JS_SetPropertyUint32(ctx, ret, i, JS_NewString(ctx, lws->info.extensions[i].name));
       }
 
       break;

@@ -26,7 +26,7 @@ typedef struct LWSContext {
 #endif
 } LWSContext;
 
-typedef struct {
+typedef struct LWSHandlers {
   JSContext* ctx;
   void* obj;
   JSValue callback, callbacks[LWS_CALLBACK_USER + 1];
@@ -88,14 +88,14 @@ lwsjs_wsi_context(struct lws* wsi) {
 static inline JSContext*
 lwsjs_wsi_jscontext(struct lws* wsi) {
   struct lws_protocols const* pro = lws_get_protocol(wsi);
-  LWSHandlers* closure = pro ? pro->user : 0;
-  JSContext* ctx = closure ? closure->ctx : 0;
+  LWSHandlers* handlers = pro ? pro->user : 0;
+  JSContext* ctx = handlers ? handlers->ctx : 0;
 
   if(!ctx) {
-    LWSContext* lc;
+    LWSContext* lws;
 
-    if((lc = lwsjs_wsi_context(wsi)))
-      ctx = lc->js;
+    if((lws = lwsjs_wsi_context(wsi)))
+      ctx = lws->js;
   }
 
   return ctx;

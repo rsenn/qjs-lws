@@ -1,4 +1,6 @@
-#include "lws-http-mount.h"
+#include "lws-mount.h"
+#include "lws-vhost-option.h"
+#include "js-utils.h"
 
 struct lws_http_mount*
 lwsjs_http_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
@@ -50,13 +52,13 @@ lwsjs_http_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
     m->protocol = to_stringfree(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "cgienv");
-    m->cgienv = vhost_options_fromfree(ctx, value);
+    m->cgienv = lwsjs_vhost_options_fromfree(ctx, value);
 
     value = js_get_property(ctx, obj, "extra_mimetypes");
-    m->extra_mimetypes = vhost_options_fromfree(ctx, value);
+    m->extra_mimetypes = lwsjs_vhost_options_fromfree(ctx, value);
 
     value = JS_GetPropertyStr(ctx, obj, "interpret");
-    m->interpret = vhost_options_fromfree(ctx, value);
+    m->interpret = lwsjs_vhost_options_fromfree(ctx, value);
 
     value = js_get_property(ctx, obj, "cgi_timeout");
     m->cgi_timeout = to_integerfree(ctx, value);
@@ -156,17 +158,17 @@ lwsjs_http_mounts_free(JSRuntime* rt, struct lws_http_mount* m) {
     }
 
     if(m->cgienv) {
-      vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->cgienv);
+      lwsjs_vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->cgienv);
       m->cgienv = 0;
     }
 
     if(m->extra_mimetypes) {
-      vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->extra_mimetypes);
+      lwsjs_vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->extra_mimetypes);
       m->extra_mimetypes = 0;
     }
 
     if(m->interpret) {
-      vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->interpret);
+      lwsjs_vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->interpret);
       m->interpret = 0;
     }
 

@@ -253,7 +253,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       const char* msg = NULL;
       int32_t level = -1;
       LWSSocket* ls = NULL;
-      LWSContext* lc = NULL;
+      LWSContext* lws = NULL;
       uint8_t* buf = NULL;
       size_t len;
       int i;
@@ -263,7 +263,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
           level = to_int32(ctx, argv[i]);
         else if(argc > 1 && ls == NULL && (ls = JS_GetOpaque(argv[i], lwsjs_socket_class_id)))
           continue;
-        else if(argc > 1 && lc == NULL && (lc = JS_GetOpaque(argv[i], lwsjs_context_class_id)))
+        else if(argc > 1 && lws == NULL && (lws = JS_GetOpaque(argv[i], lwsjs_context_class_id)))
           continue;
         else if(buf == NULL && (buf = JS_GetArrayBuffer(ctx, &len, argv[i])))
           continue;
@@ -275,8 +275,8 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
         level = LLL_USER;
 
       if(buf) {
-        if(lc)
-          lwsl_hexdump_context(lc->ctx, level, buf, len);
+        if(lws)
+          lwsl_hexdump_context(lws->ctx, level, buf, len);
         else if(ls)
           lwsl_hexdump_wsi(ls->wsi, level, buf, len);
         else
@@ -284,9 +284,9 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       } else {
         if(ls)
           _lws_log_cx(lwsl_wsi_get_cx(ls->wsi), lws_log_prepend_wsi, ls->wsi, level, NULL, "%s", msg);
-        else if(lc)
-          _lws_log_cx(lwsl_context_get_cx(lc->ctx), lws_log_prepend_context, lc->ctx, level, NULL, "%s", msg);
-        //   lwsl_cx(lc->ctx, level, "%s", msg);
+        else if(lws)
+          _lws_log_cx(lwsl_context_get_cx(lws->ctx), lws_log_prepend_context, lws->ctx, level, NULL, "%s", msg);
+        //   lwsl_cx(lws->ctx, level, "%s", msg);
         else
           _lws_log(level, "%s", msg);
       }

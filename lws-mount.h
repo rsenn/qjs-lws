@@ -1,9 +1,8 @@
-#ifndef QJS_LWS_HTTP_MOUNT_H
-#define QJS_LWS_HTTP_MOUNT_H
+#ifndef QJS_LWS_MOUNT_H
+#define QJS_LWS_MOUNT_H
 
 #include <quickjs.h>
 #include <libwebsockets.h>
-#include "lws.h"
 
 struct lws_http_mount* lwsjs_mount_from(JSContext*, JSValueConst, const char* name);
 const struct lws_http_mount* lwsjs_mounts_from(JSContext*, JSValueConst);

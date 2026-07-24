@@ -23,10 +23,10 @@ iohandler_function(JSContext* ctx, BOOL write) {
 }
 
 static HandlerFunction*
-iohandler_find(LWSContext* lc, int fd, BOOL write) {
+iohandler_find(LWSContext* lws, int fd, BOOL write) {
   struct list_head* el;
 
-  list_for_each(el, &lc->handlers) {
+  list_for_each(el, &lws->handlers) {
     HandlerFunction* hf = list_entry(el, HandlerFunction, link);
 
     if(hf->fd == fd && hf->write == write)
@@ -37,19 +37,19 @@ iohandler_find(LWSContext* lc, int fd, BOOL write) {
 }
 
 static HandlerFunction*
-iohandler_add(LWSContext* lc, int fd, BOOL write) {
+iohandler_add(LWSContext* lws, int fd, BOOL write) {
   HandlerFunction* hf;
 
-  if((hf = iohandler_find(lc, fd, write)))
+  if((hf = iohandler_find(lws, fd, write)))
     return hf;
 
-  if((hf = js_malloc(lc->js, sizeof(HandlerFunction)))) {
+  if((hf = js_malloc(lws->js, sizeof(HandlerFunction)))) {
     hf->fd = fd;
     hf->write = write;
 
     DEBUG("%s %d %s", __func__, fd, write ? "write" : "read");
 
-    list_add(&hf->link, &lc->handlers);
+    list_add(&hf->link, &lws->handlers);
     return hf;
   }
 
@@ -57,14 +57,14 @@ iohandler_add(LWSContext* lc, int fd, BOOL write) {
 }
 
 static BOOL
-iohandler_remove(LWSContext* lc, int fd, BOOL write) {
+iohandler_remove(LWSContext* lws, int fd, BOOL write) {
   HandlerFunction* hf;
 
-  if((hf = iohandler_find(lc, fd, write))) {
+  if((hf = iohandler_find(lws, fd, write))) {
     DEBUG("%s %d %s", __func__, fd, write ? "write" : "read");
 
     list_del(&hf->link);
-    js_free(lc->js, hf);
+    js_free(lws->js, hf);
     return TRUE;
   }
 
@@ -72,39 +72,39 @@ iohandler_remove(LWSContext* lc, int fd, BOOL write) {
 }
 
 static void
-iohandler_set(LWSContext* lc, int fd, JSValueConst handler, BOOL write) {
-  JSValue fn = iohandler_function(lc->js, write);
-  JSValue args[2] = {JS_NewInt32(lc->js, fd), handler};
-  BOOL add = JS_IsFunction(lc->js, handler);
+iohandler_set(LWSContext* lws, int fd, JSValueConst handler, BOOL write) {
+  JSValue fn = iohandler_function(lws->js, write);
+  JSValue args[2] = {JS_NewInt32(lws->js, fd), handler};
+  BOOL add = JS_IsFunction(lws->js, handler);
 
   DEBUG("%s %d %s", write ? "os.setWriteHandler" : "os.setReadHandler", fd, add ? "[function]" : "NULL");
 
   if(add)
-    iohandler_add(lc, fd, write);
+    iohandler_add(lws, fd, write);
   else
-    iohandler_remove(lc, fd, write);
+    iohandler_remove(lws, fd, write);
 
-  JSValue ret = JS_Call(lc->js, fn, JS_NULL, 2, args);
-  JS_FreeValue(lc->js, ret);
-  JS_FreeValue(lc->js, fn);
+  JSValue ret = JS_Call(lws->js, fn, JS_NULL, 2, args);
+  JS_FreeValue(lws->js, ret);
+  JS_FreeValue(lws->js, fn);
 }
 
 static void
-iohandler_clear(LWSContext* lc, int fd) {
-  iohandler_set(lc, fd, JS_NULL, FALSE);
-  iohandler_set(lc, fd, JS_NULL, TRUE);
+iohandler_clear(LWSContext* lws, int fd) {
+  iohandler_set(lws, fd, JS_NULL, FALSE);
+  iohandler_set(lws, fd, JS_NULL, TRUE);
 }
 
 static void
-iohandler_cleanup(LWSContext* lc) {
+iohandler_cleanup(LWSContext* lws) {
   struct list_head *el, *next;
 
-  list_for_each_safe(el, next, &lc->handlers) {
+  list_for_each_safe(el, next, &lws->handlers) {
     HandlerFunction* hf = list_entry(el, HandlerFunction, link);
 
     DEBUG("delete handler (fd = %d, %s)", hf->fd, hf->write ? "write" : "read");
 
-    iohandler_set(lc, hf->fd, JS_NULL, hf->write);
+    iohandler_set(lws, hf->fd, JS_NULL, hf->write);
   }
 }
 

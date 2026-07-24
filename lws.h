@@ -98,4 +98,36 @@ log_preview(char* out, size_t outsz, const void* data, size_t len) {
   out[i] = '\0';
 }
 
+/* The reasons that carry a payload worth logging under LLL_USER - every
+   client/server receive path across WS, HTTP, MQTT, and raw (proxy). */
+static inline BOOL
+is_rx_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_CLIENT_RECEIVE:
+    case LWS_CALLBACK_CLIENT_RECEIVE_PONG:
+    case LWS_CALLBACK_MQTT_CLIENT_RX:
+    case LWS_CALLBACK_RAW_PROXY_CLI_RX:
+    case LWS_CALLBACK_RAW_PROXY_SRV_RX:
+    case LWS_CALLBACK_RAW_RX:
+    case LWS_CALLBACK_RAW_RX_FILE:
+    case LWS_CALLBACK_RECEIVE:
+    case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+    case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+    case LWS_CALLBACK_RECEIVE_PONG: return TRUE;
+    default: return FALSE;
+  }
+}
+
+static inline BOOL
+is_pollfd_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_LOCK_POLL:
+    case LWS_CALLBACK_UNLOCK_POLL:
+    case LWS_CALLBACK_ADD_POLL_FD:
+    case LWS_CALLBACK_DEL_POLL_FD:
+    case LWS_CALLBACK_CHANGE_MODE_POLL_FD: return TRUE;
+    default: return FALSE;
+  }
+}
+
 #endif /* defined QJS_LWS_H */

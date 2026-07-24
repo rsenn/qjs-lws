@@ -1,4 +1,5 @@
 #include "lws-vhost-option.h"
+#include "js-utils.h"
 
 struct lws_protocol_vhost_options*
 lwsjs_vhost_option_from(JSContext* ctx, JSValueConst obj) {
