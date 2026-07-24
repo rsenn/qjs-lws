@@ -593,22 +593,23 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       const void* buf = NULL;
       BOOL text = FALSE, have_len = FALSE, have_proto = FALSE;
       int i = 0;
-      enum lws_write_protocol proto = is_http ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
+      enum lws_write_protocol proto;
       size_t size = 0, len = 0;
       lws_sockaddr46* sa = 0;
 
-      if(!buf) {
-        if(JS_IsString(argv[i])) {
-          text = TRUE;
-        }
-
-        if(!(buf = text ? (const void*)JS_ToCStringLen(ctx, &size, argv[i]) : (const void*)JS_GetArrayBuffer(ctx, &size, argv[i]))) {
-          ret = JS_ThrowTypeError(ctx, "wsi.write: expected string or ArrayBuffer");
-          break;
-        }
-
-        len = size;
+      if(JS_IsString(argv[i])) {
+        text = TRUE;
       }
+
+      if(!(buf = text ? (const void*)JS_ToCStringLen(ctx, &size, argv[i]) : (const void*)JS_GetArrayBuffer(ctx, &size, argv[i]))) {
+        ret = JS_ThrowTypeError(ctx, "wsi.write: expected string or ArrayBuffer");
+        break;
+      }
+
+      len = size;
+      i++;
+
+      proto = is_http ? LWS_WRITE_HTTP : text ? LWS_WRITE_TEXT : LWS_WRITE_BINARY;
 
       while(i < argc) {
         if(!have_len && i + 1 < argc && JS_IsNumber(argv[i])) {
@@ -658,6 +659,7 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       int64_t len = -1;
       int32_t code = -1;
       int hidx = -1;
+      BOOL is_str = FALSE;
 
       for(int i = 0; i < argc; ++i) {
         if(code == -1 && JS_IsNumber(argv[i]))
@@ -666,13 +668,17 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
           len = to_integer(ctx, argv[i]);
         else if(!ptr && (ptr = JS_GetArrayBuffer(ctx, &tmp_len, argv[i])))
           len = len == -1 ? (int64_t)tmp_len : len;
-        else if(!ptr && JS_IsString(argv[i]) && (ptr = (uint8_t*)JS_ToCStringLen(ctx, &tmp_len, argv[i])))
+        else if(!ptr && JS_IsString(argv[i]) && (ptr = (uint8_t*)JS_ToCStringLen(ctx, &tmp_len, argv[i]))) {
           len = len == -1 ? (int64_t)tmp_len : len;
-        else if(JS_IsObject(argv[i]))
+          is_str = TRUE;
+        } else if(JS_IsObject(argv[i]))
           hidx = i;
       }
 
       if(lws_add_http_common_headers(s->wsi, code, NULL, len > 0 ? (uint64_t)len : LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end)) {
+        if(is_str)
+          JS_FreeCString(ctx, (const char*)ptr);
+
         ret = JS_ThrowInternalError(ctx, "lws_add_http_common_headers failed");
         break;
       }
@@ -735,14 +741,22 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
       DEBUG_WSI(s->wsi, "wrote headers (%d)", n);
 
-      if(n < 0)
+      if(n < 0) {
+        if(is_str)
+          JS_FreeCString(ctx, (const char*)ptr);
+
         return JS_ThrowInternalError(ctx, "lws_write");
+      }
 
       written += n;
 
       if(ptr && len > 0) {
-        if((n = lws_write(s->wsi, (uint8_t*)ptr, (unsigned int)len, LWS_WRITE_HTTP_FINAL)) < 0)
+        if((n = lws_write(s->wsi, (uint8_t*)ptr, (unsigned int)len, LWS_WRITE_HTTP_FINAL)) < 0) {
+          if(is_str)
+            JS_FreeCString(ctx, (const char*)ptr);
+
           return JS_ThrowInternalError(ctx, "lws_write");
+        }
 
         if(n > 0) {
           char preview[41];
@@ -753,6 +767,9 @@ lwsjs_socket_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
         written += n;
       }
+
+      if(is_str)
+        JS_FreeCString(ctx, (const char*)ptr);
 
       ret = JS_NewUint32(ctx, written);
       break;

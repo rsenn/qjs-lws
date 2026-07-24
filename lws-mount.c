@@ -136,45 +136,35 @@ lwsjs_mounts_from(JSContext* ctx, JSValueConst value) {
 
 void
 lwsjs_mounts_free(JSRuntime* rt, struct lws_http_mount* m) {
-  do {
-    if(m->mountpoint) {
+  struct lws_http_mount* next;
+
+  while(m) {
+    if(m->mountpoint)
       js_free_rt(rt, (char*)m->mountpoint);
-      m->mountpoint = 0;
-    }
 
-    if(m->origin) {
+    if(m->origin)
       js_free_rt(rt, (char*)m->origin);
-      m->origin = 0;
-    }
 
-    if(m->def) {
+    if(m->def)
       js_free_rt(rt, (char*)m->def);
-      m->def = 0;
-    }
 
-    if(m->protocol) {
+    if(m->protocol)
       js_free_rt(rt, (char*)m->protocol);
-      m->protocol = 0;
-    }
 
-    if(m->cgienv) {
+    if(m->cgienv)
       lwsjs_vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->cgienv);
-      m->cgienv = 0;
-    }
 
-    if(m->extra_mimetypes) {
+    if(m->extra_mimetypes)
       lwsjs_vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->extra_mimetypes);
-      m->extra_mimetypes = 0;
-    }
 
-    if(m->interpret) {
+    if(m->interpret)
       lwsjs_vhost_options_free(rt, (struct lws_protocol_vhost_options*)m->interpret);
-      m->interpret = 0;
-    }
 
-    if(m->basic_auth_login_file) {
+    if(m->basic_auth_login_file)
       js_free_rt(rt, (char*)m->basic_auth_login_file);
-      m->basic_auth_login_file = 0;
-    }
-  } while((m = (struct lws_http_mount*)m->mount_next));
+
+    next = (struct lws_http_mount*)m->mount_next;
+    js_free_rt(rt, m);
+    m = next;
+  }
 }

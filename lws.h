@@ -141,7 +141,8 @@ is_writeable_reason(enum lws_callback_reasons reason) {
     case LWS_CALLBACK_RAW_PROXY_SRV_WRITEABLE:
     case LWS_CALLBACK_RAW_WRITEABLE:
     case LWS_CALLBACK_RAW_WRITEABLE_FILE:
-    case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE: return TRUE;
+    case LWS_CALLBACK_MQTT_CLIENT_WRITEABLE:
+    case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: return TRUE;
     default: return FALSE;
   }
 }

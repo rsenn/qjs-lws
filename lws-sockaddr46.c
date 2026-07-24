@@ -22,7 +22,7 @@ lwsjs_sockaddr46_constructor(JSContext* ctx, JSValueConst new_target, int argc, 
     size_t len;
     char* str;
 
-    if((buf = get_buffer(ctx, argc - i, argv - i, &len))) {
+    if((buf = get_buffer(ctx, argc - i, argv + i, &len))) {
       if(len == 4 && (sa.sa4.sin_family == 0 || sa.sa4.sin_family == AF_INET)) {
         sa.sa4.sin_family = AF_INET;
         memcpy(&sa.sa4.sin_addr, buf, len);
@@ -172,7 +172,7 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
       }
       break;
     }
-    
+
     case PROP_ADDRESS: {
       switch(sa->sa4.sin_family) {
         case AF_INET: {
@@ -272,15 +272,15 @@ static const JSClassDef lws_sockaddr46_class = {
 };
 
 static const JSCFunctionListEntry lws_sockaddr46_proto_funcs[] = {
-  JS_CGETSET_MAGIC_FLAGS_DEF("family", lwsjs_sockaddr46_get, 0, PROP_FAMILY, JS_PROP_ENUMERABLE),
-  JS_CGETSET_MAGIC_FLAGS_DEF("port", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_PORT, 0),
-  JS_CGETSET_MAGIC_DEF("address", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_ADDRESS),
-  JS_CGETSET_MAGIC_FLAGS_DEF("host", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_HOST, JS_PROP_ENUMERABLE),
-  JS_CFUNC_MAGIC_DEF("toString", 0, lwsjs_sockaddr46_methods, METHOD_TO_STRING),
-  JS_CFUNC_MAGIC_DEF("compare", 1, lwsjs_sockaddr46_methods, METHOD_COMPARE),
-  JS_CFUNC_MAGIC_DEF("onNet", 2, lwsjs_sockaddr46_methods, METHOD_ON_NET),
+    JS_CGETSET_MAGIC_FLAGS_DEF("family", lwsjs_sockaddr46_get, 0, PROP_FAMILY, JS_PROP_ENUMERABLE),
+    JS_CGETSET_MAGIC_FLAGS_DEF("port", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_PORT, 0),
+    JS_CGETSET_MAGIC_DEF("address", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_ADDRESS),
+    JS_CGETSET_MAGIC_FLAGS_DEF("host", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_HOST, JS_PROP_ENUMERABLE),
+    JS_CFUNC_MAGIC_DEF("toString", 0, lwsjs_sockaddr46_methods, METHOD_TO_STRING),
+    JS_CFUNC_MAGIC_DEF("compare", 1, lwsjs_sockaddr46_methods, METHOD_COMPARE),
+    JS_CFUNC_MAGIC_DEF("onNet", 2, lwsjs_sockaddr46_methods, METHOD_ON_NET),
 
-  JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSockAddr46", JS_PROP_CONFIGURABLE),
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSockAddr46", JS_PROP_CONFIGURABLE),
 };
 
 static JSValue

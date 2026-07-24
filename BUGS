@@ -1,173 +1,105 @@
-Newly discovered bugs get appended here as they're found -- not fixed
-inline unless that's the task at hand (see CLAUDE.md, "Track Newly
-Discovered Bugs"). One entry per bug, appended in the order found,
+newly discovered bugs get appended here as they're found -- not fixed
+inline unless that's the task at hand (see CLAUDE.md, "track newly
+discovered bugs"). one entry per bug, appended in the order found,
 each shaped like:
 
-    - <canonical-name>: <description of what's broken, where, and how
-      it was found/confirmed>
+    - <canonical-name> (<file>:<line>): <short plain-text description
+      of what's broken and how it was confirmed, no back-quotes>
 
-        <JS code that triggers it>
+        <js code that triggers it, or a one-line note if not
+        practically reproducible in plain js>
 
-<canonical-name> is a short kebab-case handle for referring back to
-the bug elsewhere (commit messages, other BUGS entries). The
-description should say enough to re-find the bug without re-deriving
-it: which file/function, how it was confirmed (not just suspected),
-and how severe/likely it is to bite someone. The repro is real,
-runnable JS against this codebase's API, indented under the entry,
-with a comment noting the actual vs. expected output where that's not
-obvious from the code alone.
+canonical-name is a short kebab-case handle for referring back to the
+bug elsewhere (commit messages, other BUGS entries). the source
+location is the primary place the bug lives, not every place it's
+felt. keep the description to a sentence or two -- just enough to
+re-find and re-confirm the bug without re-deriving it.
 
-- option-key-casing-silently-ignored: option-object parsers are split
-  between camelCase (`createContext()`'s info, `vhostName`, `sslCa`,
-  ...) and snake_case (`client_connect_info_fromobj()` in
-  `lws-context.c`: `local_protocol_name`, `ssl_connection`,
-  `local_port`, `keep_warm_secs`, `auth_username`, `auth_password`) --
-  a wrong-cased key is silently *ignored*, not rejected. Caused a real,
-  multi-hour-to-diagnose hang: the connection opens and negotiates,
-  then just sits there because no protocol object ever got bound.
-  Found via `localProtocolName` vs. `local_protocol_name` in
-  `HttpClientProtocol.connect()` (`lib/lws/protocols.js`).
+- option-key-casing-silently-ignored (lws-context.c:110,
+  client_connect_info_fromobj): option parsers are split between
+  camelcase (createContext()'s info, vhostName, sslCa, ...) and
+  snake_case (client_connect_info_fromobj: local_protocol_name,
+  ssl_connection, local_port, keep_warm_secs, auth_username,
+  auth_password) -- a wrong-cased key is silently ignored, not
+  rejected. caused a real, multi-hour-to-diagnose hang: connection
+  opens and negotiates, then sits there because no protocol object
+  ever got bound. found via localProtocolName vs local_protocol_name
+  in HttpClientProtocol.connect() (lib/lws/protocols.js).
 
     import { LWSContext } from 'lws';
 
     const ctx = new LWSContext({
-      protocols: [{
-        name: 'chat',
-        onClientEstablished(wsi) { console.log('connected'); },
-      }],
+      protocols: [{ name: 'chat', onClientEstablished(wsi) {} }],
     });
 
     ctx.clientConnect({
-      address: 'example.com',
-      port: 443,
-      path: '/',
-      host: 'example.com',
+      address: 'example.com', port: 443, path: '/', host: 'example.com',
       ssl_connection: 1,
-      localProtocolName: 'chat',  // WRONG casing for this parser --
-                                  // silently dropped, no error
+      localProtocolName: 'chat', // wrong casing, silently dropped
     });
-    // TCP/TLS/WS handshake all complete, but onClientEstablished never
-    // fires -- no protocol object was ever bound to the connection.
-    // Correct key here is `local_protocol_name` (snake_case).
+    // handshake completes but onClientEstablished never fires --
+    // correct key is local_protocol_name (snake_case)
 
-## Fixed
+- check-access-rights-oob-buffer (lws-protocol.c:572,
+  lwsjs_callback_protocol): LWS_CALLBACK_CHECK_ACCESS_RIGHTS is
+  handled with the same code path as ADD_HEADERS/PROCESS_HTML, which
+  treats args.max_len as a buffer capacity. confirmed against
+  libwebsockets' server.c: for CHECK_ACCESS_RIGHTS, lws actually sets
+  args.max_len to the mount's auth_mask bitmask, unrelated to any
+  buffer size, while args.p/args.len point into the small
+  header-parse buffer. the memset and the ArrayBuffer handed to js
+  are both sized off that bitmask, so both go out of bounds whenever
+  the bitmask exceeds the real uri length.
 
-- wsi-close-segfault-in-first-raw-callback: `wsi.close()` segfaulted
-  when called synchronously from the raw role's very first callback
-  (`onRawAdopt` server-side, `onRawConnected` client-side) -- confirmed
-  directly and reproducibly, both directions, in isolation against a
-  plain `createServer()`/`LWSContext` pair. Closing from a *later*
-  callback (`onRawRx`, or a `setTimeout(() => wsi.close(), 0)`-deferred
-  call right after adopt/connect) worked fine -- only the immediate,
-  same-call-stack close crashed.
-
-  Root cause: `METHOD_CLOSE` (`lws-socket.c`) called
-  `lws_close_free_wsi()` synchronously and unconditionally. libwebsockets
-  itself keeps using the same `wsi` right after `LWS_CALLBACK_RAW_ADOPT`/
-  `RAW_CONNECTED` return (`lws_role_call_adoption_bind()` etc., see
-  `libwebsockets/lib/core-net/adopt.c`), so freeing it from inside that
-  same callback was a use-after-free.
-
-  Fix: added a `dispatching` flag to `LWSSocket` (`lws-socket.h`), set
-  around both `JS_Call` sites in `callback_protocol()`
-  (`lws-context.c`). `wsi.close()` now checks it: if called reentrantly
-  (still dispatching), it marks `s->closed = TRUE` instead of freeing --
-  `callback_protocol()` already turned that into a `return -1` for the
-  in-progress callback (the mechanism existed, just wasn't wired up),
-  and lws frees the wsi itself once its callback call actually returns.
-  Outside a dispatch (the common case), `wsi.close()` still frees
-  directly, unchanged. Verified: the repro below segfaulted reliably
-  before the fix, runs clean (no crash, `onRawClose` fires) after; full
-  `ctest` suite (19/19) still passes. See
-  `tests/unittests/test-tcpsocket.js`'s comments on the two tests that
-  had to route around this before the fix.
-
-    import { createServer, LWSMPRO_NO_MOUNT } from 'lws';
+    import { createServer } from 'lws';
 
     createServer({
       port: 9001,
-      vhostName: 'localhost',
-      mounts: [{ mountpoint: '/', protocol: 'raw', originProtocol: LWSMPRO_NO_MOUNT }],
-      protocols: [{
-        name: 'raw',
-        onRawAdopt(wsi) {
-          wsi.close();  // used to segfault -- called synchronously, same
-                        // call stack as the adopt callback itself
-        },
-      }],
+      mounts: [{ mountpoint: '/', origin: '.', originProtocol: 'file',
+                 authentication_mode: 1 }], // any nonzero auth_mask bit
+      protocols: [{ name: 'http', onCheckAccessRights(wsi, buf) {
+        // buf is sized/zeroed using the auth_mask bitmask, not the
+        // real header-buffer length -- oob memset already happened
+      } }],
     });
 
-- tostring-undefined-for-typed-array-view: `toString()` (`lws.c`,
-  `FUNCTION_TO_STRING`) silently returns `undefined` for typed-array
-  views instead of accepting them or throwing. Confirmed directly:
-  `toString(view)` -> `undefined`, `toString(view.buffer)` -> the
-  correct string. This is what caused `lib/lws/stream-utils.js`'s
-  `concatArrayBuffer()` (which used to return a `Uint8Array`, not the
-  `ArrayBuffer` its own JSDoc promised) to silently break
-  `Body.text()`/`.json()` for every body, everywhere, with no error to
-  point at.
+- redirected-to-get-dead-code (lws-protocol.c:458,
+  lwsjs_callback_protocol): s->redirected_to_get is only ever set
+  inside a branch gated on reason ==
+  LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER, itself nested inside
+  is_writeable_reason(reason). is_writeable_reason (lws.h:134) does
+  not include APPEND_HANDSHAKE_HEADER in its switch, so the assignment
+  is unreachable. redirected_to_get stays permanently false, and the
+  body-resend skip at CLIENT_HTTP_WRITEABLE never fires, so a
+  redirected client POST keeps re-sending its original body instead
+  of switching to GET.
 
-    import { toString } from 'lws';
+    // point at a server that 301/302-redirects a POST to a GET target
+    import { LWSContext } from 'lws';
+    const ctx = new LWSContext({ port: -1 });
+    ctx.clientConnect({
+      address: 'example.com', port: 443, path: '/redirects-to-get',
+      method: 'POST', ssl_connection: 1,
+    });
+    // expected: switches to GET, no body resent. actual: body-resend
+    // path runs unconditionally, redirected_to_get never becomes true
 
-    const buf = new ArrayBuffer(16);
-    const view = new Uint8Array(buf);
-    view.set([104, 101, 108, 108, 111]); // "hello"
+- ws-close-payload-oob-read (lws-protocol.c:555,
+  lwsjs_callback_protocol): the synthesized ws-close handling inside
+  the CLIENT_RECEIVE branch reads in[0]/in[1] as the close code with
+  no check that len >= 2. the genuine WS_PEER_INITIATED_CLOSE handler
+  a few lines below (lws-protocol.c:625) correctly guards the same
+  read with len >= 2. per rfc 6455 a close frame legally carries 0 or
+  1 payload bytes, so this path reads past the frame payload whenever
+  a peer sends a bare or 1-byte close frame.
 
-    console.log(toString(view));         // undefined -- wrong
-    console.log(toString(view.buffer));  // "hello\0..." -- correct
-    // toString() only accepts a bare ArrayBuffer; a typed-array view
-    // over one silently yields undefined instead of being accepted
-    // (or throwing a TypeError) for unsupported input.
-
-- body-null-throws-instead-of-empty: `Body.prototype.arrayBuffer()`/
-  `.text()`/`.json()` (`lib/lws/body.js`) throw for a `null`/omitted
-  body instead of resolving to an empty buffer/`''`, unlike a real
-  WHATWG `Request`/`Response` (`new Request(url).text()` is `''`, not
-  a throw). The `Body` constructor only builds `this.body` (a stream)
-  when `body !== undefined && body !== null`; for a null body
-  `this.body` stays `undefined`, and `arrayBuffer()` unconditionally
-  does `readWholeStream(this.body)`, which does `for await (chunk of
-  st)` over `undefined` and throws. Hit directly while writing
-  `serve()`'s own request handler, worked around there as `req.body ?
-  await req.text() : ''`.
-
-    import { Response } from './lib/lws/response.js';
-
-    const res = new Response(null, { status: 204 });
-    await res.text();
-    // throws (undefined is not async iterable) instead of resolving
-    // to '' the way a real Response with a null/omitted body does
-
-- context-self-ref-leaks-forever: `LWSContext`'s constructor
-  (lws-context.c, `lwsjs_context_constructor`) sets `lc->info.user =
-  obj_ptr(ctx, obj)` - a `JS_DupValue`'d strong ref from the native
-  side back onto the very JS object that owns `lc`. `lws_context_class`
-  registers no `.gc_mark`, so QuickJS's cycle collector can't see that
-  hidden ref either - it isn't a JS-visible property, just raw opaque
-  data. Net effect: every `LWSContext` ever constructed is unreachable
-  by refcounting (nothing can ever bring it to 0) and invisible to the
-  cycle GC (nothing tells the collector this object points at itself),
-  so `lwsjs_context_finalizer` never runs on its own. `.destroy()`
-  (`METHOD_DESTROY`) only calls `lws_context_destroy(lc->ctx)` - it
-  never frees `lc->info.user`, so even explicit `.destroy()` leaves the
-  JS wrapper (and the `LWSContext` struct, and everything it
-  transitively holds - protocols, mounts, TLS info, etc.) permanently
-  leaked. Found while fixing the identical pattern in `LWSVhost`
-  (lws-vhost.c) for the current task: `LWSVhost.destroy()` now
-  explicitly drops that self-ref (see `METHOD_DESTROY` there) so a
-  vhost's JS wrapper actually becomes collectible after `destroy()` -
-  `LWSContext` needs the same fix (drop `lc->info.user` in
-  `METHOD_DESTROY`, guard `context_free`'s copy of it staying
-  consistent), but that's a different file than what was asked here.
-
-    import { LWSContext } from 'lws.so';
-
-    // run under a build with alloc tracking (e.g. -T/--trace, or an
-    // ASAN/leak-sanitizer build) - each iteration's LWSContext (and
-    // its info.protocols/mounts/etc) is still live after .destroy(),
-    // confirmed by refcount never reaching the finalizer
-    for(let i = 0; i < 1000; i++) {
-      const ctx = new LWSContext({ port: -1 });
-      ctx.destroy();
-    }
-
+    // requires a peer that sends a ws close frame with 0-1 bytes of
+    // payload to a client connection, so CLIENT_RECEIVE synthesizes
+    // the close-frame path instead of WS_PEER_INITIATED_CLOSE
+    // handling it directly
+    import { LWSContext } from 'lws';
+    const ctx = new LWSContext({ port: -1 });
+    ctx.clientConnect({
+      address: 'example.com', port: 443, path: '/', ssl_connection: 1,
+      protocol: 'chat',
+    });

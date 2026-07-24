@@ -78,17 +78,17 @@ lwsjs_vhost_options_fromfree(JSContext* ctx, JSValue value) {
 
 void
 lwsjs_vhost_options_free(JSRuntime* rt, struct lws_protocol_vhost_options* vho) {
-  do {
+  struct lws_protocol_vhost_options* next;
+
+  while(vho) {
     js_free_rt(rt, (char*)vho->name);
-    vho->name = 0;
-
     js_free_rt(rt, (char*)vho->value);
-    vho->value = 0;
-
     lwsjs_vhost_options_free(rt, (struct lws_protocol_vhost_options*)vho->options);
-    vho->options = 0;
 
-  } while((vho = (struct lws_protocol_vhost_options*)vho->next));
+    next = (struct lws_protocol_vhost_options*)vho->next;
+    js_free_rt(rt, vho);
+    vho = next;
+  }
 }
 
 JSClassID lwsjs_vhost_class_id;

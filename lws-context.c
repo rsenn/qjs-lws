@@ -230,7 +230,7 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   str_property(&ci->log_filepath, ctx, obj, "log_filepath");
 
   value = JS_GetPropertyStr(ctx, obj, "mounts");
-  ci->mounts = lwsjs_mount_from(ctx, value, NULL);
+  ci->mounts = lwsjs_mounts_from(ctx, value);
   JS_FreeValue(ctx, value);
 
   str_property(&ci->server_string, ctx, obj, "server_string");
@@ -611,6 +611,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       int32_t port = -1;
       BOOL bind = FALSE, broadcast = FALSE;
       struct lws_vhost* vh;
+      LWSSocket* parent = 0;
 
       if(JS_IsObject(opts)) {
         str_property((const char**)&address, ctx, opts, "address");
@@ -623,6 +624,10 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
         bind = to_boolfree(ctx, js_get_property(ctx, opts, "bind"));
         broadcast = to_boolfree(ctx, js_get_property(ctx, opts, "broadcast"));
+
+        JSValue pwsi = js_get_property(ctx, opts, "parent_wsi");
+        parent = lwsjs_socket_data(pwsi);
+        JS_FreeValue(ctx, pwsi);
       }
 
       if(!protocol) {
@@ -650,7 +655,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
            Passing an explicit "any" address instead gives it a one-result
            addrinfo list to sort (even a literal numeric address still
            round-trips through getaddrinfo()/async-dns), which works. */
-        struct lws* wsi = lws_create_adopt_udp(vh, address ? address : "0.0.0.0", port, flags, protocol, iface, NULL, obj_ptr(ctx, ret), NULL, NULL);
+        struct lws* wsi = lws_create_adopt_udp(vh, address ? address : "0.0.0.0", port, flags, protocol, iface, parent ? parent->wsi : NULL, obj_ptr(ctx, ret), NULL, NULL);
 
         if(!wsi) {
           JS_FreeValue(ctx, ret);

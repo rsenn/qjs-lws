@@ -46,6 +46,15 @@ tls_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
   if(ci->ssl_ca_filepath)
     js_free_rt(rt, (char*)ci->ssl_ca_filepath);
 
+  if(ci->server_ssl_cert_mem)
+    js_free_rt(rt, (void*)ci->server_ssl_cert_mem);
+
+  if(ci->server_ssl_private_key_mem)
+    js_free_rt(rt, (void*)ci->server_ssl_private_key_mem);
+
+  if(ci->server_ssl_ca_mem)
+    js_free_rt(rt, (void*)ci->server_ssl_ca_mem);
+
   if(ci->ssl_cipher_list)
     js_free_rt(rt, (char*)ci->ssl_cipher_list);
 
@@ -63,6 +72,15 @@ tls_creation_info_free(JSRuntime* rt, struct lws_context_creation_info* ci) {
 
   if(ci->client_ssl_ca_filepath)
     js_free_rt(rt, (char*)ci->client_ssl_ca_filepath);
+
+  if(ci->client_ssl_cert_mem)
+    js_free_rt(rt, (void*)ci->client_ssl_cert_mem);
+
+  if(ci->client_ssl_key_mem)
+    js_free_rt(rt, (void*)ci->client_ssl_key_mem);
+
+  if(ci->client_ssl_ca_mem)
+    js_free_rt(rt, (void*)ci->client_ssl_ca_mem);
 
   if(ci->client_ssl_cipher_list)
     js_free_rt(rt, (char*)ci->client_ssl_cipher_list);

@@ -161,9 +161,12 @@ lwsjs_spa_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValue
       .ac = &s->sac,
   };
 
-  s->spa = lws_spa_create_via_info(sock->wsi, &s->info);
-
   JS_SetOpaque(obj, s);
+
+  if(!(s->spa = lws_spa_create_via_info(sock->wsi, &s->info))) {
+    JS_FreeValue(ctx, obj);
+    return JS_ThrowInternalError(ctx, "lws_spa_create_via_info failed");
+  }
 
   return obj;
 
@@ -185,6 +188,9 @@ lwsjs_spa_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst 
 
   if(!(s = lwsjs_spa_data2(ctx, this_val)))
     return JS_EXCEPTION;
+
+  if(!s->spa)
+    return JS_ThrowInternalError(ctx, "LWSSPA is not initialized");
 
   switch(magic) {
     case METHOD_PROCESS: {

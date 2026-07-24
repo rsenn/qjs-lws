@@ -190,6 +190,9 @@ lwsjs_protocols_fromarray(JSContext* ctx, JSValueConst value) {
   struct lws_protocols* pro = js_mallocz(ctx, (len + 13) * sizeof(struct lws_protocols));
   size_t j = 0;
 
+  if(!pro)
+    return NULL;
+
   if(len == 0)
     pro[j++] = (struct lws_protocols){
         "http-only",
