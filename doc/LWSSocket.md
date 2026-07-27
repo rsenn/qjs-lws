@@ -34,13 +34,13 @@ If `wantWrite` is called repeatedly without a callback, only the
 first registers a pending request — duplicate calls are ignored
 (the C code guards with `s->want_write`).
 
-### `write(data [, len_or_protocol [, protocol]])`
+### `write(data [, len_or_protocol [, protocol]] [, sockaddr])`
 
 `data` is a string or `ArrayBuffer`. The write protocol defaults to:
 
-- `LWS_WRITE_HTTP` for an HTTP role wsi,
 - `LWS_WRITE_TEXT` for a WebSocket if `data` is a string,
-- `LWS_WRITE_BINARY` for a WebSocket if `data` is binary.
+- `LWS_WRITE_BINARY` for a WebSocket if `data` is binary,
+- `LWS_WRITE_HTTP` otherwise (HTTP and raw/UDP roles).
 
 Argument forms:
 
@@ -49,6 +49,15 @@ Argument forms:
 | `wsi.write(data)`             | Whole buffer, default protocol |
 | `wsi.write(data, proto)`      | Whole buffer with explicit `LWS_WRITE_*` |
 | `wsi.write(data, len, proto)` | First `len` bytes only with explicit protocol |
+| `wsi.write(data, sockaddr)`   | Whole buffer, default protocol, sent to `sockaddr` (`LWSSockAddr46`) — UDP only |
+| `wsi.write(data, len, proto, sockaddr)` | All of the above combined |
+
+`sockaddr` may be given anywhere after `data`, in addition to
+`len`/`proto` (order between `len`/`proto` and `sockaddr` doesn't
+matter). It's only meaningful for a UDP wsi (see
+[LWSContext.md](LWSContext.md#createudp)) — for a listener bound with
+`bind: true`, it picks which peer the datagram goes to; for a wsi
+pre-connected to one peer it's unnecessary.
 
 For WebSocket roles the binding automatically prepends the
 `LWS_PRE` padding bytes — you don't need to reserve them yourself.
@@ -93,6 +102,15 @@ wsi.respond(200, body, {                                  // body & headers
 Closes the connection. `code` defaults to `1000` (normal closure).
 For WebSocket roles `reason` (string or `ArrayBuffer`) is recorded
 with `lws_close_reason()` before `lws_close_free_wsi()` runs.
+
+If called from inside a protocol callback for this same wsi (i.e.
+`wsi.dispatching` is `true` — libwebsockets itself may still be using
+the wsi right after some callbacks return, e.g. `onRawAdopt`/
+`onRawConnected`), the actual `lws_close_free_wsi()` call is deferred:
+the socket is marked closed and the in-progress callback's return
+value is forced to `-1`, which is libwebsockets' own signal to close
+the wsi once the callback returns. Calling `close()` from outside a
+dispatch (the common case — e.g. from a timer) closes immediately.
 
 ### `httpClientRead(buf [, offset])`
 
@@ -162,6 +180,8 @@ Throws `RangeError` when the buffer is too small.
 | `h2`           | Boolean — `lws_wsi_is_h2()` |
 | `redirectedToGet` | `true` if a client redirect downgraded POST to GET |
 | `bodyPending`  | Get/set; setter calls `lws_client_http_body_pending(n)` — used to drive client POST body writes |
+| `dispatching`  | `true` while a protocol callback is currently being dispatched for this wsi (re-entrancy guard — see `close()`'s notes on why closing from inside the same callback is deferred) |
+| `dispatchReason` | The `LWS_CALLBACK_*` reason currently being dispatched, or `-1` when not dispatching |
 | `pipelineLeader` | The wsi this one is queued behind (`lws_get_txn_queue_leader()`), or `undefined` if not queued |
 | `isPipelineLeader` | Boolean — `lws_wsi_is_txn_queue_leader()`, whether other client wsi may be queued behind this one |
 | `pipelineQueueDepth` | Number of client wsi currently queued behind this one (`lws_get_txn_queue_depth()`) |

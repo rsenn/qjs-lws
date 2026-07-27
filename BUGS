@@ -63,27 +63,6 @@ re-find and re-confirm the bug without re-deriving it.
       } }],
     });
 
-- redirected-to-get-dead-code (lws-protocol.c:458,
-  lwsjs_callback_protocol): s->redirected_to_get is only ever set
-  inside a branch gated on reason ==
-  LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER, itself nested inside
-  is_writeable_reason(reason). is_writeable_reason (lws.h:134) does
-  not include APPEND_HANDSHAKE_HEADER in its switch, so the assignment
-  is unreachable. redirected_to_get stays permanently false, and the
-  body-resend skip at CLIENT_HTTP_WRITEABLE never fires, so a
-  redirected client POST keeps re-sending its original body instead
-  of switching to GET.
-
-    // point at a server that 301/302-redirects a POST to a GET target
-    import { LWSContext } from 'lws';
-    const ctx = new LWSContext({ port: -1 });
-    ctx.clientConnect({
-      address: 'example.com', port: 443, path: '/redirects-to-get',
-      method: 'POST', ssl_connection: 1,
-    });
-    // expected: switches to GET, no body resent. actual: body-resend
-    // path runs unconditionally, redirected_to_get never becomes true
-
 - ws-close-payload-oob-read (lws-protocol.c:555,
   lwsjs_callback_protocol): the synthesized ws-close handling inside
   the CLIENT_RECEIVE branch reads in[0]/in[1] as the close code with

@@ -3,6 +3,7 @@
 #include "lws-sockaddr46.h"
 #include "lws-vhost.h"
 #include "lws-tls.h"
+#include "lws-protocol.h"
 #include "lws.h"
 #include "js-utils.h"
 

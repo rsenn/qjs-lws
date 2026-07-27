@@ -3,8 +3,8 @@
 A mount maps a URL prefix on a vhost to a backend: a directory of
 static files, a JS protocol callback, a redirect, or a CGI script.
 Mounts are passed via the `mounts` property of `LWSContext`'s or
-`LWSVhost`'s info object. Implemented in `lws-context.c`
-(`http_mount_from`, `http_mounts_from`).
+`LWSVhost`'s info object. Implemented in `lws-mount.c`
+(`lwsjs_mount_from`, `lwsjs_mounts_from`).
 
 ## Shape
 
@@ -66,7 +66,8 @@ mounts: [
 
 `cgienv`, `extraMimetypes`, `interpret`, `headers`, `pvo`, and
 `rejectServiceKeywords` are all `struct lws_protocol_vhost_options`
-chains. Inputs accepted (see `vhost_options_from` / `vhost_option_from`):
+chains. Inputs accepted (see `lwsjs_vhost_options_from` /
+`lwsjs_vhost_option_from` in `lws-vhost.c`):
 
 - An array of `{ name, value, options?, next? }` objects.
 - A single object — used as the head of the chain.

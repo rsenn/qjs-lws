@@ -31,8 +31,6 @@ int lwsjs_html_process_args(JSContext*, struct lws_process_html_args*, int, JSVa
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
 void lwsjs_uri_toconnectinfo(JSContext*, char*, struct lws_client_connect_info*);
 char* lwsjs_connectinfo_to_uri(JSContext*, const struct lws_client_connect_info*);
-enum lws_callback_reasons lwsjs_callback_find(const char*);
-const char* lwsjs_callback_name(enum lws_callback_reasons);
 void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);
 
 int lwsjs_init(JSContext*, JSModuleDef*);

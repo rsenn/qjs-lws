@@ -83,11 +83,11 @@ Built only with `LWS_WITH_SOCKS5`:
 | `socksProxyAddress` | `socks_proxy_address` |
 | `socksProxyPort`    | `socks_proxy_port` |
 
-### Implicit extensions
+### WebSocket extensions
 
-When the build has `LWS_ROLE_WS`, the constructor automatically
-installs the `permessage-deflate` extension with the parameters
-`client_no_context_takeover; client_max_window_bits`.
+| Property | C field | Description |
+|----------|---------|-------------|
+| `permessageDeflate` | `extensions` | Boolean. When true (and the build has `LWS_ROLE_WS`), installs the `permessage-deflate` extension with the parameters `client_no_context_takeover; client_max_window_bits`. **Off by default** — decompression-chunk boundaries don't line up with WS message/frame boundaries (`lws_is_final_fragment()` tracks the former), so a large message sent with compression on can arrive as several separate `onReceive`/`onClientReceive` calls that JS has no reliable way to tell belong together. Only opt in if you don't depend on message/fragment boundaries, or you handle reassembly yourself. |
 
 ## Instance methods
 
@@ -103,6 +103,7 @@ installs the `permessage-deflate` extension with the parameters
 | `asyncDnsServerAdd(addr)`           | `LWSSockAddr46`-style; returns int. |
 | `asyncDnsServerRemove(addr)`        | Removes a previously added DNS server. |
 | `wsiFromFd(fd)`                     | Looks up the `LWSSocket` for an OS fd, or `undefined`. |
+| `createUdp(options)`                | Creates (and, unless `bind` is set, connects) a UDP socket via `lws_create_adopt_udp()`. Built only with `LWS_WITH_UDP`. See below. |
 
 ### `clientConnect`
 
@@ -150,6 +151,41 @@ to a permissive default (`USE_SSL | ALLOW_SELFSIGNED | ALLOW_EXPIRED
 Returns the freshly created `LWSSocket`. Even on failure the socket
 object exists; you observe failures via the protocol's
 `onClientConnectionError` callback.
+
+### `createUdp`
+
+UDP is connectionless, so both "bind a listening socket that
+receives datagrams from any peer" and "create a socket pre-connected
+to one fixed remote peer" go through this single entry point,
+distinguished by whether `address` is given / `bind` is set:
+
+```js
+const listener = ctx.createUdp({ protocol: 'udp-echo', bind: true, port: 9002 });
+const client = ctx.createUdp({ protocol: 'udp-echo', address: '127.0.0.1', port: 9002 });
+```
+
+Recognised properties on the options object:
+
+| Property | C field / meaning |
+|----------|--------------------|
+| `protocol`   | Name of a protocol on the vhost (**required**) |
+| `address`    | Remote address to pre-connect to; omitted (or `bind: true`) binds a listener on any interface instead |
+| `port`       | UDP port |
+| `iface`      | Interface address or name to bind |
+| `vhost`      | Vhost name to look the protocol up on (defaults to the context's default vhost) |
+| `bind`       | Boolean — force `LWS_CAUDP_BIND` even when `address` is given |
+| `broadcast`  | Boolean — sets `LWS_CAUDP_BROADCAST` |
+| `parentWsi` / `parent_wsi` | An existing `LWSSocket` to link the new UDP wsi under (`lws_create_adopt_udp()`'s `parent_wsi` argument) |
+
+A single UDP wsi, unlike TCP, never gets one child wsi per peer —
+see `onRawRx`'s extra `LWSSockAddr46` argument
+([callbacks.md](callbacks.md)) for how a listener tells its many
+peers apart, and `wsi.write(data, sockaddr)` (see
+[LWSSocket.md](LWSSocket.md)) for targeting a reply back at one of
+them.
+
+Throws `TypeError` if `protocol` is missing, `InternalError` if the
+named vhost doesn't exist or `lws_create_adopt_udp()` fails.
 
 ## Instance accessors (read-only)
 

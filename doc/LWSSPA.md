@@ -10,7 +10,10 @@ const spa = new LWSSPA(wsi, options);
 ```
 
 `wsi` must be an `LWSSocket`. `options` is an object that is also
-used as `this` for the parser's callbacks. Recognised keys:
+used as `this` for the parser's callbacks. Throws `InternalError` if
+the underlying `lws_spa_create_via_info()` call fails (e.g. malformed
+options) — `process()`/`finalize()` also throw `InternalError` if
+called on such an instance. Recognised keys:
 
 | Key | Default | Description |
 |-----|---------|-------------|

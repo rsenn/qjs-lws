@@ -4,6 +4,9 @@
 #include <quickjs.h>
 #include <libwebsockets.h>
 
+
+int lwsjs_callback_find(const char*);
+const char* lwsjs_callback_name(enum lws_callback_reasons);
 JSValue lwsjs_protocol_obj(JSContext*, const struct lws_protocols*);
 int lwsjs_protocol_from(JSContext*, JSValueConst, struct lws_protocols*);
 const struct lws_protocols* lwsjs_protocols_fromarray(JSContext*, JSValueConst);

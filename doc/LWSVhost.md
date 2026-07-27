@@ -25,8 +25,10 @@ vhost as a configurable `info` property, mirroring `LWSContext`.
 
 | Method | Description |
 |--------|-------------|
+| `destroy()`                 | `lws_vhost_destroy()`; safe to call early. Returns `true`. Subsequent calls to other methods throw `InternalError("LWSVhost has been destroyed")`. |
 | `adoptSocket(fd)`           | `lws_adopt_socket_vhost()`; returns `LWSSocket`. |
 | `adoptSocketReadbuf(fd, buf)` | `lws_adopt_socket_vhost_readbuf()` with pre-buffered bytes. |
+| `adoptDescriptor(fd [, type [, protocolName [, parentWsi]]])` | `lws_adopt_descriptor_vhost()` — like `adoptSocket()` but lets you pick the adoption `type` (`LWS_ADOPT_*` flags, default `LWS_ADOPT_SOCKET`) and bind straight to a named vhost protocol instead of starting in HTTP mode. `parentWsi` (an `LWSSocket`) links the new wsi under an existing one (e.g. muxed/proxied children). Returns `LWSSocket`. |
 | `nameToProtocol(name)`      | `lws_vhost_name_to_protocol()` — returns the protocol descriptor object, or `null`. |
 
 ## Instance accessors
@@ -43,9 +45,15 @@ The toStringTag is `LWSVhost`.
 
 ## Lifecycle
 
-The finaliser calls `lws_vhost_destroy()` and frees the stashed
-`context_creation_info`. As with `LWSContext`, callbacks may fire
-during construction because `lws_create_vhost()` is called last.
+The finaliser calls `lws_vhost_destroy()` (if not already destroyed)
+and frees the stashed `context_creation_info`. As with `LWSContext`,
+callbacks may fire during construction because `lws_create_vhost()`
+is called last.
+
+`destroy()` additionally drops a self-reference the vhost holds on
+its own JS wrapper (`info.user`), so calling it explicitly — rather
+than relying on the finalizer — is what actually makes the wrapper
+collectible again afterward.
 
 ## Looking up vhosts
 

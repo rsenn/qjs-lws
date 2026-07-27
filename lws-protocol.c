@@ -224,16 +224,16 @@ static const char* callback_names[] = {
     [LWS_CALLBACK_USER] = "USER",
 };
 
-static const char*
-callback_name(enum lws_callback_reasons reason) {
+  const char*
+lwsjs_callback_name(enum lws_callback_reasons reason) {
   if(reason >= 0 && reason < countof(callback_names))
     return callback_names[reason];
 
   return 0;
 }
 
-static /*enum lws_callback_reasons*/ int
-callback_find(const char* name) {
+  /*enum lws_callback_reasons*/ int
+lwsjs_callback_find(const char* name) {
   char buf[128];
 
   decamelize(buf, sizeof(buf), name);
