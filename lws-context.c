@@ -453,6 +453,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
   switch(magic) {
     case METHOD_DESTROY: {
       if(lws->ctx) {
+        service_tick_cancel(lws);
         lws_context_destroy(lws->ctx);
         lws->ctx = NULL;
         ret = JS_TRUE;

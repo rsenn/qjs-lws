@@ -82,3 +82,27 @@ re-find and re-confirm the bug without re-deriving it.
       address: 'example.com', port: 443, path: '/', ssl_connection: 1,
       protocol: 'chat',
     });
+
+- raw-client-immediate-close-fires-error-not-close (lib/lws/protocols.js:485,
+  RawProtocol.onClientConnectionError): closing a raw TCP client wsi
+  (TCPSocket/TCPSocketStream) synchronously from within its own 'open'
+  handler - i.e. right after LWS_CALLBACK_RAW_CONNECTED fires - never
+  triggers onRawClose ('close'); instead onClientConnectionError
+  ('error', with an empty message) fires once and that's the last
+  event the wsi ever produces. confirmed with an evented TCPSocket:
+  the 'open' listener logs then calls close(), an 'error' listener
+  logs "error: " (empty message), and 'close' never fires, even
+  waiting several seconds. looks like a native lws timing/state-race
+  between the RAW_CONNECTED callback and the wsi's internal
+  established-state transition, not a JS-level issue - a caller
+  waiting on 'close' (or a *Stream's `closed` promise, whose
+  StreamAdapter#error only rejects `opened` and never resolves
+  `closed`, see protocols.js's StreamAdapter doc) hangs forever if it
+  closes this early instead of waiting for 'open' to fully settle
+  first.
+
+    import { TCPSocket } from './lib/tcpsocket.js';
+    const s = new TCPSocket('127.0.0.1', <any raw TCP listener port>);
+    s.addEventListener('open', () => s.close());
+    s.addEventListener('error', e => console.log('error:', JSON.stringify(e.message)));
+    s.addEventListener('close', () => console.log('close')); // never fires
