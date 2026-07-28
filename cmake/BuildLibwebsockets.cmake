@@ -197,6 +197,8 @@ macro(build_libwebsockets)
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
     BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets
     PREFIX libwebsockets
+    PATCH_COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/patches/apply-patches.sh
+                  ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets ${CMAKE_CURRENT_SOURCE_DIR}/patches
     CMAKE_ARGS -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
                "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
                "-DCMAKE_C_FLAGS:STRING=${LIBWEBSOCKETS_C_FLAGS}"

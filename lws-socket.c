@@ -25,6 +25,7 @@ typedef struct {
   size_t len, pos;
   enum lws_write_protocol proto;
   lws_sockaddr46 addr;
+  BOOL has_addr;
 } WriteChunk;
 
 static WriteChunk*
@@ -47,6 +48,7 @@ write_chunk_new(const void* data, size_t len, enum lws_write_protocol proto) {
   wc->len = len;
   wc->pos = 0;
   wc->proto = proto;
+  wc->has_addr = FALSE;
   return wc;
 }
 
@@ -86,7 +88,7 @@ socket_flush(LWSSocket* s) {
     if(lws_wsi_is_udp(s->wsi)) {
       struct lws_udp* udp;
 
-      if((udp = (struct lws_udp*)lws_get_udp(s->wsi)))
+      if(wc->has_addr && (udp = (struct lws_udp*)lws_get_udp(s->wsi)))
         udp->sa46 = udp->sa46_pending = wc->addr;
     }
 
@@ -637,8 +639,10 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   if(!wc)
     return JS_ThrowOutOfMemory(ctx);
 
-  if(sa)
+  if(sa) {
     wc->addr = *sa;
+    wc->has_addr = TRUE;
+  }
 
   list_add_tail(&wc->link, &s->write_queue);
   s->write_buffered += len;

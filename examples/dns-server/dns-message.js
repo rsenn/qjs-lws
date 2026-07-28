@@ -332,9 +332,9 @@ export function encodeMessage(msg) {
   return concatBytes([headerBytes, ...questions.map(encodeQuestion), ...answers.map(encodeRR), ...authorities.map(encodeRR), ...additionals.map(encodeRR)]);
 }
 
-export function buildQuery(name, type, id) {
+export function buildQuery(name, type, id, opts = {}) {
   return encodeMessage({
-    header: { id, qr: 0, opcode: 0, aa: 0, tc: 0, rd: 0, ra: 0, rcode: 0 },
+    header: { id, qr: 0, opcode: 0, aa: 0, tc: 0, rd: 0, ra: 0, rcode: 0, ...opts },
     questions: [{ name, type, class: CLASS.IN }],
   });
 }
