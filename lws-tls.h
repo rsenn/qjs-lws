@@ -28,6 +28,14 @@ void tls_connect_info_fromobj(JSContext*, JSValueConst, struct lws_client_connec
 JSValue lwsjs_generate_self_signed_cert(JSContext*, JSValueConst, int, JSValueConst[]);
 
 #if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+#include <openssl/bio.h>
+#include <openssl/bn.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 /* Minimal, non-owning wrappers around the X509_STORE_CTX* / SSL* OpenSSL
    hands to LWS_CALLBACK_OPENSSL_PERFORM_{CLIENT,SERVER}_CERT_VERIFICATION (see

@@ -1,5 +1,6 @@
 if(NOT PRECOMPILED_MODULE_DIR)
-  set(PRECOMPILED_MODULE_DIR "modules/" CACHE PATH "subdirectory of build directory for precompiled .js modules")
+  set(PRECOMPILED_MODULE_DIR "modules/"
+      CACHE PATH "subdirectory of build directory for precompiled .js modules")
 endif(NOT PRECOMPILED_MODULE_DIR)
 
 function(module_path NAME OUTVAR)
@@ -13,7 +14,8 @@ endfunction(module_path NAME)
 
 function(config_module TARGET_NAME)
   if(QUICKJS_LIBRARY_DIR)
-    set_target_properties(${TARGET_NAME} PROPERTIES LINK_DIRECTORIES "${QUICKJS_LIBRARY_DIR}")
+    set_target_properties(${TARGET_NAME} PROPERTIES LINK_DIRECTORIES
+                                                    "${QUICKJS_LIBRARY_DIR}")
   endif(QUICKJS_LIBRARY_DIR)
   if(QUICKJS_MODULE_DEPENDENCIES)
     target_link_libraries(${TARGET_NAME} ${QUICKJS_MODULE_DEPENDENCIES})
@@ -44,9 +46,13 @@ function(compile_module SOURCE)
   message(STATUS "Compile QuickJS module '${OUTFILE}' from '${INFILE}'")
 
   add_custom_target(
-    "${BASE}.c" ALL BYPRODUCTS "${OUTFILE}" COMMAND "${QJSC}" -v -c -o "${OUTFILE}" -m "${INFILE}" ${ARGN}
-    DEPENDS ${QJSC_DEPS} ${INFILE} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUTFILE} from ${INFILE} using qjs compiler" SOURCES "${INFILE}")
+    "${BASE}.c" ALL
+    BYPRODUCTS "${OUTFILE}"
+    COMMAND "${QJSC}" -v -c -o "${OUTFILE}" -m "${INFILE}" ${ARGN}
+    DEPENDS ${QJSC_DEPS} ${INFILE}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    COMMENT "Generate ${OUTFILE} from ${INFILE} using qjs compiler"
+    SOURCES "${INFILE}")
 endfunction(compile_module SOURCE)
 
 ##
@@ -80,7 +86,9 @@ function(generate_module_header SOURCE)
     contains(INCLUDES "${NAME}" DOES_CONTAIN)
     #message(" contains(INCLUDES \"${NAME}\" DOES_CONTAIN) = ${DOES_CONTAIN}")
     if(NOT DOES_CONTAIN)
-      set(S "${S}\nextern const uint32_t qjsc_${NAME}_size;\nextern const uint8_t qjsc_${NAME}[];\n")
+      set(S
+          "${S}\nextern const uint32_t qjsc_${NAME}_size;\nextern const uint8_t qjsc_${NAME}[];\n"
+      )
     endif(NOT DOES_CONTAIN)
   endforeach(NAME ${SYMBOLS})
 
@@ -101,11 +109,14 @@ function(make_module_header SOURCE)
   string(REGEX REPLACE "-" "_" NAME "${BASE}")
   set(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/gen-${BASE}-header.cmake")
 
-  make_script("${SCRIPT}" "message(\"Generating module '${NAME}'\")\nremake_module(${SOURCE})\n"
-              "${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake;${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake")
+  make_script(
+    "${SCRIPT}"
+    "message(\"Generating module '${NAME}'\")\nremake_module(${SOURCE})\n"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake;${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake"
+  )
 
-  add_custom_target(${BASE}.h ALL ${CMAKE_COMMAND} -P ${SCRIPT} DEPENDS ${SOURCE} BYPRODUCTS ${HEADER}
-                    SOURCES ${SOURCE})
+  add_custom_target(${BASE}.h ALL ${CMAKE_COMMAND} -P ${SCRIPT}
+                    DEPENDS ${SOURCE} BYPRODUCTS ${HEADER} SOURCES ${SOURCE})
 endfunction(make_module_header SOURCE)
 
 ##
@@ -148,7 +159,8 @@ endfunction(include_definitions OUTVAR)
 function(extract_definition SOURCE OUTVAR DEF)
   basename(BASE "${SOURCE}" .c)
   file(READ "${SOURCE}" CSRC)
-  string(REGEX MATCHALL "const[^\n;]*qjsc_${DEF}[[_][^;]*;" DEFINITIONS "${CSRC}")
+  string(REGEX MATCHALL "const[^\n;]*qjsc_${DEF}[[_][^;]*;" DEFINITIONS
+               "${CSRC}")
   string(REPLACE "\n" "\\n" DEFINITIONS "${DEFINITIONS}")
   string(REGEX REPLACE ";\\s*;*" ";" DEFINITIONS "${DEFINITIONS}")
   string(REGEX REPLACE ";;" ";" DEFINITIONS "${DEFINITIONS}")
@@ -235,7 +247,10 @@ function(make_module FNAME)
   endif(ARGN)
   add_unique(LIBS ${COMMON_LIBRARIES})
 
-  message(STATUS "Building QuickJS module: ${FNAME} (deps: ${DEPS}, libs: ${LIBS}) JS_${UNAME}_MODULE=1")
+  message(
+    STATUS
+      "Building QuickJS module: ${FNAME} (deps: ${DEPS}, libs: ${LIBS}) JS_${UNAME}_MODULE=1"
+  )
 
   if(WASI OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
     set(BUILD_SHARED_MODULES OFF)
@@ -255,18 +270,23 @@ function(make_module FNAME)
 
     set_target_properties(
       ${TARGET_NAME}
-      PROPERTIES RPATH "${MBEDTLS_LIBRARY_DIR}:${QUICKJS_C_MODULE_DIR}" INSTALL_RPATH "${QUICKJS_C_MODULE_DIR}"
-                 PREFIX "${PREFIX}" OUTPUT_NAME "${VNAME}" COMPILE_FLAGS "${MODULE_COMPILE_FLAGS}")
+      PROPERTIES RPATH "${MBEDTLS_LIBRARY_DIR}:${QUICKJS_C_MODULE_DIR}"
+                 INSTALL_RPATH "${QUICKJS_C_MODULE_DIR}" PREFIX "${PREFIX}"
+                 OUTPUT_NAME "${VNAME}" COMPILE_FLAGS "${MODULE_COMPILE_FLAGS}")
 
-    target_compile_definitions(${TARGET_NAME} PRIVATE _GNU_SOURCE=1 JS_SHARED_LIBRARY=1 JS_${UNAME}_MODULE=1
-                                                      QUICKJS_PREFIX="${QUICKJS_INSTALL_PREFIX}")
+    target_compile_definitions(
+      ${TARGET_NAME}
+      PRIVATE _GNU_SOURCE=1 JS_SHARED_LIBRARY=1 JS_${UNAME}_MODULE=1
+              QUICKJS_PREFIX="${QUICKJS_INSTALL_PREFIX}")
 
     target_link_directories(${TARGET_NAME} PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(${TARGET_NAME} PUBLIC ${LIBS} ${QUICKJS_LIBRARY})
 
-    install(TARGETS ${TARGET_NAME}
-            RUNTIME DESTINATION "${QUICKJS_C_MODULE_DIR}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ
-                                                                      GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+    install(
+      TARGETS ${TARGET_NAME}
+      RUNTIME DESTINATION "${QUICKJS_C_MODULE_DIR}"
+              PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ
+                          GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
     config_module(${TARGET_NAME})
 
@@ -286,11 +306,16 @@ function(make_module FNAME)
   list(APPEND MODULES_STATIC "${TARGET_NAME}-static")
   set(QJS_MODULES_STATIC "${MODULES_STATIC}" PARENT_SCOPE)
 
-  set_target_properties(${TARGET_NAME}-static
-                        PROPERTIES OUTPUT_NAME "${VNAME}" PREFIX "quickjs-" SUFFIX "${LIBRARY_SUFFIX}" COMPILE_FLAGS "")
-  target_compile_definitions(${TARGET_NAME}-static PRIVATE _GNU_SOURCE=1 JS_${UNAME}_MODULE=1
-                                                           QUICKJS_PREFIX="${QUICKJS_INSTALL_PREFIX}")
-  target_link_directories(${TARGET_NAME}-static PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
+  set_target_properties(
+    ${TARGET_NAME}-static
+    PROPERTIES OUTPUT_NAME "${VNAME}" PREFIX "quickjs-" SUFFIX
+                                                        "${LIBRARY_SUFFIX}"
+               COMPILE_FLAGS "")
+  target_compile_definitions(
+    ${TARGET_NAME}-static PRIVATE _GNU_SOURCE=1 JS_${UNAME}_MODULE=1
+                                  QUICKJS_PREFIX="${QUICKJS_INSTALL_PREFIX}")
+  target_link_directories(${TARGET_NAME}-static PUBLIC
+                          "${CMAKE_CURRENT_BINARY_DIR}")
   target_link_libraries(${TARGET_NAME}-static INTERFACE ${QUICKJS_LIBRARY})
 endfunction()
 
@@ -308,7 +333,8 @@ endif(WIN32 OR MINGW)
 if(WASI OR WASM OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
   set(LIBRARY_PREFIX "lib")
   set(LIBRARY_SUFFIX ".a")
-endif(WASI OR WASM OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
+endif(WASI OR WASM OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL
+                                    "Emscripten")
 
 if(NOT LIBRARY_PREFIX)
   set(LIBRARY_PREFIX "${CMAKE_STATIC_LIBRARY_PREFIX}")
@@ -378,10 +404,13 @@ function(generate_precompiled_js NAME)
 
   file(RELATIVE_PATH IN "${CMAKE_CURRENT_BINARY_DIR}" "${INPUT_FILE}")
   file(RELATIVE_PATH OUT "${CMAKE_CURRENT_BINARY_DIR}" "${OUTPUT_FILE}")
-  file(RELATIVE_PATH INCLUDEDIR "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+  file(RELATIVE_PATH INCLUDEDIR "${CMAKE_CURRENT_BINARY_DIR}"
+       "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-  file(RELATIVE_PATH LIBDIR "${CMAKE_CURRENT_BINARY_DIR}/modules" "${CMAKE_CURRENT_SOURCE_DIR}/lib")
-  file(CREATE_LINK "${LIBDIR}" "${CMAKE_CURRENT_BINARY_DIR}/modules/lib" COPY_ON_ERROR SYMBOLIC)
+  file(RELATIVE_PATH LIBDIR "${CMAKE_CURRENT_BINARY_DIR}/modules"
+       "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+  file(CREATE_LINK "${LIBDIR}" "${CMAKE_CURRENT_BINARY_DIR}/modules/lib"
+       COPY_ON_ERROR SYMBOLIC)
 
   file(
     GENERATE
@@ -400,15 +429,23 @@ configure_file(
 )")
 
   add_custom_command(
-    OUTPUT "${NAME}" BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" DEPENDS "${INPUT_FILE}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake" SOURCES "${NAME}.cmake" #VERBATIM
+    OUTPUT "${NAME}"
+    BYPRODUCTS "${OUT}"
+    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    DEPENDS "${INPUT_FILE}"
+    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake"
+            SOURCES "${NAME}.cmake" #VERBATIM
   )
 
   add_custom_target(
-    "${NAME}" ALL BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${INPUT_FILE}"
+    "${NAME}" ALL
+    BYPRODUCTS "${OUT}"
+    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
+    DEPENDS "${INPUT_FILE}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake" SOURCES "${NAME}.cmake" #VERBATIM
+    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake"
+    SOURCES "${NAME}.cmake" #VERBATIM
   )
 endfunction(generate_precompiled_js NAME)
 
@@ -425,7 +462,8 @@ function(generate_precompiled_h NAME)
 
   string(REGEX REPLACE "[^A-Za-z0-9_]" "_" CMAKE_FILE "generate_${NAME}")
 
-  file(RELATIVE_PATH INCLUDEDIR "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+  file(RELATIVE_PATH INCLUDEDIR "${CMAKE_CURRENT_BINARY_DIR}"
+       "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
   file(RELATIVE_PATH OUT "${CMAKE_CURRENT_BINARY_DIR}" "${OUTPUT_FILE}")
   file(RELATIVE_PATH IN "${CMAKE_CURRENT_BINARY_DIR}" "${INPUT_FILE}")
 
@@ -441,14 +479,22 @@ write_module_file(${NAME} \"\${LWSJS_H}\")")
   #message("generate_precompiled_h ${NAME}")
 
   add_custom_command(
-    OUTPUT "${NAME}" BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${INPUT_FILE}"
+    OUTPUT "${NAME}"
+    BYPRODUCTS "${OUT}"
+    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
+    DEPENDS "${INPUT_FILE}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake" SOURCES "${INPUT_FILE}" #VERBATIM
+    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake"
+            SOURCES "${INPUT_FILE}" #VERBATIM
   )
   add_custom_target(
-    "${NAME}" ALL BYPRODUCTS "${OUT}" COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake" DEPENDS "${INPUT_FILE}"
+    "${NAME}" ALL
+    BYPRODUCTS "${OUT}"
+    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
+    DEPENDS "${INPUT_FILE}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake" SOURCES "${INPUT_FILE}" #VERBATIM
+    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake"
+    SOURCES "${INPUT_FILE}" #VERBATIM
   )
 endfunction(generate_precompiled_h NAME)
 

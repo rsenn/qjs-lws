@@ -1,30 +1,18 @@
-newly discovered bugs get appended here as they're found -- not fixed
-inline unless that's the task at hand (see CLAUDE.md, "track newly
-discovered bugs"). one entry per bug, appended in the order found,
-each shaped like:
-
-    - <canonical-name> (<file>:<line>): <short plain-text description
-      of what's broken and how it was confirmed, no back-quotes>
-
-        <js code that triggers it, or a one-line note if not
-        practically reproducible in plain js>
-
-canonical-name is a short kebab-case handle for referring back to the
-bug elsewhere (commit messages, other BUGS entries). the source
-location is the primary place the bug lives, not every place it's
-felt. keep the description to a sentence or two -- just enough to
-re-find and re-confirm the bug without re-deriving it.
-
-- option-key-casing-silently-ignored (lws-context.c:110,
-  client_connect_info_fromobj): option parsers are split between
-  camelcase (createContext()'s info, vhostName, sslCa, ...) and
-  snake_case (client_connect_info_fromobj: local_protocol_name,
-  ssl_connection, local_port, keep_warm_secs, auth_username,
-  auth_password) -- a wrong-cased key is silently ignored, not
-  rejected. caused a real, multi-hour-to-diagnose hang: connection
-  opens and negotiates, then sits there because no protocol object
-  ever got bound. found via localProtocolName vs local_protocol_name
-  in HttpClientProtocol.connect() (lib/lws/protocols.js).
+- option-key-casing-silently-ignored (lws-context.c:133,139,
+  client_connect_info_fromobj; lws-tls.c:109, tls_connect_info_fromobj):
+  most option properties (str_property() callers, e.g.
+  local_protocol_name) go through js_has_property2()/js_get_property(),
+  which try the exact key and then a camelCase fallback, so
+  localProtocolName vs local_protocol_name is NOT actually
+  ambiguity-prone -- an earlier version of this entry used that as the
+  repro and was a false positive. the real bug is narrower: a handful
+  of integer-typed properties are gated by a plain js_has_property()
+  exact-match check (no camelCase fallback) before ever calling
+  js_get_property(), so only the exact snake_case spelling works --
+  local_port, keep_warm_secs (lws-context.c:133,139) and
+  ssl_connection (lws-tls.c:109). the camelCase spelling passes the
+  object literal fine but the has-property guard fails, so the
+  assignment is skipped with no error.
 
     import { LWSContext } from 'lws';
 
@@ -34,11 +22,10 @@ re-find and re-confirm the bug without re-deriving it.
 
     ctx.clientConnect({
       address: 'example.com', port: 443, path: '/', host: 'example.com',
-      ssl_connection: 1,
-      localProtocolName: 'chat', // wrong casing, silently dropped
+      ssl: true,
+      localPort: 12345, // wrong casing, silently dropped -- ci->local_port
+                         // stays 0 instead of binding the requested source port
     });
-    // handshake completes but onClientEstablished never fires --
-    // correct key is local_protocol_name (snake_case)
 
 - check-access-rights-oob-buffer (lws-protocol.c:572,
   lwsjs_callback_protocol): LWS_CALLBACK_CHECK_ACCESS_RIGHTS is
@@ -106,3 +93,18 @@ re-find and re-confirm the bug without re-deriving it.
     s.addEventListener('open', () => s.close());
     s.addEventListener('error', e => console.log('error:', JSON.stringify(e.message)));
     s.addEventListener('close', () => console.log('close')); // never fires
+
+- lwsjs_socket_close-use-after-free (lws-socket.c:825): tests/unittests/test-tcpsocket.js
+  segfaults after the recent libwebsockets submodule bump, crashing inside
+  __lws_close_free_wsi() (called via lws_close_free_wsi() from
+  lwsjs_socket_close()). Confirmed with gdb: SIGSEGV backtrace goes
+  lwsjs_socket_close -> lws_close_free_wsi -> __lws_close_free_wsi -> garbage
+  address. lwsjs_socket_close()'s s->dispatching guard (added for the
+  RAW_ADOPT/RAW_CONNECTED reentrancy hazard documented just above it in the
+  same function) evidently no longer covers every path that can free the wsi
+  out from under the LWSSocket wrapper in the updated libwebsockets - some
+  wsi field or close-path internals it relies on likely shifted. Not
+  otherwise investigated.
+
+    (run ctest in build/x86_64-linux-debug: test-tcpsocket.js reports
+    ***Exception: SegFault)

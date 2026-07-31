@@ -40,7 +40,7 @@ async function resolve(domain) {
 
 // Example usage
 try {
-  const result = await resolve('transistorisiert.ch');
+  const result = await resolve(scriptArgs[1] ?? 'transistorisiert.ch');
   console.log('DNS Answer:', result);
 } catch (error) {
   console.error('DNS Resolve Error:', error);

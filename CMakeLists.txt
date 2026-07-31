@@ -24,8 +24,10 @@ if(USE_CURL)
 endif(USE_CURL)
 option(BUILD_MINIMAL_EXAMPLES "Build minimal-examples" OFF)
 option(DEBUG_OUTPUT "Output debug messages" OFF)
-option(USE_EPOLL "Use Linux epoll(7) for lws socket polling instead of quickjs-libc os.setReadHandler/setWriteHandler"
-       OFF)
+option(
+  USE_EPOLL
+  "Use Linux epoll(7) for lws socket polling instead of quickjs-libc os.setReadHandler/setWriteHandler"
+  OFF)
 if(USE_EPOLL)
   add_definitions(-DUSE_EPOLL)
 endif(USE_EPOLL)
@@ -48,7 +50,8 @@ if(DEBUG_OUTPUT)
   add_definitions(-DDEBUG_OUTPUT)
 endif(DEBUG_OUTPUT)
 
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${CMAKE_CURRENT_BINARY_DIR}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/lib)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
@@ -59,7 +62,8 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
 if(UNIX AND NOT APPLE)
   include(GNUInstallDirs)
 elseif(NOT DEFINED CMAKE_INSTALL_LIBDIR)
-  set(CMAKE_INSTALL_LIBDIR "" CACHE PATH "Specify the output directory for libraries (default is lib)")
+  set(CMAKE_INSTALL_LIBDIR ""
+      CACHE PATH "Specify the output directory for libraries (default is lib)")
 endif()
 
 include(CheckFunctionExists)
@@ -106,13 +110,15 @@ include(CheckCCompilerFlag)
 check_c_compiler_flag("-O0" OPT_C_OPT_NONE)
 if(OPT_C_OPT_NONE)
   if(NOT "${CMAKE_C_FLAGS_DEBUG}" MATCHES "-O0")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0" CACHE STRING "C compiler options")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0"
+        CACHE STRING "C compiler options")
   endif(NOT "${CMAKE_C_FLAGS_DEBUG}" MATCHES "-O0")
 endif(OPT_C_OPT_NONE)
 check_c_compiler_flag("-ggdb" OPT_C_G_GDB)
 if(OPT_C_G_GDB)
   if(NOT "${CMAKE_C_FLAGS_DEBUG}" MATCHES "-ggdb")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -ggdb" CACHE STRING "C compiler options")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -ggdb"
+        CACHE STRING "C compiler options")
   endif(NOT "${CMAKE_C_FLAGS_DEBUG}" MATCHES "-ggdb")
 endif(OPT_C_G_GDB)
 
@@ -134,7 +140,8 @@ if(NOT BUILD_LIBWEBSOCKETS)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibwebsockets.cmake)
   find_libwebsockets()
   include_directories(${LIBWEBSOCKETS_INCLUDE_DIR} ${OPENSSL_INCLUDE_DIR})
-  link_libraries(${LIBWEBSOCKETS_LIBRARIES} ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY} ${CURL_LIBRARY} ${OPENSSL_LIBRARIES})
+  link_libraries(${LIBWEBSOCKETS_LIBRARIES} ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY}
+                 ${CURL_LIBRARY} ${OPENSSL_LIBRARIES})
 endif(NOT BUILD_LIBWEBSOCKETS)
 
 if(NOT LIBWEBSOCKETS_FOUND)
@@ -177,7 +184,8 @@ if(BUILD_LIBWEBSOCKETS)
       build_mbedtls()
 
       list(APPEND LIBWEBSOCKETS_DEPS ${MBEDTLS_TARGET_NAME})
-      set(LIBWEBSOCKETS_C_FLAGS "-I${MBEDTLS_INCLUDE_DIR} ${LIBWEBSOCKETS_C_FLAGS}")
+      set(LIBWEBSOCKETS_C_FLAGS
+          "-I${MBEDTLS_INCLUDE_DIR} ${LIBWEBSOCKETS_C_FLAGS}")
     endif(BUILD_MBEDTLS)
   endif(WITH_MBEDTLS)
   if(WITH_SSL AND NOT WITH_MBEDTLS)
@@ -192,20 +200,25 @@ if(BUILD_LIBWEBSOCKETS)
 
     if(NOT OPENSSL_LIBRARY_DIR)
       if(OPENSSL_LIBRARIES)
-        string(REGEX REPLACE "/lib[^/]*\\..*" "" OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARIES}")
-        set(OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARY_DIR}" CACHE FILEPATH "OpenSSL library directory")
+        string(REGEX REPLACE "/lib[^/]*\\..*" "" OPENSSL_LIBRARY_DIR
+                             "${OPENSSL_LIBRARIES}")
+        set(OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARY_DIR}"
+            CACHE FILEPATH "OpenSSL library directory")
       endif(OPENSSL_LIBRARIES)
     endif(NOT OPENSSL_LIBRARY_DIR)
 
     if(NOT OPENSSL_ROOT_DIR)
       if(OPENSSL_LIBRARY_DIR)
-        string(REGEX REPLACE "/lib.*" "" OPENSSL_ROOT_DIR "${OPENSSL_LIBRARY_DIR}")
-        set(OPENSSL_ROOT_DIR "${OPENSSL_ROOT_DIR}" CACHE FILEPATH "OpenSSL root directory")
+        string(REGEX REPLACE "/lib.*" "" OPENSSL_ROOT_DIR
+                             "${OPENSSL_LIBRARY_DIR}")
+        set(OPENSSL_ROOT_DIR "${OPENSSL_ROOT_DIR}"
+            CACHE FILEPATH "OpenSSL root directory")
       endif(OPENSSL_LIBRARY_DIR)
     endif(NOT OPENSSL_ROOT_DIR)
 
     if(NOT OPENSSL_INCLUDE_DIR)
-      set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include" CACHE FILEPATH "OpenSSL include directory")
+      set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include"
+          CACHE FILEPATH "OpenSSL include directory")
     endif(NOT OPENSSL_INCLUDE_DIR)
     #list(FILTER OPENSSL_LIBRARIES EXCLUDE REGEX "^$")
 
@@ -248,7 +261,8 @@ if(BUILD_LIBWEBSOCKETS)
 
       build_brotli()
       list(APPEND LIBWEBSOCKETS_DEPS ${BROTLI_TARGET_NAME})
-      set(LIBWEBSOCKETS_C_FLAGS "-I${BROTLI_INCLUDE_DIR} ${LIBWEBSOCKETS_C_FLAGS}")
+      set(LIBWEBSOCKETS_C_FLAGS
+          "-I${BROTLI_INCLUDE_DIR} ${LIBWEBSOCKETS_C_FLAGS}")
     endif(BUILD_BROTLI)
   endif(WITH_BROTLI)
 
@@ -276,17 +290,20 @@ else(BUILD_LIBWEBSOCKETS)
 endif(BUILD_LIBWEBSOCKETS)
 
 if(OPENSSL_INCLUDE_DIR AND NOT OPENSSL_LIBRARY_DIR)
-  string(REGEX REPLACE "/include" "/lib" OPENSSL_LIBRARY_DIR "${OPENSSL_INCLUDE_DIR}")
+  string(REGEX REPLACE "/include" "/lib" OPENSSL_LIBRARY_DIR
+                       "${OPENSSL_INCLUDE_DIR}")
 
   #set(CMAKE_INSTALL_RPATH "${OPENSSL_LIBRARY_DIR}")
 endif()
 
 #if(OPENSSL_LIBRARIES AND NOT OPENSSL_LIBRARY_DIR)
 if(OPENSSL_LIBRARIES MATCHES "/lib/.*")
-  string(REGEX REPLACE "/lib/.*" "/lib" OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARIES}")
+  string(REGEX REPLACE "/lib/.*" "/lib" OPENSSL_LIBRARY_DIR
+                       "${OPENSSL_LIBRARIES}")
 endif(OPENSSL_LIBRARIES MATCHES "/lib/.*")
 
-set(OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARY_DIR}" CACHE PATH "OpenSSL library directory")
+set(OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARY_DIR}"
+    CACHE PATH "OpenSSL library directory")
 #set(CMAKE_INSTALL_RPATH "${OPENSSL_LIBRARY_DIR}")
 #endif()
 if(OPENSSL_LIBRARY_DIR)
@@ -311,16 +328,27 @@ if(USE_CURL)
   include_directories(${CURL_INCLUDE_DIR})
 endif(USE_CURL)
 
-link_directories(${QUICKJS_LIBRARY_DIR} ${LIBWEBSOCKETS_LIBRARY_DIR} ${OPENSSL_LIBRARY_DIR} ${MBEDTLS_LIBRARY_DIR})
-include_directories(lib ${CMAKE_CURRENT_BINARY_DIR} ${QUICKJS_INCLUDE_DIR} ${LIBWEBSOCKETS_INCLUDE_DIR}
-                    ${OPENSSL_INCLUDE_DIR} ${MBEDTLS_INCLUDE_DIR})
+link_directories(${QUICKJS_LIBRARY_DIR} ${LIBWEBSOCKETS_LIBRARY_DIR}
+                 ${OPENSSL_LIBRARY_DIR} ${MBEDTLS_LIBRARY_DIR})
 include_directories(
-  libwebsockets/lib/abstract
-  libwebsockets/lib/abstract/protocols/smtp
+  lib ${CMAKE_CURRENT_BINARY_DIR} ${QUICKJS_INCLUDE_DIR}
+  ${LIBWEBSOCKETS_INCLUDE_DIR} ${OPENSSL_INCLUDE_DIR} ${MBEDTLS_INCLUDE_DIR})
+include_directories(
   libwebsockets/lib/core
   libwebsockets/lib/core-net
+  libwebsockets/lib/core-net/client
   libwebsockets/lib/cose
+  libwebsockets/lib/drivers
+  libwebsockets/lib/drivers/button
+  libwebsockets/lib/drivers/display
+  libwebsockets/lib/drivers/i2c
+  libwebsockets/lib/drivers/i2c/bitbang
   libwebsockets/lib/drivers/led
+  libwebsockets/lib/drivers/netdev
+  libwebsockets/lib/drivers/pwm
+  libwebsockets/lib/drivers/settings
+  libwebsockets/lib/drivers/spi
+  libwebsockets/lib/drivers/spi/bitbang
   libwebsockets/lib/event-libs
   libwebsockets/lib/event-libs/glib
   libwebsockets/lib/event-libs/libev
@@ -331,34 +359,84 @@ include_directories(
   libwebsockets/lib/event-libs/uloop
   libwebsockets/lib/jose
   libwebsockets/lib/jose/jwe
+  libwebsockets/lib/jose/jwe/enc
+  libwebsockets/lib/jose/jwk
   libwebsockets/lib/jose/jws
+  libwebsockets/lib/media
+  libwebsockets/lib/media/alsa
+  libwebsockets/lib/media/audio
+  libwebsockets/lib/media/transcode
+  libwebsockets/lib/media/v4l2
   libwebsockets/lib/misc/cache-ttl
+  libwebsockets/lib/misc/dht
+  libwebsockets/lib/misc/dir-notify
+  libwebsockets/lib/misc/dlo
   libwebsockets/lib/misc/fts
+  libwebsockets/lib/misc/jrpc
   libwebsockets/lib/misc/lwsac
+  libwebsockets/lib/misc/threadpool
   libwebsockets/lib/plat/freertos
+  libwebsockets/lib/plat/freertos/esp32
+  libwebsockets/lib/plat/freertos/esp32/drivers
+  libwebsockets/lib/plat/freertos/esp32/drivers/netdev
   libwebsockets/lib/plat/optee
   libwebsockets/lib/plat/unix
+  libwebsockets/lib/plat/unix/android
   libwebsockets/lib/plat/windows
   libwebsockets/lib/roles
   libwebsockets/lib/roles/cgi
   libwebsockets/lib/roles/dbus
   libwebsockets/lib/roles/h1
   libwebsockets/lib/roles/h2
+  libwebsockets/lib/roles/h3
   libwebsockets/lib/roles/http
+  libwebsockets/lib/roles/http/client
   libwebsockets/lib/roles/http/compression
+  libwebsockets/lib/roles/http/compression/brotli
+  libwebsockets/lib/roles/http/compression/deflate
+  libwebsockets/lib/roles/http/server
+  libwebsockets/lib/roles/listen
   libwebsockets/lib/roles/mqtt
+  libwebsockets/lib/roles/mqtt/client
+  libwebsockets/lib/roles/netlink
+  libwebsockets/lib/roles/pipe
+  libwebsockets/lib/roles/quic
+  libwebsockets/lib/roles/raw-file
   libwebsockets/lib/roles/raw-proxy
+  libwebsockets/lib/roles/raw-skt
   libwebsockets/lib/roles/ws
+  libwebsockets/lib/roles/ws/ext
+  libwebsockets/lib/roles/wt
   libwebsockets/lib/secure-streams
+  libwebsockets/lib/secure-streams/cpp
+  libwebsockets/lib/secure-streams/plugins
+  libwebsockets/lib/secure-streams/plugins/ssp-h1url
+  libwebsockets/lib/secure-streams/protocols
+  libwebsockets/lib/secure-streams/serialized
+  libwebsockets/lib/secure-streams/serialized/client
+  libwebsockets/lib/secure-streams/serialized/proxy
+  libwebsockets/lib/secure-streams/system
+  libwebsockets/lib/secure-streams/system/auth-api.amazon.com
+  libwebsockets/lib/secure-streams/system/auth-sigv4
+  libwebsockets/lib/secure-streams/system/captive-portal-detect
+  libwebsockets/lib/secure-streams/system/fetch-policy
   libwebsockets/lib/system/async-dns
+  libwebsockets/lib/system/auth-dns
   libwebsockets/lib/system/dhcpclient
   libwebsockets/lib/system/fault-injection
   libwebsockets/lib/system/metrics
+  libwebsockets/lib/system/ntpclient
+  libwebsockets/lib/system/ota
   libwebsockets/lib/system/smd
+  libwebsockets/lib/system/whois
   libwebsockets/lib/tls
+  libwebsockets/lib/tls/bearssl
+  libwebsockets/lib/tls/gnutls
   libwebsockets/lib/tls/mbedtls
+  libwebsockets/lib/tls/openhitls
   libwebsockets/lib/tls/openssl
-  libwebsockets/plugins/ssh-base/include)
+  libwebsockets/lib/tls/schannel
+  libwebsockets/plugins/protocol_lws_ssh_base/include)
 
 file(GLOB JS_BINDINGS_SOURCES *.[ch])
 
@@ -376,12 +454,28 @@ string(ASCII 27 ESC)
 function(DUMP_TARGET TARGET)
   foreach(
     PROP
-    BINARY_DIR BUILD_RPATH COMPILE_DEFINITIONS COMPILE_FLAGS INCLUDE_DIRECTORIES INTERFACE_LINK_DIRECTORIES
-    INTERFACE_LINK_LIBRARIES LINK_DIRECTORIES LINK_LIBRARIES MANUALLY_ADDED_DEPENDENCIES NAME OUTPUT_NAME
-    PCH_WARN_INVALID POSITION_INDEPENDENT_CODE SOURCE_DIR SOURCES TYPE)
+    BINARY_DIR
+    BUILD_RPATH
+    COMPILE_DEFINITIONS
+    COMPILE_FLAGS
+    INCLUDE_DIRECTORIES
+    INTERFACE_LINK_DIRECTORIES
+    INTERFACE_LINK_LIBRARIES
+    LINK_DIRECTORIES
+    LINK_LIBRARIES
+    MANUALLY_ADDED_DEPENDENCIES
+    NAME
+    OUTPUT_NAME
+    PCH_WARN_INVALID
+    POSITION_INDEPENDENT_CODE
+    SOURCE_DIR
+    SOURCES
+    TYPE)
     get_target_property(VALUE "${TARGET}" "${PROP}")
     if(VALUE)
-      message("${ESC}[1;33m${TARGET} ${ESC}[1;31m${PROP} = ${ESC}[1;36m'${VALUE}'${ESC}[0m")
+      message(
+        "${ESC}[1;33m${TARGET} ${ESC}[1;31m${PROP} = ${ESC}[1;36m'${VALUE}'${ESC}[0m"
+      )
     endif(VALUE)
   endforeach()
 endfunction(DUMP_TARGET TARGET)
@@ -419,7 +513,8 @@ endif(BUILD_LIBWEBSOCKETS)
 
 if(OPENSSL_SSL_LIBRARY AND OPENSSL_CRYPTO_LIBRARY)
   if(NOT OPENSSL_LIBRARIES)
-    set(OPENSSL_LIBRARIES "${OPENSSL_SSL_LIBRARY};${OPENSSL_CRYPTO_LIBRARY}" CACHE STRING "OpenSSL libraries")
+    set(OPENSSL_LIBRARIES "${OPENSSL_SSL_LIBRARY};${OPENSSL_CRYPTO_LIBRARY}"
+        CACHE STRING "OpenSSL libraries")
   endif(NOT OPENSSL_LIBRARIES)
 endif(OPENSSL_SSL_LIBRARY AND OPENSSL_CRYPTO_LIBRARY)
 
@@ -435,26 +530,33 @@ macro(TARGET_LINK TARGET)
   target_include_directories(${TARGET} PRIVATE ${LIBWEBSOCKETS_INCLUDE_DIR})
   set_target_properties(
     ${TARGET}
-    PROPERTIES INSTALL_RPATH "${CMAKE_INSTALL_RPATH}"
-               BUILD_RPATH "${CMAKE_BUILD_RPATH}"
-               COMPILE_FLAGS "-fvisibility=hidden"
-               LINK_DIRECTORIES "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR}"
-               INTERFACE_LINK_DIRECTORIES "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR}"
-               PREFIX "")
+    PROPERTIES
+      INSTALL_RPATH "${CMAKE_INSTALL_RPATH}"
+      BUILD_RPATH "${CMAKE_BUILD_RPATH}"
+      COMPILE_FLAGS "-fvisibility=hidden"
+      LINK_DIRECTORIES
+      "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR}"
+      INTERFACE_LINK_DIRECTORIES
+      "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR}"
+      PREFIX "")
 
   if(OUTPUT_NAME)
     set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME "${OUTPUT_NAME}")
   endif(OUTPUT_NAME)
-  target_compile_definitions(${TARGET} PRIVATE -DJS_SHARED_LIBRARY=1 -DJS_BINDINGS_INIT_MODULE=1)
+  target_compile_definitions(${TARGET} PRIVATE -DJS_SHARED_LIBRARY=1
+                                               -DJS_BINDINGS_INIT_MODULE=1)
 
   if(EXISTS "${LIBWEBSOCKETS_LIBRARY_DIR}")
     target_link_directories(${TARGET} PUBLIC ${LIBWEBSOCKETS_LIBRARY_DIR})
   endif(EXISTS "${LIBWEBSOCKETS_LIBRARY_DIR}")
 
-  target_link_directories(${TARGET} PUBLIC ${QUICKJS_LIBRARY_DIR} ${LIBWEBSOCKETS_LIBRARY_DIR})
+  target_link_directories(${TARGET} PUBLIC ${QUICKJS_LIBRARY_DIR}
+                          ${LIBWEBSOCKETS_LIBRARY_DIR})
 
-  target_link_libraries(${TARGET} ${LIBWEBSOCKETS_LIBRARIES} ${MBEDTLS_LIBRARIES} ${OPENSSL_LIBRARIES}
-                        ${EXTRA_LIBRARIES} ${SOCKET_LIBRARIES} ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY})
+  target_link_libraries(
+    ${TARGET} ${LIBWEBSOCKETS_LIBRARIES} ${MBEDTLS_LIBRARIES}
+    ${OPENSSL_LIBRARIES} ${EXTRA_LIBRARIES} ${SOCKET_LIBRARIES}
+    ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY})
 endmacro(TARGET_LINK TARGET)
 
 target_link(qjs-lws lws)
@@ -478,7 +580,8 @@ check_function_exists(X509_self_signed HAVE_X509_self_signed)
 if(NOT HAVE_X509_self_signed)
   list(POP_FRONT CMAKE_REQUIRED_LIBRARIES CRYPTO_LIBRARY)
   message("CRYPTO_LIBRARY: ${CRYPTO_LIBRARY}")
-  check_library_exists("${CRYPTO_LIBRARY}" X509_self_signed "${OPENSSL_LIBRARY_DIR}" HAVE_X509_self_signed2)
+  check_library_exists("${CRYPTO_LIBRARY}" X509_self_signed
+                       "${OPENSSL_LIBRARY_DIR}" HAVE_X509_self_signed2)
 endif(NOT HAVE_X509_self_signed)
 
 unset(CMAKE_REQUIRED_LIBRARIES)
@@ -511,11 +614,13 @@ message(
 ")
 
 if(NOT QUICKJS_C_MODULE_DIR)
-  set(QUICKJS_C_MODULE_DIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/quickjs")
+  set(QUICKJS_C_MODULE_DIR
+      "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/quickjs")
 endif(NOT QUICKJS_C_MODULE_DIR)
 
 install(TARGETS qjs-lws DESTINATION "${QUICKJS_C_MODULE_DIR}"
-        PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ WORLD_READ WORLD_EXECUTE)
+        PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE
+                    GROUP_READ WORLD_READ WORLD_EXECUTE)
 
 file(GLOB JS_LIB_FILES lib/*.js)
 install(FILES ${JS_LIB_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}")
