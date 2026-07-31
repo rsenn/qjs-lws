@@ -30,7 +30,11 @@
 //     is enough to drop internal-only symbols (e.g. role_ops_h1, only
 //     declared in a private-lib-*.h that qjs-lws reaches by directly
 //     #including libwebsockets .c files as static plugins) without needing
-//     to actually parse C declarations.
+//     to actually parse C declarations. The same scan records which
+//     header(s) mention each name, and each symbol in the report carries
+//     the first one (sorted) as its "header" field - grep is coarse, so
+//     this is "a header that mentions this name", not a verified
+//     declaration site.
 //
 // Usage:
 //   qjs binding_coverage.js [options]
@@ -169,9 +173,9 @@ function getUndefinedSymbols(objPaths) {
 // Exported (global, defined) plain symbol names of a library, split into
 // functions (T/W) and data (any other uppercase/global type). Lowercase
 // types (local-to-object-file symbols) are dropped - nothing outside that
-// object file, including qjs-lws, can ever reference them. If publicApiSet
-// is given, symbols whose name doesn't occur in it are dropped too.
-function getExportedSymbols(libPath, publicApiSet) {
+// object file, including qjs-lws, can ever reference them. If headerMap is
+// given and filterToPublic is true, symbols not found in it are dropped too.
+function getExportedSymbols(libPath, headerMap, filterToPublic) {
   const out = run(`nm -A --defined-only ${shQuote(libPath)}`);
   const functions = new Map();
   const data = new Map();
@@ -179,26 +183,35 @@ function getExportedSymbols(libPath, publicApiSet) {
     const sym = parseNmLine(line);
     if(!sym) continue;
     if(!/^[A-Z]$/.test(sym.type)) continue; // local symbol, not exported
-    if(publicApiSet && !publicApiSet.has(sym.name)) continue; // not in the public headers
+    const headers = headerMap ? headerMap.get(sym.name) || null : null;
+    if(filterToPublic && !headers) continue; // not in the public headers
     const bucket = sym.type === 'T' || sym.type === 'W' ? functions : data;
-    if(!bucket.has(sym.name)) bucket.set(sym.name, sym.type);
+    if(!bucket.has(sym.name)) bucket.set(sym.name, { type: sym.type, headers });
   }
   return { functions, data };
 }
 
-// Very coarse "is this name part of the public API" set: every
-// identifier-shaped token that occurs anywhere under a header tree. Not a
-// declaration parser - just a grep - so it can't distinguish a real
-// declaration from a macro body, a comment, or a parameter name, but that's
-// fine here: it's only ever used to check whether an already-known exported
-// symbol name shows up in the public headers at all, and a name qjs-lws
-// could plausibly bind against necessarily appears literally as a token
-// wherever it's declared.
-function scanPublicApiNames(headerDir) {
-  const out = run(`grep -rhoE '[A-Za-z_][A-Za-z0-9_]*' ${shQuote(headerDir)} --include='*.h'`);
-  const set = new Set();
-  for(const name of out.split('\n')) if(name) set.add(name);
-  return set;
+// Very coarse "which header(s) declare this name" map: for every
+// identifier-shaped token that occurs anywhere under a header tree, the set
+// of header files it occurs in. Not a declaration parser - just a grep - so
+// it can't distinguish a real declaration from a macro body, a comment, or
+// a parameter name, but that's fine here: it's only ever used to check
+// whether an already-known exported symbol name shows up in the public
+// headers at all (and where), and a name qjs-lws could plausibly bind
+// against necessarily appears literally as a token wherever it's declared.
+function scanPublicApiHeaders(headerDir) {
+  const out = run(`grep -rnoE '[A-Za-z_][A-Za-z0-9_]*' ${shQuote(headerDir)} --include='*.h'`);
+  const map = new Map();
+  const lineRe = /^(.*):(\d+):([A-Za-z_][A-Za-z0-9_]*)$/;
+  for(const line of out.split('\n')) {
+    const m = lineRe.exec(line);
+    if(!m) continue;
+    const [, path, , name] = m;
+    if(!map.has(name)) map.set(name, new Set());
+    map.get(name).add(path);
+  }
+  for(const [name, set] of map) map.set(name, Array.from(set).sort());
+  return map;
 }
 
 function pct(implemented, total) {
@@ -207,14 +220,19 @@ function pct(implemented, total) {
 
 function buildCategoryReport(symbolMap, undefinedSet) {
   const list = Array.from(symbolMap.entries())
-    .map(([name, type]) => ({ name, type, implemented: undefinedSet.has(name) }))
+    .map(([name, info]) => ({
+      name,
+      type: info.type,
+      header: info.headers ? info.headers[0] : null,
+      implemented: undefinedSet.has(name),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const implemented = list.filter(s => s.implemented).length;
   return { total: list.length, implemented, percentage: pct(implemented, list.length), list };
 }
 
-function buildLibraryReport(libPath, undefinedSet, publicApiSet) {
-  const { functions, data } = getExportedSymbols(libPath, publicApiSet);
+function buildLibraryReport(libPath, undefinedSet, headerMap, filterToPublic) {
+  const { functions, data } = getExportedSymbols(libPath, headerMap, filterToPublic);
   const functionsReport = buildCategoryReport(functions, undefinedSet);
   const dataReport = buildCategoryReport(data, undefinedSet);
   return {
@@ -282,7 +300,8 @@ function renderText(report, verbose, color) {
       lines.push(`  ${label} (${cat.implemented}/${cat.total}):`);
       for(const sym of cat.list) {
         if(!verbose && !sym.implemented) continue;
-        lines.push(`    ${sym.implemented ? ' ' : '*'}${colorize(sym.name, sym.implemented, color)}`);
+        const where = sym.header ? ` (${sym.header})` : '';
+        lines.push(`    ${sym.implemented ? ' ' : '*'}${colorize(sym.name, sym.implemented, color)}${where}`);
       }
     }
   }
@@ -305,12 +324,9 @@ function main() {
   const undefinedSet = getUndefinedSymbols(objPaths);
   std.err.puts(`  ${undefinedSet.size} imported symbols across ${objPaths.length} object files\n`);
 
-  let publicApiSet = null;
-  if(opts.publicOnly) {
-    std.err.puts(`scanning public API headers: ${opts.publicHeaders}\n`);
-    publicApiSet = scanPublicApiNames(opts.publicHeaders);
-    std.err.puts(`  ${publicApiSet.size} distinct identifier tokens\n`);
-  }
+  std.err.puts(`scanning public API headers: ${opts.publicHeaders}\n`);
+  const headerMap = scanPublicApiHeaders(opts.publicHeaders);
+  std.err.puts(`  ${headerMap.size} distinct identifier tokens\n`);
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -327,7 +343,7 @@ function main() {
   for(const libPath of libPaths) {
     const name = basename(libPath);
     std.err.puts(`  ${name} ...\n`);
-    const libReport = buildLibraryReport(libPath, undefinedSet, publicApiSet);
+    const libReport = buildLibraryReport(libPath, undefinedSet, headerMap, opts.publicOnly);
     report.libraries[name] = libReport;
     sfn += libReport.functions.implemented;
     tfn += libReport.functions.total;
