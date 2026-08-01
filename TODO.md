@@ -195,24 +195,7 @@ currently unimplemented per `binding_coverage.json`.
 
 **Bind first - high value, low-to-moderate effort:**
 
-1. **[Implemented]** Persistent cookie jar for `fetch()`. `lws-context.c`'s creation-info
-   parser already reads dozens of fields like this one; this is five more
-   (`http_nsc_filepath`, `http_nsc_heap_max_footprint`, `_max_items`,
-   `_max_payload`) plus one new `LCCSCF_CACHE_COOKIES` flag on client
-   connect - no new functions to bind at all, `lws-tls.c`'s existing
-   `str_property`/flag-OR machinery covers it. Gives `fetch()` persistent,
-   automatic cookie sessions across process restarts.
-   ```js
-   const ctx = createServer({
-     port: 8443,
-     cookieJar: { path: './cookies.jar', maxItems: 500 }, // http_nsc_* fields
-   });
-
-   await fetch('https://example.com/login', { cacheCookies: true, credentials: 'include' });
-   await fetch('https://example.com/dashboard', { cacheCookies: true }); // session cookie reused
-   ```
-
-2. **Broadcast to every connection of a protocol.**
+1. **Broadcast to every connection of a protocol.**
    `lws_callback_on_writable_all_protocol(context, protocol)` /
    `_vhost(vhost, protocol)` (`lws-writeable.h`) - the real gap identified
    earlier in this project's own session notes: today a chat-room/pub-sub
@@ -232,69 +215,9 @@ currently unimplemented per `binding_coverage.json`.
    }]
    ```
 
-3. **[Implemented]** Per-connection timing diagnostics (conmon). `lws_conmon_wsi_take(wsi,
-   &dest)` (`lws-conmon.h`, needs `LWS_WITH_CONMON` + `LCCSCF_CONMON` on
-   connect) hands back DNS/TCP-connect/TLS-handshake/time-to-first-byte
-   timing plus the actual peer address used - a single getter on the
-   already-bound `LWSSocket`, and it reuses the already-bound
-   `LWSSockAddr46` wrapper for the peer address.
-   ```js
-   client.clientConnect('https://example.com/', { method: 'GET', protocol: 'http', conmon: true });
-   // ...
-   onEstablishedClientHttp(wsi, status) {
-     const { dnsUs, connectUs, tlsUs, firstByteUs, peer } = wsi.conmon;
-     console.log(`DNS ${dnsUs}us connect ${connectUs}us TLS ${tlsUs}us TTFB ${firstByteUs}us`);
-   }
-   ```
-
-4. **[Implemented]** Reconnect backoff / connection-validity policy. `lws-retry.h`'s
-   `lws_retry_bo_t` is a POD struct hookable onto context/vhost/client-
-   connect info exactly like the option objects `tls_creation_info_fromobj`
-   already parses - the ping/hangup-liveness half is fully automatic once
-   set; the backoff-delay half needs one more function bound
-   (`lws_retry_get_delay_ms`) since lws computes the delay but doesn't
-   reconnect for you.
-   Also settable at context/vhost-creation time (`new LWSContext({ retry })`),
-   applying to every connect call on that context unless overridden per-call.
-   ```js
-   const policy = { retryMsTable: [1000, 2000, 5000, 10000, 30000], jitterPercent: 20, concealCount: 5 };
-   client.clientConnect('wss://example.com/feed', {
-     protocol: 'ws', localProtocolName: 'ws',
-     retry: policy,
-   });
-   // in your own reconnect loop:
-   const { delayMs, tryCount, conceal } = ctx.retryDelay(policy, attemptNumber);
-   ```
-
-5. **[Implemented]** Async DNS resolve as a first-class call. `lws_async_dns_query()`
-   (`lws-async-dns.h`) - there's already a hand-rolled DNS-over-UDP client
-   at repo root (`dns-client.js`) proving the demand; this replaces it with
-   lws's own non-blocking, cached, multi-server resolver. One `LWSContext`
-   method, returning numeric address strings (not `LWSSockAddr46` - no port
-   for a bare resolve() to carry).
-   ```js
-   const addrs = await ctx.resolve('example.com', { type: 'AAAA' });
-   // -> ['2606:2800:220:1:248:1893:25c8:1946']
-   ```
-   Known issue: querying the same name with both `type: 'A'` and `type:
-   'AAAA'` returns the union of both record types instead of just the
-   requested one - see BUGS (async-dns-qtype-ignored-on-cache-fill), a
-   pre-existing libwebsockets-side issue, not this binding's.
-
 **Bind next - high value, more effort:**
 
-6. **[Implemented]** Native event-loop timers. `lws_sul_schedule(ctx, tsi, sul, cb, us)`
-   / `lws_sul_cancel(sul)` (`lws-timeout-timer.h`) - the correct backing
-   for JS-level scheduling that shares lws's own event loop instead of a
-   second timer source via `os.setTimeout`. One `LWSContext` method
-   returning a cancellable handle; the binding owns one opaque wrapper
-   (a sul struct + a rooted `JSValue` callback) per scheduled call.
-   ```js
-   const timer = ctx.schedule(() => console.log('fired'), 5000); // ms delay
-   timer.cancel();
-   ```
-
-7. **JWK + JWT session auth.** `lws-jwk.h` (`lws_jwk_generate`/`_import`/
+2. **JWK + JWT session auth.** `lws-jwk.h` (`lws_jwk_generate`/`_import`/
    `_export`/`_rfc7638_fingerprint`) as a new `LWSJWK` class, then
    `lws-jwt-auth.h`/`lws_jwt_*` (`lws-jws.h`) on top: `lws_jwt_sign_compact`,
    `lws_jwt_signed_validate`, and the two wsi-scoped cookie helpers
@@ -315,13 +238,13 @@ currently unimplemented per `binding_coverage.json`.
    const claims2 = wsi.getJwtCookie(key, { name: 'session' }); // null if missing/invalid/expired
    ```
 
-8. **Generic crypto: hash / HMAC / HKDF / AES.** `lws-genhash.h`
+3. **Generic crypto: hash / HMAC / HKDF / AES.** `lws-genhash.h`
    (`lws_genhash_init`/`_update`/`_destroy`, `lws_genhmac_*`,
    `lws_genhkdf_*`) and `lws-genaes.h` (`lws_genaes_create`/`_crypt`/
    `_destroy`) as new `Hash`/`Hmac` classes - QuickJS has no WebCrypto, and
    this is a ~3-function wrapper per algorithm over `ArrayBuffer`. RSA/EC
    (`lws-genrsa.h`/`lws-genec.h`) are lower priority - reach them via JWK
-   (#7) once that exists, since they share the same key-element
+   (#2) once that exists, since they share the same key-element
    representation.
    ```js
    import { Hash, Hmac } from 'lws.so';
@@ -330,7 +253,7 @@ currently unimplemented per `binding_coverage.json`.
    const mac = new Hmac('sha256', key).update(body).digest('hex');
    ```
 
-9. **Metrics, read path only.** `lws_metrics_foreach(ctx, user, cb)` +
+4. **Metrics, read path only.** `lws_metrics_foreach(ctx, user, cb)` +
    `lws_metrics_format()` (`lws-metrics.h`, needs `LWS_WITH_SYS_METRICS`) -
    enumerate lws's own built-in per-layer instrumentation (DNS/connect/
    TLS/http counters, means, histograms) as plain JS objects. Skip the
@@ -342,7 +265,7 @@ currently unimplemented per `binding_coverage.json`.
 
 **Conditional / opportunistic:**
 
-10. **WebTransport.** `lws_wt_create_stream(session, unidi)` /
+5. **WebTransport.** `lws_wt_create_stream(session, unidi)` /
     `lws_wt_get_session_wsi(wsi)` / `lws_wt_is_session(wsi)` /
     `lws_wt_is_unidi(wsi)` (RFC 9297 over HTTP/3 + QUIC datagrams) - tiny
     API surface, all wsi-scoped so it drops straight onto the existing
@@ -365,7 +288,7 @@ currently unimplemented per `binding_coverage.json`.
     }]
     ```
 
-11. **TLS session resumption save/load.** `lws_tls_session_dump_save`/
+6. **TLS session resumption save/load.** `lws_tls_session_dump_save`/
     `_load(vhost, host, port, cb, opaque)` (`lws-tls-sessions.h`) - the
     caching itself is already on by default (just expose the two
     `info.tls_session_cache_max`/`tls_session_timeout` knobs); these two
@@ -377,7 +300,7 @@ currently unimplemented per `binding_coverage.json`.
     vhost.loadTlsSession('example.com', 443, readFileSync('./session.bin'));
     ```
 
-12. **Vhost dynamic mounts + proxy/SOCKS.** `lws_vhost_set_mounts(v,
+7. **Vhost dynamic mounts + proxy/SOCKS.** `lws_vhost_set_mounts(v,
     mounts)`, `lws_set_proxy(vhost, url)`, `lws_set_socks(vhost, url)`
     (`lws-context-vhost.h`) - today mounts and outbound proxying are
     creation-time-only options; these let a long-lived `LWSVhost` be
@@ -387,7 +310,7 @@ currently unimplemented per `binding_coverage.json`.
     vhost.setProxy('http://proxy.local:3128');
     ```
 
-13. **Streaming JSON parser (LEJP).** `lejp_construct`/`lejp_parse`/
+8. **Streaming JSON parser (LEJP).** `lejp_construct`/`lejp_parse`/
     `_destruct` (`lws-lejp.h`) - `JSON.parse` needs the whole string
     buffered first; LEJP parses arbitrary-size, slowly-arriving JSON (e.g.
     a large streamed request body) in bounded memory via path-matched
@@ -401,7 +324,7 @@ currently unimplemented per `binding_coverage.json`.
     for await (const chunk of req.body) parser.write(chunk);
     ```
 
-14. **SMD (in-process pub/sub for lws's own events).**
+9. **SMD (in-process pub/sub for lws's own events).**
     `lws_smd_register(ctx, flags, class_filter, cb)` / `lws_smd_msg_printf`
     (`lws-smd.h`) - payloads are already JSON, so the binding is almost
     free; the real value is receiving lws's own system/network/metrics
@@ -414,7 +337,7 @@ currently unimplemented per `binding_coverage.json`.
     ctx.smd.emit('user', { kind: 'signup', id: 42 });
     ```
 
-15. **Small utility grab-bag.** Cheap, standalone, no state: `lws_is_lan_address`/
+10. **Small utility grab-bag.** Cheap, standalone, no state: `lws_is_lan_address`/
     `lws_is_local_address`/`lws_parse_cidr` (`lws-network-helper.h`, useful
     for JS-side access-control decisions), `lws_strcmp_wildcard`
     (`lws-tokenize.h` - the *exact* glob matcher lws itself uses for vhost
@@ -433,7 +356,7 @@ currently unimplemented per `binding_coverage.json`.
 
 **Lower priority - real but niche:**
 
-16. **VFS passthrough.** `lws_set_fops(ctx, fops)` (`lws-vfs.h`) would let
+11. **VFS passthrough.** `lws_set_fops(ctx, fops)` (`lws-vfs.h`) would let
     a JS-implemented virtual filesystem (in-memory assets, a bundler
     output, a database) be served through lws's fully-featured static
     file mount - ranges, compression negotiation, caching headers, all for
@@ -441,14 +364,14 @@ currently unimplemented per `binding_coverage.json`.
     (possibly reentrantly) is the trickiest reentrancy problem in this
     entire list. Don't attempt without a clear plan for that.
 
-17. **TTL cache.** `lws_cache_create`/`_write_through`/`_item_get`
+12. **TTL cache.** `lws_cache_create`/`_write_through`/`_item_get`
     (`lws-cache-ttl.h`) as a new `LWSCache` class. JS already has `Map`;
     the only non-duplicative part is TTL expiry + LRU footprint capping,
     and cached-pointer-valid-only-until-you-return-to-the-event-loop
     doesn't survive contact with JS values without an extra copy anyway.
     Bind only if someone actually asks for it.
 
-18. **Fault injection.** `lws_fi_deserialize(fic, "namespace/fault(30%)")`
+13. **Fault injection.** `lws_fi_deserialize(fic, "namespace/fault(30%)")`
     (`lws-fault-injection.h`, needs `LWS_WITH_SYS_FAULT_INJECTION`) - one
     function, whole config surface is a string. Genuinely useful for
     testing *qjs-lws's own* error-path handling (does JS do the right
@@ -462,13 +385,13 @@ with its own JSON policy language and state machine that duplicates,
 rather than complements, the wsi/protocol-callback model qjs-lws already
 exposes - big effort for redundant payoff. Display list objects
 (`lws-dlo.h`, 41 unimplemented functions) and image *rendering*
-(`lws-upng.h`/`lws-jpeg.h` past the metadata scan in #15) are the
+(`lws-upng.h`/`lws-jpeg.h` past the metadata scan in #10) are the
 rasterization half of lws's HTML-to-e-ink-panel stack - line-by-line
 output to a physical display driver, no framebuffer, no "render to a
 buffer and serve it" exit path - confirmed embedded-GUI-only, not useful
 headless. Backtrace/crash diagnostics (`lws-backtrace.h`) produce C frame
 addresses meaningless to a JS author who already has QuickJS's own stack
-traces. The old `lws-diskcache.h` is undocumented and redundant with #17.
+traces. The old `lws-diskcache.h` is undocumented and redundant with #12.
 `lws-struct.h` (C struct↔JSON↔sqlite3 mapping) exists to give C code the
 JSON story JS already has natively. Generic containers (`lws-map.h`,
 `lws-dll2.h`, `lws-lwsac.h`) are internal-use-only - `lws_dll2` is
