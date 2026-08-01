@@ -7,7 +7,7 @@
  */
 import * as os from 'os';
 import * as std from 'std';
-import { walk } from './glob.js';
+import { walk } from './match.js';
 import { runCommand } from './run-command.js';
 
 const REQUEST_RE = /^(LIST|READ|RUN):[ \t]*(.+)$/gm;
@@ -35,7 +35,8 @@ export function extractRequests(text) {
   return requests;
 }
 
-function listFiles(dir, root) {
+/** Every listable (JS/C/HTML/CSS/Markdown + README*) file under `dir` (relative to `root`), sorted. */
+export function listFiles(dir, root) {
   const base = dir ? (root === '.' ? dir : `${root}/${dir}`) : root;
   const out = [];
 
@@ -64,8 +65,14 @@ function readFile(path, root) {
  * Runs every request against the project tree rooted at `root`, and
  * formats the results into one block of text meant to be fed straight
  * back to the model as its next turn's input (see repl.js's tool loop).
+ *
+ * @param {(cmd: string) => Promise<boolean>} [confirmRun] - asked before
+ *   each RUN: request actually executes; a declined command is reported
+ *   back to the model as declined, not run. Omit to run unconditionally
+ *   (used for repl.js's own startup project-scan, which never issues
+ *   RUN: requests in the first place).
  */
-export async function runRequests(requests, root) {
+export async function runRequests(requests, root, confirmRun) {
   const parts = [];
 
   for(const { type, arg } of requests) {
@@ -76,6 +83,11 @@ export async function runRequests(requests, root) {
       const content = readFile(arg, root);
       parts.push(content == null ? `READ: ${arg}\n(not found, or not a regular file)` : `READ: ${arg}\n\`\`\`\n${content}\n\`\`\``);
     } else if(type === 'RUN') {
+      if(confirmRun && !(await confirmRun(arg))) {
+        parts.push(`RUN: ${arg}\n(declined by user - not executed)`);
+        continue;
+      }
+
       const { output, status, timedOut } = await runCommand(arg, { cwd: root });
       parts.push(`RUN: ${arg}\n(exit ${status}${timedOut ? ', timed out' : ''})\n\`\`\`\n${output || '(no output)'}\n\`\`\``);
     }

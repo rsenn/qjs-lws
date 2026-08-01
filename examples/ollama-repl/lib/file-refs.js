@@ -7,7 +7,7 @@
  */
 import * as os from 'os';
 import * as std from 'std';
-import { globMatch, isGlobPattern } from './glob.js';
+import { globMatch, isGlobPattern } from './match.js';
 import { REFERENCE_FILES } from './reference-files.js';
 
 /* A path-shaped token: contains a `/`, or a glob metacharacter, or ends in

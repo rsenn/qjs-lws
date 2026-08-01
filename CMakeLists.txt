@@ -646,6 +646,12 @@ install(PROGRAMS examples/ollama-repl/repl.js
 # them as './lib/*.js') rather than merged into QUICKJS_JS_MODULE_DIR -
 # they're example-specific, not general-purpose library modules.
 set(OLLAMA_REPL_LIB_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/ollama-repl-lib")
+# Wiped and regenerated every configure - otherwise a source file renamed or
+# removed from examples/ollama-repl/lib/ (e.g. glob.js -> match.js) leaves
+# its stale rewritten copy behind here, and the *.js glob two steps down
+# installs it right alongside the real one (confirmed directly: both
+# glob.js and match.js ended up in bin/lib/ after that exact rename).
+file(REMOVE_RECURSE "${OLLAMA_REPL_LIB_BUILD_DIR}")
 file(MAKE_DIRECTORY "${OLLAMA_REPL_LIB_BUILD_DIR}")
 
 file(GLOB OLLAMA_REPL_LIB_FILES examples/ollama-repl/lib/*.js)

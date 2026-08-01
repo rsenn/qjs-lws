@@ -18,10 +18,11 @@
  *   ollama-repl [--model ...] [...]
  */
 import * as std from 'std';
+import * as os from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
 import { extractFileRefs, formatFileBlocks } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
-import { extractRequests, runRequests } from './lib/tool-requests.js';
+import { extractRequests, runRequests, listFiles } from './lib/tool-requests.js';
 import { ChatREPL } from './lib/chat-repl.js';
 import { SessionLog } from './lib/session-log.js';
 import { SentFiles } from './lib/sent-files.js';
@@ -52,8 +53,11 @@ function parseArgs(argv) {
 }
 
 const SYSTEM_PROMPT = `You are a coding assistant working inside a local project tree, similar to
-Claude Code. The user's messages may include attached file contents, shown
-as:
+Claude Code - be proactive and thorough the same way: verify things
+against the actual codebase instead of guessing, understand existing
+conventions before proposing changes, and keep answers grounded in what
+you've actually seen (via READ:/LIST:/RUN: below), not assumption. The
+user's messages may include attached file contents, shown as:
 
 File: path/to/file.ext
 \`\`\`language
@@ -69,11 +73,16 @@ those, and a "File:" block found anywhere in your reply gets written to
 disk automatically, overwriting whatever is already there. You may include
 prose before/after/between file blocks; each one will be
 extracted and written to disk automatically, overwriting the existing
-file. Only include files you actually want to change. Any OTHER fenced
-code block in your reply (no "File:" label - a snippet, an example, code
-you're not sure belongs in the tree yet) is still saved automatically, as
-its own numbered file, so nothing you write is ever lost even if it
-wasn't meant as a file edit.
+file. Only include files you actually want to change.
+
+For EVERY code snippet you write, in ANY reply - even a quick example, not
+just an actual file edit - suggest a real filename for it using the same
+"File: path" format, choosing an extension that matches the language,
+rather than leaving it an unlabeled snippet. Only skip this for something
+that's obviously not meant to be saved (a one-line shell command, a single
+expression). Anything you still leave unlabeled is saved anyway, as its
+own auto-numbered file, so nothing is ever lost - but a real name you
+chose is always more useful than one the REPL had to invent.
 
 You can also ask the REPL to do things for you BEFORE you answer, using
 these request lines - each on its own line, exactly like this:
@@ -85,13 +94,24 @@ RUN: <shell command>
 LIST shows every JS/C/HTML/CSS/Markdown source file (and README*) under a
 directory, recursively - use it to learn a project's layout. READ shows
 one file's contents (or every file matching a glob). RUN executes a shell
-command in the project root and shows you its output (bounded time and
-output size - it will tell you if it was truncated or timed out).
+command yourself, in the project root, and shows you its output (bounded
+time and output size - it will tell you if it was truncated or timed out)
+- use it freely to grep/search through the codebase (e.g.
+"grep -rn TODO src"), inspect a directory (ls, find), or debug something
+(run a test, check a tool's version, reproduce an error) instead of
+guessing what a command would print. The user is asked to approve each
+RUN: command before it actually executes (you'll be told if one was
+declined) - that's just a safety gate, not something you need to ask
+about yourself; simply issue the RUN: line you need.
 
-Use this liberally and as EARLY as possible - the moment you're not
-certain about something (a file's actual contents, what a directory
-contains, whether code compiles or a test passes, what a project's
-structure even is) - rather than guessing or making something up. Prefer
+The project's top-level layout and any README/CMakeLists.txt contents are
+already given to you below, gathered automatically at the start of this
+session - read that first before LIST:/READ:-ing the same things again.
+For anything not already covered there (a subdirectory, a specific
+source file, a test's actual behavior), use these requests to go look
+before answering - the moment you're not certain about something (a
+file's actual contents, what a directory contains, whether code compiles
+or a test passes) rather than guessing or making something up. Prefer
 asking over assuming. You may issue several request lines in one reply;
 each one runs, and you'll be shown the results and asked again, so build
 up what you need step by step - LIST a directory to see what's there,
@@ -206,7 +226,7 @@ async function chatRound(client, messages, opts) {
  *
  * @returns {Promise<string>} the final reply shown to the user
  */
-async function runToolLoop(client, messages, opts, log) {
+async function runToolLoop(client, messages, opts, log, confirmRun) {
   for(let round = 0; ; round++) {
     const reply = await chatRound(client, messages, opts);
     messages.push({ role: 'assistant', content: reply });
@@ -217,7 +237,7 @@ async function runToolLoop(client, messages, opts, log) {
 
     console.log(`\x1b[2m(${requests.map(r => `${r.type}: ${r.arg}`).join(' | ')})\x1b[0m`);
 
-    const results = await runRequests(requests, opts.root);
+    const results = await runRequests(requests, opts.root, confirmRun);
     log.toolResults(results);
 
     messages.push({
@@ -225,6 +245,25 @@ async function runToolLoop(client, messages, opts, log) {
       content: `Tool results:\n\n${results}\n\nContinue - answer now if you have enough information, or issue more LIST:/READ:/RUN: requests if you still need to.`,
     });
   }
+}
+
+/**
+ * Runs an automatic LIST + READ of the project root's own layout (every
+ * README*, plus CMakeLists.txt if the project has one) and returns it
+ * formatted the same way a model-requested LIST:/READ: round would be -
+ * seeded into `messages` once at startup (see main()) so the model always
+ * starts a session already knowing the project's shape, the same way
+ * Claude Code auto-reads project context rather than waiting to be asked.
+ */
+async function gatherProjectContext(root) {
+  const files = listFiles('', root);
+  const readmes = files.filter(f => /^readme/i.test(f.slice(f.lastIndexOf('/') + 1)));
+  const requests = [{ type: 'LIST', arg: '.' }, ...readmes.map(f => ({ type: 'READ', arg: f }))];
+
+  const [cmakeStat] = os.stat(root === '.' ? 'CMakeLists.txt' : `${root}/CMakeLists.txt`);
+  if(cmakeStat) requests.push({ type: 'READ', arg: 'CMakeLists.txt' });
+
+  return runRequests(requests, root);
 }
 
 async function main() {
@@ -236,7 +275,19 @@ async function main() {
 
   console.log(`ollama-repl: ${opts.model} @ ${opts.host}:${opts.port}  (root: ${opts.root})`);
   console.log(`Type a prompt and press Enter. Reference files by name or glob (e.g. src/*.js) to attach them. /help for commands.`);
-  console.log(`Logging this session to ${opts.model}.log. History persists via qjs-modules' repl module (^R to search, up/down to recall).\n`);
+  console.log(`Logging this session to ${opts.model}.log. History persists via qjs-modules' repl module (^R to search, up/down to recall).`);
+
+  console.log(`\x1b[2m(scanning project layout...)\x1b[0m`);
+  const projectContext = await gatherProjectContext(opts.root);
+  messages.push(
+    { role: 'user', content: `(automatic project scan at session start)\n\n${projectContext}` },
+    { role: 'assistant', content: "Got it - I have the project's layout and README/CMakeLists.txt contents above." },
+  );
+  log.toolResults(projectContext);
+  console.log();
+
+  // /reset clears conversation history, not the auto-loaded project scan.
+  const baseMessageCount = messages.length;
 
   const repl = new ChatREPL('you', async line => {
     const prompt = line.trim();
@@ -245,7 +296,7 @@ async function main() {
     if(prompt === '/exit' || prompt === '/quit') return repl.exit(0);
 
     if(prompt === '/reset') {
-      messages.length = 1;
+      messages.length = baseMessageCount;
       console.log('(conversation reset)');
       return;
     }
@@ -261,9 +312,11 @@ async function main() {
     const turnStart = messages.length;
     messages.push({ role: 'user', content: withFiles });
 
+    const confirmRun = cmd => repl.confirm(`Run this command?\n  ${cmd}`);
+
     let reply;
     try {
-      reply = await runToolLoop(client, messages, opts, log);
+      reply = await runToolLoop(client, messages, opts, log, confirmRun);
     } catch(e) {
       console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
       messages.length = turnStart; // don't leave a dangling/partial turn behind

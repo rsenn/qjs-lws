@@ -17,7 +17,7 @@ model (`qwen2.5-coder` by default) about the files in your project.
 - **File/glob detection.** Type a path or glob straight into your prompt
   ("fix the bug in `src/foo.js`", "review `*.md`") and it's read off disk
   and attached to the request automatically (`lib/file-refs.js`,
-  `lib/glob.js`) - no special `@file` syntax needed.
+  `lib/match.js`) - no special `@file` syntax needed.
 - **File output.** When you ask the model to create or modify a file, it's
   instructed (via the system prompt in `repl.js`) to reply with a
   `File: path` line followed by a fenced code block. Every such block in
@@ -28,16 +28,28 @@ model (`qwen2.5-coder` by default) about the files in your project.
   language tag, `lib/sent-files.js` tracks the numbering across a run so
   it never collides with a previous run's output files) - nothing the
   model writes is silently dropped just because it skipped the
-  convention.
+  convention. The system prompt asks it to suggest a real filename for
+  every snippet it writes (even a quick example), so the auto-numbered
+  fallback is mostly a safety net rather than the common case.
 - **Project awareness (LIST:/READ:/RUN:).** The system prompt tells the
   model it can ask the REPL to list files (`lib/tool-requests.js`,
   restricted to JS/C/HTML/CSS/Markdown + README\*), read a file or glob,
-  or run a shell command (`lib/run-command.js`, output-capped and
+  or run a shell command itself - to grep/search the codebase, inspect a
+  directory, or debug something (`lib/run-command.js`, output-capped and
   time-bounded) - and to do so proactively, as soon as it's unsure about
   something, rather than guessing. Each reply is scanned for these
   request lines; if any are found, they're run and the results fed back
   as the model's next turn automatically (up to `MAX_TOOL_ROUNDS` rounds
-  per prompt, in `repl.js`) before the final answer is shown.
+  per prompt, in `repl.js`) before the final answer is shown. `RUN:`
+  commands are never run silently - you're shown the exact command and
+  asked to approve it (`ChatREPL#confirm()`, `lib/chat-repl.js`) before it
+  executes; a declined command is reported back to the model as declined.
+- **Automatic project scan at startup.** Before the first prompt, the
+  REPL runs its own `LIST:`/`READ:` of the project root - every README\*
+  and `CMakeLists.txt` if present - and seeds it into the conversation
+  automatically (`gatherProjectContext()`, `repl.js`), the same way Claude
+  Code reads project context up front instead of waiting to be asked.
+  `/reset` clears conversation history but keeps this initial scan.
 - **QuickJS/qjs-modules awareness.** The system prompt gives the model a
   concise primer on the QuickJS C API (`JSValue`/`JSContext`, the class +
   opaque-struct pattern, `JS_CFUNC_MAGIC_DEF`/`JS_CGETSET_MAGIC_DEF`,

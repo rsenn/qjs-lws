@@ -89,4 +89,53 @@ export class ChatREPL extends REPL {
         else this.handleCmdEnd();
       });
   }
+
+  /**
+   * Asks a yes/no question and waits for the answer - used to gate RUN:
+   * requests (lib/tool-requests.js) on user approval before a shell
+   * command actually executes. Deliberately bypasses handleCmd()/#run()/
+   * the busy-queue above entirely (calling the base REPL's own
+   * readlineStart() directly, with its own one-off callback) rather than
+   * going through onLine() - this is normally invoked *from inside* an
+   * in-progress onLine() call (while #busy is already true), so routing
+   * it through the same dispatch would just queue the answer behind the
+   * very call that's waiting on it, deadlocking forever.
+   *
+   * @returns {Promise<boolean>}
+   */
+  confirm(promptText) {
+    const savedPs1 = this.ps1;
+    let answered = false;
+
+    return new Promise(resolve => {
+      this.ps1 = '\x1b[33m[y/N]\x1b[0m ';
+      console.log(`\x1b[33m${promptText}\x1b[0m`);
+
+      const cb = answer => {
+        /* Same batched-bytes situation as handleCmd()'s own reset (see its
+           comment): termReadHandler() can drain several already-piped/
+           pasted lines in one synchronous pass, so a line meant for the
+           *next* normal prompt can reach this one-shot callback again
+           before readlineStart() below is what would normally reset
+           `this.cmd`. Reset it ourselves every time this fires, and
+           forward any line beyond the first real answer to handleCmd()
+           instead of silently dropping it (confirmed directly: without
+           this, piped "y"/"next prompt" lost the second line entirely -
+           readlineCallback stayed pointed at this already-settled
+           closure, whose resolve() on a second call is a silent no-op). */
+        this.cmd = '';
+        this.cursorPos = 0;
+
+        if(!answered) {
+          answered = true;
+          this.ps1 = savedPs1;
+          resolve(/^y(es)?$/i.test((answer ?? '').trim()));
+        } else if(answer) {
+          this.handleCmd(answer);
+        }
+      };
+
+      this.readlineStart('', cb);
+    });
+  }
 }
