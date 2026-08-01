@@ -1,5 +1,5 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { LWSContext, createServer } from 'lws.so';
+import { LWSContext, createServer, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws.so';
 
 function freePort() {
   // Unlikely-to-collide high port range for this test file's own use.
@@ -77,5 +77,56 @@ await tests({
     const ctx = new LWSContext({ vhost_name: 'localhost', protocols: [{ name: 'http' }] });
     assert(ctx instanceof LWSContext, 'expected construction with vhost_name to succeed');
     ctx.destroy();
+  },
+
+  /* Regression for BUGS: option-key-casing-silently-ignored. local_port
+     (client_connect_info_fromobj, lws-context.c) was gated by a plain
+     js_has_property() exact-match check with no camelCase fallback, so
+     clientConnect({ localPort }) silently bound the default (any) source
+     port instead of throwing or working - confirmed here by having the
+     server read back the actual source port the connection arrived from
+     (wsi.peer.port) and asserting it matches what was requested. */
+  async 'clientConnect({ localPort }) binds the outgoing connection to that source port'() {
+    const port = freePort();
+    const sourcePort = freePort();
+
+    let resolvePort, rejectClient;
+    const observed = new Promise((resolve, reject) => {
+      resolvePort = resolve;
+      rejectClient = reject;
+    });
+
+    const server = createServer({
+      port,
+      options: LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
+      listenAcceptRole: 'raw-skt',
+      listenAcceptProtocol: 'raw',
+      protocols: [
+        {
+          name: 'raw',
+          onRawAdopt(wsi) {
+            resolvePort(wsi.peer.port);
+          },
+        },
+      ],
+    });
+
+    const client = new LWSContext({
+      protocols: [
+        {
+          name: 'raw',
+          onRawConnected() {},
+          onClientConnectionError(wsi, msg) {
+            rejectClient(new Error(msg));
+          },
+        },
+      ],
+    });
+    client.clientConnect({ address: 'localhost', port, method: 'RAW', protocol: 'raw', localPort: sourcePort });
+
+    eq(sourcePort, await observed);
+
+    client.destroy();
+    server.destroy();
   },
 });

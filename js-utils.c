@@ -39,11 +39,35 @@ js_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
   return value;
 }
 
+/* Checks `name` (as given) first, falling back to its camelCase spelling
+   if that's absent - option objects throughout this codebase are keyed in
+   snake_case (matching the underlying lws struct field names) but JS
+   callers commonly write camelCase, so this fallback needs to live in the
+   one shared has-property primitive rather than in each individual call
+   site (see BUGS: option-key-casing-silently-ignored - a handful of
+   integer-typed properties bypassed js_has_property2()'s equivalent
+   fallback by calling this function directly, so only the exact
+   snake_case spelling worked for them). A no-op for names that are
+   already camelCase or contain no underscores (camelize() returns them
+   unchanged), so this doesn't change behavior for non-option callers. */
 BOOL
 js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
   JSAtom atom = JS_NewAtom(ctx, name);
   BOOL ret = JS_HasProperty(ctx, obj, atom);
   JS_FreeAtom(ctx, atom);
+
+  if(!ret) {
+    char buf[strlen(name) + 1];
+
+    camelize(buf, sizeof(buf), name);
+
+    if(strcmp(buf, name) != 0) {
+      atom = JS_NewAtom(ctx, buf);
+      ret = JS_HasProperty(ctx, obj, atom);
+      JS_FreeAtom(ctx, atom);
+    }
+  }
+
   return ret;
 }
 
@@ -61,17 +85,30 @@ js_has_property2(JSContext* ctx, JSValueConst obj, const char* name) {
   return TRUE;
 }
 
+/* Fetches the exact name's own value first, falling back to the
+   camelCase spelling only if that came back `undefined` - deliberately
+   NOT gated on js_has_property() (which, since it does its own
+   snake_case<->camelCase fallback internally, would say "yes" for the
+   exact name whenever *either* spelling is present, short-circuiting
+   this function past the branch that actually fetches the camelCase
+   value and leaving `local_port`-style snake_case-canonical properties
+   set from their camelCase spelling reading back as undefined). */
 JSValue
 js_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
-  if(!js_has_property(ctx, obj, name)) {
+  JSValue ret = JS_GetPropertyStr(ctx, obj, name);
+
+  if(JS_IsUndefined(ret)) {
     char buf[strlen(name) + 1];
 
     camelize(buf, sizeof(buf), name);
 
-    return JS_GetPropertyStr(ctx, obj, buf);
+    if(strcmp(buf, name) != 0) {
+      JS_FreeValue(ctx, ret);
+      ret = JS_GetPropertyStr(ctx, obj, buf);
+    }
   }
 
-  return JS_GetPropertyStr(ctx, obj, name);
+  return ret;
 }
 
 void
