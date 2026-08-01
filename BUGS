@@ -183,3 +183,18 @@
 
     (run: QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm
     tests/unittests/test-tcpsocket.js)
+
+- response-ok-stale-after-establish (lib/lws/response.js:35, Response
+  constructor; lib/lws/protocols.js:290, HttpClientProtocol#onEstablishedClientHttp):
+  `resp.ok` is computed once from `options.status` at construction time
+  (defaulting to 200 when the caller didn't pass a status, which
+  HttpClientProtocol never does), but the real HTTP status only gets
+  patched onto `resp.status` later, in onEstablishedClientHttp - `resp.ok`
+  is never recomputed, so it reads `true` for every client HTTP response
+  regardless of the actual status code. Found while building
+  examples/ollama-repl (its ollama-client.js checks `resp.status` directly
+  instead, with a comment explaining why). fetch() (lib/fetch.js) has the
+  same exposure for any caller checking `response.ok`.
+
+    const resp = await fetch('http://localhost:1/nope-should-404-or-refuse');
+    console.log(resp.ok); // true, even though resp.status is not 2xx
