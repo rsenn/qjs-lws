@@ -10,6 +10,7 @@ import * as os from 'os';
 import * as std from 'std';
 
 const FILE_BLOCK_RE = /^File:[ \t]*(\S+)[ \t]*\r?\n```[^\n`]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/gm;
+const FENCE_RE = /```([a-zA-Z0-9_+-]*)[ \t]*\r?\n([\s\S]*?)\r?\n```/g;
 
 /** Every `{ path, content }` file block found in `text`. */
 export function extractFileBlocks(text) {
@@ -19,6 +20,62 @@ export function extractFileBlocks(text) {
   FILE_BLOCK_RE.lastIndex = 0;
 
   while((m = FILE_BLOCK_RE.exec(text))) blocks.push({ path: m[1].replaceAll(/(^[`'"]|[`'"]$)/g, ''), content: m[2] });
+
+  return blocks;
+}
+
+const LANG_EXT = {
+  javascript: 'js',
+  js: 'js',
+  jsx: 'jsx',
+  typescript: 'ts',
+  ts: 'ts',
+  tsx: 'tsx',
+  json: 'json',
+  python: 'py',
+  py: 'py',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  'c++': 'cpp',
+  hpp: 'cpp',
+  html: 'html',
+  css: 'css',
+  bash: 'sh',
+  sh: 'sh',
+  shell: 'sh',
+  markdown: 'md',
+  md: 'md',
+  yaml: 'yaml',
+  yml: 'yaml',
+};
+
+/** File extension (no dot) for a fenced-code-block language tag, "txt" for anything unrecognized/empty. */
+export function extensionFor(lang) {
+  return LANG_EXT[(lang || '').toLowerCase()] ?? 'txt';
+}
+
+/**
+ * Every fenced code block in `text` that ISN'T claimed by a "File:" label
+ * (extractFileBlocks() above) - the "never miss a file in a response"
+ * fallback for a reply that includes unlabeled code. Returned as
+ * `{ lang, content }` in reply order; callers (saveAllBlocks() below)
+ * assign the actual output path.
+ */
+export function extractAnonymousBlocks(text) {
+  const namedRanges = [];
+  let m;
+
+  FILE_BLOCK_RE.lastIndex = 0;
+  while((m = FILE_BLOCK_RE.exec(text))) namedRanges.push([m.index, m.index + m[0].length]);
+
+  const blocks = [];
+
+  FENCE_RE.lastIndex = 0;
+  while((m = FENCE_RE.exec(text))) {
+    if(namedRanges.some(([start, end]) => m.index >= start && m.index < end)) continue;
+    blocks.push({ lang: m[1], content: m[2] });
+  }
 
   return blocks;
 }
@@ -82,6 +139,29 @@ export function saveFileBlocks(blocks, root = '.') {
     f.close();
     written.push(path);
   }
+
+  return { written, rejected };
+}
+
+/**
+ * Saves *every* code block in a reply - "File:"-labeled ones under their
+ * given path, and any remaining unlabeled fenced block (see
+ * extractAnonymousBlocks() above) under an auto-assigned
+ * "<model>-output-N.ext" path from `sentFiles` (lib/sent-files.js) - so a
+ * reply never silently drops code the model produced just because it
+ * didn't follow the "File:" convention for it. Every path actually
+ * written (named or auto-named) is registered with `sentFiles.add()`.
+ */
+export function saveAllBlocks(reply, { root = '.', sentFiles } = {}) {
+  const named = extractFileBlocks(reply);
+  const anonymous = extractAnonymousBlocks(reply).map(({ lang, content }) => ({
+    path: sentFiles.nextOutputPath(extensionFor(lang)),
+    content,
+  }));
+
+  const { written, rejected } = saveFileBlocks([...named, ...anonymous], root);
+
+  for(const path of written) sentFiles.add(path);
 
   return { written, rejected };
 }

@@ -22,7 +22,22 @@ model (`qwen2.5-coder` by default) about the files in your project.
   instructed (via the system prompt in `repl.js`) to reply with a
   `File: path` line followed by a fenced code block. Every such block in
   a reply is parsed out and written into your project tree automatically
-  (`lib/file-blocks.js`), and printed as `modified: path`.
+  (`lib/file-blocks.js`), and printed as `modified: path`. Any OTHER
+  fenced code block in a reply - one without a `File:` label - is saved
+  too, as `<model>-output-N.ext` (extension guessed from the block's
+  language tag, `lib/sent-files.js` tracks the numbering across a run so
+  it never collides with a previous run's output files) - nothing the
+  model writes is silently dropped just because it skipped the
+  convention.
+- **Project awareness (LIST:/READ:/RUN:).** The system prompt tells the
+  model it can ask the REPL to list files (`lib/tool-requests.js`,
+  restricted to JS/C/HTML/CSS/Markdown + README\*), read a file or glob,
+  or run a shell command (`lib/run-command.js`, output-capped and
+  time-bounded) - and to do so proactively, as soon as it's unsure about
+  something, rather than guessing. Each reply is scanned for these
+  request lines; if any are found, they're run and the results fed back
+  as the model's next turn automatically (up to `MAX_TOOL_ROUNDS` rounds
+  per prompt, in `repl.js`) before the final answer is shown.
 - **QuickJS/qjs-modules awareness.** The system prompt gives the model a
   concise primer on the QuickJS C API (`JSValue`/`JSContext`, the class +
   opaque-struct pattern, `JS_CFUNC_MAGIC_DEF`/`JS_CGETSET_MAGIC_DEF`,

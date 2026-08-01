@@ -45,7 +45,7 @@ function globToRegExp(pattern) {
 }
 
 /** Recursively lists every regular file under `dir`, as paths relative to `root`. */
-function* walk(dir, root) {
+export function* walk(dir, root) {
   const [names, err] = os.readdir(dir);
 
   if(err) return;
