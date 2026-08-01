@@ -341,6 +341,16 @@ socket_free(LWSSocket* sock, JSRuntime* rt) {
       sock->close_reason = 0;
     }
 
+    if(sock->retry) {
+      /* struct lws_retry_bo's retry_ms_table is a separate allocation -
+         see retry_bo_fromobj(), lws-context.c. */
+      if(((const lws_retry_bo_t*)sock->retry)->retry_ms_table)
+        js_free_rt(rt, (void*)((const lws_retry_bo_t*)sock->retry)->retry_ms_table);
+
+      js_free_rt(rt, sock->retry);
+      sock->retry = 0;
+    }
+
     js_free_rt(rt, sock);
   }
 }
@@ -1043,6 +1053,9 @@ enum {
   PROP_PIPELINE_LEADER,
   PROP_IS_PIPELINE_LEADER,
   PROP_PIPELINE_QUEUE_DEPTH,
+#ifdef LWS_WITH_CONMON
+  PROP_CONMON,
+#endif
 };
 
 static JSValue
@@ -1225,6 +1238,37 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       break;
     }
 
+#ifdef LWS_WITH_CONMON
+    case PROP_CONMON: {
+      /* Only meaningful for a client connection made with `conmon: true`
+         (tls_connect_info_fromobj(), lws-tls.c, sets LCCSCF_CONMON) - lws
+         only actually collects this data when that flag was set. Taken
+         (not just read) here: lws_conmon_wsi_take() hands over ownership
+         of the dns_results_copy allocation, which lws_conmon_release()
+         then frees once we're done reading it a few lines down - the
+         whole take+read+release happens synchronously in this one getter
+         call, so there's no lifetime to manage past it. */
+      struct lws_conmon conmon;
+
+      lws_conmon_wsi_take(s->wsi, &conmon);
+
+      ret = JS_NewObjectProto(ctx, JS_NULL);
+
+      JS_SetPropertyStr(ctx, ret, "peer", lwsjs_sockaddr46_wrap(ctx, conmon.peer46));
+      JS_SetPropertyStr(ctx, ret, "dnsUs", JS_NewUint32(ctx, conmon.ciu_dns));
+      JS_SetPropertyStr(ctx, ret, "connectUs", JS_NewUint32(ctx, conmon.ciu_sockconn));
+      JS_SetPropertyStr(ctx, ret, "tlsUs", JS_NewUint32(ctx, conmon.ciu_tls));
+      JS_SetPropertyStr(ctx, ret, "firstByteUs", JS_NewUint32(ctx, conmon.ciu_txn_resp));
+      JS_SetPropertyStr(ctx, ret, "dnsDisposition", JS_NewInt32(ctx, conmon.dns_disposition));
+
+      if(conmon.pcol == LWSCONMON_PCOL_HTTP)
+        JS_SetPropertyStr(ctx, ret, "httpResponse", JS_NewInt32(ctx, conmon.protocol_specific.http.response));
+
+      lws_conmon_release(&conmon);
+      break;
+    }
+#endif
+
     case PROP_CONTEXT: {
       struct lws_context* lws;
 
@@ -1373,6 +1417,9 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("pipelineLeader", lwsjs_socket_get, 0, PROP_PIPELINE_LEADER),
     JS_CGETSET_MAGIC_DEF("isPipelineLeader", lwsjs_socket_get, 0, PROP_IS_PIPELINE_LEADER),
     JS_CGETSET_MAGIC_DEF("pipelineQueueDepth", lwsjs_socket_get, 0, PROP_PIPELINE_QUEUE_DEPTH),
+#ifdef LWS_WITH_CONMON
+    JS_CGETSET_MAGIC_DEF("conmon", lwsjs_socket_get, 0, PROP_CONMON),
+#endif
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSocket", JS_PROP_CONFIGURABLE),
 };
 

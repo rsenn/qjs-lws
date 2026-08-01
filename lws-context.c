@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 500
+#define _XOPEN_SOURCE 600
 #include <quickjs.h>
 #include <cutils.h>
 #include <list.h>
@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <strings.h>
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws-vhost.h"
@@ -106,6 +107,213 @@ service_tick_cancel(LWSContext* lws) {
   lws->service_timer_id = JS_UNDEFINED;
 }
 
+/* Backoff/connection-validity policy - `retry: { retryMsTable: [...],
+   concealCount, jitterPercent, secsSinceValidPing, secsSinceValidHangup }`
+   on context-creation info (LWSContext-/vhost-lifetime), or on a single
+   client-connect call (wsi-lifetime - see the METHOD_CLIENTCONNECT comment
+   on why that one is owned by the LWSSocket, not freed alongside the rest
+   of the connect-info struct). lws stores the *pointer* we return here on
+   the vhost/wsi (vhost.c/connect.c: `vh->retry_policy = info->…`), not a
+   copy of its contents, so whatever we allocate must outlive the
+   vhost/wsi it's attached to - that's why this returns a heap object for
+   the caller to own, rather than filling in a caller-supplied struct. */
+static lws_retry_bo_t*
+retry_bo_from_retryobj(JSContext* ctx, JSValueConst retry_obj) {
+  lws_retry_bo_t* bo = NULL;
+
+  if(JS_IsObject(retry_obj)) {
+    JSValue table_val = JS_GetPropertyStr(ctx, retry_obj, "retryMsTable");
+    uint32_t* table = NULL;
+    uint32_t count = 0;
+
+    if(JS_IsArray(ctx, table_val)) {
+      JSValue len_val = JS_GetPropertyStr(ctx, table_val, "length");
+      JS_ToUint32(ctx, &count, len_val);
+      JS_FreeValue(ctx, len_val);
+
+      if(count > 0 && (table = js_mallocz(ctx, sizeof(uint32_t) * count)))
+        for(uint32_t i = 0; i < count; i++) table[i] = to_integerfree(ctx, JS_GetPropertyUint32(ctx, table_val, i));
+    }
+
+    JS_FreeValue(ctx, table_val);
+
+    if(table) {
+      if((bo = js_mallocz(ctx, sizeof(lws_retry_bo_t)))) {
+        bo->retry_ms_table = table;
+        bo->retry_ms_table_count = (uint16_t)count;
+        /* Default conceal_count to the whole table (don't report failure
+           to the app until every entry's been tried once) unless given
+           explicitly. */
+        bo->conceal_count = (uint16_t)(js_has_property(ctx, retry_obj, "concealCount") ? to_integerfree(ctx, js_get_property(ctx, retry_obj, "concealCount")) : count);
+        bo->secs_since_valid_ping = (uint16_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "secsSinceValidPing"));
+        bo->secs_since_valid_hangup = (uint16_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "secsSinceValidHangup"));
+        bo->jitter_percent = (uint8_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "jitterPercent"));
+      } else {
+        js_free(ctx, table);
+      }
+    }
+  }
+
+  return bo;
+}
+
+static lws_retry_bo_t*
+retry_bo_fromobj(JSContext* ctx, JSValueConst obj) {
+  JSValue retry_obj = JS_GetPropertyStr(ctx, obj, "retry");
+  lws_retry_bo_t* bo = retry_bo_from_retryobj(ctx, retry_obj);
+
+  JS_FreeValue(ctx, retry_obj);
+  return bo;
+}
+
+static void
+retry_bo_free(JSRuntime* rt, const lws_retry_bo_t* bo) {
+  if(bo) {
+    if(bo->retry_ms_table)
+      js_free_rt(rt, (void*)bo->retry_ms_table);
+
+    js_free_rt(rt, (void*)bo);
+  }
+}
+
+#if defined(LWS_WITH_UDP) && defined(LWS_WITH_NETWORK)
+typedef struct {
+  JSContext* ctx;
+  JSValue resolving_funcs[2];
+} LWSDnsQuery;
+
+/* lws_async_dns_cb_t - fires exactly once, either synchronously from inside
+   lws_async_dns_query() (cache hit / immediate failure to start) or later
+   from the event loop, so `q` must already be fully set up (both promise
+   resolving funcs stashed) before that call is made. Since no wsi is
+   involved (a standalone lookup, not tied to a client connection), we pass
+   wsi=NULL and lws routes the callback through q->standalone_cb instead of
+   binding it to a wsi - see lws_async_dns_query() in async-dns.c. */
+static struct lws*
+lwsjs_resolve_cb(struct lws* wsi, const char* ads, const struct addrinfo* result, int n, void* opaque) {
+  LWSDnsQuery* q = opaque;
+  JSContext* ctx = q->ctx;
+  JSValue ret;
+
+  /* n is LADNS_RET_FOUND (0) on success, possibly OR'd with the
+     LWS_ADNS_DNSSEC_VALID/INVALID high bits - so a plain ==0 check would
+     wrongly treat a DNSSEC-flagged success as failure. Negative values are
+     the LADNS_RET_* error codes. */
+  if(n >= 0) {
+    JSValue arr = JS_NewArray(ctx);
+    uint32_t i = 0;
+    const struct addrinfo* p;
+
+    for(p = result; p; p = p->ai_next) {
+      lws_sockaddr46 sa46;
+
+      if(p->ai_addr && p->ai_addrlen <= sizeof(sa46)) {
+        char buf[64];
+
+        memset(&sa46, 0, sizeof(sa46));
+        memcpy(&sa46, p->ai_addr, p->ai_addrlen);
+
+        if(lws_sa46_write_numeric_address(&sa46, buf, sizeof(buf)) > 0)
+          JS_SetPropertyUint32(ctx, arr, i++, JS_NewString(ctx, buf));
+      }
+    }
+
+    ret = JS_Call(ctx, q->resolving_funcs[0], JS_UNDEFINED, 1, (JSValueConst*)&arr);
+    JS_FreeValue(ctx, ret);
+    JS_FreeValue(ctx, arr);
+
+    if(result)
+      lws_async_dns_freeaddrinfo(&result);
+  } else {
+    JSValue err = JS_NewError(ctx);
+
+    JS_SetPropertyStr(ctx, err, "message", JS_NewString(ctx, "DNS resolve failed"));
+    ret = JS_Call(ctx, q->resolving_funcs[1], JS_UNDEFINED, 1, (JSValueConst*)&err);
+    JS_FreeValue(ctx, ret);
+    JS_FreeValue(ctx, err);
+  }
+
+  JS_FreeValue(ctx, q->resolving_funcs[0]);
+  JS_FreeValue(ctx, q->resolving_funcs[1]);
+  js_free_rt(JS_GetRuntime(ctx), q);
+
+  return NULL;
+}
+#endif
+
+/* ctx.schedule(fn, ms) - a one-shot timer backed by lws's own sul scheduler
+   (lws-timeout-timer.h), so it fires on the same event-loop tick as
+   everything else this context does, instead of running through a second,
+   unrelated timer source (os.setTimeout). `t` is tracked on lws->timers
+   (list_head, lws-context.h) purely so .cancel() can look the pointer up
+   before touching it - firing removes it from that list and frees it, so a
+   .cancel() call arriving after the fact (or a second .cancel() call) finds
+   nothing and safely no-ops instead of dereferencing freed memory. */
+typedef struct {
+  struct list_head link;
+  lws_sorted_usec_list_t sul;
+  LWSContext* lws;
+  JSValue callback;
+} LWSTimer;
+
+static void
+lwsjs_timer_fire(lws_sorted_usec_list_t* sul) {
+  LWSTimer* t = lws_container_of(sul, LWSTimer, sul);
+  JSContext* ctx = t->lws->js;
+  JSValue callback = t->callback;
+  JSValue ret;
+
+  list_del(&t->link);
+  js_free_rt(JS_GetRuntime(ctx), t);
+
+  ret = JS_Call(ctx, callback, JS_UNDEFINED, 0, NULL);
+  JS_FreeValue(ctx, ret);
+  JS_FreeValue(ctx, callback);
+}
+
+static JSValue
+lwsjs_timer_cancel(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst func_data[]) {
+  LWSContext* lws = to_ptr(ctx, func_data[0]);
+  LWSTimer* target = to_ptr(ctx, func_data[1]);
+  struct list_head* el;
+
+  list_for_each(el, &lws->timers) {
+    LWSTimer* t = list_entry(el, LWSTimer, link);
+
+    if(t == target) {
+      list_del(&t->link);
+      lws_sul_cancel(&t->sul);
+      JS_FreeValue(ctx, t->callback);
+      js_free_rt(JS_GetRuntime(ctx), t);
+      break;
+    }
+  }
+
+  return JS_UNDEFINED;
+}
+
+/* Cancels and frees every still-pending ctx.schedule() timer - called from
+   METHOD_DESTROY and context_free() before the lws_context itself goes
+   away, since lws_sul_cancel() on a sul belonging to an already-destroyed
+   context is unsafe (its owning scheduler list is gone), and leaving the
+   JSValue callbacks unreleased would otherwise leak them. */
+static void
+timers_cleanup(LWSContext* lws) {
+  struct list_head *el, *next;
+
+  list_for_each_safe(el, next, &lws->timers) {
+    LWSTimer* t = list_entry(el, LWSTimer, link);
+
+    list_del(&t->link);
+
+    if(lws->ctx)
+      lws_sul_cancel(&t->sul);
+
+    JS_FreeValue(lws->js, t->callback);
+    js_free_rt(JS_GetRuntime(lws->js), t);
+  }
+}
+
 static void
 client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_connect_info* ci) {
   JSValue value;
@@ -141,6 +349,13 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_
 
   str_property(&ci->auth_username, ctx, obj, "auth_username");
   str_property(&ci->auth_password, ctx, obj, "auth_password");
+
+  /* Not freed by client_connect_info_free() below: lws stores this pointer
+     on the wsi itself (connect.c: `wsi->retry_policy = i->…`), which
+     outlives this stack-allocated info struct - ownership is moved onto
+     the LWSSocket instead (see METHOD_CLIENTCONNECT) and freed there when
+     the socket itself is destroyed. */
+  ci->retry_and_idle_policy = retry_bo_fromobj(ctx, obj);
 }
 
 static void
@@ -252,6 +467,38 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);
 #endif
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+  /* Persistent client cookie jar (Netscape-format file), shared by every
+     connection this context makes. Per-connection opt-in is the separate
+     LCCSCF_CACHE_COOKIES ssl_connection flag (tls_connect_info_fromobj(),
+     lws-tls.c) - setting cookieJar here just makes the jar exist, it
+     doesn't turn cookie capture/replay on for any given request. */
+  value = JS_GetPropertyStr(ctx, obj, "cookieJar");
+
+  if(JS_IsObject(value)) {
+    str_property(&ci->http_nsc_filepath, ctx, value, "path");
+
+    if(js_has_property(ctx, value, "maxFootprint"))
+      ci->http_nsc_heap_max_footprint = to_integerfree(ctx, js_get_property(ctx, value, "maxFootprint"));
+
+    if(js_has_property(ctx, value, "maxItems"))
+      ci->http_nsc_heap_max_items = to_integerfree(ctx, js_get_property(ctx, value, "maxItems"));
+
+    if(js_has_property(ctx, value, "maxPayload"))
+      ci->http_nsc_heap_max_payload = to_integerfree(ctx, js_get_property(ctx, value, "maxPayload"));
+  }
+
+  JS_FreeValue(ctx, value);
+#endif
+
+  /* Context/vhost-lifetime backoff/connection-validity policy, applied to
+     every client connection made on this context unless overridden per-call
+     by `.clientConnect({retry: {...}})` (see client_connect_info_fromobj()
+     below). Same raw-pointer-outlives-the-creation-info caveat applies -
+     see the comment on retry_bo_from_retryobj(). Freed in
+     lwsjs_context_creation_info_free(). */
+  ci->retry_and_idle_policy = retry_bo_fromobj(ctx, obj);
+
   tls_creation_info_fromobj(ctx, obj, ci);
 
 #ifdef LWS_WITH_SOCKS5
@@ -316,6 +563,13 @@ lwsjs_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info
   }
 #endif
 
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+  if(ci->http_nsc_filepath)
+    js_free_rt(rt, (char*)ci->http_nsc_filepath);
+#endif
+
+  retry_bo_free(rt, ci->retry_and_idle_policy);
+
   tls_creation_info_free(rt, ci);
 
 #ifdef LWS_WITH_SOCKS5
@@ -336,6 +590,7 @@ context_new(JSContext* ctx) {
 
   if((lws = js_mallocz(ctx, sizeof(LWSContext)))) {
     init_list_head(&lws->handlers);
+    init_list_head(&lws->timers);
 
     /* js_mallocz() zero-fills, which isn't guaranteed to be JS_UNDEFINED's
        actual bit pattern - set it explicitly rather than relying on that. */
@@ -353,6 +608,7 @@ context_free(JSRuntime* rt, LWSContext* lws) {
 
   if(lws->js) {
     service_tick_cancel(lws);
+    timers_cleanup(lws);
     JS_FreeContext(lws->js);
     lws->js = NULL;
   }
@@ -433,6 +689,11 @@ enum {
   METHOD_GETRANDOM,
   METHOD_ASYNCDNSSERVER_ADD,
   METHOD_ASYNCDNSSERVER_REMOVE,
+  METHOD_RETRYDELAY,
+#if defined(LWS_WITH_UDP) && defined(LWS_WITH_NETWORK)
+  METHOD_RESOLVE,
+#endif
+  METHOD_SCHEDULE,
   METHOD_WSIFROMFD,
 #ifdef LWS_WITH_UDP
   METHOD_CREATEUDP,
@@ -454,6 +715,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
     case METHOD_DESTROY: {
       if(lws->ctx) {
         service_tick_cancel(lws);
+        timers_cleanup(lws);
         lws_context_destroy(lws->ctx);
         lws->ctx = NULL;
         ret = JS_TRUE;
@@ -537,6 +799,10 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       sock->client = TRUE;
       sock->type = info.method ? SOCKET_HTTP : SOCKET_WS;
       sock->method = info.method ? lwsjs_method_index(info.method) : 0;
+      /* Ownership moves here, not freed by client_connect_info_free()
+         below - see the comment on client_connect_info_fromobj()'s
+         retry_and_idle_policy assignment. */
+      sock->retry = (struct lws_retry_bo*)info.retry_and_idle_policy;
 
       ret = lwsjs_socket_wrap(ctx, sock);
 
@@ -586,6 +852,96 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       lws_async_dns_server_remove(lws->ctx, sa46);
 
       JS_FreeValue(ctx, addr);
+      break;
+    }
+
+    case METHOD_RETRYDELAY: {
+      /* ctx.retryDelay(policy, tryCount) -> {delayMs, tryCount, conceal}
+         Stateless wrapper around lws_retry_get_delay_ms(): builds a
+         throwaway lws_retry_bo_t from `policy` (or passes NULL for lws'
+         built-in default table if `policy` isn't an object), doesn't
+         retain it anywhere. */
+      lws_retry_bo_t* bo = retry_bo_from_retryobj(ctx, argv[0]);
+      uint16_t ctry = (uint16_t)to_int32(ctx, argv[1]);
+      char conceal = 0;
+      unsigned int delay_ms = lws_retry_get_delay_ms(lws->ctx, bo, &ctry, &conceal);
+
+      ret = JS_NewObject(ctx);
+      JS_SetPropertyStr(ctx, ret, "delayMs", JS_NewUint32(ctx, delay_ms));
+      JS_SetPropertyStr(ctx, ret, "tryCount", JS_NewUint32(ctx, ctry));
+      JS_SetPropertyStr(ctx, ret, "conceal", JS_NewBool(ctx, conceal != 0));
+
+      retry_bo_free(JS_GetRuntime(ctx), bo);
+      break;
+    }
+
+#if defined(LWS_WITH_UDP) && defined(LWS_WITH_NETWORK)
+    case METHOD_RESOLVE: {
+      /* ctx.resolve(hostname, {type}) -> Promise<string[]>
+         `type` is "A" (default) or "AAAA"; result is an array of numeric
+         address strings, empty if the name resolved but had no records of
+         that type. Rejects on NXDOMAIN/timeout/other lookup failure. */
+      const char* name = JS_ToCString(ctx, argv[0]);
+      adns_query_type_t qtype = LWS_ADNS_RECORD_A;
+
+      if(argc > 1 && JS_IsObject(argv[1])) {
+        JSValue type_val = JS_GetPropertyStr(ctx, argv[1], "type");
+
+        if(JS_IsString(type_val)) {
+          const char* type_str = JS_ToCString(ctx, type_val);
+
+          if(type_str && !strcasecmp(type_str, "AAAA"))
+            qtype = LWS_ADNS_RECORD_AAAA;
+
+          JS_FreeCString(ctx, type_str);
+        }
+
+        JS_FreeValue(ctx, type_val);
+      }
+
+      if(name) {
+        LWSDnsQuery* q = js_mallocz(ctx, sizeof(LWSDnsQuery));
+
+        if(q) {
+          JSValue promise = JS_NewPromiseCapability(ctx, q->resolving_funcs);
+
+          q->ctx = ctx;
+          lws_async_dns_query(lws->ctx, 0, name, qtype, lwsjs_resolve_cb, NULL, q, NULL);
+          ret = promise;
+        }
+      }
+
+      JS_FreeCString(ctx, name);
+      break;
+    }
+#endif
+
+    case METHOD_SCHEDULE: {
+      /* ctx.schedule(fn, ms) -> { cancel() }
+         One-shot timer via lws's own sul scheduler - see the LWSTimer
+         comment above client_connect_info_fromobj() for the lifetime/
+         cancel-safety design. */
+      LWSTimer* t;
+
+      if(!JS_IsFunction(ctx, argv[0]))
+        return JS_ThrowTypeError(ctx, "argument 1 must be a function");
+
+      if((t = js_mallocz(ctx, sizeof(LWSTimer)))) {
+        JSValueConst data[2];
+
+        t->lws = lws;
+        t->callback = JS_DupValue(ctx, argv[0]);
+        t->sul.cb = lwsjs_timer_fire;
+        list_add(&t->link, &lws->timers);
+
+        lws_sul_schedule(lws->ctx, 0, &t->sul, lwsjs_timer_fire, (lws_usec_t)to_int64(ctx, argv[1]) * LWS_US_PER_MS);
+
+        ret = JS_NewObject(ctx);
+        data[0] = JS_NewInt64(ctx, (intptr_t)lws);
+        data[1] = JS_NewInt64(ctx, (intptr_t)t);
+        JS_SetPropertyStr(ctx, ret, "cancel", JS_NewCFunctionData(ctx, lwsjs_timer_cancel, 0, 0, countof(data), data));
+      }
+
       break;
     }
 
@@ -767,6 +1123,11 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getRandom", 1, lwsjs_context_methods, METHOD_GETRANDOM),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, METHOD_ASYNCDNSSERVER_ADD),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, METHOD_ASYNCDNSSERVER_REMOVE),
+    JS_CFUNC_MAGIC_DEF("retryDelay", 2, lwsjs_context_methods, METHOD_RETRYDELAY),
+#if defined(LWS_WITH_UDP) && defined(LWS_WITH_NETWORK)
+    JS_CFUNC_MAGIC_DEF("resolve", 1, lwsjs_context_methods, METHOD_RESOLVE),
+#endif
+    JS_CFUNC_MAGIC_DEF("schedule", 2, lwsjs_context_methods, METHOD_SCHEDULE),
     JS_CFUNC_MAGIC_DEF("wsiFromFd", 1, lwsjs_context_methods, METHOD_WSIFROMFD),
 #ifdef LWS_WITH_UDP
     JS_CFUNC_MAGIC_DEF("createUdp", 1, lwsjs_context_methods, METHOD_CREATEUDP),

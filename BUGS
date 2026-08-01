@@ -147,3 +147,39 @@
 
     (run: env QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm
     tests/unittests/test-websocket.js)
+
+- async-dns-qtype-ignored-on-cache-fill (libwebsockets/lib/system/async-dns/async-dns.c,
+  used via lws_async_dns_query() from the new ctx.resolve() binding in
+  lws-context.c): querying the same hostname with qtype AAAA after (or
+  instead of) qtype A returns both the A and AAAA records mixed together
+  in a single result, rather than only the records matching the requested
+  type. Confirmed against a real external name (example.com, via the
+  sandbox's systemd-resolved stub at 127.0.0.53) - both { type: 'A' } and
+  { type: 'AAAA' } queries in separate fresh LWSContexts came back with
+  the same four addresses (two IPv4, two IPv6). Not narrowed further -
+  could be the DNS cache keying by name only and not by qtype, or the
+  query construction itself not restricting the wire request to one
+  record type. Not in scope to fix here since it's inside the vendored
+  libwebsockets submodule, not this project's own binding code.
+
+    const ctx = new LWSContext({});
+    console.log(await ctx.resolve('example.com', { type: 'AAAA' }));
+    // -> includes IPv4 addresses too, not just AAAA/IPv6
+
+- tcpsocket-close-segfault (lwsjs_socket_close -> lws_close_free_wsi ->
+  __lws_close_free_wsi, called from tests/unittests/test-tcpsocket.js):
+  the whole suite segfaults deterministically, confirmed both on this
+  session's changes and on an unmodified checkout (git stash of every
+  session-modified file, rebuilt, reran - same crash), so it predates and
+  is unrelated to this session's LWSContext additions (cookie jar, conmon,
+  retry, resolve, schedule). gdb backtrace bottoms out inside
+  __lws_close_free_wsi() (libwebsockets, no further symbols available)
+  called from lwsjs_socket_close(), itself called via a promise reaction
+  job resuming an async test function - i.e. a wsi is being closed from
+  JS during/after some other async continuation, and something about that
+  ordering corrupts or double-frees wsi state. Not investigated further
+  (out of scope - this session didn't touch lws-socket.c's close path or
+  tcpsocket.js/tcpsocketstream.js).
+
+    (run: QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm
+    tests/unittests/test-tcpsocket.js)

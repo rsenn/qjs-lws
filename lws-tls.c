@@ -117,6 +117,21 @@ tls_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_con
                               : to_uint32(ctx, value);
     JS_FreeValue(ctx, value);
   }
+
+#if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
+  /* Per-connection opt-in to the context's cookie jar (see the `cookieJar`
+     context-creation option, lws-context.c) - captures Set-Cookie from the
+     response and replays matching cookies on this and future requests. */
+  if(to_boolfree(ctx, js_get_property(ctx, obj, "cacheCookies")))
+    ci->ssl_connection |= LCCSCF_CACHE_COOKIES;
+#endif
+
+#ifdef LWS_WITH_CONMON
+  /* Per-connection opt-in to collecting DNS/connect/TLS/TTFB timing - see
+     the wsi.conmon getter (lws-socket.c). */
+  if(to_boolfree(ctx, js_get_property(ctx, obj, "conmon")))
+    ci->ssl_connection |= LCCSCF_CONMON;
+#endif
 }
 
 /* Self-signed cert generation, via lws_x509_create_cert()

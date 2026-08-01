@@ -34,6 +34,13 @@ typedef struct {
   uint16_t close_code;
   uint8_t* close_reason;
   uint32_t close_reason_len;
+  /* Owns the retry/idle policy given to a `.clientConnect()` call's
+     `retry` option, if any (see retry_bo_fromobj(), lws-context.c): lws
+     stores this pointer directly on the wsi for its whole life
+     (wsi->retry_policy), so it can't be freed alongside the stack-local
+     lws_client_connect_info it was parsed into - this socket's lifetime is
+     the right one instead. Freed in socket_free() (lws-socket.c). */
+  struct lws_retry_bo* retry;
   struct list_head write_queue; /* pending WriteChunks, FIFO */
   size_t write_buffered;        /* bytes still queued at our layer */
 } LWSSocket;
