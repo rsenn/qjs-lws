@@ -9,6 +9,11 @@ model (`qwen2.5-coder` by default) about the files in your project.
   its own `LWSContext` and `LCCSCF_PIPELINE` connect flag, so every prompt
   in a session reuses one persistent HTTP/1.1 connection instead of paying
   a fresh TCP connect per turn.
+- **Token streaming (`--stream`).** Ollama's own HTTP API streams
+  newline-delimited JSON when asked (`stream: true`) over that same
+  connection - no child process or second connection needed. `chatStream()`
+  reads the response body (a real `ReadableStream`) incrementally via
+  `getReader()` and prints each token as it arrives.
 - **File/glob detection.** Type a path or glob straight into your prompt
   ("fix the bug in `src/foo.js`", "review `*.md`") and it's read off disk
   and attached to the request automatically (`lib/file-refs.js`,
@@ -41,7 +46,7 @@ model (`qwen2.5-coder` by default) about the files in your project.
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .]
+qjsm examples/ollama-repl/repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .] [--stream]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -60,8 +65,8 @@ against - defaults to the current directory.
 
 ## Notes / limitations
 
-- Non-streaming only (`stream: false`) - a reply is printed once it's
-  complete, not token-by-token.
+- Non-streaming (full reply printed at once) by default; pass `--stream`
+  for token-by-token output.
 - File detection is a best-effort token scan (`lib/file-refs.js`), capped
   at 20 files / 1&nbsp;MiB total per prompt so a broad glob can't flood the
   request; skipped matches are reported.

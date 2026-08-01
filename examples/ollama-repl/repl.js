@@ -23,7 +23,7 @@ import { extractFileRefs, formatFileBlocks } from './lib/file-refs.js';
 import { extractFileBlocks, saveFileBlocks } from './lib/file-blocks.js';
 
 function parseArgs(argv) {
-  const opts = { model: 'qwen2.5-coder', host: 'localhost', port: 11434, root: '.' };
+  const opts = { model: 'qwen2.5-coder', host: 'localhost', port: 11434, root: '.', stream: false };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -31,8 +31,9 @@ function parseArgs(argv) {
     else if(arg === '--host') opts.host = argv[++i];
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
+    else if(arg === '--stream') opts.stream = true;
     else if(arg === '--help' || arg === '-h') {
-      console.log('Usage: qjs repl.js [--model NAME] [--host HOST] [--port PORT] [--root DIR]');
+      console.log('Usage: qjs repl.js [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream]');
       std.exit(0);
     }
   }
@@ -167,7 +168,19 @@ async function main() {
 
     let reply;
     try {
-      reply = await client.chat(messages);
+      if(opts.stream) {
+        std.out.puts('\nqwen> ');
+        std.out.flush();
+        reply = await client.chatStream(messages, token => {
+          std.out.puts(token);
+          std.out.flush();
+        });
+        std.out.puts('\n\n');
+        std.out.flush();
+      } else {
+        reply = await client.chat(messages);
+        console.log(`\nqwen> ${reply}\n`);
+      }
     } catch(e) {
       console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
       messages.pop(); // don't leave a dangling user turn with no reply
@@ -175,8 +188,6 @@ async function main() {
     }
 
     messages.push({ role: 'assistant', content: reply });
-
-    console.log(`\nqwen> ${reply}\n`);
     applyFileBlocks(reply, opts.root);
   }
 

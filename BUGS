@@ -169,3 +169,27 @@
 
     const resp = await fetch('http://localhost:1/nope-should-404-or-refuse');
     console.log(resp.ok); // true, even though resp.status is not 2xx
+
+- tostring-silently-undefined-on-typed-array-view (js-utils.c:266,
+  get_buffer; lws.c:322, FUNCTION_TO_STRING): toString(v) from lws.so
+  returns undefined instead of the decoded string when `v` is a typed
+  array *view* (e.g. Uint8Array) rather than a plain ArrayBuffer - no
+  throw, no warning, just undefined. Root cause: get_buffer() calls
+  JS_GetArrayBuffer(), which (per quickjs.h) only accepts an ArrayBuffer;
+  a TypedArray view needs JS_GetTypedArrayBuffer() instead, which
+  get_buffer() never tries. get_buffer()'s own doc comment already
+  documents "returns NULL, caller falls back" as intentional for the
+  non-ArrayBuffer case generally (e.g. LWSSockAddr46's constructor probing
+  for an ArrayBuffer vs a numeric-address string) - so this may be
+  deliberate scope there, but it silently breaks any caller that expected
+  toString()/get_buffer() to accept the Uint8Array views this codebase
+  hands out routinely (e.g. ReadableStream chunks - see
+  readableStreamCallback() usage in lib/lws/protocols.js's
+  onReceiveClientHttpRead, which wraps every chunk in `new Uint8Array(...)`
+  before enqueueing it). Found via examples/ollama-repl's chatStream()
+  (lib/ollama-client.js), which now works around it by slicing out the
+  view's backing ArrayBuffer region before calling toString().
+
+    import { toString } from 'lws.so';
+    console.log(toString(new Uint8Array([72, 105])));       // undefined
+    console.log(toString(new Uint8Array([72, 105]).buffer)); // "Hi"
