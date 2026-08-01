@@ -18,6 +18,17 @@ model (`qwen2.5-coder` by default) about the files in your project.
   `File: path` line followed by a fenced code block. Every such block in
   a reply is parsed out and written into your project tree automatically
   (`lib/file-blocks.js`), and printed as `modified: path`.
+- **QuickJS/qjs-modules awareness.** The system prompt gives the model a
+  concise primer on the QuickJS C API (`JSValue`/`JSContext`, the class +
+  opaque-struct pattern, `JS_CFUNC_MAGIC_DEF`/`JS_CGETSET_MAGIC_DEF`,
+  module registration, exceptions) and the qjs-modules JS built-ins
+  (`fs`/`console`/`process`/`util`), enough to work on qjs-\* native
+  modules without re-deriving the API from scratch every session.
+  Mentioning `quickjs.h`, `fs.js`, `console.js`, `process.js`, or
+  `util.js` by name in a prompt attaches the real file from its installed
+  location (`lib/reference-files.js`), same as any project file - so the
+  primer covers the shape, the actual source is a name-drop away when a
+  question needs it verbatim.
 
 ## Requirements
 
@@ -30,8 +41,13 @@ model (`qwen2.5-coder` by default) about the files in your project.
 ## Run
 
 ```sh
-qjs examples/ollama-repl/repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .]
+qjsm examples/ollama-repl/repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .]
 ```
+
+(`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
+globals, which `qjsm` does by default; plain `qjs` needs `--std` for the
+same effect.) Once installed (see the repo root's `CMakeLists.txt`), it's
+just `ollama-repl [...]` from `bin/`.
 
 `--root` is the project directory file references and writes are resolved
 against - defaults to the current directory.

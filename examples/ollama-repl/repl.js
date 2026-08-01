@@ -1,3 +1,4 @@
+#!/usr/bin/env qjsm
 /**
  * A Claude-Code-style REPL that talks to a local Ollama model (default:
  * qwen2.5-coder) over a kept-alive HTTP connection (lib/ollama-client.js,
@@ -10,7 +11,11 @@
  * project tree (lib/file-blocks.js), same as Claude Code applying an edit.
  *
  * Run (Ollama must already be running locally with the model pulled):
- *   qjs repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .]
+ *   qjsm repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .]
+ * Or, once installed (see CMakeLists.txt - installs to bin/ollama-repl,
+ * lib/ollama-client.js's cross-tree imports rewritten to the installed
+ * `lws/*.js` module path):
+ *   ollama-repl [--model ...] [...]
  */
 import * as std from 'std';
 import { OllamaClient } from './lib/ollama-client.js';
@@ -53,7 +58,58 @@ those, and a "File:" block found anywhere in your reply gets written to
 disk automatically, overwriting whatever is already there. You may include
 prose before/after/between file blocks; each one will be
 extracted and written to disk automatically, overwriting the existing
-file. Only include files you actually want to change.`;
+file. Only include files you actually want to change.
+
+You often work on "qjs-*" native modules: a small C file per JS class/
+namespace binding QuickJS to a native library, plus JS glue that uses it.
+Reference material is available on request - just mention "quickjs.h",
+"fs.js", "console.js", "process.js", or "util.js" in a message and the
+real file is attached automatically, same as any project file.
+
+QuickJS C API (quickjs.h), the shape every qjs-* binding follows:
+- JSValue is a tagged, refcounted handle; JSContext* is a per-thread heap,
+  JSRuntime* owns one or more contexts. JS_DupValue()/JS_FreeValue() move
+  the refcount; every JSValue a function creates or takes ownership of
+  must be freed exactly once - the single most common bug in this kind of
+  code is a missing JS_FreeValue() (leak) or a double one (use-after-free).
+- A native class: JS_NewClassID() + JS_NewClass(rt, id, &JSClassDef) once
+  at module init; each instance is a plain JS object with a native struct
+  attached via JS_SetOpaque()/JS_GetOpaque(obj, class_id) - the struct is
+  yours to malloc/free, typically in the JSClassDef.finalizer.
+- Native functions/getters go in a static const JSCFunctionListEntry[]
+  table via JS_CFUNC_DEF(name, argc, func) or, for one C function
+  dispatching several JS methods/properties by an int tag,
+  JS_CFUNC_MAGIC_DEF/JS_CGETSET_MAGIC_DEF(name, argc, func, magic) -
+  installed with JS_SetPropertyFunctionList() on a prototype object, or
+  JS_SetModuleExportList() for a module's top-level exports.
+- Modules: JS_NewCModule(ctx, name, init_func) declares it;
+  JS_AddModuleExport()/JS_SetModuleExport() (or the *List() forms above)
+  expose values, called both from the init callback (declare) and again
+  once the module body runs (set the real value) - see any existing
+  qjs-lws module init function for the two-phase pattern.
+- Errors: return JS_EXCEPTION (not NULL, not JS_UNDEFINED) from a native
+  function after calling JS_ThrowTypeError()/JS_ThrowRangeError()/
+  JS_ThrowInternalError(ctx, fmt, ...) - never leave a JSValue error
+  pending without a return that signals it.
+- Strings/buffers: JS_ToCString()/JS_FreeCString() for a temporary C
+  string view, JS_NewStringLen()/JS_NewString() to create one,
+  JS_GetArrayBuffer()/JS_NewArrayBufferCopy() for ArrayBuffers.
+
+qjs-modules JS built-ins (/usr/local/lib/quickjs/*.js), available as bare
+imports (\`import * as fs from 'fs'\`, etc.) in any script running under
+qjsm - roughly Node-shaped, not WHATWG:
+- fs: mostly *Sync functions (readFileSync, writeFileSync, statSync,
+  readdirSync, mkdirSync, existsSync, ...) plus lower-level std-file-style
+  ops (openSync/closeSync/seek/tell) and stream helpers (createReadStream/
+  createWriteStream, watch()).
+- console: Console class / the global console - log/error/warn/etc. with
+  util's inspect-based formatting, not just string concatenation.
+- process: a Node-like singleton - argv, argv0, env, cwd()/chdir(),
+  pid/ppid, platform/arch, exit(code), hrtime(), stdin/stdout/stderr.
+- util: a large grab-bag - Object.* wrappers, type predicates (isObject,
+  isString, isClass, TypedArray, ...), memoize, inherits, setImmediate/
+  clearImmediate/queueMicrotask. Console's own value formatting comes from
+  a separate 'inspect' built-in, not from here.`;
 
 function attachFiles(prompt, root) {
   const { files, skipped } = extractFileRefs(prompt, root);

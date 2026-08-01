@@ -8,6 +8,7 @@
 import * as os from 'os';
 import * as std from 'std';
 import { globMatch, isGlobPattern } from './glob.js';
+import { REFERENCE_FILES } from './reference-files.js';
 
 /* A path-shaped token: contains a `/`, or a glob metacharacter, or ends in
    a plausible file extension. Deliberately permissive - false positives
@@ -46,43 +47,50 @@ export function extractFileRefs(text, root = '.') {
     if(looksLikePath(token)) candidates.add(token);
   }
 
-  const paths = new Set();
+  /* label (shown to the model, and used as the write-back path if the
+     model echoes it in a "File:" block) -> the actual path to read from -
+     the same for project files, but different for REFERENCE_FILES entries
+     (label is just the bare name, e.g. "quickjs.h"; the actual path is
+     wherever that's installed). */
+  const paths = new Map();
 
   for(const token of candidates) {
     if(isGlobPattern(token)) {
-      for(const p of globMatch(token, root)) paths.add(p);
-    } else {
-      const full = root === '.' ? token : `${root}/${token}`;
-      const [st] = os.stat(full);
-      if(st && (st.mode & os.S_IFMT) === os.S_IFREG) paths.add(token);
+      for(const p of globMatch(token, root)) paths.set(p, root === '.' ? p : `${root}/${p}`);
+      continue;
     }
+
+    const full = root === '.' ? token : `${root}/${token}`;
+    const [st] = os.stat(full);
+
+    if(st && (st.mode & os.S_IFMT) === os.S_IFREG) paths.set(token, full);
+    else if(REFERENCE_FILES[token]) paths.set(token, REFERENCE_FILES[token]);
   }
 
   const files = [];
   let totalBytes = 0;
   const skipped = [];
 
-  for(const path of paths) {
+  for(const [label, full] of paths) {
     if(files.length >= MAX_FILES) {
-      skipped.push(path);
+      skipped.push(label);
       continue;
     }
 
-    const full = root === '.' ? path : `${root}/${path}`;
     const [st] = os.stat(full);
 
     if(!st || st.size > MAX_FILE_BYTES || totalBytes + st.size > MAX_TOTAL_BYTES) {
-      skipped.push(path);
+      skipped.push(label);
       continue;
     }
 
     const content = std.loadFile(full);
     if(content == null) {
-      skipped.push(path);
+      skipped.push(label);
       continue;
     }
 
-    files.push({ path, content });
+    files.push({ path: label, content });
     totalBytes += st.size;
   }
 

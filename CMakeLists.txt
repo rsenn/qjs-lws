@@ -628,6 +628,42 @@ install(FILES ${JS_LIB_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}")
 file(GLOB JS_LIB_FETCH_FILES lib/lws/*.js)
 install(FILES ${JS_LIB_FETCH_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}/lws")
 
+if(NOT CMAKE_INSTALL_BINDIR)
+  set(CMAKE_INSTALL_BINDIR "bin")
+endif(NOT CMAKE_INSTALL_BINDIR)
+
+install(PROGRAMS examples/ollama-repl/repl.js
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        RENAME ollama-repl)
+
+# examples/ollama-repl/lib/*.js import the project's own lib/lws/*.js by a
+# relative, in-repo path (../../../lib/lws/...) that only resolves next to
+# this source tree - once installed, lib/ goes dir-less ('file.js') and
+# lib/lws/ goes under 'lws/' (see the JS_LIB_FILES/JS_LIB_FETCH_FILES
+# install() rules above), so the copies installed alongside the ollama-repl
+# executable need those two import paths rewritten to match. For now these
+# land in bin/lib/ (next to the renamed entry script above, which imports
+# them as './lib/*.js') rather than merged into QUICKJS_JS_MODULE_DIR -
+# they're example-specific, not general-purpose library modules.
+set(OLLAMA_REPL_LIB_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/ollama-repl-lib")
+file(MAKE_DIRECTORY "${OLLAMA_REPL_LIB_BUILD_DIR}")
+
+file(GLOB OLLAMA_REPL_LIB_FILES examples/ollama-repl/lib/*.js)
+foreach(OLLAMA_REPL_LIB_FILE ${OLLAMA_REPL_LIB_FILES})
+  get_filename_component(OLLAMA_REPL_LIB_FILE_NAME "${OLLAMA_REPL_LIB_FILE}" NAME)
+  file(READ "${OLLAMA_REPL_LIB_FILE}" OLLAMA_REPL_LIB_FILE_CONTENTS)
+  string(REPLACE "../../../lib/lws/" "lws/" OLLAMA_REPL_LIB_FILE_CONTENTS
+                  "${OLLAMA_REPL_LIB_FILE_CONTENTS}")
+  string(REPLACE "../../../lib/" "" OLLAMA_REPL_LIB_FILE_CONTENTS
+                  "${OLLAMA_REPL_LIB_FILE_CONTENTS}")
+  file(WRITE "${OLLAMA_REPL_LIB_BUILD_DIR}/${OLLAMA_REPL_LIB_FILE_NAME}"
+             "${OLLAMA_REPL_LIB_FILE_CONTENTS}")
+endforeach(OLLAMA_REPL_LIB_FILE)
+
+file(GLOB OLLAMA_REPL_LIB_INSTALL_FILES "${OLLAMA_REPL_LIB_BUILD_DIR}/*.js")
+install(FILES ${OLLAMA_REPL_LIB_INSTALL_FILES}
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/lib")
+
 file(GLOB TESTS tests/unittests/test-*.js)
 relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
 
