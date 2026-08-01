@@ -34,6 +34,16 @@ model (`qwen2.5-coder` by default) about the files in your project.
   location (`lib/reference-files.js`), same as any project file - so the
   primer covers the shape, the actual source is a name-drop away when a
   question needs it verbatim.
+- **Real line editing + persisted history.** `lib/chat-repl.js` drives
+  the prompt loop through qjs-modules' built-in `REPL` (module `'repl'`)
+  instead of a plain `std.in.getline()` loop - up/down arrow recalls
+  previous prompts, `^R` reverse-searches them, and history persists
+  across runs (`~/.<scriptname>_history` by default, qjs-modules'
+  convention, not this project's).
+- **Session log.** Every prompt (with what was attached), reply, and file
+  written is appended, timestamped, to `<model>.log` in the current
+  directory (`lib/session-log.js`) - independent of the terminal, and
+  across runs (opened in append mode).
 
 ## Requirements
 

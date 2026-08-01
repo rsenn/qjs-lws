@@ -21,6 +21,8 @@ import * as std from 'std';
 import { OllamaClient } from './lib/ollama-client.js';
 import { extractFileRefs, formatFileBlocks } from './lib/file-refs.js';
 import { extractFileBlocks, saveFileBlocks } from './lib/file-blocks.js';
+import { ChatREPL } from './lib/chat-repl.js';
+import { SessionLog } from './lib/session-log.js';
 
 function parseArgs(argv) {
   const opts = { model: 'qwen2.5-coder', host: 'localhost', port: 11434, root: '.', stream: false };
@@ -112,58 +114,59 @@ qjsm - roughly Node-shaped, not WHATWG:
   clearImmediate/queueMicrotask. Console's own value formatting comes from
   a separate 'inspect' built-in, not from here.`;
 
+/** @returns {{ text: string, attached: string[] }} */
 function attachFiles(prompt, root) {
   const { files, skipped } = extractFileRefs(prompt, root);
 
   if(skipped.length) console.log(`\x1b[2m(skipped, too large or unreadable: ${skipped.join(', ')})\x1b[0m`);
-  if(!files.length) return prompt;
+  if(!files.length) return { text: prompt, attached: [] };
 
   console.log(`\x1b[2m(attached: ${files.map(f => f.path).join(', ')})\x1b[0m`);
-  return `${prompt}\n\n${formatFileBlocks(files)}`;
+  return { text: `${prompt}\n\n${formatFileBlocks(files)}`, attached: files.map(f => f.path) };
 }
 
+/** @returns {string[]} paths actually written */
 function applyFileBlocks(reply, root) {
   const blocks = extractFileBlocks(reply);
-  if(!blocks.length) return;
+  if(!blocks.length) return [];
 
   const { written, rejected } = saveFileBlocks(blocks, root);
 
   for(const path of written) console.log(`\x1b[32mmodified: ${path}\x1b[0m`);
   for(const path of rejected) console.log(`\x1b[31mrefused to write (unsafe path): ${path}\x1b[0m`);
+
+  return written;
 }
 
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
   const client = new OllamaClient(opts);
+  const log = new SessionLog(`${opts.model}.log`);
   const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
 
   console.log(`ollama-repl: ${opts.model} @ ${opts.host}:${opts.port}  (root: ${opts.root})`);
-  console.log(`Type a prompt and press Enter. Reference files by name or glob (e.g. src/*.js) to attach them. /help for commands.\n`);
+  console.log(`Type a prompt and press Enter. Reference files by name or glob (e.g. src/*.js) to attach them. /help for commands.`);
+  console.log(`Logging this session to ${opts.model}.log. History persists via qjs-modules' repl module (^R to search, up/down to recall).\n`);
 
-  for(;;) {
-    std.out.puts('you> ');
-    std.out.flush();
-
-    const line = std.in.getline();
-    if(line === null) break; // EOF (Ctrl-D)
-
+  const repl = new ChatREPL('you', async line => {
     const prompt = line.trim();
-    if(!prompt) continue;
+    if(!prompt) return;
 
-    if(prompt === '/exit' || prompt === '/quit') break;
+    if(prompt === '/exit' || prompt === '/quit') return repl.exit(0);
 
     if(prompt === '/reset') {
       messages.length = 1;
       console.log('(conversation reset)');
-      continue;
+      return;
     }
 
     if(prompt === '/help') {
       console.log('/reset - clear conversation history\n/exit  - quit\nAnything else is sent to the model as a prompt.');
-      continue;
+      return;
     }
 
-    const withFiles = attachFiles(prompt, opts.root);
+    const { text: withFiles, attached } = attachFiles(prompt, opts.root);
+    log.prompt(prompt, attached);
     messages.push({ role: 'user', content: withFiles });
 
     let reply;
@@ -184,14 +187,22 @@ async function main() {
     } catch(e) {
       console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
       messages.pop(); // don't leave a dangling user turn with no reply
-      continue;
+      return;
     }
 
     messages.push({ role: 'assistant', content: reply });
-    applyFileBlocks(reply, opts.root);
-  }
+    log.reply(reply);
 
-  client.destroy();
+    const written = applyFileBlocks(reply, opts.root);
+    log.modified(written);
+  });
+
+  repl.addCleanupHandler(() => {
+    log.close();
+    client.destroy();
+  });
+
+  await repl.run();
 }
 
 await main();
