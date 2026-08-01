@@ -17,7 +17,8 @@ export function extractFileBlocks(text) {
   let m;
 
   FILE_BLOCK_RE.lastIndex = 0;
-  while((m = FILE_BLOCK_RE.exec(text))) blocks.push({ path: m[1], content: m[2] });
+
+  while((m = FILE_BLOCK_RE.exec(text))) blocks.push({ path: m[1].replaceAll(/(^[`'"]|[`'"]$)/g, ''), content: m[2] });
 
   return blocks;
 }
