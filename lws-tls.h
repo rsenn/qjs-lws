@@ -23,34 +23,29 @@ void tls_creation_info_free(JSRuntime*, struct lws_context_creation_info*);
 void tls_connect_info_fromobj(JSContext*, JSValueConst, struct lws_client_connect_info*);
 
 /* generateSelfSignedCert(options) -> { cert: ArrayBuffer, key: ArrayBuffer },
-   both PEM-encoded. `options`: { commonName, altNames: string[], days,
-   keyBits }, all optional. */
+   both PEM-encoded. `options`: { commonName, days, keyBits }, all optional.
+   Built on lws_x509_create_cert() (libwebsockets/lws-x509.h), so it works
+   under any TLS backend lws is built with (OpenSSL, mbedTLS, GnuTLS, ...) -
+   no direct OpenSSL calls. Unlike the old OpenSSL-based implementation,
+   lws_x509_cert_gen_info only carries a single `san` field (used as both CN
+   and the sole SAN entry), so `altNames` (multiple SANs) is no longer
+   supported - only the first of commonName/altNames[0] is used. */
 JSValue lwsjs_generate_self_signed_cert(JSContext*, JSValueConst, int, JSValueConst[]);
 
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
-#include <openssl/bio.h>
-#include <openssl/bn.h>
-#include <openssl/err.h>
-#include <openssl/evp.h>
-#include <openssl/pem.h>
-#include <openssl/rsa.h>
-#include <openssl/x509.h>
-#include <openssl/x509v3.h>
-
-/* Minimal, non-owning wrappers around the X509_STORE_CTX* / SSL* OpenSSL
-   hands to LWS_CALLBACK_OPENSSL_PERFORM_{CLIENT,SERVER}_CERT_VERIFICATION (see
-   is_certverify_reason(), lws.h) - not general-purpose X509/SSL bindings,
-   just enough surface to inspect and decide on the certificate being
-   verified. Both pointers are only valid for the duration of that callback:
-   these wrappers carry no finalizer and must not be retained past it. */
+/* X509Certificate(pemString) - read-only certificate inspection, built
+   entirely on libwebsockets' own backend-agnostic lws-x509.h API
+   (lws_x509_parse_from_pem()/lws_x509_info()/lws_x509_verify()/
+   lws_x509_cert_fingerprint()), not any TLS backend's native API - so it
+   works under OpenSSL, mbedTLS, GnuTLS, etc. This project used to also wrap
+   whatever raw X509_STORE_CTX* and SSL* pointers OpenSSL specifically hands
+   to LWS_CALLBACK_OPENSSL_PERFORM_{CLIENT,SERVER}_CERT_VERIFICATION for
+   verify-time inspection, but that pair of reasons (note the "OPENSSL" in
+   the name) has no backend-agnostic equivalent in lws's public API, so that
+   capability - and the properties/methods it uniquely needed (error/
+   errorDepth, checkHost/checkEmail/checkIP/checkPrivateKey/verify-with-a-
+   raw-key) - is gone rather than half-supported. */
 extern JSClassID lwsjs_x509_class_id;
-extern JSClassID lwsjs_tls_socket_class_id;
 
 int lwsjs_tls_certverify_init(JSContext*, JSModuleDef*);
-
-JSValue lwsjs_x509_wrap(JSContext*, X509_STORE_CTX*);
-JSValue lwsjs_tls_socket_wrap(JSContext*, SSL*);
-
-#endif /* LWS_WITH_TLS && !LWS_WITH_MBEDTLS */
 
 #endif /* QJS_LWS_TLS_H */

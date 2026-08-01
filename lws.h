@@ -176,15 +176,4 @@ is_htmlargs_reason(enum lws_callback_reasons reason) {
   }
 }
 
-static inline BOOL
-is_certverify_reason(enum lws_callback_reasons reason) {
-  switch(reason) {
-    case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
-    case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS:
-    case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
-    case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION: return TRUE;
-    default: return FALSE;
-  }
-}
-
 #endif /* defined QJS_LWS_H */
