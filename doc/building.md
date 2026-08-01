@@ -61,7 +61,7 @@ the module search path. The `qjs` binary supports `-I <path>` and
 falls back to the script's own directory.
 
 ```sh
-qjs -I ./build  ./tests/test-server.js
+qjs -I ./build  ./tests/unittests/test-lwscontext.js
 ```
 
 ## Debugging tips

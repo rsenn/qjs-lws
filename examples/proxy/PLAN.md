@@ -59,9 +59,10 @@ flowing through an already-open pipe.
   already uses for its `onRawAdopt/onRawRx/onRawClose` wiring. This is the
   primitive both the HTTP-proxy listener and the SOCKS listener build on.
 - **`LWS_SERVER_OPTION_ONLY_RAW`** + `listenAcceptRole: 'raw-skt'` +
-  `listenAcceptProtocol` — the exact options combination already proven in
-  `tests/unittests/test-server.js`'s "Raw TCP echo server" test, for a listening
-  port that's pure raw from the start (no lws HTTP-role parsing at all).
+  `listenAcceptProtocol` — the exact options combination previously proven
+  by a "Raw TCP echo server" test in tests/unittests/test-server.js (since
+  removed - see BUGS), for a listening port that's pure raw from the start
+  (no lws HTTP-role parsing at all).
 - **`socks_proxy_address`/`socks_proxy_port`** — already wired through to JS in
   `lws-context.c:744-748` (undocumented but functional, guarded by the
   already-compiled-in `LWS_WITH_SOCKS5`). This is vhost-level (applies to every

@@ -108,3 +108,42 @@
 
     (run ctest in build/x86_64-linux-debug: test-tcpsocket.js reports
     ***Exception: SegFault)
+
+- spawnandwaitfor-leak-on-timeout (tests/unittests/subprocess-utils.js:91,
+  spawnAndWaitFor): when a spawned client subprocess doesn't print its
+  marker within timeoutMs, waitForLog() throws out of spawnAndWaitFor()
+  before the caller ever reaches its own stopProcess(proc.pid) - the child
+  qjsm process is never killed and spins at ~100% cpu forever (confirmed
+  via ps: orphaned `qjsm /tmp/qjs-lws-test-*.js` processes still running
+  minutes later). This was found via tests/unittests/test-server.js (since
+  removed from the repo - every one of its subtests did `const log = await
+  runClient(...); ctx.destroy();` with no try/finally, so the same timeout
+  also skipped that subtest's own server ctx.destroy(), leaking the
+  LWSContext's listening socket/epoll fd and keeping the whole qjsm process
+  alive past its own "N out of M tests failed." summary line), but the bug
+  is in spawnAndWaitFor() itself, which test-client.js also uses - not
+  confirmed to reproduce there, just not ruled out. Not investigated
+  further beyond confirming the leak mechanism.
+
+- test-websocket-hs-rejected-on-sync-close (lws-protocol.c, lwsjs_callback_protocol;
+  tests/unittests/test-websocket.js:158): "WebSocket.protocol() (server):
+  the close event fires when the peer closes" fails deterministically
+  (confirmed 3/3 runs) with "HS: Rejected at CLIENT_ESTABLISHED" delivered
+  to onClientConnectionError instead of the close event firing. Root cause:
+  the test's client calls wsi.close(1000, 'done') synchronously from
+  onClientEstablished; lwsjs_callback_protocol() forces that dispatch's
+  C-level return value to -1 whenever wsi.close() was called synchronously
+  during it (s->closed, checked right after the JS_Call), and
+  libwebsockets' client-ws.c treats a nonzero LWS_CALLBACK_CLIENT_ESTABLISHED
+  return as a rejected handshake specifically (not a graceful close) -
+  routed to CLIENT_CONNECTION_ERROR, which is mutually exclusive with ever
+  firing CLIENT_CLOSED (see core-net/close.c's already_did_cce handling).
+  Same mechanism documented at length in tests/unittests/test-ws.js's
+  header comment, which works around it by deferring the close() call a
+  microtask past onClientEstablished instead of calling it synchronously.
+  Not clear whether this test ever reliably passed or was already flaky
+  from the start; not otherwise investigated or fixed here since
+  test-websocket.js isn't otherwise in scope for this session's changes.
+
+    (run: env QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm
+    tests/unittests/test-websocket.js)

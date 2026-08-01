@@ -168,7 +168,7 @@ prioritization. Highlights, most severe first:
   request/response.
 - `tests/*.js` at repo root (`test-app.js`, `test-middleware.js`,
   `test-serve.js` — the largest at 28.5K, `test-fetch.js`,
-  `test-websocket.js`, `test-client.js`, `test-server.js`) are
+  `test-websocket.js`, `test-client.js`) are
   substantial and assertion-based but **not** wired into the automated
   `DO_TESTS` run, which only globs `tests/unittests/test-*.js`
   (confirmed in `CMakeLists.txt`). This means the newest and highest
