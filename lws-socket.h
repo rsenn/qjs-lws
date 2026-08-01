@@ -19,10 +19,21 @@ typedef struct {
   LWSSocketType type;
   char *uri, *proto;
   void* obj;
-  BOOL client : 1, want_write : 1, redirected_to_get : 1, completed : 1, closed : 1, dispatching : 1;
+  BOOL client : 1, want_write : 1, redirected_to_get : 1, completed : 1, closed : 1, dispatching : 1, close_code_set : 1;
   int dispatch_reason;
   JSValue headers, write_handler;
   int response_code, body_pending, method;
+  /* Our own copy of the code/reason a local .close() call was given,
+     stashed here (not read back from lws's own ping_payload_buf via
+     lws_get_close_length()/lws_get_close_payload()) because that buffer
+     gets reused - and mutated (WS frame masking is applied in place for
+     client-originated frames, including the close frame itself) - by the
+     time LWS_CALLBACK_CLOSED/CLIENT_CLOSED actually fires. See
+     lwsjs_socket_close() (lws-socket.c) and its use in
+     lwsjs_callback_protocol() (lws-protocol.c). */
+  uint16_t close_code;
+  uint8_t* close_reason;
+  uint32_t close_reason_len;
   struct list_head write_queue; /* pending WriteChunks, FIFO */
   size_t write_buffered;        /* bytes still queued at our layer */
 } LWSSocket;

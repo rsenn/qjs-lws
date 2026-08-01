@@ -336,6 +336,11 @@ socket_free(LWSSocket* sock, JSRuntime* rt) {
       sock->proto = 0;
     }
 
+    if(sock->close_reason) {
+      js_free_rt(rt, sock->close_reason);
+      sock->close_reason = 0;
+    }
+
     js_free_rt(rt, sock);
   }
 }
@@ -801,6 +806,25 @@ lwsjs_socket_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
       if(!(p = get_buffer(ctx, argc - 1, argv + 1, &n)))
         p = (uint8_t*)(str = JS_ToCStringLen(ctx, &n, argv[1]));
     }
+
+    /* Stash our own copy of code+reason before lws_close_reason() below:
+       see the close_code/close_reason comment in lws-socket.h for why
+       lwsjs_callback_protocol() reads back from here rather than from
+       lws_get_close_length()/lws_get_close_payload() at CLOSED time. */
+    s->close_code = (uint16_t)reason;
+    s->close_code_set = TRUE;
+
+    if(s->close_reason) {
+      js_free(ctx, s->close_reason);
+      s->close_reason = NULL;
+    }
+
+    s->close_reason_len = (uint32_t)n;
+
+    if(p && n > 0 && (s->close_reason = js_malloc(ctx, n)))
+      memcpy(s->close_reason, p, n);
+    else
+      s->close_reason_len = 0;
 
     lws_close_reason(s->wsi, reason, p, n);
 

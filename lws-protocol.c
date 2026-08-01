@@ -657,6 +657,21 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     s->method = -1;
   }
 
+  /* Unconditional (unlike the HTTP_CONFIRM_UPGRADE/FILTER_HTTP_CONNECTION
+     heuristics above, both nested inside the `if(cb...)` block below and so
+     skipped whenever the protocol has no handler for that specific reason):
+     LWS_CALLBACK_ESTABLISHED/CLIENT_ESTABLISHED is the one point every
+     successful ws connection - client or server, mounted or not - always
+     passes through, so it's the only reliable place to tag s->type. Without
+     this, s->type stays SOCKET_RAW whenever the protocol doesn't happen to
+     define a handler for ESTABLISHED/CLIENT_ESTABLISHED/
+     FILTER_PROTOCOL_CONNECTION specifically (e.g. one with only onReceive/
+     onClosed), silently disabling every SOCKET_WS-gated feature (e.g.
+     onClosed()'s close code/reason, below) for that connection. */
+  if(reason == LWS_CALLBACK_ESTABLISHED || reason == LWS_CALLBACK_CLIENT_ESTABLISHED || reason == LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION)
+    if(s)
+      s->type = SOCKET_WS;
+
   if(is_headers_reason(reason) || reason == LWS_CALLBACK_HTTP) {
     if(s && is_nullish(s->headers))
       s->headers = lwsjs_socket_headers(ctx, s->wsi, &s->proto);
@@ -688,10 +703,6 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
 
     if(reason == LWS_CALLBACK_FILTER_HTTP_CONNECTION)
       if(s && !strcmp(in, "ws"))
-        s->type = SOCKET_WS;
-
-    if(reason == LWS_CALLBACK_CLIENT_ESTABLISHED || reason == LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION)
-      if(s)
         s->type = SOCKET_WS;
 
     /* This rewrite has to happen before the switch below, not as one of its
@@ -788,11 +799,41 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
           break;
         }
 
+        case LWS_CALLBACK_CLOSED:
+        case LWS_CALLBACK_CLIENT_CLOSED: {
+          /* Only ever reports the code/reason from OUR OWN local .close()
+             call (see close_code/close_reason on LWSSocket, lws-socket.h) -
+             not a peer-initiated close, which is what
+             WS_PEER_INITIATED_CLOSE above already handles. Deliberately
+             NOT read back via lws_get_close_length()/lws_get_close_payload():
+             that reads wsi->ws->ping_payload_buf, which is also the buffer
+             lws reuses (and mutates in place - WS frame masking is applied
+             to it when a client sends the close frame, including this
+             process's own close ack of a peer-initiated close) to actually
+             put the close frame on the wire, so by the time CLOSED/
+             CLIENT_CLOSED fires it may no longer hold the bytes it was
+             given. Confirmed empirically: a client-side self-close came
+             back with a scrambled code every time despite the right byte
+             count. Stashing our own copy in lwsjs_socket_close(), before
+             lws ever gets a chance to reuse that buffer, sidesteps it. */
+          if(s && s->close_code_set) {
+            argv[i++] = JS_NewInt32(ctx, s->close_code);
+
+            if(s->close_reason && s->close_reason_len > 0)
+              argv[i++] = JS_NewArrayBufferCopy(ctx, s->close_reason, s->close_reason_len);
+          }
+          break;
+        }
+
         case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
         case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION: {
           /* user/in/len here are X509_STORE_CTX* / SSL* / preverify_ok, not
              the generic buffer+length shape the default case below assumes -
-             handled separately after this switch, via is_certverify_reason(). */
+             deliberately left a no-op (not just left to fall into that
+             default case) since there's no backend-agnostic way to expose
+             those raw OpenSSL pointers to JS (see lws-tls.h's
+             X509Certificate comment) - this project no longer has a
+             per-connection cert-verify-override binding at all. */
           break;
         }
 
@@ -852,17 +893,6 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
           break;
         }
       }
-    }
-
-    /* is_certverify_reason() also covers LOAD_EXTRA_{CLIENT,SERVER}_VERIFY_CERTS,
-       but those are already handled (accepted with reason 0) by is_loadcerts_reason()
-       at the top of lwsjs_callback_protocol(), before this point is ever reached -
-       so in practice this only ever fires for the two PERFORM_*_CERT_VERIFICATION
-       reasons, where user/in/len really are X509_STORE_CTX* / SSL* / preverify_ok. */
-    if(is_certverify_reason(reason)) {
-      argv[i++] = lwsjs_x509_wrap(ctx, (X509_STORE_CTX*)user);
-      argv[i++] = lwsjs_tls_socket_wrap(ctx, (SSL*)in);
-      argv[i++] = JS_NewBool(ctx, len);
     }
 
     if(reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR) {
