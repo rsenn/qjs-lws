@@ -17,8 +17,8 @@
  * `lws/*.js` module path):
  *   ollama-repl [--model ...] [...]
  */
-import * as std from 'std';
-import * as os from 'os';
+import { exit, out as stdout } from 'std';
+import { clearTimeout, setTimeout, stat } from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
 import { extractFileRefs, formatFileBlocks } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
@@ -26,6 +26,8 @@ import { extractRequests, runRequests, listFiles } from './lib/tool-requests.js'
 import { ChatREPL } from './lib/chat-repl.js';
 import { SessionLog } from './lib/session-log.js';
 import { SentFiles } from './lib/sent-files.js';
+import { FileExchange } from './lib/file-exchange.js';
+import { runCommand } from './lib/run-command.js';
 
 /* Bounds the LIST:/READ:/RUN: tool loop (see SYSTEM_PROMPT and
    runToolLoop() below) - a request round costs a real network round trip
@@ -45,7 +47,7 @@ function parseArgs(argv) {
     else if(arg === '--stream') opts.stream = true;
     else if(arg === '--help' || arg === '-h') {
       console.log('Usage: qjs repl.js [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream]');
-      std.exit(0);
+      exit(0);
     }
   }
 
@@ -91,18 +93,18 @@ LIST: <directory>
 READ: <path-or-glob>
 RUN: <shell command>
 
-LIST shows every JS/C/HTML/CSS/Markdown source file (and README*) under a
-directory, recursively - use it to learn a project's layout. READ shows
+LIST shows every JS/C/CMake/HTML/CSS/Markdown source file (and README*) under
+a directory, recursively - use it to learn a project's layout. READ shows
 one file's contents (or every file matching a glob). RUN executes a shell
 command yourself, in the project root, and shows you its output (bounded
 time and output size - it will tell you if it was truncated or timed out)
-- use it freely to grep/search through the codebase (e.g.
-"grep -rn TODO src"), inspect a directory (ls, find), or debug something
-(run a test, check a tool's version, reproduce an error) instead of
-guessing what a command would print. The user is asked to approve each
-RUN: command before it actually executes (you'll be told if one was
-declined) - that's just a safety gate, not something you need to ask
-about yourself; simply issue the RUN: line you need.
+- use it freely to grep/search through the codebase (e.g. "grep -rn TODO src"),
+inspect a directory (ls, find), or debug something (run a test, check a
+tool's version, reproduce an error) instead of guessing what a command
+would print. The user is asked to approve each  RUN: command before it
+actually executes (you'll be told if one was declined) - that's just a
+safety gate, not something you need to ask about yourself; simply issue
+the RUN: line you need.
 
 The project's top-level layout and any README/CMakeLists.txt contents are
 already given to you below, gathered automatically at the start of this
@@ -155,35 +157,26 @@ QuickJS C API (quickjs.h), the shape every qjs-* binding follows:
   JS_GetArrayBuffer()/JS_NewArrayBufferCopy() for ArrayBuffers.
 
 qjs-modules JS built-ins (/usr/local/lib/quickjs/*.js), available as bare
-imports (\`import * as fs from 'fs'\`, etc.) in any script running under
-qjsm - roughly Node-shaped, not WHATWG:
-- fs: mostly *Sync functions (readFileSync, writeFileSync, statSync,
-  readdirSync, mkdirSync, existsSync, ...) plus lower-level std-file-style
-  ops (openSync/closeSync/seek/tell) and stream helpers (createReadStream/
-  createWriteStream, watch()).
-- console: Console class / the global console - log/error/warn/etc. with
-  util's inspect-based formatting, not just string concatenation.
-- process: a Node-like singleton - argv, argv0, env, cwd()/chdir(),
-  pid/ppid, platform/arch, exit(code), hrtime(), stdin/stdout/stderr.
-- util: a large grab-bag - Object.* wrappers, type predicates (isObject,
-  isString, isClass, TypedArray, ...), memoize, inherits, setImmediate/
-  clearImmediate/queueMicrotask. Console's own value formatting comes from
-  a separate 'inspect' built-in, not from here.`;
+imports (\`import * as fs from 'fs'\`, etc.) in any script running under qjsm -  roughly Node-shaped, not WHATWG:  - fs: mostly *Sync functions (readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, existsSync, ...) plus lower-level std-file-style ops (openSync/closeSync/seek/tell) and stream helpers (createReadStream/ createWriteStream, watch()). - console: Console class / the global console - log/error/warn/etc. with util's inspect-based formatting, not just string concatenation. - process: a Node-like singleton - argv, argv0, env, cwd()/chdir(), pid/ppid, platform/arch, exit(code), hrtime(), stdin/stdout/stderr. - util: a large grab-bag - Object.* wrappers, type predicates (isObject, isString, isClass, TypedArray, ...), memoize, inherits, setImmediate/ clearImmediate/queueMicrotask. Console's own value formatting comes from a separate 'inspect' built-in, not from here.`;
 
 /** @returns {{ text: string, attached: string[] }} */
-function attachFiles(prompt, root) {
+function attachFiles(prompt, root, fileExchange) {
   const { files, skipped } = extractFileRefs(prompt, root);
 
   if(skipped.length) console.log(`\x1b[2m(skipped, too large or unreadable: ${skipped.join(', ')})\x1b[0m`);
   if(!files.length) return { text: prompt, attached: [] };
 
-  console.log(`\x1b[2m(attached: ${files.map(f => f.path).join(', ')})\x1b[0m`);
-  return { text: `${prompt}\n\n${formatFileBlocks(files)}`, attached: files.map(f => f.path) };
+  const attached = files.map(f => f.path);
+
+  console.log(`\x1b[2m(attached: ${attached.join(', ')})\x1b[0m`);
+  fileExchange.recordSent(attached);
+
+  return { text: `${prompt}\n\n${formatFileBlocks(files)}`, attached };
 }
 
 /** @returns {string[]} paths actually written (named "File:" blocks and auto-named anonymous ones alike) */
-function applyFileBlocks(reply, root, sentFiles) {
-  const { written, rejected } = saveAllBlocks(reply, { root, sentFiles });
+async function applyFileBlocks(reply, root, sentFiles, fileExchange) {
+  const { written, rejected } = await saveAllBlocks(reply, { root, sentFiles, fileExchange });
 
   for(const path of written) console.log(`\x1b[32mmodified: ${path}\x1b[0m`);
   for(const path of rejected) console.log(`\x1b[31mrefused to write (unsafe path): ${path}\x1b[0m`);
@@ -191,27 +184,73 @@ function applyFileBlocks(reply, root, sentFiles) {
   return written;
 }
 
+/* Unicode "quadrant" block glyphs (U+2596/2598/259D/2597 - each literally
+   named QUADRANT LOWER-LEFT/UPPER-LEFT/UPPER-RIGHT/LOWER-RIGHT in the
+   Unicode block-elements table), cycled to animate a spinner while
+   waiting for the model - stopped the moment there's something to show
+   for it (the first streamed token, or the whole non-streamed reply). */
+const SPINNER_FRAMES = ['▘', '▝', '▗', '▖'];
+const SPINNER_MS = 120;
+
+/** Starts an animated "<glyph> Thinking..." line; returns a function that
+    stops it and clears the line. */
+function startSpinner(label = 'Thinking') {
+  let i = 0;
+  let timer;
+
+  const tick = () => {
+    stdout.puts(`\r${SPINNER_FRAMES[i++ % SPINNER_FRAMES.length]} ${label}...`);
+    stdout.flush();
+    timer = setTimeout(tick, SPINNER_MS);
+  };
+
+  tick();
+
+  return () => {
+    if(timer != null) clearTimeout(timer);
+    stdout.puts(`\r${' '.repeat(label.length + 5)}\r`);
+    stdout.flush();
+  };
+}
+
 /**
- * One chat() or chatStream() call, printed the same way either way.
+ * One chat() or chatStream() call, printed the same way either way -
+ * shows a spinner (startSpinner() above) until the first sign of a reply
+ * (the first token, or the whole reply for non-streaming), then a
+ * "Cogitated for Ns" line once it's completely done.
  * @returns {Promise<string>} the reply text
  */
 async function chatRound(client, messages, opts) {
-  if(opts.stream) {
-    std.out.puts('\nqwen> ');
-    std.out.flush();
+  const t0 = Date.now();
+  const stopSpinner = startSpinner();
+  const cogitated = () => console.log(`\x1b[2mCogitated for ${((Date.now() - t0) / 1000).toFixed(1)}s\x1b[0m\n`);
 
-    const reply = await client.chatStream(messages, token => {
-      std.out.puts(token);
-      std.out.flush();
+  if(opts.stream) {
+    let first = true;
+
+    const reply = await client.chatStream(messages, {}, token => {
+      if(first) {
+        stopSpinner();
+        stdout.puts('\nqwen> ');
+        first = false;
+      }
+
+      stdout.puts(token);
+      stdout.flush();
     });
 
-    std.out.puts('\n\n');
-    std.out.flush();
+    if(first) stopSpinner(); // reply came back empty - no token ever arrived to stop it
+
+    stdout.puts('\n\n');
+    stdout.flush();
+    cogitated();
     return reply;
   }
 
   const reply = await client.chat(messages);
+  stopSpinner();
   console.log(`\nqwen> ${reply}\n`);
+  cogitated();
   return reply;
 }
 
@@ -257,75 +296,133 @@ async function runToolLoop(client, messages, opts, log, confirmRun) {
  */
 async function gatherProjectContext(root) {
   const files = listFiles('', root);
+
   const readmes = files.filter(f => /^readme/i.test(f.slice(f.lastIndexOf('/') + 1)));
   const requests = [{ type: 'LIST', arg: '.' }, ...readmes.map(f => ({ type: 'READ', arg: f }))];
 
-  const [cmakeStat] = os.stat(root === '.' ? 'CMakeLists.txt' : `${root}/CMakeLists.txt`);
+  const [cmakeStat] = stat(root === '.' ? 'CMakeLists.txt' : `${root}/CMakeLists.txt`);
   if(cmakeStat) requests.push({ type: 'READ', arg: 'CMakeLists.txt' });
 
   return runRequests(requests, root);
 }
+
+const HELP_TEXT = `/reset          - clear conversation history (keeps the initial project scan)
+/exit, /quit    - quit
+/help           - this text
+/run <command>  - run a shell command yourself, right now (no model round trip, no approval prompt - it's you asking, not the model)
+/status         - show model/connection/session info
+/files          - dump this session's file exchange (sent, received, diffs)
+Anything else is sent to the model as a prompt.`;
 
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
   const client = new OllamaClient(opts);
   const log = new SessionLog(`${opts.model}.log`);
   const sentFiles = new SentFiles(opts.model, opts.root);
+  const fileExchange = new FileExchange(opts.model, opts.root);
   const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
 
   console.log(`ollama-repl: ${opts.model} @ ${opts.host}:${opts.port}  (root: ${opts.root})`);
-  console.log(`Type a prompt and press Enter. Reference files by name or glob (e.g. src/*.js) to attach them. /help for commands.`);
-  console.log(`Logging this session to ${opts.model}.log. History persists via qjs-modules' repl module (^R to search, up/down to recall).`);
+  //console.log(`Type a prompt and press Enter.\nReference files by name or glob (e.g. src/*.js) to attach them.`);
+  console.log(`/help for commands.`);
+  console.log(`Logging this session to ${opts.model}.log.`);
+  console.log(`History persists (^R to search, up/down to recall).`);
 
   console.log(`\x1b[2m(scanning project layout...)\x1b[0m`);
+
   const projectContext = await gatherProjectContext(opts.root);
+
+  console.log('projectContext', console.config({ maxStringLength: 32, maxArrayLength: 32 }), projectContext.length, projectContext.replaceAll(/\n/g, '\\n').slice(0, 50));
+
   messages.push(
     { role: 'user', content: `(automatic project scan at session start)\n\n${projectContext}` },
     { role: 'assistant', content: "Got it - I have the project's layout and README/CMakeLists.txt contents above." },
   );
   log.toolResults(projectContext);
-  console.log();
+
+  console.log('ready!');
 
   // /reset clears conversation history, not the auto-loaded project scan.
   const baseMessageCount = messages.length;
+  const startedAt = Date.now();
 
-  const repl = new ChatREPL('you', async line => {
-    const prompt = line.trim();
-    if(!prompt) return;
+  const repl = new ChatREPL(
+    'you',
+    async line => {
+      const prompt = line.trim();
+      if(!prompt) return;
 
-    if(prompt === '/exit' || prompt === '/quit') return repl.exit(0);
+      //console.log('ChatREPL', prompt);
 
-    if(prompt === '/reset') {
-      messages.length = baseMessageCount;
-      console.log('(conversation reset)');
-      return;
-    }
+      if(prompt === '/exit' || prompt === '/quit') return repl.exit(0);
 
-    if(prompt === '/help') {
-      console.log('/reset - clear conversation history\n/exit  - quit\nAnything else is sent to the model as a prompt.');
-      return;
-    }
+      if(prompt === '/reset') {
+        messages.length = baseMessageCount;
+        console.log('(conversation reset)');
+        return;
+      }
 
-    const { text: withFiles, attached } = attachFiles(prompt, opts.root);
-    log.prompt(prompt, attached);
+      if(prompt === '/help') {
+        console.log(HELP_TEXT);
+        return;
+      }
 
-    const turnStart = messages.length;
-    messages.push({ role: 'user', content: withFiles });
+      if(prompt === '/status') {
+        const uptimeS = Math.round((Date.now() - startedAt) / 1000);
+        console.log(
+          [
+            `model:    ${opts.model} @ ${opts.host}:${opts.port}${opts.stream ? ' (streaming)' : ''}`,
+            `root:     ${opts.root}`,
+            `messages: ${messages.length - baseMessageCount} (${messages.length} incl. system prompt + project scan)`,
+            `log:      ${opts.model}.log`,
+            `uptime:   ${uptimeS}s`,
+          ].join('\n'),
+        );
+        return;
+      }
 
-    const confirmRun = cmd => repl.confirm(`Run this command?\n  ${cmd}`);
+      if(prompt === '/files') {
+        console.log(fileExchange.dump());
+        return;
+      }
 
-    let reply;
-    try {
-      reply = await runToolLoop(client, messages, opts, log, confirmRun);
-    } catch(e) {
-      console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
-      messages.length = turnStart; // don't leave a dangling/partial turn behind
-      return;
-    }
+      if(prompt.startsWith('/js ')) {
+        repl.evalAndPrintStart(prompt.slice('/js '.length).trim());
+        return;
+      }
 
-    const written = applyFileBlocks(reply, opts.root, sentFiles);
-    log.modified(written);
-  });
+      if(prompt.startsWith('/run ')) {
+        const cmd = prompt.slice('/run '.length).trim();
+        if(!cmd) return;
+
+        const { output, status, timedOut } = await runCommand(cmd, { cwd: opts.root });
+        console.log(`(exit ${status}${timedOut ? ', timed out' : ''})`);
+        console.log(output || '(no output)');
+        return;
+      }
+
+      const { text: withFiles, attached } = attachFiles(prompt, opts.root, fileExchange);
+      log.prompt(prompt, attached);
+
+      const turnStart = messages.length;
+      messages.push({ role: 'user', content: withFiles });
+
+      const confirmRun = cmd => repl.confirm(`Run this command?\n  ${cmd}`);
+
+      let reply;
+      try {
+        reply = await runToolLoop(client, messages, opts, log, confirmRun);
+      } catch(e) {
+        console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
+        messages.length = turnStart; // don't leave a dangling/partial turn behind
+        return;
+      }
+
+      const written = await applyFileBlocks(reply, opts.root, sentFiles, fileExchange);
+      log.modified(written);
+    },
+    opts.root,
+  );
 
   repl.addCleanupHandler(() => {
     log.close();

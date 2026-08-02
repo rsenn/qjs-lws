@@ -132,7 +132,8 @@ retry_bo_from_retryobj(JSContext* ctx, JSValueConst retry_obj) {
       JS_FreeValue(ctx, len_val);
 
       if(count > 0 && (table = js_mallocz(ctx, sizeof(uint32_t) * count)))
-        for(uint32_t i = 0; i < count; i++) table[i] = to_integerfree(ctx, JS_GetPropertyUint32(ctx, table_val, i));
+        for(uint32_t i = 0; i < count; i++)
+          table[i] = to_integerfree(ctx, JS_GetPropertyUint32(ctx, table_val, i));
     }
 
     JS_FreeValue(ctx, table_val);
@@ -356,6 +357,56 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_
      the LWSSocket instead (see METHOD_CLIENTCONNECT) and freed there when
      the socket itself is destroyed. */
   ci->retry_and_idle_policy = retry_bo_fromobj(ctx, obj);
+}
+
+static void
+client_connect_info_from_uri(JSContext* ctx, char* uri, struct lws_client_connect_info* info) {
+  const char *protocol, *host, *path;
+  int port;
+  int r = lws_parse_uri(uri, &protocol, &host, &port, &path);
+
+  if(protocol) {
+    BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
+    BOOL http = !strncmp(protocol, "http", 4);
+
+    if(http)
+      str_replace(ctx, &info->method, js_strdup(ctx, "GET"));
+
+    if(ssl)
+      info->ssl_connection |= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE;
+    else
+      info->ssl_connection &= ~(LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE);
+  }
+
+  if(host)
+    str_replace(ctx, &info->host, js_strdup(ctx, host));
+
+  info->port = port;
+
+  if(path)
+    str_replace(ctx, &info->path, js_strdup(ctx, path));
+}
+
+static char*
+client_connect_info_to_uri(JSContext* ctx, const struct lws_client_connect_info* info) {
+  DynBuf db = {0};
+  dbuf_init2(&db, ctx, (void*)&js_realloc);
+
+  dbuf_putstr(&db, info->method ? (info->ssl_connection ? "https" : "http") : (info->ssl_connection ? "wss" : "ws"));
+  dbuf_putstr(&db, "://");
+
+  dbuf_putstr(&db, info->host ? info->host : "0.0.0.0");
+
+  if(info->port) {
+    dbuf_putc(&db, ':');
+    dbuf_printf(&db, "%u", info->port);
+  }
+
+  if(info->path)
+    dbuf_putstr(&db, info->path);
+
+  dbuf_putc(&db, '\0');
+  return (char*)db.buf;
 }
 
 static void
@@ -787,7 +838,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
         if((tmp = to_string(ctx, argv[0]))) {
           uri = js_strdup(ctx, tmp);
-          lwsjs_uri_toconnectinfo(ctx, tmp, &info);
+          client_connect_info_from_uri(ctx, tmp, &info);
           js_free(ctx, tmp);
         }
       }
@@ -814,7 +865,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         info.address = js_strdup(ctx, info.host);
 
       if(!uri)
-        uri = lwsjs_connectinfo_to_uri(ctx, &info);
+        uri = client_connect_info_to_uri(ctx, &info);
 
       sock->uri = uri;
 

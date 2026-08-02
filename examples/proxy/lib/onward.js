@@ -199,7 +199,7 @@ function prependTo(readable, leftover) {
  * @return {Promise<{readable:ReadableStream, writable:WritableStream}>}
  */
 export function dial(destination, onward) {
-  switch(onward.mode) {
+  switch (onward.mode) {
     case 'socks5':
       return dialViaSocks5(destination, onward);
     case 'socks4':

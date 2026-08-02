@@ -8,7 +8,7 @@ async function resolve(domain) {
   const type = TYPE.A;
 
   // buildQuery creates the complete DNS packet (Header + Question section)
-  const questionBuffer = buildQuery(domain, type, id,  { rd: 1 });
+  const questionBuffer = buildQuery(domain, type, id, { rd: 1 });
 
   const socket = new UDPSocketStream({
     host: '4.2.2.1',
@@ -30,7 +30,7 @@ async function resolve(domain) {
   // 3. Clean up socket
   socket.close();
 
-  if (value) {
+  if(value) {
     const decoded = decodeMessage(value);
     return decoded;
   }
@@ -42,6 +42,6 @@ async function resolve(domain) {
 try {
   const result = await resolve(scriptArgs[1] ?? 'transistorisiert.ch');
   console.log('DNS Answer:', result);
-} catch (error) {
+} catch(error) {
   console.error('DNS Resolve Error:', error);
 }

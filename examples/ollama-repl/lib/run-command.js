@@ -16,11 +16,12 @@
  * if a command emits more than the OS pipe buffer (~64KB, comfortably
  * above MAX_OUTPUT_BYTES below) *before* exiting.
  */
-import * as os from 'os';
+import { close, exec, kill, pipe, read, setReadHandler, setTimeout, waitpid, WNOHANG } from 'os';
 import { toString } from 'lws.so';
 
 const MAX_OUTPUT_BYTES = 32 * 1024;
 const POLL_MS = 40;
+const SIGKILL = 9;
 
 /**
  * @param {string} cmd
@@ -30,10 +31,10 @@ const POLL_MS = 40;
  * @returns {Promise<{ output: string, status: number|null, timedOut: boolean }>}
  */
 export async function runCommand(cmd, { cwd = '.', timeoutMs = 20000 } = {}) {
-  const [rfd, wfd] = os.pipe();
-  const pid = os.exec(['/bin/sh', '-c', cmd], { block: false, stdout: wfd, stderr: wfd, cwd });
+  const [rfd, wfd] = pipe();
+  const pid = exec(['/bin/sh', '-c', cmd], { block: false, stdout: wfd, stderr: wfd, cwd });
 
-  os.close(wfd);
+  close(wfd);
 
   const deadline = Date.now() + timeoutMs;
   let timedOut = false;
@@ -44,27 +45,27 @@ export async function runCommand(cmd, { cwd = '.', timeoutMs = 20000 } = {}) {
       timedOut = true;
 
       try {
-        os.kill(pid, os.SIGKILL);
+        kill(pid, SIGKILL);
       } catch(e) {
         /* already exited */
       }
     }
 
-    const [rpid, st] = os.waitpid(pid, timedOut ? 0 : os.WNOHANG);
+    const [rpid, st] = waitpid(pid, timedOut ? 0 : WNOHANG);
 
     if(rpid === pid) {
       status = st;
       break;
     }
 
-    await new Promise(resolve => os.setTimeout(resolve, POLL_MS));
+    await new Promise(resolve => setTimeout(resolve, POLL_MS));
   }
 
   let out = '';
   const buf = new Uint8Array(4096);
 
   for(;;) {
-    const n = os.read(rfd, buf.buffer, 0, buf.length);
+    const n = read(rfd, buf.buffer, 0, buf.length);
     if(n <= 0) break;
 
     out += toString(buf.buffer.slice(0, n));
@@ -75,7 +76,7 @@ export async function runCommand(cmd, { cwd = '.', timeoutMs = 20000 } = {}) {
     }
   }
 
-  os.close(rfd);
+  close(rfd);
 
   return { output: timedOut ? `${out}\n... (timed out after ${timeoutMs}ms, process killed)` : out, status, timedOut };
 }

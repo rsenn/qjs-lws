@@ -438,7 +438,7 @@ include_directories(
   libwebsockets/lib/tls/schannel
   libwebsockets/plugins/protocol_lws_ssh_base/include)
 
-file(GLOB JS_BINDINGS_SOURCES *.[ch])
+file(GLOB JS_BINDINGS_SOURCES js-utils.[ch] lws*.[ch])
 
 #list(APPEND JS_BINDINGS_SOURCES )
 

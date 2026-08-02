@@ -5,10 +5,11 @@
  * Claude Code's own prompt does, just token-scanned instead of an explicit
  * `@` syntax.
  */
-import * as os from 'os';
-import * as std from 'std';
-import { globMatch, isGlobPattern } from './match.js';
+import { stat, S_IFREG } from 'os';
+import { loadFile } from 'std';
+import { globMatch, isGlobPattern, walk, fileMode } from './match.js';
 import { REFERENCE_FILES } from './reference-files.js';
+import { resolveImportGraph } from './imports.js';
 
 /* A path-shaped token: contains a `/`, or a glob metacharacter, or ends in
    a plausible file extension. Deliberately permissive - false positives
@@ -18,12 +19,38 @@ const TOKEN_RE = /[./]*[\w.\-\/*?[\]{}]*[\w*?\]][\w.\-\/*?[\]{}]*/g;
 const MAX_FILES = 20;
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
+const MAX_DIR_FILES = 5;
+const SOURCE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 'h', 'cpp', 'hpp', 'html', 'css', 'md']);
 
 function looksLikePath(token) {
   if(token.length < 2) return false;
   if(isGlobPattern(token)) return true;
+  if(token.endsWith('/')) return true;
   if(token.includes('/')) return true;
   return /\.[A-Za-z0-9]{1,10}$/.test(token) && !/^\d+\.\d+$/.test(token); // skip bare "2.5"-style numbers
+}
+
+/** The `MAX_DIR_FILES` most-recently-modified source files directly under
+    `dir` (recursively) - path.js/.c/.md/etc references ending in "/"
+    trigger this instead of a single-file lookup ("src/" -> its newest
+    handful of source files, not a literal file named "src/"). */
+function newestSourceFiles(dir, root) {
+  const base = dir ? (root === '.' ? dir : `${root}/${dir}`) : root;
+  const candidates = [];
+
+  for(const path of walk(base, root)) {
+    const rel = root === '.' ? path : path.slice(root.length + 1);
+    const ext = rel.slice(rel.lastIndexOf('.') + 1).toLowerCase();
+
+    if(!SOURCE_EXT.has(ext)) continue;
+
+    const [st] = stat(root === '.' ? rel : `${root}/${rel}`);
+    if(st) candidates.push({ path: rel, mtime: st.mtime });
+  }
+
+  candidates.sort((a, b) => b.mtime - a.mtime);
+
+  return candidates.slice(0, MAX_DIR_FILES).map(c => c.path);
 }
 
 function stripPunctuation(token) {
@@ -54,17 +81,39 @@ export function extractFileRefs(text, root = '.') {
      wherever that's installed). */
   const paths = new Map();
 
+  /* Direct (non-glob, non-directory) file matches also pull in their own
+     direct/transitive local imports (lib/imports.js) - one file reference
+     brings its immediate dependencies along, instead of the model having
+     to separately ask for each one it turns out to need. */
+  const importRoots = [];
+
   for(const token of candidates) {
+    if(token.endsWith('/')) {
+      const dir = token.replace(/\/+$/, '');
+
+      for(const p of newestSourceFiles(dir, root)) paths.set(p, root === '.' ? p : `${root}/${p}`);
+      continue;
+    }
+
     if(isGlobPattern(token)) {
       for(const p of globMatch(token, root)) paths.set(p, root === '.' ? p : `${root}/${p}`);
       continue;
     }
 
     const full = root === '.' ? token : `${root}/${token}`;
-    const [st] = os.stat(full);
 
-    if(st && (st.mode & os.S_IFMT) === os.S_IFREG) paths.set(token, full);
-    else if(REFERENCE_FILES[token]) paths.set(token, REFERENCE_FILES[token]);
+    if(fileMode(full) === S_IFREG) {
+      paths.set(token, full);
+      importRoots.push(token);
+    } else if(REFERENCE_FILES[token]) {
+      paths.set(token, REFERENCE_FILES[token]);
+    }
+  }
+
+  for(const entry of importRoots) {
+    for(const { path } of resolveImportGraph(entry, root)) {
+      if(!paths.has(path)) paths.set(path, root === '.' ? path : `${root}/${path}`);
+    }
   }
 
   const files = [];
@@ -77,14 +126,14 @@ export function extractFileRefs(text, root = '.') {
       continue;
     }
 
-    const [st] = os.stat(full);
+    const [st] = stat(full);
 
     if(!st || st.size > MAX_FILE_BYTES || totalBytes + st.size > MAX_TOTAL_BYTES) {
       skipped.push(label);
       continue;
     }
 
-    const content = std.loadFile(full);
+    const content = loadFile(full);
     if(content == null) {
       skipped.push(label);
       continue;
@@ -116,6 +165,29 @@ const EXT_LANG = {
   css: 'css',
   yml: 'yaml',
   yaml: 'yaml',
+  log: 'text',
+  txt: 'cmake',
+  cmake: 'cmake',
+  ac: 'aclocal',
+  in: 'autotools',
+  am: 'automake',
+  'clang-format': 'yaml',
+  crt: 'pem/x509',
+  key: 'pem/x509',
+  pem: 'pem',
+  'sublime-project': 'json/sublime-text',
+  'sublime-workspace': 'json/sublime-text',
+  prettierrc: 'json',
+  git: 'text',
+  gitignore: 'magic',
+  'cmake-format': 'magic',
+  gitmodules: 'text',
+  diff: 'diff',
+  patch: 'diff',
+  sqlite: 'sqlite',
+  sqlite3: 'sqlite',
+  project: 'xml/eclipse',
+  cproject: 'xml/eclipse',
 };
 
 export function languageFor(path) {

@@ -16,11 +16,28 @@
  * entirely - confirmed working (including a fix below for a related
  * batching bug) against a real interactive run.
  */
+import { readdir, S_IFDIR } from 'os';
+import { fileMode } from './match.js';
 import { REPL } from 'repl';
+
+/* Bright white (not bold-as-in-JS-syntax-colors - just the one plain,
+   readable color) instead of the base REPL's live JS-syntax highlighting
+   (identifiers/keywords/strings each in a different color, since it
+   normally colorizes input as JavaScript for its eval loop - meaningless,
+   and visually noisy, for plain chat prompts). showColors=false below
+   turns off colorizeJs()/printColorText() entirely, which means the
+   prompt text itself is drawn with a single out.puts(this.cmd) call and
+   *no* embedded color codes of its own - terminals keep whatever SGR
+   (color) state was last set until something changes it, so emitting
+   this code (with no trailing reset) as part of ps1 - which gets
+   reprinted at the start of every prompt cycle, in readlinePrintPrompt()
+   - makes the typed text inherit it too. */
+const BRIGHT_WHITE = '\x1b[97m';
 
 export class ChatREPL extends REPL {
   #busy = false;
   #queue = [];
+  #root;
 
   /**
    * @param {string} name    ps1 prefix (e.g. "you" -> "you> ")
@@ -29,11 +46,45 @@ export class ChatREPL extends REPL {
    *   submitted while a previous one is still being handled is queued,
    *   not run concurrently - see #run() below); the REPL prompt doesn't
    *   reappear until every queued onLine() call has settled.
+   * @param {string} [root] project root, for Tab-completing paths.
    */
-  constructor(name, onLine) {
+  constructor(name, onLine, root = '.') {
     super(name, false);
     this.onLine = onLine;
+    this.#root = root;
+    this.showColors = false;
+    this.ps1 = BRIGHT_WHITE + this.ps1;
     this.historyLoad(); // also registers historySave() as a cleanup handler
+  }
+
+  /**
+   * Tab-completion for filesystem paths (relative to `root`) instead of
+   * the base REPL's default JS-identifier/property completion - the only
+   * part of getCompletions()'s `{ tab, pos, ctx }` contract that matters
+   * here is `tab` (candidate replacement strings) and `pos` (how much of
+   * the current word is already typed, i.e. where to start inserting
+   * from); `ctx` is only consulted for JS-specific paren/dot insertion
+   * (completion(), repl.js) that doesn't apply to a plain path.
+   */
+  getCompletions(line, pos) {
+    const start = line.slice(0, pos).search(/[^\s]*$/);
+    const word = line.slice(start, pos);
+    const slash = word.lastIndexOf('/');
+    const dirPart = slash === -1 ? '' : word.slice(0, slash + 1);
+    const prefix = slash === -1 ? word : word.slice(slash + 1);
+
+    const base = this.#root === '.' ? dirPart || '.' : dirPart ? `${this.#root}/${dirPart}` : this.#root;
+    const [names] = readdir(base);
+
+    const tab = (names ?? [])
+      .filter(name => name !== '.' && name !== '..' && name.startsWith(prefix))
+      .sort()
+      .map(name => {
+        const isDir = fileMode(this.#root === '.' ? `${dirPart}${name}` : `${this.#root}/${dirPart}${name}`) == S_IFDIR;
+        return dirPart + name + (isDir ? '/' : '');
+      });
+
+    return { tab, pos: word.length, ctx: {} };
   }
 
   handleCmd(expr) {

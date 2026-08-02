@@ -4,13 +4,37 @@
  * general-purpose glob implementation - no brace expansion, no character
  * classes beyond what the regex conversion below gives for free.
  */
-import * as os from 'os';
+import { lstat, stat, readdir, S_IFDIR, S_IFMT, S_IFREG } from 'os';
+import { popen } from 'std';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn', 'build']);
 
 /** True if `pattern` contains any glob metacharacter. */
 export function isGlobPattern(pattern) {
   return /[*?[\]{}]/.test(pattern);
+}
+
+export function fileMode(path) {
+  const [st] = stat(path) ?? [];
+  return st ? st.mode & S_IFMT : 0;
+}
+
+export function stageFiles(filter = /^\?\?/y, transform = l => [l.slice(0, 2).trim(), l.slice(3)]) {
+  const lines = popen('git status -s', 'r').readAsString().trimEnd().split(/\n/g);
+
+  if(typeof filter == 'string') filter = new RegExp(filter, 'y');
+
+  if(filter instanceof RegExp) {
+    const re = filter;
+    filter = n => re.test(n);
+  }
+
+  if(typeof filter != 'function') {
+    const v = filter;
+    filter = v === null || v === undefined ? () => true : () => v;
+  }
+
+  return lines.filter(filter).map(transform);
 }
 
 /**
@@ -46,7 +70,7 @@ function globToRegExp(pattern) {
 
 /** Recursively lists every regular file under `dir`, as paths relative to `root`. */
 export function* walk(dir, root) {
-  const [names, err] = os.readdir(dir);
+  const [names, err] = readdir(dir);
 
   if(err) return;
 
@@ -59,12 +83,23 @@ export function* walk(dir, root) {
        ancestor under stat's follow-the-link semantics, recursing forever -
        confirmed via a real stack overflow. Skip symlinks outright instead
        of trying to detect the cycle. */
-    const [st] = os.lstat(full);
+    const [st] = lstat(full);
 
     if(!st) continue;
 
-    if((st.mode & os.S_IFMT) === os.S_IFDIR) yield* walk(full, root);
-    else if((st.mode & os.S_IFMT) === os.S_IFREG) yield full;
+    switch (st.mode & S_IFMT) {
+      case S_IFDIR: {
+        if(stat(full + '/.git')?.[0]) continue;
+
+        yield* walk(full, root);
+        break;
+      }
+
+      case S_IFREG: {
+        yield full;
+        break;
+      }
+    }
   }
 }
 

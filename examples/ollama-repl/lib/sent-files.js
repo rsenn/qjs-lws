@@ -5,7 +5,7 @@
  * so the auto-numbering never collides with a previous run's output
  * files still sitting in the project tree.
  */
-import * as os from 'os';
+import { readdir } from 'os';
 
 export class SentFiles {
   #model;
@@ -21,7 +21,7 @@ export class SentFiles {
 
   #scanNext() {
     const prefix = `${this.#model}-output-`;
-    const [names] = os.readdir(this.#root);
+    const [names] = readdir(this.#root);
     let max = 0;
 
     for(const name of names ?? []) {

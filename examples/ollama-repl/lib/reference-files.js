@@ -10,10 +10,14 @@
  * saveFileBlocks() (file-blocks.js), same as any other write-back, so it
  * would land at `<root>/quickjs.h` - never at the real system path.
  */
+const LOCAL_PREFIX = '/usr/local';
+const LOCAL_INCLUDEDIR = LOCAL_PREFIX + '/include';
+const QUICKJS_INCLUDEDIR = LOCAL_INCLUDEDIR + '/quickjs';
+
 export const REFERENCE_FILES = {
-  'quickjs.h': '/usr/local/include/quickjs/quickjs.h',
-  'fs.js': '/usr/local/lib/quickjs/fs.js',
-  'console.js': '/usr/local/lib/quickjs/console.js',
-  'process.js': '/usr/local/lib/quickjs/process.js',
-  'util.js': '/usr/local/lib/quickjs/util.js',
+  'quickjs.h': `${QUICKJS_INCLUDEDIR}/quickjs.h`,
+  'fs.js': `${QUICKJS_INCLUDEDIR}/fs.js`,
+  'console.js': `${QUICKJS_INCLUDEDIR}/console.js`,
+  'process.js': `${QUICKJS_INCLUDEDIR}/process.js`,
+  'util.js': `${QUICKJS_INCLUDEDIR}/util.js`,
 };

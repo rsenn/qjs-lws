@@ -14,10 +14,22 @@ model (`qwen2.5-coder` by default) about the files in your project.
   connection - no child process or second connection needed. `chatStream()`
   reads the response body (a real `ReadableStream`) incrementally via
   `getReader()` and prints each token as it arrives.
-- **File/glob detection.** Type a path or glob straight into your prompt
-  ("fix the bug in `src/foo.js`", "review `*.md`") and it's read off disk
-  and attached to the request automatically (`lib/file-refs.js`,
-  `lib/match.js`) - no special `@file` syntax needed.
+- **File/glob/directory detection.** Type a path or glob straight into
+  your prompt ("fix the bug in `src/foo.js`", "review `*.md`", or
+  `src/**.ts` to recurse a whole tree for one extension) and it's read off
+  disk and attached automatically (`lib/file-refs.js`, `lib/match.js`) -
+  no special `@file` syntax needed. A directory reference ending in `/`
+  (`src/`) attaches its `MAX_DIR_FILES` (5) most-recently-modified source
+  files instead of failing to resolve. Referencing one specific file also
+  pulls in its direct local imports/`#include`s (`lib/imports.js`, a
+  regex-based parser + `os.readdir()`-backed resolver, bounded depth/count)
+  so its immediate dependencies come along without asking for each by name.
+- **File exchange tracking.** Every file attached (project -> model) and
+  every file the model writes back (model -> project) is recorded for the
+  session (`lib/file-exchange.js`); `/files` dumps the full history. A
+  written file that already existed gets diffed against its previous
+  content first, and the diff is saved to `<model>-diffs/NNN-name.diff` -
+  reviewable, and revertible with `patch -R < that-file`.
 - **File output.** When you ask the model to create or modify a file, it's
   instructed (via the system prompt in `repl.js`) to reply with a
   `File: path` line followed by a fenced code block. Every such block in
@@ -61,16 +73,24 @@ model (`qwen2.5-coder` by default) about the files in your project.
   location (`lib/reference-files.js`), same as any project file - so the
   primer covers the shape, the actual source is a name-drop away when a
   question needs it verbatim.
-- **Real line editing + persisted history.** `lib/chat-repl.js` drives
-  the prompt loop through qjs-modules' built-in `REPL` (module `'repl'`)
-  instead of a plain `std.in.getline()` loop - up/down arrow recalls
-  previous prompts, `^R` reverse-searches them, and history persists
-  across runs (`~/.<scriptname>_history` by default, qjs-modules'
-  convention, not this project's).
-- **Session log.** Every prompt (with what was attached), reply, and file
-  written is appended, timestamped, to `<model>.log` in the current
-  directory (`lib/session-log.js`) - independent of the terminal, and
-  across runs (opened in append mode).
+- **Real line editing + persisted history + Tab-completion.**
+  `lib/chat-repl.js` drives the prompt loop through qjs-modules' built-in
+  `REPL` (module `'repl'`) instead of a plain `std.in.getline()` loop -
+  up/down arrow recalls previous prompts, `^R` reverse-searches them,
+  history persists across runs (`~/.<scriptname>_history` by default,
+  qjs-modules' convention, not this project's), and Tab completes
+  filesystem paths (relative to `--root`) instead of the base REPL's
+  default JS-identifier completion. Input is plain bright white, not the
+  base REPL's live JS-syntax highlighting (meaningless for a chat prompt).
+- **Session log.** Every prompt (with what was attached), reply, tool
+  result, and file written is appended, timestamped, to `<model>.log` in
+  the current directory (`lib/session-log.js`) - independent of the
+  terminal, and across runs (opened in append mode).
+- **Thinking indicator.** A small animated "▘ Thinking..." spinner (cycling
+  through the four Unicode quadrant-block glyphs) shows while waiting on
+  the model, replaced by the reply the moment the first token (or the
+  whole non-streamed reply) arrives; a dim "Cogitated for N.Ns" line
+  follows once a turn is fully done.
 
 ## Requirements
 
@@ -96,9 +116,14 @@ against - defaults to the current directory.
 
 ## REPL commands
 
-- `/reset` - clear the conversation history (keeps the system prompt)
+- `/reset` - clear the conversation history (keeps the initial project scan)
 - `/exit` / `/quit` - quit (Ctrl-D also works)
 - `/help` - list commands
+- `/run <command>` - run a shell command yourself, immediately - no model
+  round trip, no approval prompt (that's only for the model's own `RUN:`
+  requests - see above)
+- `/status` - model/connection/session info
+- `/files` - dump this session's file exchange (sent, received, diffs)
 
 ## Notes / limitations
 

@@ -116,56 +116,6 @@ lwsjs_html_process_args(JSContext* ctx, struct lws_process_html_args* pha, int a
   return ret;
 }
 
-void
-lwsjs_uri_toconnectinfo(JSContext* ctx, char* uri, struct lws_client_connect_info* info) {
-  const char *protocol, *host, *path;
-  int port;
-  int r = lws_parse_uri((char*)uri, &protocol, &host, &port, &path);
-
-  if(protocol) {
-    BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
-    BOOL http = !strncmp(protocol, "http", 4);
-
-    if(http)
-      str_replace(ctx, &info->method, js_strdup(ctx, "GET"));
-
-    if(ssl)
-      info->ssl_connection |= LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE;
-    else
-      info->ssl_connection &= ~(LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE);
-  }
-
-  if(host)
-    str_replace(ctx, &info->host, js_strdup(ctx, host));
-
-  info->port = port;
-
-  if(path)
-    str_replace(ctx, &info->path, js_strdup(ctx, path));
-}
-
-char*
-lwsjs_connectinfo_to_uri(JSContext* ctx, const struct lws_client_connect_info* info) {
-  DynBuf db = {0};
-  dbuf_init2(&db, ctx, (void*)&js_realloc);
-
-  dbuf_putstr(&db, info->method ? (info->ssl_connection ? "https" : "http") : (info->ssl_connection ? "wss" : "ws"));
-  dbuf_putstr(&db, "://");
-
-  dbuf_putstr(&db, info->host ? info->host : "0.0.0.0");
-
-  if(info->port) {
-    dbuf_putc(&db, ':');
-    dbuf_printf(&db, "%u", info->port);
-  }
-
-  if(info->path)
-    dbuf_putstr(&db, info->path);
-
-  dbuf_putc(&db, '\0');
-  return (char*)db.buf;
-}
-
 enum {
   FUNCTION_GET_LOG_LEVEL_NAME = 0,
   FUNCTION_GET_LOG_LEVEL_COLOUR,
@@ -287,7 +237,6 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
           _lws_log_cx(lwsl_wsi_get_cx(ls->wsi), lws_log_prepend_wsi, ls->wsi, level, NULL, "%s", msg);
         else if(lws)
           _lws_log_cx(lwsl_context_get_cx(lws->ctx), lws_log_prepend_context, lws->ctx, level, NULL, "%s", msg);
-        //   lwsl_cx(lws->ctx, level, "%s", msg);
         else
           _lws_log(level, "%s", msg);
       }
@@ -301,11 +250,16 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       char* uri;
 
       if((uri = to_string(ctx, argv[0]))) {
-        struct lws_client_connect_info info = {0};
+        const char *protocol, *host, *path;
+        int r, port;
 
-        // ret = argc > 1 ? JS_DupValue(ctx, argv[1]) : JS_NewObjectProto(ctx, JS_NULL);
-
-        lwsjs_uri_toconnectinfo(ctx, uri, &info);
+        if(!(r = lws_parse_uri(uri, &protocol, &host, &port, &path))) {
+          ret = JS_NewObjectProto(ctx, JS_NULL);
+          JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, protocol));
+          JS_SetPropertyStr(ctx, ret, "host", JS_NewString(ctx, host));
+          JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, port));
+          JS_SetPropertyStr(ctx, ret, "path", JS_NewString(ctx, path));
+        }
 
         js_free(ctx, (char*)uri);
       }
@@ -431,8 +385,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
     case FUNCTION_PARSE_MAC: {
       size_t n;
-      uint8_t buf[6];
-      uint8_t* p = buf;
+      uint8_t buf[6], *p = buf;
 
       if(argc > 1) {
         if((p = get_buffer(ctx, argc - 1, argv + 1, &n)))
@@ -454,8 +407,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
     case FUNCTION_PARSE_NUMERIC_ADDRESS: {
       size_t n;
-      uint8_t buf[16];
-      uint8_t* p = buf;
+      uint8_t buf[16], *p = buf;
 
       if(argc > 1) {
         if((p = get_buffer(ctx, argc - 1, argv + 1, &n)))
@@ -478,8 +430,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     case FUNCTION_WRITE_NUMERIC_ADDRESS: {
       size_t len, n;
       char out[64];
-      uint8_t buf[16];
-      uint8_t *in, *p = buf;
+      uint8_t buf[16], *in, *p = buf;
 
       if((in = get_buffer(ctx, argc, argv, &len))) {
         if(argc > 1 && JS_IsNumber(argv[1])) {
@@ -499,8 +450,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       const int ipv6 = to_int32(ctx, argv[0]);
       const size_t size = ipv6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
       size_t n;
-      uint8_t buf[size];
-      uint8_t* p = buf;
+      uint8_t buf[size], *p = buf;
 
       if(argc > 2) {
         if((p = get_buffer(ctx, argc - 2, argv + 2, &n)))

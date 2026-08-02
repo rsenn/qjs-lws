@@ -6,8 +6,8 @@
  * and unambiguous to parse, rather than trying to guess intent from
  * arbitrary fenced code blocks.
  */
-import * as os from 'os';
-import * as std from 'std';
+import { stat, mkdir } from 'os';
+import { open as fopen } from 'std';
 
 const FILE_BLOCK_RE = /^File:[ \t]*(\S+)[ \t]*\r?\n```[^\n`]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/gm;
 const FENCE_RE = /```([a-zA-Z0-9_+-]*)[ \t]*\r?\n([\s\S]*?)\r?\n```/g;
@@ -83,16 +83,17 @@ export function extractAnonymousBlocks(text) {
 function mkdirp(dir) {
   if(!dir || dir === '.' || dir === '/') return;
 
-  const [st] = os.stat(dir);
+  const [st] = stat(dir);
   if(st) return;
 
   mkdirp(dir.slice(0, dir.lastIndexOf('/')));
-  os.mkdir(dir);
+  mkdir(dir);
 }
 
 /** Rejects paths that would escape `root` (`../..`, an absolute path, ...). */
 function isSafeRelativePath(path) {
   if(path.startsWith('/') || path.startsWith('~')) return false;
+
   const parts = path.split('/');
   let depth = 0;
 
@@ -113,8 +114,12 @@ function isSafeRelativePath(path) {
  * parent directories as needed. Returns `{ written, rejected }` - paths
  * that fail `isSafeRelativePath()` are reported in `rejected` and never
  * touch the filesystem.
+ *
+ * @param {import('./file-exchange.js').FileExchange} [fileExchange] - if
+ *   given, each path's old-vs-new diff is recorded (see
+ *   FileExchange#recordReceived()) *before* it's overwritten.
  */
-export function saveFileBlocks(blocks, root = '.') {
+export async function saveFileBlocks(blocks, root = '.', fileExchange) {
   const written = [];
   const rejected = [];
 
@@ -124,12 +129,14 @@ export function saveFileBlocks(blocks, root = '.') {
       continue;
     }
 
+    if(fileExchange) await fileExchange.recordReceived(path, content);
+
     const full = root === '.' ? path : `${root}/${path}`;
     const dir = full.includes('/') ? full.slice(0, full.lastIndexOf('/')) : null;
 
     if(dir) mkdirp(dir);
 
-    const f = std.open(full, 'w');
+    const f = fopen(full, 'w');
     if(!f) {
       rejected.push(path);
       continue;
@@ -152,14 +159,14 @@ export function saveFileBlocks(blocks, root = '.') {
  * didn't follow the "File:" convention for it. Every path actually
  * written (named or auto-named) is registered with `sentFiles.add()`.
  */
-export function saveAllBlocks(reply, { root = '.', sentFiles } = {}) {
+export async function saveAllBlocks(reply, { root = '.', sentFiles, fileExchange } = {}) {
   const named = extractFileBlocks(reply);
   const anonymous = extractAnonymousBlocks(reply).map(({ lang, content }) => ({
     path: sentFiles.nextOutputPath(extensionFor(lang)),
     content,
   }));
 
-  const { written, rejected } = saveFileBlocks([...named, ...anonymous], root);
+  const { written, rejected } = await saveFileBlocks([...named, ...anonymous], root, fileExchange);
 
   for(const path of written) sentFiles.add(path);
 

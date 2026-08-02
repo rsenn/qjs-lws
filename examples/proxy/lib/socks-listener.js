@@ -12,19 +12,7 @@
 import { TCPSocketStream } from '../../../lib/tcpsocketstream.js';
 import { accumulateUntil, writeBytes } from './byte-utils.js';
 import { dial, relay, writeAndClose } from './onward.js';
-import {
-  decodeSocks4Request,
-  decodeSocks5Greeting,
-  decodeSocks5Request,
-  encodeSocks4Reply,
-  encodeSocks5MethodSelection,
-  encodeSocks5Reply,
-  SOCKS4_CMD_CONNECT,
-  SOCKS5_CMD_CONNECT,
-  SOCKS5_REP_COMMAND_NOT_SUPPORTED,
-  SOCKS5_REP_GENERAL_FAILURE,
-  SOCKS5_REP_SUCCEEDED,
-} from './socks-protocol.js';
+import { decodeSocks4Request, decodeSocks5Greeting, decodeSocks5Request, encodeSocks4Reply, encodeSocks5MethodSelection, encodeSocks5Reply, SOCKS4_CMD_CONNECT, SOCKS5_CMD_CONNECT, SOCKS5_REP_COMMAND_NOT_SUPPORTED, SOCKS5_REP_GENERAL_FAILURE, SOCKS5_REP_SUCCEEDED, } from './socks-protocol.js';
 
 const SOCKS5_NO_AUTH = 0x00;
 const SOCKS5_NO_ACCEPTABLE_METHOD = 0xff;

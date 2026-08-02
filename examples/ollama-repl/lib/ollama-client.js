@@ -87,8 +87,8 @@ export class OllamaClient {
    *
    * @returns {Promise<string>} the assistant's reply text
    */
-  async chat(messages) {
-    const resp = await this.#post({ model: this.model, messages, stream: false });
+  async chat(messages, { think = false, ...options } = {}) {
+    const resp = await this.#post({ ...options, model: this.model, messages, stream: false, think });
     const data = await resp.json();
 
     if(!data?.message?.content) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
@@ -112,8 +112,8 @@ export class OllamaClient {
    *   can (and often does) contain a partial line or several complete ones.
    * @returns {Promise<string>} the full assistant reply, once done
    */
-  async chatStream(messages, onToken) {
-    const resp = await this.#post({ model: this.model, messages, stream: true });
+  async chatStream(messages, { think = false, ...options } = {}, onToken) {
+    const resp = await this.#post({ ...options, model: this.model, messages, stream: true, think });
     const reader = resp.body.getReader();
 
     let buf = '';
@@ -128,7 +128,7 @@ export class OllamaClient {
          lib/lws/protocols.js) it silently returns undefined instead of
          throwing (see BUGS: tostring-silently-undefined-on-typed-array-view).
          Slice out the view's own backing ArrayBuffer region first. */
-      if(!done) buf += toString(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      if(!done) buf += toString(value /*.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)*/);
 
       let idx;
       while((idx = buf.indexOf('\n')) !== -1) {

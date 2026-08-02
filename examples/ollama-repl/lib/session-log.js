@@ -5,19 +5,19 @@
  * on screen (the terminal only shows the current session; this
  * accumulates across runs since it's opened in append mode).
  */
-import * as std from 'std';
+import { open as fopen } from 'std';
 
 export class SessionLog {
   #file;
 
   constructor(path) {
-    this.#file = std.open(path, 'a');
+    this.#file = fopen(path, 'a');
   }
 
   #line(tag, text) {
     if(!this.#file) return;
 
-    this.#file.puts(`[${new Date().toISOString()}] ${tag}: ${text}\n`);
+    this.#file.puts(`[${new Date().toISOString()}] ${tag}: ${text.replaceAll(/\n/g, '\n  ')}\n`);
     this.#file.flush();
   }
 

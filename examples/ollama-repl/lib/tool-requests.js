@@ -5,14 +5,14 @@
  * repl.js for the exact contract given to the model; repl.js's chat loop
  * is what bounds how many rounds of this run per turn (MAX_TOOL_ROUNDS).
  */
-import * as os from 'os';
-import * as std from 'std';
-import { walk } from './match.js';
+import { stat, S_IFREG } from 'os';
+import { loadFile } from 'std';
+import { walk, fileMode } from './match.js';
 import { runCommand } from './run-command.js';
 
 const REQUEST_RE = /^(LIST|READ|RUN):[ \t]*(.+)$/gm;
 
-const LISTABLE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 'h', 'cpp', 'hpp', 'html', 'css', 'md']);
+const LISTABLE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 'h', 'cpp', 'hpp', 'html', 'css', 'md', 'cmake', 'txt', 'sh']);
 const MAX_READ_BYTES = 64 * 1024;
 const MAX_LIST_ENTRIES = 300;
 
@@ -40,22 +40,25 @@ export function listFiles(dir, root) {
   const base = dir ? (root === '.' ? dir : `${root}/${dir}`) : root;
   const out = [];
 
+  const filetime = (f, t = 'mtime') => stat(f)?.[0][t];
+
   for(const path of walk(base, root)) {
     const rel = root === '.' ? path : path.slice(root.length + 1);
-    if(isListable(rel)) out.push(rel);
+    if(isListable(rel)) out.push([filetime(rel), rel]);
     if(out.length >= MAX_LIST_ENTRIES) break;
   }
 
-  return out.sort();
+  return out.sort((a, b) => b[0] - a[0]).map(([tm, fn]) => fn);
 }
 
 function readFile(path, root) {
   const full = root === '.' ? path : `${root}/${path}`;
-  const [st] = os.stat(full);
 
-  if(!st || (st.mode & os.S_IFMT) !== os.S_IFREG) return null;
+  //console.log('fileMode(full)', fileMode(full), S_IFREG);
 
-  const content = std.loadFile(full);
+  if(fileMode(full) !== S_IFREG) return null;
+
+  const content = loadFile(full);
   if(content == null) return null;
 
   return content.length > MAX_READ_BYTES ? content.slice(0, MAX_READ_BYTES) + '\n... (truncated)' : content;

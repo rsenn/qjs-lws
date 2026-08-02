@@ -248,33 +248,68 @@ get_offset_length(JSContext* ctx, int argc, JSValueConst argv[], size_t maxlen, 
 
   if(argc > 0) {
     if((ofs = to_int64(ctx, argv[0])) < 0)
-      ofs = WRAPAROUND(ofs, (int64_t)maxlen);
-    ofs = MAX(0, MIN(ofs, (int64_t)maxlen));
+      ofs = WRAP(ofs, (int64_t)maxlen);
 
-    if(argc > 1)
+    if(argc > 1) {
       if((len = to_int64(ctx, argv[1])) < 0)
-        len = WRAPAROUND(len, (int64_t)maxlen);
+        len = WRAP(len, (int64_t)maxlen);
+    }
   }
 
+  ofs = CLAMP(ofs, 0, (int64_t)maxlen);
   maxlen -= ofs;
-  *lenp = MAX(0, MIN(len, (int64_t)maxlen));
+  *lenp = CLAMP(len, 0, (int64_t)maxlen);
 
   return ofs;
 }
 
+JSValue
+get_typedarray_buffer(JSContext* ctx, JSValueConst value, size_t* p_offset, size_t* p_length) {
+  size_t offset, bytes, bytes_per_element;
+  JSValue buffer = JS_GetTypedArrayBuffer(ctx, value, &offset, &bytes, &bytes_per_element);
+  int ret = 0;
+
+  if(JS_IsException(buffer)) {
+    /* JS_GetTypedArrayBuffer threw; discard the exception so the caller can
+     * treat this as a silent "not a typed array" probe. */
+    JS_FreeValue(ctx, JS_GetException(ctx));
+    buffer = JS_DupValue(ctx, value);
+    offset = 0;
+    bytes = SIZE_MAX;
+    bytes_per_element = 1;
+  }
+
+  if(p_offset)
+    *p_offset = offset;
+
+  if(p_length)
+    *p_length = bytes;
+
+  return buffer;
+}
+
 void*
 get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
-  size_t maxlen;
+  size_t maxlen, offset = 0, bytes = SIZE_MAX;
   uint8_t* ptr;
+  JSValue buffer = get_typedarray_buffer(ctx, argv[0], &offset, &bytes);
 
-  if((ptr = JS_GetArrayBuffer(ctx, &maxlen, argv[0]))) {
-    size_t ofs = 0, len = maxlen;
+  if((ptr = JS_GetArrayBuffer(ctx, &maxlen, buffer))) {
+    maxlen -= offset;
+    bytes = MIN(maxlen, bytes);
 
-    if(argc > 1)
-      ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
+    if(argc > 1) {
+      size_t len = 0;
+      size_t ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
 
-    *lenp = len;
-    ptr += ofs;
+      offset += ofs;
+      bytes = len;
+    }
+
+    if(lenp)
+      *lenp = bytes;
+
+    ptr += offset;
   } else {
     /* JS_GetArrayBuffer() throws when argv[0] isn't an ArrayBuffer, but
        returning NULL here is a normal, expected outcome for callers using
@@ -287,6 +322,7 @@ get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
     JS_FreeValue(ctx, JS_GetException(ctx));
   }
 
+  JS_FreeValue(ctx, buffer);
   return ptr;
 }
 
