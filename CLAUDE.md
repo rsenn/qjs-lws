@@ -91,3 +91,17 @@ Check at the end of a task whether anything surfaced during the work
 (errors seen while testing, oddities noticed while reading code, things
 that "shouldn't happen" but did) got logged; if not, log it before
 finishing.
+
+## Subproject TODO.md files
+
+Several subdirectories (e.g. `examples/ollama-repl/`) keep their own
+`TODO.md` tracking that subproject's known gaps and planned work. Any
+time work in this directory changes the state of something a `TODO.md`
+describes - an item gets implemented, partially implemented, discovered
+to be harder/easier than described, or a change exposes a new gap - update
+that subproject's `TODO.md` to match before finishing, without waiting to
+be asked. Move finished items into a "Done" section (or delete them if
+they're not worth keeping as a record) rather than leaving them listed as
+still-open; note new gaps discovered along the way the same way `BUGS`
+entries are noted. This applies to every `TODO.md` under this directory,
+not just the one being actively discussed.

@@ -68,11 +68,16 @@ model (`qwen2.5-coder` by default) about the files in your project.
   module registration, exceptions) and the qjs-modules JS built-ins
   (`fs`/`console`/`process`/`util`), enough to work on qjs-\* native
   modules without re-deriving the API from scratch every session.
-  Mentioning `quickjs.h`, `fs.js`, `console.js`, `process.js`, or
-  `util.js` by name in a prompt attaches the real file from its installed
-  location (`lib/reference-files.js`), same as any project file - so the
-  primer covers the shape, the actual source is a name-drop away when a
-  question needs it verbatim.
+  Mentioning any QuickJS interpreter header by name (`quickjs.h`,
+  `cutils.h`, `list.h`, ...) or one of the qjs-modules built-ins
+  (`fs.js`, `console.js`, `process.js`, `util.js`) in a prompt attaches
+  the real file (`lib/reference-files.js`), same as any project file -
+  so the primer covers the shape, the actual source is a name-drop away
+  when a question needs it verbatim. The sibling `qjs-*` native-module
+  projects checked out next to this repo (`qjs-modules`, `qjs-ffi`,
+  `qjs-net`, ...) are real prior art for how a binding is structured -
+  `LIST:`/`READ:` can reach into any of them by directory name (e.g.
+  `LIST: qjs-modules`, `READ: qjs-ffi/ffi.c`), not just this project.
 - **Real line editing + persisted history + Tab-completion.**
   `lib/chat-repl.js` drives the prompt loop through qjs-modules' built-in
   `REPL` (module `'repl'`) instead of a plain `std.in.getline()` loop -

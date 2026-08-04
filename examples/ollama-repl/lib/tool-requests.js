@@ -9,6 +9,7 @@ import { stat, S_IFREG } from 'os';
 import { loadFile } from 'std';
 import { walk, fileMode } from './match.js';
 import { runCommand } from './run-command.js';
+import { qjsProjectDirs } from './reference-files.js';
 
 const REQUEST_RE = /^(LIST|READ|RUN):[ \t]*(.+)$/gm;
 
@@ -44,11 +45,29 @@ export function listFiles(dir, root) {
 
   for(const path of walk(base, root)) {
     const rel = root === '.' ? path : path.slice(root.length + 1);
-    if(isListable(rel)) out.push([filetime(rel), rel]);
+    if(isListable(rel)) out.push([filetime(path), rel]);
     if(out.length >= MAX_LIST_ENTRIES) break;
   }
 
   return out.sort((a, b) => b[0] - a[0]).map(([tm, fn]) => fn);
+}
+
+/**
+ * If `arg` names (or starts with, path-fashion) a sibling "qjs-*" project
+ * (reference-files.js's `qjsProjectDirs()`), resolves it against that
+ * project's own directory instead of `root` - so "LIST: qjs-modules" or
+ * "READ: qjs-modules/quickjs-archive.c" reach into the sibling project
+ * the same way an ordinary LIST:/READ: reaches into this one. Falls back
+ * to `root` unchanged for anything that isn't a known project name.
+ */
+function resolveBase(arg, root) {
+  const slash = arg.indexOf('/');
+  const name = slash === -1 ? arg : arg.slice(0, slash);
+  const dir = qjsProjectDirs(root).get(name);
+
+  if(dir == null) return { base: root, rel: arg, prefix: '' };
+
+  return { base: dir, rel: slash === -1 ? '' : arg.slice(slash + 1), prefix: name };
 }
 
 function readFile(path, root) {
@@ -80,10 +99,12 @@ export async function runRequests(requests, root, confirmRun) {
 
   for(const { type, arg } of requests) {
     if(type === 'LIST') {
-      const files = listFiles(arg === '.' || arg === '' ? '' : arg, root);
+      const { base, rel, prefix } = resolveBase(arg === '.' || arg === '' ? '' : arg, root);
+      const files = listFiles(rel, base).map(f => (prefix ? `${prefix}/${f}` : f));
       parts.push(`LIST: ${arg}\n${files.length ? files.join('\n') : '(no matching files)'}`);
     } else if(type === 'READ') {
-      const content = readFile(arg, root);
+      const { base, rel } = resolveBase(arg, root);
+      const content = readFile(rel, base);
       parts.push(content == null ? `READ: ${arg}\n(not found, or not a regular file)` : `READ: ${arg}\n\`\`\`\n${content}\n\`\`\``);
     } else if(type === 'RUN') {
       if(confirmRun && !(await confirmRun(arg))) {

@@ -8,7 +8,7 @@
 import { stat, S_IFREG } from 'os';
 import { loadFile } from 'std';
 import { globMatch, isGlobPattern, walk, fileMode } from './match.js';
-import { REFERENCE_FILES } from './reference-files.js';
+import { referenceFiles } from './reference-files.js';
 import { resolveImportGraph } from './imports.js';
 
 /* A path-shaped token: contains a `/`, or a glob metacharacter, or ends in
@@ -76,9 +76,9 @@ export function extractFileRefs(text, root = '.') {
 
   /* label (shown to the model, and used as the write-back path if the
      model echoes it in a "File:" block) -> the actual path to read from -
-     the same for project files, but different for REFERENCE_FILES entries
+     the same for project files, but different for referenceFiles() entries
      (label is just the bare name, e.g. "quickjs.h"; the actual path is
-     wherever that's installed). */
+     wherever that's installed or checked out). */
   const paths = new Map();
 
   /* Direct (non-glob, non-directory) file matches also pull in their own
@@ -86,6 +86,7 @@ export function extractFileRefs(text, root = '.') {
      brings its immediate dependencies along, instead of the model having
      to separately ask for each one it turns out to need. */
   const importRoots = [];
+  const referenceFilePaths = referenceFiles(root);
 
   for(const token of candidates) {
     if(token.endsWith('/')) {
@@ -105,8 +106,8 @@ export function extractFileRefs(text, root = '.') {
     if(fileMode(full) === S_IFREG) {
       paths.set(token, full);
       importRoots.push(token);
-    } else if(REFERENCE_FILES[token]) {
-      paths.set(token, REFERENCE_FILES[token]);
+    } else if(referenceFilePaths[token]) {
+      paths.set(token, referenceFilePaths[token]);
     }
   }
 
