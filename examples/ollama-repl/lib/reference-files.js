@@ -12,12 +12,12 @@
  */
 const LOCAL_PREFIX = '/usr/local';
 const LOCAL_INCLUDEDIR = LOCAL_PREFIX + '/include';
-const QUICKJS_INCLUDEDIR = LOCAL_INCLUDEDIR + '/quickjs';
+const LOCAL_LIBDIR = LOCAL_PREFIX + '/lib';
 
 export const REFERENCE_FILES = {
-  'quickjs.h': `${QUICKJS_INCLUDEDIR}/quickjs.h`,
-  'fs.js': `${QUICKJS_INCLUDEDIR}/fs.js`,
-  'console.js': `${QUICKJS_INCLUDEDIR}/console.js`,
-  'process.js': `${QUICKJS_INCLUDEDIR}/process.js`,
-  'util.js': `${QUICKJS_INCLUDEDIR}/util.js`,
+  'quickjs.h': `${LOCAL_INCLUDEDIR}/quickjs/quickjs.h`,
+  'fs.js': `${LOCAL_LIBDIR}/quickjs/fs.js`,
+  'console.js': `${LOCAL_LIBDIR}/quickjs/console.js`,
+  'process.js': `${LOCAL_LIBDIR}/quickjs/process.js`,
+  'util.js': `${LOCAL_LIBDIR}/quickjs/util.js`,
 };

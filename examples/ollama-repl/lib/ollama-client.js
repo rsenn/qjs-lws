@@ -70,6 +70,7 @@ export class OllamaClient {
         .catch(reject);
     });
 
+
     /* Not `resp.ok`: Response's `.ok` is computed once at construction
        time (lib/lws/response.js), before HttpClientProtocol patches in
        the real status on establishment (see onEstablishedClientHttp,
@@ -88,8 +89,10 @@ export class OllamaClient {
    * @returns {Promise<string>} the assistant's reply text
    */
   async chat(messages, { think = false, ...options } = {}) {
-    const resp = await this.#post({ ...options, model: this.model, messages, stream: false, think });
+      console.log('chat()',{messages});
+  const resp = await this.#post({ ...options, model: this.model, messages, stream: false, think });
     const data = await resp.json();
+    console.log('response',data);
 
     if(!data?.message?.content) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
 
@@ -113,8 +116,8 @@ export class OllamaClient {
    * @returns {Promise<string>} the full assistant reply, once done
    */
   async chatStream(messages, { think = false, ...options } = {}, onToken) {
-    const resp = await this.#post({ ...options, model: this.model, messages, stream: true, think });
-    const reader = resp.body.getReader();
+  const resp = await this.#post({ ...options, model: this.model, messages, stream: true, think });
+   const reader = resp.body.getReader();
 
     let buf = '';
     let full = '';

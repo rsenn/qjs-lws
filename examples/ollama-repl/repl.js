@@ -46,7 +46,7 @@ function parseArgs(argv) {
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--stream') opts.stream = true;
     else if(arg === '--help' || arg === '-h') {
-      console.log('Usage: qjs repl.js [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream]');
+      console.log('Usage: qjsm repl.js [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream]');
       exit(0);
     }
   }

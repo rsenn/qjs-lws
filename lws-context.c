@@ -39,8 +39,8 @@ static void service_tick_cancel(LWSContext*);
 #define SERVICE_TICK_MS 250
 
 static JSValue
-service_tick(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst func_data[]) {
-  LWSContext* lws = to_ptr(ctx, func_data[0]);
+service_tick(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, void*opaque) {
+  LWSContext* lws = opaque;
 
   /* The timer that invoked this callback has already fired (and
      quickjs-libc frees its own OSTimer state internally once it does) -
@@ -69,10 +69,8 @@ service_tick_schedule(LWSContext* lws, int delay_ms) {
   JS_FreeValue(lws->js, glob);
   JSValue fn = JS_GetPropertyStr(lws->js, os, "setTimeout");
   JS_FreeValue(lws->js, os);
-  JSValueConst data[] = {
-      JS_NewInt64(lws->js, (intptr_t)lws),
-  };
-  JSValue cb = JS_NewCFunctionData(lws->js, service_tick, 0, 0, countof(data), data);
+
+  JSValue cb = js_function_cclosure(lws->js, (CClosureFunc*)service_tick, 0, 0, lws, NULL);
   JSValue args[2] = {cb, JS_NewInt32(lws->js, delay_ms)};
 
   /* os.setTimeout() returns an opaque "OSTimer" JS object in this
@@ -272,23 +270,20 @@ lwsjs_timer_fire(lws_sorted_usec_list_t* sul) {
   JS_FreeValue(ctx, callback);
 }
 
+static void
+lwsjs_timer_finalize(void* opaque) {
+  LWSTimer* t = opaque;
+  js_free_rt(JS_GetRuntime(t->lws->js), t); // or use appropriate runtime free function if available
+}
+
 static JSValue
-lwsjs_timer_cancel(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, JSValueConst func_data[]) {
-  LWSContext* lws = to_ptr(ctx, func_data[0]);
-  LWSTimer* target = to_ptr(ctx, func_data[1]);
-  struct list_head* el;
+lwsjs_timer_cancel(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* opaque) {
+  LWSTimer* t = opaque;
 
-  list_for_each(el, &lws->timers) {
-    LWSTimer* t = list_entry(el, LWSTimer, link);
-
-    if(t == target) {
-      list_del(&t->link);
-      lws_sul_cancel(&t->sul);
-      JS_FreeValue(ctx, t->callback);
-      js_free_rt(JS_GetRuntime(ctx), t);
-      break;
-    }
-  }
+  list_del(&t->link);
+  lws_sul_cancel(&t->sul);
+  JS_FreeValue(ctx, t->callback);
+  js_free_rt(JS_GetRuntime(ctx), t);
 
   return JS_UNDEFINED;
 }
@@ -977,21 +972,19 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       if(!JS_IsFunction(ctx, argv[0]))
         return JS_ThrowTypeError(ctx, "argument 1 must be a function");
 
-      if((t = js_mallocz(ctx, sizeof(LWSTimer)))) {
-        JSValueConst data[2];
+      if(!(t = js_mallocz(ctx, sizeof(LWSTimer))))
+        return JS_EXCEPTION;
 
-        t->lws = lws;
-        t->callback = JS_DupValue(ctx, argv[0]);
-        t->sul.cb = lwsjs_timer_fire;
-        list_add(&t->link, &lws->timers);
+      t->lws = lws;
+      t->callback = JS_DupValue(ctx, argv[0]);
+      t->sul.cb = lwsjs_timer_fire;
+      list_add(&t->link, &lws->timers);
 
-        lws_sul_schedule(lws->ctx, 0, &t->sul, lwsjs_timer_fire, (lws_usec_t)to_int64(ctx, argv[1]) * LWS_US_PER_MS);
+      lws_sul_schedule(lws->ctx, 0, &t->sul, lwsjs_timer_fire, (lws_usec_t)to_int64(ctx, argv[1]) * LWS_US_PER_MS);
 
-        ret = JS_NewObject(ctx);
-        data[0] = JS_NewInt64(ctx, (intptr_t)lws);
-        data[1] = JS_NewInt64(ctx, (intptr_t)t);
-        JS_SetPropertyStr(ctx, ret, "cancel", JS_NewCFunctionData(ctx, lwsjs_timer_cancel, 0, 0, countof(data), data));
-      }
+      ret = JS_NewObject(ctx);
+      JSValue cancel_fn = js_function_cclosure(ctx, lwsjs_timer_cancel, 0, 0, t, NULL);
+      JS_SetPropertyStr(ctx, ret, "cancel", cancel_fn);
 
       break;
     }
