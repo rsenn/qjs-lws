@@ -36,7 +36,7 @@ import { runCommand } from './lib/run-command.js';
 const MAX_TOOL_ROUNDS = 4;
 
 function parseArgs(argv) {
-  const opts = { model: 'qwen2.5-coder', host: 'localhost', port: 11434, root: '.', stream: false };
+  const opts = { model: 'qwen2.5-coder', host: 'localhost', port: 11434, root: '.', stream: false, debug: false };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -45,8 +45,9 @@ function parseArgs(argv) {
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--stream') opts.stream = true;
+    else if(arg === '-x' || arg === '--debug') opts.debug = true;
     else if(arg === '--help' || arg === '-h') {
-      console.log('Usage: qjsm repl.js [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream]');
+      console.log('Usage: qjsm repl.js [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x]');
       exit(0);
     }
   }
@@ -58,8 +59,20 @@ const SYSTEM_PROMPT = `You are a coding assistant working inside a local project
 Claude Code - be proactive and thorough the same way: verify things
 against the actual codebase instead of guessing, understand existing
 conventions before proposing changes, and keep answers grounded in what
-you've actually seen (via READ:/LIST:/RUN: below), not assumption. The
-user's messages may include attached file contents, shown as:
+you've actually seen (via READ:/LIST:/RUN: below), not assumption.
+
+This project runs on QuickJS (qjs/qjsm), not Node.js - do not assume
+Node's globals, module system, or standard library are available. There
+is no "node_modules", no "require()" resolving npm packages, no
+"process.nextTick", no Node built-ins like "path"/"crypto"/"buffer"
+unless a project file actually defines/imports one. When you're unsure
+whether something is available in this runtime, check (via READ:/LIST:
+below, or by asking) rather than assuming Node-shaped behavior - see the
+qjs-modules built-ins list further down for what's actually here, and
+note that even those are only "roughly" Node-shaped (their own doc
+comments spell out exactly where they diverge).
+
+The user's messages may include attached file contents, shown as:
 
 File: path/to/file.ext
 \`\`\`language
@@ -212,23 +225,60 @@ async function applyFileBlocks(reply, root, sentFiles, fileExchange) {
 const SPINNER_FRAMES = ['▘', '▝', '▗', '▖'];
 const SPINNER_MS = 120;
 
-/** Starts an animated "<glyph> Thinking..." line; returns a function that
-    stops it and clears the line. */
+/** "1m 5s"/"42s" - only shown once a call has been running long enough
+    (see startSpinner() below) that knowing it's still alive, not stuck,
+    actually matters. */
+function formatElapsed(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+}
+
+/* How long a call runs before the spinner starts showing elapsed time -
+   the TCP connection can legitimately sit open and idle for minutes
+   (Ollama cold-loading a model, a long generation) with nothing else to
+   show for it; below this, "Thinking..." alone is enough and a timer
+   would just be noise for the common fast-reply case. Same idea as
+   Claude Code's own "still working" indicator. */
+const SPINNER_ELAPSED_THRESHOLD_MS = 60_000;
+
+/** Starts an animated "<glyph> Thinking...(1m 5s)" line - the elapsed-time
+    suffix only appears past SPINNER_ELAPSED_THRESHOLD_MS - and returns a
+    function that stops it and clears the line. */
 function startSpinner(label = 'Thinking') {
+  const t0 = Date.now();
   let i = 0;
   let timer;
+  let lastLen = 0;
 
   const tick = () => {
-    stdout.puts(`\r${SPINNER_FRAMES[i++ % SPINNER_FRAMES.length]} ${label}...`);
+    const elapsed = Date.now() - t0;
+    const suffix = elapsed >= SPINNER_ELAPSED_THRESHOLD_MS ? ` (${formatElapsed(elapsed)})` : '';
+    const text = `${SPINNER_FRAMES[i++ % SPINNER_FRAMES.length]} ${label}...${suffix}`;
+
+    stdout.puts(`\r${text}`);
     stdout.flush();
+    lastLen = text.length;
     timer = setTimeout(tick, SPINNER_MS);
   };
 
   tick();
 
+  /* Idempotent - safe to call more than once (chatRound() below always
+     calls this in a `finally`, on top of whichever call site already
+     stopped it on success) - a second call is a harmless no-op instead
+     of re-clearing an already-cleared timer or re-printing the blank
+     line. Without this, a failed chat()/chatStream() call (the timer was
+     never explicitly stopped on that path) left the tick() loop running
+     forever - confirmed directly: it kept overwriting the terminal with
+     "\r<glyph> Thinking..." every SPINNER_MS, right through the next
+     prompt and whatever the user typed into it, garbling both. */
   return () => {
-    if(timer != null) clearTimeout(timer);
-    stdout.puts(`\r${' '.repeat(label.length + 5)}\r`);
+    if(timer == null) return;
+
+    clearTimeout(timer);
+    timer = null;
+    stdout.puts(`\r${' '.repeat(lastLen)}\r`);
     stdout.flush();
   };
 }
@@ -245,33 +295,42 @@ async function chatRound(client, messages, opts) {
   const stopSpinner = startSpinner();
   const cogitated = () => console.log(`\x1b[2mCogitated for ${((Date.now() - t0) / 1000).toFixed(1)}s\x1b[0m\n`);
 
-  if(opts.stream) {
-    let first = true;
+  // `finally` (not just the explicit stopSpinner() calls below, which only
+  // cover the success path) - client.chat()/chatStream() throwing (a
+  // timeout, a dropped connection, ...) must never leave the spinner's
+  // timer running; stopSpinner() is idempotent, so this is a harmless
+  // no-op on top of an already-stopped spinner.
+  try {
+    if(opts.stream) {
+      let first = true;
 
-    const reply = await client.chatStream(messages, {}, token => {
-      if(first) {
-        stopSpinner();
-        stdout.puts('\nqwen> ');
-        first = false;
-      }
+      const reply = await client.chatStream(messages, {}, token => {
+        if(first) {
+          stopSpinner();
+          stdout.puts('\nqwen> ');
+          first = false;
+        }
 
-      stdout.puts(token);
+        stdout.puts(token);
+        stdout.flush();
+      });
+
+      if(first) stopSpinner(); // reply came back empty - no token ever arrived to stop it
+
+      stdout.puts('\n\n');
       stdout.flush();
-    });
+      cogitated();
+      return reply;
+    }
 
-    if(first) stopSpinner(); // reply came back empty - no token ever arrived to stop it
-
-    stdout.puts('\n\n');
-    stdout.flush();
+    const reply = await client.chat(messages);
+    stopSpinner();
+    console.log(`\nqwen> ${reply}\n`);
     cogitated();
     return reply;
+  } finally {
+    stopSpinner();
   }
-
-  const reply = await client.chat(messages);
-  stopSpinner();
-  console.log(`\nqwen> ${reply}\n`);
-  cogitated();
-  return reply;
 }
 
 /**

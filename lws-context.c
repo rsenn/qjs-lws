@@ -508,6 +508,16 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   ci->keepalive_timeout = to_integerfree(ctx, value);
 #endif
 
+  /* How long (seconds) a client connection may sit waiting - for the TLS
+     handshake, for the server to reply, etc - before lws gives up on it
+     with e.g. "Timed out waiting server reply" (see wsi-timeout.c). Left
+     unset (0), lws_create_context() keeps its own default (15s), which is
+     too short for a request whose server-side work can legitimately take
+     longer (e.g. Ollama cold-loading a multi-GB model before it can answer
+     the first /api/chat call). */
+  value = js_get_property(ctx, obj, "timeout_secs");
+  ci->timeout_secs = to_integerfree(ctx, value);
+
 #ifdef LWS_WITH_SYS_ASYNC_DNS
   value = js_get_property(ctx, obj, "async_dns_servers");
   ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);

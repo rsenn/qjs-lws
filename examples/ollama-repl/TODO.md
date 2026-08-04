@@ -46,6 +46,42 @@ half of the plumbing is still entirely missing.
     against a different base directory.
   - System prompt and README updated to describe all of the above.
 
+- **Fixed: basic prompting/answering didn't work at all** (`lib/ollama-client.js`,
+  `lws-context.c`): every real chat turn failed with "error: Timed out
+  waiting server reply", occasionally followed by the whole process
+  dying (`Aborted`, no further explanation).
+  - Root cause of the timeout: lws's client-connection timeout defaults
+    to 15s (`context->timeout_secs`, `context.c`), and Ollama can easily
+    take well over a minute to cold-load a multi-GB model before it can
+    answer the first `/api/chat` call (measured ~85s locally) - nothing
+    was wrong with the request, it just never got that long to wait.
+    `lws-context.c` now accepts a `timeout_secs` context-creation option
+    (previously not exposed to JS at all); `OllamaClient` passes a 300s
+    default (`timeoutSecs` constructor option to override).
+  - Root cause of the crash risk: `#post()` registered its
+    `resolve`/`reject` pair into a `WeakMap` keyed by `req` only inside a
+    `.then()` after `connect()` resolved - a connection-level failure
+    (peer reset, timeout) arriving in the gap before that `.then()` ran
+    had nothing to reject, so the pair registered moments later would
+    then sit rejected-by-nothing, forever. Rewritten to register
+    synchronously (no `await` between `connect()` resolving and the
+    `Map` being populated), and a `req`-less failure (lws couldn't
+    attribute it to any specific request) now rejects every still-
+    outstanding entry instead of being silently dropped.
+  - Every failure now surfaces as a clear, catchable `Error` (e.g.
+    "Ollama connection failed: Timed out waiting server reply",
+    "Ollama connection failed: conn fail: ECONNREFUSED") instead of a
+    hang or a process-ending abort - verified directly against a real
+    Ollama server for a successful round trip, a forced timeout, and a
+    refused connection (wrong port), plus a real interactive REPL
+    session end-to-end.
+  - Removed the two unconditional `console.log(...)` debug leftovers in
+    `chat()` and replaced them with real, opt-in debug logging: `-x` (or
+    the `DEBUG` env var) now makes `OllamaClient` log every request
+    payload, response, and (streaming) NDJSON chunk to
+    `ollama-repl-debug.log` (append mode, `inspect()`-formatted via a
+    dedicated `Console` instance bound to the file, not the terminal).
+
 ## 1. Add an ASK: request type (user feedback loop)
 
 Still not implemented. There is no way for the model to ask the *user* a

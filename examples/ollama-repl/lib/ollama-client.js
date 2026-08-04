@@ -22,54 +22,110 @@
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LCCSCF_PIPELINE, toString } from 'lws.so';
+import { Console } from 'console';
+import { open as fopen, getenv } from 'std';
+
+/* lws's own default (15s, see wsi-timeout.c/context.c) for how long a
+   client connection may sit waiting on e.g. the server's reply before lws
+   gives up on it and reports "Timed out waiting server reply" - too short
+   for Ollama, which can easily take well over a minute to cold-load a
+   multi-GB model into memory before it can answer the first /api/chat
+   call, and longer still for a large model, a long prompt, or a slow/
+   CPU-only box. Overridable via `timeoutSecs` for tests/tuning. */
+const DEFAULT_TIMEOUT_SECS = 15 * 60;
+
+/* Every request payload and raw response, appended here (not the
+   terminal, which is already busy with the "Thinking..." spinner/reply)
+   when debug mode is on (`-x`/`--debug`, repl.js, or the `DEBUG` env var
+   - either enables it). A dedicated Console instance (not the global
+   `console`) so this is unaffected by whatever the global one is doing
+   and always goes to the file, formatted the same way console.debug()
+   would format it (inspect(), full depth - see console.js). */
+const DEBUG_LOG_PATH = 'ollama-repl-debug.log';
 
 export class OllamaClient {
   #ctx;
   #adapter;
-  #settled = new WeakMap();
+  /** req (the Request from #adapter.connect()) -> the {resolve, reject} of
+      the promise #post() is currently awaiting for it - a plain Map, not
+      a WeakMap, so a connection-level failure that lws can't attribute to
+      any particular req (see #reject() below) can still walk every
+      outstanding one instead of silently going nowhere. */
+  #settled = new Map();
+  #debugConsole;
+  #debugFile;
 
   /**
    * @param {object} opts
    * @param {string} [opts.host]  Ollama server hostname
    * @param {number} [opts.port]  Ollama server port
    * @param {string} opts.model   model name, e.g. "qwen2.5-coder"
+   * @param {number} [opts.timeoutSecs] how long a request may wait before
+   *   lws gives up on it (see DEFAULT_TIMEOUT_SECS above)
+   * @param {boolean} [opts.debug] log every request/response to
+   *   DEBUG_LOG_PATH (also turned on by the `DEBUG` env var, regardless
+   *   of this flag)
    */
-  constructor({ host = 'localhost', port = 11434, model } = {}) {
+  constructor({ host = 'localhost', port = 11434, model, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false } = {}) {
     this.host = host;
     this.port = port;
     this.model = model;
 
+    if(debug || getenv('DEBUG')) {
+      this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
+      this.#debugConsole = new Console(this.#debugFile, { inspectOptions: { depth: Infinity, compact: false } });
+    }
+
     this.#adapter = httpClient(
-      (req, resp) => {
-        const record = this.#settled.get(req);
-        record?.resolve(resp);
-      },
-      {
-        error: (req, err) => {
-          if(req) this.#settled.get(req)?.reject(err);
-        },
-      },
+      (req, resp) => this.#take(req)?.resolve(resp),
+      { error: (req, err) => this.#reject(req, err) },
     );
 
-    this.#ctx = createContext({ protocols: [{ name: 'http', ...this.#adapter }] });
+    this.#ctx = createContext({ protocols: [{ name: 'http', ...this.#adapter }], timeout_secs: timeoutSecs });
+  }
+
+  #take(req) {
+    const record = this.#settled.get(req);
+    this.#settled.delete(req);
+    return record;
+  }
+
+  /**
+   * Rejects the pending post() promise for `req` with a clear reason - or,
+   * if lws couldn't attribute the failure to any particular req (a
+   * connection-level error, e.g. the peer resetting the connection, can
+   * fire before the request that would have matched it ever finished
+   * registering - see #post() below), every still-outstanding one, so a
+   * failure is never silently dropped and a turn never hangs forever
+   * waiting on a callback that already happened.
+   */
+  #reject(req, err) {
+    const reason = new Error(`Ollama connection failed: ${err.message}`);
+
+    if(req) {
+      this.#take(req)?.reject(reason);
+      return;
+    }
+
+    for(const { reject } of this.#settled.values()) reject(reason);
+    this.#settled.clear();
   }
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(payload) {
     const url = `http://${this.host}:${this.port}/api/chat`;
 
-    const resp = await new Promise((resolve, reject) => {
-      this.#adapter
-        .connect(this.#ctx, url, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-          ssl_connection: LCCSCF_PIPELINE,
-        })
-        .then(({ req }) => this.#settled.set(req, { resolve, reject }))
-        .catch(reject);
+    const { req } = await this.#adapter.connect(this.#ctx, url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      ssl_connection: LCCSCF_PIPELINE,
     });
 
+    // Registered synchronously, right after connect() resolves - no
+    // `await` in between - so no native callback can fire in the gap and
+    // find nothing here to reject/resolve yet.
+    const resp = await new Promise((resolve, reject) => this.#settled.set(req, { resolve, reject }));
 
     /* Not `resp.ok`: Response's `.ok` is computed once at construction
        time (lib/lws/response.js), before HttpClientProtocol patches in
@@ -89,10 +145,12 @@ export class OllamaClient {
    * @returns {Promise<string>} the assistant's reply text
    */
   async chat(messages, { think = false, ...options } = {}) {
-      console.log('chat()',{messages});
-  const resp = await this.#post({ ...options, model: this.model, messages, stream: false, think });
+    const payload = { ...options, model: this.model, messages, stream: false, think };
+    this.#debugConsole?.debug('request', payload);
+
+    const resp = await this.#post(payload);
     const data = await resp.json();
-    console.log('response',data);
+    this.#debugConsole?.debug('response', data);
 
     if(!data?.message?.content) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
 
@@ -116,8 +174,11 @@ export class OllamaClient {
    * @returns {Promise<string>} the full assistant reply, once done
    */
   async chatStream(messages, { think = false, ...options } = {}, onToken) {
-  const resp = await this.#post({ ...options, model: this.model, messages, stream: true, think });
-   const reader = resp.body.getReader();
+    const payload = { ...options, model: this.model, messages, stream: true, think };
+    this.#debugConsole?.debug('request', payload);
+
+    const resp = await this.#post(payload);
+    const reader = resp.body.getReader();
 
     let buf = '';
     let full = '';
@@ -140,6 +201,7 @@ export class OllamaClient {
         if(!line.trim()) continue;
 
         const chunk = JSON.parse(line);
+        this.#debugConsole?.debug('chunk', chunk);
         const token = chunk.message?.content ?? '';
 
         if(token) {
@@ -156,5 +218,6 @@ export class OllamaClient {
 
   destroy() {
     this.#ctx.destroy();
+    this.#debugFile?.close();
   }
 }

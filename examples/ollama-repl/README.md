@@ -108,7 +108,7 @@ model (`qwen2.5-coder` by default) about the files in your project.
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .] [--stream]
+qjsm examples/ollama-repl/repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .] [--stream] [-x]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -118,6 +118,11 @@ just `ollama-repl [...]` from `bin/`.
 
 `--root` is the project directory file references and writes are resolved
 against - defaults to the current directory.
+
+`-x` (or the `DEBUG` env var, regardless of `-x`) logs every raw Ollama
+request/response - and, with `--stream`, every individual NDJSON chunk -
+to `ollama-repl-debug.log` (append mode, `inspect()`-formatted, full
+depth) instead of the terminal.
 
 ## REPL commands
 
