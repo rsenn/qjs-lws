@@ -8,79 +8,12 @@ RUN:, file-block writeback, session log) all work individually, but the
 model doesn't reliably *drive* them the way Claude Code drives its own
 tools - it tends to answer from guesswork instead of grounding itself in
 the actual codebase first, and it still has no way to ask the user
-anything. Since the original assessment, the harness's *reach* grew a lot
-(see "Done" below) - it's no longer confined to `--root` - but the model
-still has to be told when to use that reach, and the "ask the user"
-half of the plumbing is still entirely missing.
-
-## Done
-
-- **Sibling-project/reference-material awareness** (`lib/reference-files.js`,
-  `lib/tool-requests.js`, `lib/file-refs.js`, `repl.js`, `README.md`):
-  - `referenceFiles()` name-attaches every header the QuickJS interpreter
-    ships (`quickjs.h`, `cutils.h`, `list.h`, ...), discovered dynamically
-    from `root`'s parent directory - not just a hardcoded `quickjs.h`
-    entry anymore.
-  - `referenceFiles()` also name-attaches every installed pure-JS
-    qjs-modules built-in (`/usr/local/lib/quickjs/*.js` - `fs.js`,
-    `console.js`, `dom.js`, `url.js`, ... - 57 files, not just the 4
-    originally hardcoded).
-  - `nativeModules()` enumerates the installed compiled extensions
-    (`/usr/local/lib/x86_64-linux-gnu/quickjs/*.so`) and best-effort maps
-    each to the "qjs-*" project directory holding its actual C source
-    (own `qjs-<name>` project if one exists, e.g. `ffi.so` ->
-    `qjs-ffi/ffi.c`; otherwise the `qjs-modules` grab-bag, e.g.
-    `archive.so` -> `qjs-modules/quickjs-archive.c`) - not yet
-    surfaced anywhere the model can read it directly, see "Next" below.
-  - `qjsProjectDirs()` discovers every sibling "qjs-*" project directory
-    (one and two levels above `root`); `LIST:`/`READ:` (`tool-requests.js`)
-    now resolve a leading project name against that project's own
-    directory instead of `root`, so `LIST: qjs-modules` or `READ:
-    qjs-ffi/ffi.c` work exactly like listing/reading inside this project -
-    real prior art for how a native module is structured is now one
-    request away instead of unreachable.
-  - Fixed a latent bug this exposed: `listFiles()`'s `filetime()` was
-    `stat()`-ing the root-stripped relative path instead of the real
-    path - silently correct only when `root === '.'` (always true before
-    this work), broke immediately once `LIST:`/`READ:` started resolving
-    against a different base directory.
-  - System prompt and README updated to describe all of the above.
-
-- **Fixed: basic prompting/answering didn't work at all** (`lib/ollama-client.js`,
-  `lws-context.c`): every real chat turn failed with "error: Timed out
-  waiting server reply", occasionally followed by the whole process
-  dying (`Aborted`, no further explanation).
-  - Root cause of the timeout: lws's client-connection timeout defaults
-    to 15s (`context->timeout_secs`, `context.c`), and Ollama can easily
-    take well over a minute to cold-load a multi-GB model before it can
-    answer the first `/api/chat` call (measured ~85s locally) - nothing
-    was wrong with the request, it just never got that long to wait.
-    `lws-context.c` now accepts a `timeout_secs` context-creation option
-    (previously not exposed to JS at all); `OllamaClient` passes a 300s
-    default (`timeoutSecs` constructor option to override).
-  - Root cause of the crash risk: `#post()` registered its
-    `resolve`/`reject` pair into a `WeakMap` keyed by `req` only inside a
-    `.then()` after `connect()` resolved - a connection-level failure
-    (peer reset, timeout) arriving in the gap before that `.then()` ran
-    had nothing to reject, so the pair registered moments later would
-    then sit rejected-by-nothing, forever. Rewritten to register
-    synchronously (no `await` between `connect()` resolving and the
-    `Map` being populated), and a `req`-less failure (lws couldn't
-    attribute it to any specific request) now rejects every still-
-    outstanding entry instead of being silently dropped.
-  - Every failure now surfaces as a clear, catchable `Error` (e.g.
-    "Ollama connection failed: Timed out waiting server reply",
-    "Ollama connection failed: conn fail: ECONNREFUSED") instead of a
-    hang or a process-ending abort - verified directly against a real
-    Ollama server for a successful round trip, a forced timeout, and a
-    refused connection (wrong port), plus a real interactive REPL
-    session end-to-end.
-  - Removed the two unconditional `console.log(...)` debug leftovers in
-    `chat()` and replaced them with real, opt-in debug logging: `-x` (or
-    the `DEBUG` env var) now makes `OllamaClient` log every request
-    payload, response, and (streaming) NDJSON chunk to
-    `ollama-repl-debug.log` (append mode, `inspect()`-formatted via a
-    dedicated `Console` instance bound to the file, not the terminal).
+anything. The harness's *reach* has grown a lot since the original
+assessment - it's no longer confined to `--root`, basic prompting/
+answering actually works now, and context is built more deliberately
+(dependencies named instead of dumped) - but the model still has to be
+told when to use that reach, and the "ask the user" half of the plumbing
+is still entirely missing.
 
 ## 1. Add an ASK: request type (user feedback loop)
 

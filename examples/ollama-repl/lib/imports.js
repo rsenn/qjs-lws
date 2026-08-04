@@ -1,13 +1,14 @@
 /**
- * Regex-based import/include extraction, plus an readdir-backed
- * recursive resolver that follows local (relative) imports/includes from
- * a starting file to build its dependency closure - so attaching one file
- * can pull in the handful of other files it actually depends on, instead
- * of the model having to separately ask for each one.
+ * Regex-based import/include extraction, plus an readdir-backed resolver
+ * that turns a local (relative) import/include target into a project-
+ * relative path - so a file attached to a prompt can be annotated with
+ * what it directly depends on (see `directDependencies()` below and
+ * `file-refs.js`) without those files' *contents* being pulled in and
+ * attached too; the model is expected to `READ:` whichever of them it
+ * actually turns out to need (see the system prompt, repl.js).
  */
 import { readdir, S_IFDIR, S_IFREG } from 'os';
 import { fileMode } from './match.js';
-import { loadFile } from 'std';
 
 /* JS: import ... from 'x'; export ... from 'x'; require('x'); dynamic
    import('x'). C/C++: #include "x" (quoted only - a bare <x> is a system
@@ -80,52 +81,21 @@ function resolveTarget(target, fromDir, root) {
 }
 
 /**
- * Recursively follows local imports/includes starting at `entryPath`
- * (root-relative), returning every reachable file's `{ path, content }` -
- * `entryPath` itself is not included, only what it (transitively) pulls
- * in. Bounded by `maxFiles` (total) and `maxDepth` (import chain length)
- * so a large or cyclic dependency graph can't flood the request.
+ * `fromPath`'s own direct (one level, not transitive) local imports/
+ * includes, resolved to project-relative paths - paths only, nothing is
+ * read beyond `fromPath`'s own already-loaded `content`, so this is cheap
+ * to call for every file a prompt attaches. Targets that don't resolve to
+ * a real file (bare specifiers, system headers, a typo) are silently
+ * dropped, same as `resolveImportGraph` used to.
  */
-export function resolveImportGraph(entryPath, root, { maxFiles = 5, maxDepth = 2 } = {}) {
-  const visited = new Set([entryPath]);
-  const out = [];
-  let frontier = [{ path: entryPath, depth: 0 }];
+export function directDependencies(fromPath, content, root) {
+  const fromDir = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/')) : '';
+  const deps = [];
 
-  while(frontier.length && out.length < maxFiles) {
-    const next = [];
-
-    for(const { path, depth } of frontier) {
-      if(depth >= maxDepth) continue;
-
-      const full = root === '.' ? path : `${root}/${path}`;
-      if(fileMode(full) !== S_IFREG) continue;
-
-      const content = loadFile(full);
-      if(content == null) continue;
-
-      const fromDir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-
-      for(const target of extractImportTargets(content)) {
-        const resolved = resolveTarget(target, fromDir, root);
-        if(!resolved || visited.has(resolved)) continue;
-
-        visited.add(resolved);
-        next.push({ path: resolved, depth: depth + 1 });
-
-        if(out.length + next.length >= maxFiles) break;
-      }
-    }
-
-    for(const { path } of next) {
-      if(out.length >= maxFiles) break;
-
-      const full = root === '.' ? path : `${root}/${path}`;
-      const content = loadFile(full);
-      if(content != null) out.push({ path, content });
-    }
-
-    frontier = next;
+  for(const target of extractImportTargets(content)) {
+    const resolved = resolveTarget(target, fromDir, root);
+    if(resolved && !deps.includes(resolved)) deps.push(resolved);
   }
 
-  return out;
+  return deps;
 }

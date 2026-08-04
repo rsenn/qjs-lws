@@ -9,7 +9,7 @@ import { stat, S_IFREG } from 'os';
 import { loadFile } from 'std';
 import { globMatch, isGlobPattern, walk, fileMode } from './match.js';
 import { referenceFiles } from './reference-files.js';
-import { resolveImportGraph } from './imports.js';
+import { directDependencies } from './imports.js';
 
 /* A path-shaped token: contains a `/`, or a glob metacharacter, or ends in
    a plausible file extension. Deliberately permissive - false positives
@@ -19,7 +19,7 @@ const TOKEN_RE = /[./]*[\w.\-\/*?[\]{}]*[\w*?\]][\w.\-\/*?[\]{}]*/g;
 const MAX_FILES = 20;
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024;
-const MAX_DIR_FILES = 5;
+const MAX_DIR_FILES = 4;
 const SOURCE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 'h', 'cpp', 'hpp', 'html', 'css', 'md']);
 
 function looksLikePath(token) {
@@ -30,10 +30,15 @@ function looksLikePath(token) {
   return /\.[A-Za-z0-9]{1,10}$/.test(token) && !/^\d+\.\d+$/.test(token); // skip bare "2.5"-style numbers
 }
 
-/** The `MAX_DIR_FILES` most-recently-modified source files directly under
-    `dir` (recursively) - path.js/.c/.md/etc references ending in "/"
-    trigger this instead of a single-file lookup ("src/" -> its newest
-    handful of source files, not a literal file named "src/"). */
+/** Up to `MAX_DIR_FILES` source files under `dir` (recursively) - a bare
+    directory reference ending in "/" triggers this instead of a single-
+    file lookup ("src/" -> a handful of its source files, not a literal
+    file named "src/"). Ordered top-level-first (files directly in `dir`
+    before anything in a subdirectory), then newest-first within each
+    depth - representative of the directory's own top rather than
+    whichever subdirectory happens to have the single newest file, and
+    capped well below "every file in there" so a broad directory
+    reference can't flood the request. */
 function newestSourceFiles(dir, root) {
   const base = dir ? (root === '.' ? dir : `${root}/${dir}`) : root;
   const candidates = [];
@@ -45,10 +50,15 @@ function newestSourceFiles(dir, root) {
     if(!SOURCE_EXT.has(ext)) continue;
 
     const [st] = stat(root === '.' ? rel : `${root}/${rel}`);
-    if(st) candidates.push({ path: rel, mtime: st.mtime });
+    if(!st) continue;
+
+    const withinDir = dir ? rel.slice(dir.length + 1) : rel;
+    const depth = withinDir.split('/').length - 1; // 0 = directly in `dir`, 1 = one subdirectory down, ...
+
+    candidates.push({ path: rel, mtime: st.mtime, depth });
   }
 
-  candidates.sort((a, b) => b.mtime - a.mtime);
+  candidates.sort((a, b) => a.depth - b.depth || b.mtime - a.mtime);
 
   return candidates.slice(0, MAX_DIR_FILES).map(c => c.path);
 }
@@ -59,10 +69,14 @@ function stripPunctuation(token) {
 
 /**
  * Scans `text` for file/glob references, resolves them against `root`, and
- * returns `{ text, files }` - `files` is `[{ path, content }]` for every
- * match that actually resolved to a readable regular file, deduped, capped
- * at `MAX_FILES`/`MAX_TOTAL_BYTES` so a runaway glob can't flood the
- * request. `text` is unchanged; callers combine it with `files` themselves
+ * returns `{ text, files }` - `files` is `[{ path, content, dependencies }]`
+ * for every match that actually resolved to a readable regular file,
+ * deduped, capped at `MAX_FILES`/`MAX_TOTAL_BYTES` so a runaway glob can't
+ * flood the request. `dependencies` is that file's own direct imports/
+ * includes (paths only, see `directDependencies()` - `lib/imports.js`) -
+ * not attached, just named, so the model can `READ:` whichever it actually
+ * needs instead of every attached file dragging its dependency chain along
+ * unasked. `text` is unchanged; callers combine it with `files` themselves
  * (see buildMessage() in repl.js) so detection stays independent of
  * formatting.
  */
@@ -81,23 +95,30 @@ export function extractFileRefs(text, root = '.') {
      wherever that's installed or checked out). */
   const paths = new Map();
 
-  /* Direct (non-glob, non-directory) file matches also pull in their own
-     direct/transitive local imports (lib/imports.js) - one file reference
-     brings its immediate dependencies along, instead of the model having
-     to separately ask for each one it turns out to need. */
-  const importRoots = [];
+  /* Labels eligible for directDependencies() below - every root-relative
+     match (direct file, glob, directory pick), but not a referenceFiles()
+     entry: those live outside `root` entirely (an installed/checked-out
+     location), so resolving *their* imports/includes against `root`
+     wouldn't mean anything. */
+  const projectRelative = new Set();
   const referenceFilePaths = referenceFiles(root);
 
   for(const token of candidates) {
     if(token.endsWith('/')) {
       const dir = token.replace(/\/+$/, '');
 
-      for(const p of newestSourceFiles(dir, root)) paths.set(p, root === '.' ? p : `${root}/${p}`);
+      for(const p of newestSourceFiles(dir, root)) {
+        paths.set(p, root === '.' ? p : `${root}/${p}`);
+        projectRelative.add(p);
+      }
       continue;
     }
 
     if(isGlobPattern(token)) {
-      for(const p of globMatch(token, root)) paths.set(p, root === '.' ? p : `${root}/${p}`);
+      for(const p of globMatch(token, root)) {
+        paths.set(p, root === '.' ? p : `${root}/${p}`);
+        projectRelative.add(p);
+      }
       continue;
     }
 
@@ -105,15 +126,9 @@ export function extractFileRefs(text, root = '.') {
 
     if(fileMode(full) === S_IFREG) {
       paths.set(token, full);
-      importRoots.push(token);
+      projectRelative.add(token);
     } else if(referenceFilePaths[token]) {
       paths.set(token, referenceFilePaths[token]);
-    }
-  }
-
-  for(const entry of importRoots) {
-    for(const { path } of resolveImportGraph(entry, root)) {
-      if(!paths.has(path)) paths.set(path, root === '.' ? path : `${root}/${path}`);
     }
   }
 
@@ -140,7 +155,9 @@ export function extractFileRefs(text, root = '.') {
       continue;
     }
 
-    files.push({ path: label, content });
+    const dependencies = projectRelative.has(label) ? directDependencies(label, content, root) : [];
+
+    files.push({ path: label, content, dependencies });
     totalBytes += st.size;
   }
 
@@ -196,8 +213,15 @@ export function languageFor(path) {
   return EXT_LANG[ext] ?? '';
 }
 
-/** Renders `files` as "File: path" + fenced-code blocks, the same shape the
-    assistant is instructed (see SYSTEM_PROMPT in repl.js) to reply with. */
+/** Renders `files` as "File: path" + fenced-code blocks (plus a
+    dependencies note when `extractFileRefs()` found any - see its own
+    doc comment), the same shape the assistant is instructed (see
+    SYSTEM_PROMPT in repl.js) to reply with. */
 export function formatFileBlocks(files) {
-  return files.map(f => `File: ${f.path}\n\`\`\`${languageFor(f.path)}\n${f.content}\n\`\`\``).join('\n\n');
+  return files
+    .map(f => {
+      const deps = f.dependencies?.length ? `\n(imports/includes: ${f.dependencies.join(', ')} - READ: any of these you actually need)` : '';
+      return `File: ${f.path}\n\`\`\`${languageFor(f.path)}\n${f.content}\n\`\`\`${deps}`;
+    })
+    .join('\n\n');
 }

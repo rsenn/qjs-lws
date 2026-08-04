@@ -78,6 +78,16 @@ File: path/to/file.ext
 \`\`\`language
 ...current contents...
 \`\`\`
+(imports/includes: ../lib/foo.js, ./bar.h - READ: any of these you actually need)
+
+That trailing "(imports/includes: ...)" line, when present, lists paths
+the file's own "#include"/"import"/"require" statements resolved to on
+disk - those files are NOT attached, only named, so watch for it (and for
+any "#include"/import-style statement inside the attached content itself,
+which may reference more than what got listed) and issue a READ: for
+whichever of them actually look relevant to the question, the same way
+you would for any other file you're not certain about - don't guess at a
+dependency's contents from its name/path alone.
 
 Only when the user explicitly asks you to create, write, or modify a file,
 reply with a block in that exact same format - "File: " followed by the
@@ -411,7 +421,7 @@ async function main() {
 
   const projectContext = await gatherProjectContext(opts.root);
 
-  console.log('projectContext', console.config({ maxStringLength: 32, maxArrayLength: 32 }), projectContext.length, projectContext.replaceAll(/\n/g, '\\n').slice(0, 50));
+  //console.log('projectContext', console.config({ maxStringLength: 32, maxArrayLength: 32 }), projectContext.length, projectContext.replaceAll(/\n/g, '\\n').slice(0, 50));
 
   messages.push(
     { role: 'user', content: `(automatic project scan at session start)\n\n${projectContext}` },

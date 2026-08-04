@@ -19,11 +19,16 @@ model (`qwen2.5-coder` by default) about the files in your project.
   `src/**.ts` to recurse a whole tree for one extension) and it's read off
   disk and attached automatically (`lib/file-refs.js`, `lib/match.js`) -
   no special `@file` syntax needed. A directory reference ending in `/`
-  (`src/`) attaches its `MAX_DIR_FILES` (5) most-recently-modified source
-  files instead of failing to resolve. Referencing one specific file also
-  pulls in its direct local imports/`#include`s (`lib/imports.js`, a
-  regex-based parser + `os.readdir()`-backed resolver, bounded depth/count)
-  so its immediate dependencies come along without asking for each by name.
+  (`src/`) attaches up to `MAX_DIR_FILES` (4) of its source files instead
+  of failing to resolve - top-level files first, then newest-first within
+  each depth, not just "whatever's newest anywhere in the tree" (which
+  tended to pick every result from one deeply-nested subdirectory).
+  Referencing one specific file also has its direct local imports/
+  `#include`s extracted (`lib/imports.js`, a regex-based parser +
+  `os.readdir()`-backed resolver) and named - not attached - in a note
+  after its content, so the model can `READ:` whichever of them it
+  actually turns out to need instead of every reference dragging its
+  whole dependency chain along unasked.
 - **File exchange tracking.** Every file attached (project -> model) and
   every file the model writes back (model -> project) is recorded for the
   session (`lib/file-exchange.js`); `/files` dumps the full history. A
