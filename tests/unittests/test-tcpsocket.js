@@ -7,10 +7,19 @@
  * structure, adapted for the raw-TCP role (see that file for the WS/WSS
  * pair's own coverage).
  *
- *  - Client (`new TCPSocket(...)` / `new TCPSocketStream(...)`) is tested
- *    against a plain createServer() raw echo protocol.
- *  - Server (`TCPSocket.protocol()` / `TCPSocketStream.protocol()`) is
- *    tested against a plain LWSContext raw client.
+ *  - Client (`new TCPSocket(...)` / `new TCPSocketStream(...)` /
+ *    `TCPSocket.connect()`) is tested against a plain createServer() raw
+ *    echo protocol.
+ *  - Server (`TCPSocket.protocol()` / `TCPSocketStream.protocol()` /
+ *    `TCPSocket.listen()`) is tested against a plain LWSContext raw
+ *    client.
+ *
+ * Every mock counterpart here is built directly on the native `lws.so` C
+ * API (`createServer()`/`LWSContext#clientConnect()`) - none of them go
+ * through any of `lib/tcpsocket.js`'s own wrapper surface, static or
+ * instance - so a failure in a wrapper-side test always points at the
+ * wrapper, never at another piece of the wrapper standing in as its own
+ * counterpart.
  */
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
 import { createServer, LWSContext, toArrayBuffer, toString, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws.so';
@@ -50,6 +59,32 @@ function rawProtocolServer(port, protocol, entry) {
     listenAcceptProtocol: protocol,
     protocols: [entry],
   });
+}
+
+/* Plain raw client, built directly on LWSContext - the mock counterpart for
+   every `TCPSocket.listen()` (Bun API, server) test below, same role
+   `rawClient()`-style helpers play in the `TCPSocket.protocol()` group
+   above. `onReceive`/`onError` are optional; `onConnected` always runs. */
+function rawClient(port, { onConnected, onReceive, onError } = {}) {
+  const ctx = new LWSContext({
+    protocols: [
+      {
+        name: 'raw',
+        onRawConnected(wsi) {
+          onConnected?.(wsi);
+        },
+        onRawRx(wsi, data) {
+          onReceive?.(wsi, data);
+        },
+        onClientConnectionError(wsi, msg) {
+          if(onError) onError(msg);
+          else fail('raw client connection error: ' + msg);
+        },
+      },
+    ],
+  });
+  ctx.clientConnect({ address: 'localhost', port, method: 'RAW', protocol: 'raw' });
+  return ctx;
 }
 
 await tests({
@@ -252,6 +287,188 @@ await tests({
     c1.destroy();
     c2.destroy();
     server.destroy();
+  },
+
+  async 'TCPSocket.connect() (Bun API, client): connects and round-trips raw bytes'() {
+    const port = freePort();
+    const server = mockRawEchoServer(port);
+
+    let resolveReceived;
+    const received = new Promise(resolve => (resolveReceived = resolve));
+
+    const client = await TCPSocket.connect({
+      hostname: 'localhost',
+      port,
+      socket: { data(socket, data) { resolveReceived(toString(data)); } },
+    });
+
+    client.write('hello-connect');
+
+    eq('hello-connect', await received);
+
+    client.end();
+    server.destroy();
+  },
+
+  async 'TCPSocket.connect() (Bun API, client): open handler fires with the resolved socket'() {
+    const port = freePort();
+    const server = rawProtocolServer(port, 'echo', { name: 'echo' });
+
+    let resolveOpened;
+    const opened = new Promise(resolve => (resolveOpened = resolve));
+
+    const client = await TCPSocket.connect({
+      hostname: 'localhost',
+      port,
+      socket: { open: resolveOpened },
+    });
+
+    assertStrictEquals(client, await opened);
+
+    client.close();
+    server.destroy();
+  },
+
+  async 'TCPSocket.connect() (Bun API, client): close handler fires when the peer closes'() {
+    const port = freePort();
+    const server = rawProtocolServer(port, 'echo', {
+      name: 'echo',
+      onRawRx(wsi) {
+        wsi.close();
+      },
+    });
+
+    let resolveClosed;
+    const closed = new Promise(resolve => (resolveClosed = resolve));
+
+    const client = await TCPSocket.connect({
+      hostname: 'localhost',
+      port,
+      socket: { close(socket) { resolveClosed(true); } },
+    });
+
+    client.write('trigger');
+
+    assertStrictEquals(true, await closed);
+    server.destroy();
+  },
+
+  async 'TCPSocket.connect() (Bun API, client): connectError fires (in addition to error) on a failed connect'() {
+    const port = freePort(); // nothing listens on it
+
+    let resolveConnectError;
+    const connectError = new Promise(resolve => (resolveConnectError = resolve));
+
+    let rejected;
+
+    try {
+      await TCPSocket.connect({
+        hostname: 'localhost',
+        port,
+        socket: { connectError(socket, err) { resolveConnectError(err); } },
+      });
+    } catch(e) {
+      rejected = e;
+    }
+
+    assert(rejected instanceof Error, 'expected TCPSocket.connect() to reject');
+    assert((await connectError) instanceof Error, 'expected connectError to receive an Error');
+  },
+
+  async 'TCPSocket.listen() (Bun API, server): round-trips raw bytes through a plain raw client'() {
+    const port = freePort();
+
+    const server = TCPSocket.listen({
+      hostname: '0.0.0.0',
+      port,
+      socket: { data(socket, data) { socket.write(data); } },
+    });
+
+    let resolveReceived;
+    const received = new Promise(resolve => (resolveReceived = resolve));
+
+    const client = rawClient(port, {
+      onConnected: wsi => wsi.write(toArrayBuffer('hello-listen')),
+      onReceive: (wsi, data) => resolveReceived(toString(data)),
+      onError: msg => resolveReceived(Promise.reject(new Error(msg))),
+    });
+
+    eq('hello-listen', await received);
+
+    client.destroy();
+    server.stop();
+  },
+
+  async 'TCPSocket.listen() (Bun API, server): open handler can set .data, later handlers see it'() {
+    const port = freePort();
+
+    let resolveReceived;
+    const received = new Promise(resolve => (resolveReceived = resolve));
+
+    const server = TCPSocket.listen({
+      hostname: '0.0.0.0',
+      port,
+      socket: {
+        open(socket) {
+          socket.data = { tag: 'server-side' };
+        },
+        data(socket) {
+          resolveReceived(socket.data);
+        },
+      },
+    });
+
+    const client = rawClient(port, {
+      onConnected: wsi => wsi.write(toArrayBuffer('ping')),
+      onError: msg => resolveReceived(Promise.reject(new Error(msg))),
+    });
+
+    eq('server-side', (await received).tag);
+
+    client.destroy();
+    server.stop();
+  },
+
+  async 'TCPSocket.listen() (Bun API, server): close handler fires when the client disconnects'() {
+    const port = freePort();
+
+    let resolveClosed;
+    const closed = new Promise(resolve => (resolveClosed = resolve));
+
+    const server = TCPSocket.listen({
+      hostname: '0.0.0.0',
+      port,
+      socket: { close(socket) { resolveClosed(true); } },
+    });
+
+    // Deferred via setTimeout, not called synchronously from onRawConnected -
+    // see the note on the analogous TCPSocket.protocol() test above.
+    const client = rawClient(port, {
+      onConnected: wsi => setTimeout(() => wsi.close(), 0),
+      onError: msg => resolveClosed(Promise.reject(new Error(msg))),
+    });
+
+    assertStrictEquals(true, await closed);
+
+    client.destroy();
+    server.stop();
+  },
+
+  async 'TCPSocket.listen() (Bun API, server): stop() tears down the listener'() {
+    const port = freePort();
+
+    const server = TCPSocket.listen({ hostname: '0.0.0.0', port, socket: {} });
+
+    server.stop();
+
+    let resolveFailed;
+    const failed = new Promise(resolve => (resolveFailed = resolve));
+
+    const client = rawClient(port, { onError: msg => resolveFailed(msg) });
+
+    assert(typeof (await failed) === 'string', 'expected a connection error once the listener is stopped');
+
+    client.destroy();
   },
 
   async 'TCPSocketStream (client): opened resolves with readable/writable, round-trips raw bytes'() {

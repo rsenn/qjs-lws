@@ -65,17 +65,16 @@
     s.addEventListener('error', e => console.log('error:', JSON.stringify(e.message)));
     s.addEventListener('close', () => console.log('close')); // never fires
 
-- lwsjs_socket_close-use-after-free (lws-socket.c:825): tests/unittests/test-tcpsocket.js
+- lwsjs_socket_close-use-after-free (lws-socket.c:825) [FIXED]: tests/unittests/test-tcpsocket.js
   segfaults after the recent libwebsockets submodule bump, crashing inside
   __lws_close_free_wsi() (called via lws_close_free_wsi() from
   lwsjs_socket_close()). Confirmed with gdb: SIGSEGV backtrace goes
   lwsjs_socket_close -> lws_close_free_wsi -> __lws_close_free_wsi -> garbage
   address. lwsjs_socket_close()'s s->dispatching guard (added for the
   RAW_ADOPT/RAW_CONNECTED reentrancy hazard documented just above it in the
-  same function) evidently no longer covers every path that can free the wsi
-  out from under the LWSSocket wrapper in the updated libwebsockets - some
-  wsi field or close-path internals it relies on likely shifted. Not
-  otherwise investigated.
+  same function) is not the culprit and was left alone - the real root
+  cause and fix are recorded under tcpsocket-close-segfault below (same
+  crash, same gdb backtrace, more precisely bisected there).
 
     (run ctest in build/x86_64-linux-debug: test-tcpsocket.js reports
     ***Exception: SegFault)
@@ -137,23 +136,92 @@
     console.log(await ctx.resolve('example.com', { type: 'AAAA' }));
     // -> includes IPv4 addresses too, not just AAAA/IPv6
 
-- tcpsocket-close-segfault (lwsjs_socket_close -> lws_close_free_wsi ->
-  __lws_close_free_wsi, called from tests/unittests/test-tcpsocket.js):
-  the whole suite segfaults deterministically, confirmed both on this
-  session's changes and on an unmodified checkout (git stash of every
-  session-modified file, rebuilt, reran - same crash), so it predates and
-  is unrelated to this session's LWSContext additions (cookie jar, conmon,
-  retry, resolve, schedule). gdb backtrace bottoms out inside
-  __lws_close_free_wsi() (libwebsockets, no further symbols available)
-  called from lwsjs_socket_close(), itself called via a promise reaction
-  job resuming an async test function - i.e. a wsi is being closed from
-  JS during/after some other async continuation, and something about that
-  ordering corrupts or double-frees wsi state. Not investigated further
-  (out of scope - this session didn't touch lws-socket.c's close path or
-  tcpsocket.js/tcpsocketstream.js).
+- tcpsocket-close-segfault (lws-context.c:768, lwsjs_context_methods
+  METHOD_DESTROY) [FIXED]: the whole suite segfaulted deterministically,
+  confirmed both on this session's changes and on an unmodified checkout.
+  gdb backtrace bottomed out inside __lws_close_free_wsi() called from
+  lwsjs_socket_close(), itself called via a promise reaction job resuming
+  an async test function. Root cause: not lwsjs_socket_close() itself, but
+  ContextRefCounter.release() (lib/lws/context.js) calling `ctx.destroy()`
+  synchronously from inside the JS 'close' event handler that
+  lib/tcpsocket.js's/lib/tcpsocketstream.js's raw-protocol adapter fires
+  during that same close callback dispatch. `close()` called from a
+  microtask continuation (not from inside a native callback) takes
+  lwsjs_socket_close()'s "not dispatching" branch and calls
+  lws_close_free_wsi() directly, which synchronously fires the CLOSED
+  callback -> our JS close handler -> ctx.destroy() -> lws_context_destroy()
+  (lws-context.c METHOD_DESTROY, unconditional, no reentrancy guard) - all
+  while still unwinding inside lws_close_free_wsi() for a wsi owned by the
+  very context being destroyed. Bisected to this exact mechanism with a
+  minimal repro (createServer() + a lone TCPSocket client: `await
+  received; socket.close(); server.destroy();` - crashes; the same
+  close()/destroy() called synchronously from within a native callback
+  instead of after an await does not). Fixed in
+  ContextRefCounter.release() (lib/lws/context.js) by deferring the
+  `destroy()` call to a microtask (`Promise.resolve().then(...)`), so it
+  never runs while lws is still unwinding a native callback for that
+  context's own wsi. Verified: the full test-tcpsocket.js suite (10
+  tests) now runs to completion with no crash.
 
-    (run: QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm
-    tests/unittests/test-tcpsocket.js)
+    import { createServer, toString } from 'lws.so';
+    import { TCPSocket } from './lib/tcpsocket.js';
+    const port = 18326;
+    const server = createServer({ port, listenAcceptRole: 'raw-skt', listenAcceptProtocol: 'echo',
+      protocols: [{ name: 'echo', onRawRx(wsi, data) { wsi.write(data); } }] });
+    const socket = new TCPSocket('localhost', port);
+    const received = new Promise(resolve => {
+      socket.addEventListener('open', () => socket.send('hi'));
+      socket.addEventListener('message', e => resolve(toString(e.data)));
+    });
+    await received;
+    socket.close();     // frees the wsi synchronously (not inside a native callback)
+    server.destroy();   // used to crash: ctx.destroy() ran reentrantly from
+                         // the 'close' handler fired synchronously by socket.close() above
+
+- context-ref-counter-deferred-destroy-races-reuse (lib/lws/context.js,
+  ContextRefCounter.release): found while fixing tcpsocket-close-segfault
+  above - deferring `destroy()` to a microtask (the fix for that bug)
+  opened a narrow race: if a new `add()` lands on the same shared
+  singleton context between the deferred destroy being scheduled and it
+  actually running (e.g. one TCPSocketStream's last connection closes,
+  and a fresh TCPSocketStream reuses the still-live shared context before
+  the microtask fires), the deferred destroy still runs unconditionally
+  and pulls the context out from under the new connection - it never
+  opens, and anything awaiting it hangs forever. Reproduced with
+  tests/unittests/test-tcpsocket.js's own back-to-back TCPSocketStream
+  tests (a close in one test race against connect in the very next one).
+  Fixed by rechecking the ref count inside the deferred callback itself,
+  not just when scheduling it - if it's no longer zero (or markServer()
+  was called in between), the deferred destroy is skipped.
+
+    not practically reproducible as a short standalone snippet - needs
+    two TCPSocketStream (or TCPSocket) instances sharing the class-static
+    context, back to back, timed so the second's connect() lands in the
+    same microtask window as the first's post-close deferred destroy;
+    see tests/unittests/test-tcpsocket.js's "TCPSocketStream (client)"
+    tests run consecutively for a real trigger
+
+    (run from the qjs-lws project root: qjsm tests/unittests/test-tcpsocket.js -
+    do not set QUICKJS_MODULE_PATH, see quickjs-module-path-crashes-module-load
+    below, it causes a separate, unrelated crash)
+
+- quickjs-module-path-crashes-module-load (qjsm, module resolution):
+  setting QUICKJS_MODULE_PATH (tried as
+  QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." while debugging
+  tcpsocket-close-segfault above, to point qjsm at a local build instead
+  of the installed lws.so) segfaults during module loading, before any of
+  the target script's own top-level code runs - confirmed with a script
+  whose very first line writes a trace marker to a file, which never got
+  written. Removing the env var and just running `qjsm script.js` plain
+  from the project root (relying on the ./lws.so symlink) avoids this
+  entirely; not investigated further since the plain invocation works
+  fine and this project's own CLAUDE.md/README already say `qjsm
+  script.js` (no extra module-path env var) is the correct way to run a
+  script here.
+
+    QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm -e "std.exit(0)"
+    # or any script, plain qjsm.so-relative import - segfaults before
+    # reaching user code; not reduced further
 
 - response-ok-stale-after-establish (lib/lws/response.js:35, Response
   constructor; lib/lws/protocols.js:290, HttpClientProtocol#onEstablishedClientHttp):
