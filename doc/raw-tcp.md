@@ -167,3 +167,40 @@ s.addEventListener('open',    () => s.send('GET / HTTP/1.0\r\n\r\n'));
 s.addEventListener('message', e => console.log(toString(e.data)));
 s.addEventListener('close',   () => console.log('closed'));
 ```
+
+`TCPSocket` also has a `Bun.listen()`/`Bun.connect()`-compatible surface
+(https://bun.com/docs/runtime/networking/tcp) - `static listen()`/
+`static connect()`, plus `write()`/`end()`/`.data` alongside `send()`/
+`close()` on every socket - for code written against that shape instead
+of `EventTarget`:
+
+```js
+import { TCPSocket } from './lib/tcpsocket.js';
+
+const server = TCPSocket.listen({
+  hostname: '0.0.0.0',
+  port: 8080,
+  socket: {
+    open(socket) { socket.data = { connectedAt: Date.now() }; },
+    data(socket, data) { socket.write(data); }, // echo
+    close(socket) {},
+    error(socket, err) {},
+  },
+});
+// server.stop() to tear it down
+
+const client = await TCPSocket.connect({
+  hostname: 'example.com',
+  port: 80,
+  socket: {
+    data(socket, data) { console.log(toString(data)); },
+  },
+});
+client.write('GET / HTTP/1.0\r\n\r\n');
+```
+
+TCP only (no `unix` domain sockets, `tls` is best-effort - see
+`static listen()`'s own doc comment in `lib/tcpsocket.js`), and `.stop()`
+on a `listen()` result tears down only that listener - it builds its own
+private `LWSContext` rather than sharing the one every plain `TCPSocket`
+uses, specifically so it can do that without affecting anything else.
