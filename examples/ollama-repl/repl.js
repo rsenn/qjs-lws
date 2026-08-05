@@ -1,8 +1,12 @@
 #!/usr/bin/env qjsm
 /**
- * A Claude-Code-style REPL that talks to a local Ollama model (default:
- * qwen2.5-coder) over a kept-alive HTTP connection (lib/ollama-client.js,
- * built on the `httpClient` protocol adapter, lib/lws/protocols.js).
+ * A Claude-Code-style REPL that talks to either a local Ollama model
+ * (default: qwen2.5-coder, over a kept-alive HTTP connection -
+ * lib/ollama-client.js, built on the `httpClient` protocol adapter,
+ * lib/lws/protocols.js) or Google's Gemini API (lib/gemini-client.js,
+ * built on the shared `fetch()`) - `--provider` selects which. Both
+ * clients expose the same `chat()`/`chatStream()` shape, so everything
+ * below this point is provider-agnostic.
  *
  * File/glob references typed into a prompt ("fix the bug in src/foo.js",
  * "review *.md") are detected, read, and attached to the outgoing message
@@ -10,19 +14,22 @@
  * convention below are parsed out of its reply and written into the
  * project tree (lib/file-blocks.js), same as Claude Code applying an edit.
  *
- * Run (Ollama must already be running locally with the model pulled):
- *   qjsm repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .]
+ * Run (Ollama must already be running locally with the model pulled; for
+ * `--provider gemini`, GEMINI_API_KEY must be exported instead):
+ *   qjsm repl.js [--provider ollama|gemini] [--model NAME] [--host localhost] [--port 11434] [--root .]
  * Or, once installed (see CMakeLists.txt - installs to bin/ollama-repl,
  * lib/ollama-client.js's cross-tree imports rewritten to the installed
  * `lws/*.js` module path):
  *   ollama-repl [--model ...] [...]
  */
 import { exit, out as stdout } from 'std';
-import { clearTimeout, setTimeout, stat } from 'os';
+import { clearTimeout, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
-import { extractFileRefs, formatFileBlocks } from './lib/file-refs.js';
+import { GeminiClient } from './lib/gemini-client.js';
+import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
-import { extractRequests, runRequests, listFiles } from './lib/tool-requests.js';
+import { extractRequests, runRequests } from './lib/tool-requests.js';
+import { fileMode, SKIP_DIRS } from './lib/match.js';
 import { ChatREPL } from './lib/chat-repl.js';
 import { SessionLog } from './lib/session-log.js';
 import { SentFiles } from './lib/sent-files.js';
@@ -36,171 +43,84 @@ import { runCommand } from './lib/run-command.js';
 const MAX_TOOL_ROUNDS = 4;
 
 function parseArgs(argv) {
-  const opts = { model: 'qwen2.5-coder', host: 'localhost', port: 11434, root: '.', stream: false, debug: false };
+  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if(arg === '--model') opts.model = argv[++i];
+    if(arg === '--provider') opts.provider = argv[++i];
+    else if(arg === '--model') opts.model = argv[++i];
     else if(arg === '--host') opts.host = argv[++i];
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--stream') opts.stream = true;
     else if(arg === '-x' || arg === '--debug') opts.debug = true;
     else if(arg === '--help' || arg === '-h') {
-      console.log('Usage: qjsm repl.js [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x]');
+      console.log('Usage: qjsm repl.js [--provider ollama|gemini] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x]');
       exit(0);
     }
   }
+
+  if(opts.provider !== 'ollama' && opts.provider !== 'gemini') {
+    console.log(`\x1b[31merror: --provider must be "ollama" or "gemini", got "${opts.provider}"\x1b[0m`);
+    exit(1);
+  }
+
+  opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : 'qwen2.5-coder';
 
   return opts;
 }
 
 const SYSTEM_PROMPT = `You are a coding assistant working inside a local project tree, similar to
-Claude Code - be proactive and thorough the same way: verify things
-against the actual codebase instead of guessing, understand existing
-conventions before proposing changes, and keep answers grounded in what
-you've actually seen (via READ:/LIST:/RUN: below), not assumption.
+Claude Code: verify against the actual codebase instead of guessing, and
+ground answers in what you've actually seen (via READ:/LIST:/RUN: below),
+not assumption. Ask if genuinely unsure rather than guessing.
 
-This project runs on QuickJS (qjs/qjsm), not Node.js - do not assume
-Node's globals, module system, or standard library are available. There
-is no "node_modules", no "require()" resolving npm packages, no
-"process.nextTick", no Node built-ins like "path"/"crypto"/"buffer"
-unless a project file actually defines/imports one. When you're unsure
-whether something is available in this runtime, check (via READ:/LIST:
-below, or by asking) rather than assuming Node-shaped behavior - see the
-qjs-modules built-ins list further down for what's actually here, and
-note that even those are only "roughly" Node-shaped (their own doc
-comments spell out exactly where they diverge).
+This project runs on QuickJS (qjs/qjsm), not Node.js - don't assume Node's
+globals, module system ("require", "node_modules"), or built-ins ("path",
+"crypto", "buffer", "process.nextTick") are available unless a project
+file actually imports/defines one; check (READ:/LIST: below) if unsure.
 
-The user's messages may include attached file contents, shown as:
+Attached file contents in the user's messages look like:
 
 File: path/to/file.ext
 \`\`\`language
 ...current contents...
 \`\`\`
-(imports/includes: ../lib/foo.js, ./bar.h - READ: any of these you actually need)
+(imports/includes: ../lib/foo.js - READ: any of these you actually need)
 
-That trailing "(imports/includes: ...)" line, when present, lists paths
-the file's own "#include"/"import"/"require" statements resolved to on
-disk - those files are NOT attached, only named, so watch for it (and for
-any "#include"/import-style statement inside the attached content itself,
-which may reference more than what got listed) and issue a READ: for
-whichever of them actually look relevant to the question, the same way
-you would for any other file you're not certain about - don't guess at a
-dependency's contents from its name/path alone.
+Only when explicitly asked to create, write, or modify a file, reply with
+a block in that same format - "File: path" then a fenced code block with
+the complete new file contents - for each file you actually want to
+change; a "File:" block anywhere in your reply gets written to disk
+automatically, overwriting what's there. Don't use it for ordinary
+conversation - plain text is fine for that. Label any other code snippet
+you write the same way (a real filename, matching extension) unless it's
+obviously not meant to be saved; anything left unlabeled is auto-saved
+anyway, so a real name is just more useful than an invented one.
 
-Only when the user explicitly asks you to create, write, or modify a file,
-reply with a block in that exact same format - "File: " followed by the
-path (relative to the project root), then a fenced code block with the
-complete new file contents. Do not use this format for ordinary
-conversation, explanations, or short answers - plain text is fine for
-those, and a "File:" block found anywhere in your reply gets written to
-disk automatically, overwriting whatever is already there. You may include
-prose before/after/between file blocks; each one will be
-extracted and written to disk automatically, overwriting the existing
-file. Only include files you actually want to change.
-
-For EVERY code snippet you write, in ANY reply - even a quick example, not
-just an actual file edit - suggest a real filename for it using the same
-"File: path" format, choosing an extension that matches the language,
-rather than leaving it an unlabeled snippet. Only skip this for something
-that's obviously not meant to be saved (a one-line shell command, a single
-expression). Anything you still leave unlabeled is saved anyway, as its
-own auto-numbered file, so nothing is ever lost - but a real name you
-chose is always more useful than one the REPL had to invent.
-
-You can also ask the REPL to do things for you BEFORE you answer, using
-these request lines - each on its own line, exactly like this:
+You can ask the REPL to do things for you before answering, one request
+per line, anywhere in your reply:
 
 LIST: <directory>
 READ: <path-or-glob>
 RUN: <shell command>
 
-LIST shows every JS/C/CMake/HTML/CSS/Markdown source file (and README*) under
-a directory, recursively - use it to learn a project's layout; <directory>
-can also be the name of a sibling "qjs-*" reference project (see below) to
-look inside it, e.g. "LIST: qjs-modules". READ shows one file's contents
-(or every file matching a glob) - "READ: qjs-modules/quickjs-archive.c"
-works the same way. RUN executes a shell
-command yourself, in the project root, and shows you its output (bounded
-time and output size - it will tell you if it was truncated or timed out)
-- use it freely to grep/search through the codebase (e.g. "grep -rn TODO src"),
-inspect a directory (ls, find), or debug something (run a test, check a
-tool's version, reproduce an error) instead of guessing what a command
-would print. The user is asked to approve each  RUN: command before it
-actually executes (you'll be told if one was declined) - that's just a
-safety gate, not something you need to ask about yourself; simply issue
-the RUN: line you need.
+LIST recursively lists source files (and README*) under a directory -
+<directory> can also be a sibling "qjs-*" reference project checked out
+alongside this one (e.g. "LIST: qjs-modules"). READ shows a file's
+contents, or every file matching a glob. RUN executes a shell command in
+the project root and shows its output (you'll be asked to approve each
+one first). Issue as many as you need in one reply - each runs and you're
+shown the results and asked again, so build up what you need before
+committing to a final answer.
 
-The project's top-level layout and any README/CMakeLists.txt contents are
-already given to you below, gathered automatically at the start of this
-session - read that first before LIST:/READ:-ing the same things again.
-For anything not already covered there (a subdirectory, a specific
-source file, a test's actual behavior), use these requests to go look
-before answering - the moment you're not certain about something (a
-file's actual contents, what a directory contains, whether code compiles
-or a test passes) rather than guessing or making something up. Prefer
-asking over assuming. You may issue several request lines in one reply;
-each one runs, and you'll be shown the results and asked again, so build
-up what you need step by step - LIST a directory to see what's there,
-then READ the file that looks relevant, then maybe RUN a test - before
-committing to a final answer. Only stop asking once you actually have
-enough to answer well; don't pad a reply with requests you don't need.
-
-You often work on "qjs-*" native modules: a small C file per JS class/
-namespace binding QuickJS to a native library, plus JS glue that uses it.
-The QuickJS interpreter's own source (quickjs.h, cutils.h, list.h, and
-every other header it ships) lives one directory above this project, and
-its sibling "qjs-*" projects (qjs-modules, qjs-ffi, qjs-net, qjs-sound,
-...) are checked out right alongside it - real prior art for how a
-native module binds a C library to QuickJS. A built qjs-modules install
-splits in two: pure-JS built-ins live under /usr/local/lib/quickjs/*.js
-(fs.js, console.js, dom.js, url.js, ...); compiled native extensions
-(archive.so, blob.so, sockets.so, ...) live under
-/usr/local/lib/x86_64-linux-gnu/quickjs/*.so - a .so isn't readable text,
-but its C source lives in one of the "qjs-*" project directories (its own
-"qjs-<name>" project if there is one, e.g. ffi.so <- qjs-ffi/ffi.c,
-lws.so <- qjs-lws; otherwise almost always qjs-modules, e.g. archive.so
-<- qjs-modules/quickjs-archive.c) - LIST: that project to confirm the
-exact filename rather than guessing it. Mention any interpreter header or
-pure-JS built-in by name (e.g. "cutils.h", "dom.js") and the real file is
-attached automatically, same as any project file. To look inside a
-sibling project itself rather than just a single named file, use
-LIST:/READ: with its directory name as the path (see below), e.g. "LIST:
-qjs-modules" or "READ: qjs-ffi/ffi.c" - don't guess at how another module
-implements something you can just go read.
-
-QuickJS C API (quickjs.h), the shape every qjs-* binding follows:
-- JSValue is a tagged, refcounted handle; JSContext* is a per-thread heap,
-  JSRuntime* owns one or more contexts. JS_DupValue()/JS_FreeValue() move
-  the refcount; every JSValue a function creates or takes ownership of
-  must be freed exactly once - the single most common bug in this kind of
-  code is a missing JS_FreeValue() (leak) or a double one (use-after-free).
-- A native class: JS_NewClassID() + JS_NewClass(rt, id, &JSClassDef) once
-  at module init; each instance is a plain JS object with a native struct
-  attached via JS_SetOpaque()/JS_GetOpaque(obj, class_id) - the struct is
-  yours to malloc/free, typically in the JSClassDef.finalizer.
-- Native functions/getters go in a static const JSCFunctionListEntry[]
-  table via JS_CFUNC_DEF(name, argc, func) or, for one C function
-  dispatching several JS methods/properties by an int tag,
-  JS_CFUNC_MAGIC_DEF/JS_CGETSET_MAGIC_DEF(name, argc, func, magic) -
-  installed with JS_SetPropertyFunctionList() on a prototype object, or
-  JS_SetModuleExportList() for a module's top-level exports.
-- Modules: JS_NewCModule(ctx, name, init_func) declares it;
-  JS_AddModuleExport()/JS_SetModuleExport() (or the *List() forms above)
-  expose values, called both from the init callback (declare) and again
-  once the module body runs (set the real value) - see any existing
-  qjs-lws module init function for the two-phase pattern.
-- Errors: return JS_EXCEPTION (not NULL, not JS_UNDEFINED) from a native
-  function after calling JS_ThrowTypeError()/JS_ThrowRangeError()/
-  JS_ThrowInternalError(ctx, fmt, ...) - never leave a JSValue error
-  pending without a return that signals it.
-- Strings/buffers: JS_ToCString()/JS_FreeCString() for a temporary C
-  string view, JS_NewStringLen()/JS_NewString() to create one,
-  JS_GetArrayBuffer()/JS_NewArrayBufferCopy() for ArrayBuffers.
-
-qjs-modules JS built-ins (/usr/local/lib/quickjs/*.js), available as bare
-imports (\`import * as fs from 'fs'\`, etc.) in any script running under qjsm -  roughly Node-shaped, not WHATWG:  - fs: mostly *Sync functions (readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, existsSync, ...) plus lower-level std-file-style ops (openSync/closeSync/seek/tell) and stream helpers (createReadStream/ createWriteStream, watch()). - console: Console class / the global console - log/error/warn/etc. with util's inspect-based formatting, not just string concatenation. - process: a Node-like singleton - argv, argv0, env, cwd()/chdir(), pid/ppid, platform/arch, exit(code), hrtime(), stdin/stdout/stderr. - util: a large grab-bag - Object.* wrappers, type predicates (isObject, isString, isClass, TypedArray, ...), memoize, inherits, setImmediate/ clearImmediate/queueMicrotask. Console's own value formatting comes from a separate 'inspect' built-in, not from here.`;
+The project's top-level layout and README/CMakeLists.txt are already
+given below, gathered automatically at session start - read that first.
+For anything else - a subdirectory, a specific file, a sibling "qjs-*"
+project, the QuickJS C API (quickjs.h) or qjs-modules' JS built-ins
+(fs.js/console.js/process.js/util.js under /usr/local/lib/quickjs/) -
+READ:/LIST: it rather than guessing at its contents; naming a header or
+built-in by name attaches the real file automatically.`;
 
 /** @returns {{ text: string, attached: string[] }} */
 function attachFiles(prompt, root, fileExchange) {
@@ -317,7 +237,7 @@ async function chatRound(client, messages, opts) {
       const reply = await client.chatStream(messages, {}, token => {
         if(first) {
           stopSpinner();
-          stdout.puts('\nqwen> ');
+          stdout.puts(`\n${opts.provider}> `);
           first = false;
         }
 
@@ -335,7 +255,7 @@ async function chatRound(client, messages, opts) {
 
     const reply = await client.chat(messages);
     stopSpinner();
-    console.log(`\nqwen> ${reply}\n`);
+    console.log(`\n${opts.provider}> ${reply}\n`);
     cogitated();
     return reply;
   } finally {
@@ -376,23 +296,67 @@ async function runToolLoop(client, messages, opts, log, confirmRun) {
 }
 
 /**
- * Runs an automatic LIST + READ of the project root's own layout (every
- * README*, plus CMakeLists.txt if the project has one) and returns it
- * formatted the same way a model-requested LIST:/READ: round would be -
- * seeded into `messages` once at startup (see main()) so the model always
- * starts a session already knowing the project's shape, the same way
- * Claude Code auto-reads project context rather than waiting to be asked.
+ * Top-level (first path segment) names under `root` that .gitignore would
+ * exclude, via `git ls-files --others --ignored --exclude-standard
+ * --directory` - reused so gatherProjectContext()'s layout listing below
+ * skips the same build/log/cache noise a git checkout already knows to
+ * ignore (CMakeCache.txt, *.log, core dumps, ...) instead of guessing at
+ * or hardcoding those patterns itself. Empty Set, not an error, for a
+ * root that isn't a git repo at all.
+ */
+async function gitIgnoredTopLevel(root) {
+  const { output, status } = await runCommand('git ls-files --others --ignored --exclude-standard --directory -- .', { cwd: root });
+  if(status !== 0) return new Set();
+
+  return new Set(output.split('\n').filter(Boolean).map(p => (p.indexOf('/') === -1 ? p : p.slice(0, p.indexOf('/')))));
+}
+
+/**
+ * Runs an automatic LIST + READ of the project root's own layout - a
+ * shallow, top-level-only directory listing, plus the root README.md and
+ * CMakeLists.txt if the project has them - and returns it formatted the
+ * same way a model-requested LIST:/READ: round would be - seeded into
+ * `messages` once at startup (see main()) so the model always starts a
+ * session already knowing the project's shape, the same way Claude Code
+ * auto-reads project context rather than waiting to be asked.
+ *
+ * Deliberately shallow: this used to run a full recursive LIST (every
+ * listable file in the whole tree, up to 300 entries) and READ every
+ * README* found anywhere under root, not just the top-level one - on this
+ * project alone that came to a ~80KB first-turn payload before a single
+ * word had been exchanged, which is what actually triggered
+ * BUGS:tls-client-large-body-hangs-or-closes against a real API. A
+ * top-level listing plus the project's own README/CMakeLists.txt is
+ * enough to know the project's shape; anything deeper is exactly what the
+ * LIST:/READ: tool loop is for. Files are further filtered to SOURCE_EXT
+ * (file-refs.js) - directories always stay (needed to see the layout at
+ * all), but a top-level file with no source extension (a cert, a lockfile,
+ * a build cache stray SKIP_DIRS/.gitignore didn't already catch) is noise
+ * for "what does this project look like", not signal.
  */
 async function gatherProjectContext(root) {
-  const files = listFiles('', root);
+  const [names] = readdir(root);
+  const ignored = await gitIgnoredTopLevel(root);
 
-  const readmes = files.filter(f => /^readme/i.test(f.slice(f.lastIndexOf('/') + 1)));
-  const requests = [{ type: 'LIST', arg: '.' }, ...readmes.map(f => ({ type: 'READ', arg: f }))];
+  const layout = (names ?? [])
+    .filter(name => name !== '.' && name !== '..' && !SKIP_DIRS.has(name) && !ignored.has(name))
+    .map(name => ({ name, isDir: fileMode(root === '.' ? name : `${root}/${name}`) === S_IFDIR }))
+    .filter(({ name, isDir }) => isDir || SOURCE_EXT.has(name.slice(name.lastIndexOf('.') + 1).toLowerCase()))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .map(({ name, isDir }) => (isDir ? `${name}/` : name))
+    .join('\n');
+
+  const requests = [];
+
+  const [readmeStat] = stat(root === '.' ? 'README.md' : `${root}/README.md`);
+  if(readmeStat) requests.push({ type: 'READ', arg: 'README.md' });
 
   const [cmakeStat] = stat(root === '.' ? 'CMakeLists.txt' : `${root}/CMakeLists.txt`);
   if(cmakeStat) requests.push({ type: 'READ', arg: 'CMakeLists.txt' });
 
-  return runRequests(requests, root);
+  const reads = requests.length ? await runRequests(requests, root) : '';
+
+  return `LIST: . (top-level only)\n${layout || '(empty)'}${reads ? `\n\n${reads}` : ''}`;
 }
 
 const HELP_TEXT = `/reset          - clear conversation history (keeps the initial project scan)
@@ -405,13 +369,22 @@ Anything else is sent to the model as a prompt.`;
 
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
-  const client = new OllamaClient(opts);
+
+  let client;
+  try {
+    client = opts.provider === 'gemini' ? new GeminiClient(opts) : new OllamaClient(opts);
+  } catch(e) {
+    console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
+    exit(1);
+  }
+
   const log = new SessionLog(`${opts.model}.log`);
   const sentFiles = new SentFiles(opts.model, opts.root);
   const fileExchange = new FileExchange(opts.model, opts.root);
   const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
 
-  console.log(`ollama-repl: ${opts.model} @ ${opts.host}:${opts.port}  (root: ${opts.root})`);
+  const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : `${opts.host}:${opts.port}`;
+  console.log(`ollama-repl: ${opts.provider}/${opts.model} @ ${endpoint}  (root: ${opts.root})`);
   //console.log(`Type a prompt and press Enter.\nReference files by name or glob (e.g. src/*.js) to attach them.`);
   console.log(`/help for commands.`);
   console.log(`Logging this session to ${opts.model}.log.`);
@@ -460,7 +433,7 @@ async function main() {
         const uptimeS = Math.round((Date.now() - startedAt) / 1000);
         console.log(
           [
-            `model:    ${opts.model} @ ${opts.host}:${opts.port}${opts.stream ? ' (streaming)' : ''}`,
+            `model:    ${opts.provider}/${opts.model} @ ${endpoint}${opts.stream ? ' (streaming)' : ''}`,
             `root:     ${opts.root}`,
             `messages: ${messages.length - baseMessageCount} (${messages.length} incl. system prompt + project scan)`,
             `log:      ${opts.model}.log`,

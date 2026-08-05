@@ -245,3 +245,106 @@
     import { tests } from './tests/unittests/tinytest.js';
     await tests({ 'always looks ok'() { throw new Error('nope'); } });
     // prints "Test: always looks ok FAILED ..." AND "Test: always looks ok OK"
+
+- stale-installed-lws-so (/usr/local/lib/x86_64-linux-gnu/quickjs/lws.so):
+  the ollama-repl's timeout_secs (createContext() -> lws-context.c:515-516)
+  looked broken at runtime even though the JS call and the native
+  js_get_property()/camelize() fallback are both correct in the current
+  source tree (confirmed by instrumenting lws-context.c with an fprintf
+  and running it against a fresh build/x86_64-linux-debug build, which
+  printed the correct value). The installed module qjsm actually loads,
+  /usr/local/lib/x86_64-linux-gnu/quickjs/lws.so, was stale relative to
+  the source tree, so the fix already present in source wasn't reflected
+  in the binary being run. Rebuilt build/x86_64-linux-debug and copied
+  lws.so to /usr/local/lib/x86_64-linux-gnu/quickjs/lws.so and /tmp/lws.so
+  (both paths qjsm resolves at runtime, per existing build-dir guidance)
+  to fix. Worth remembering: a fix landing in source here does not take
+  effect for ollama-repl until lws.so is rebuilt and reinstalled to both
+  of those paths.
+
+    not practically reproducible in plain JS - the mismatch was between
+    the installed .so and the source tree, not a logic bug
+
+- verbose-console-config-not-optional (lib/lws/util.js:94): verbose() calls
+  console.config({...}) unconditionally, but the module-level LC constant
+  right above it (line 3) guards the same call with `console.config?.(...)`
+  - console.config is only defined on the richer Console the interactive
+  qjsm REPL sets up, not on the plain global console present when a script
+  runs via `qjsm -m some-module.js`. Any call to debug()/verbose() (e.g.
+  fetch()'s own `log('rest', rest)` in lib/fetch.js) throws "TypeError: not
+  a function" in that mode unless DEBUG is set to something that makes
+  debug()'s default level (1) exceed debugLevel - found while testing
+  gemini-client.js's chat()/chatStream() (both go through fetch()) via
+  `qjsm -m`, worked around for that testing by exporting DEBUG=0.
+
+    import { fetch } from './lib/fetch.js';
+    await fetch('http://example.com'); // throws inside verbose() when run via `qjsm -m script.js`, not inside the interactive REPL
+
+- tls-client-large-body-hangs-or-closes (lib/lws/protocols.js:264,
+  onClientHttpWriteable) [FIXED]: a POST body over TLS (an https://
+  clientConnect) as small as ~5-7KB intermittently either hung forever or
+  dropped the connection immediately with a bare "closed" error - same
+  request size against the same code path was NOT deterministic: 1000 and
+  4000 bytes reliably succeeded, but repeated runs at
+  5000/6000/7000/8000/12000/16000/20000/28000 bytes each independently hit
+  either the hang or the close, with no clear size threshold separating
+  them. Root cause: onClientHttpWriteable used to call `wsi.write(session.
+  body.buffer, LWS_WRITE_HTTP_FINAL)` unconditionally every time it fired,
+  on the assumption (stated in its own old comment) that it only ever
+  fires once per body. False for a body that doesn't fully drain from
+  wsi.write()'s internal write queue in one round - lws-socket.c's
+  socket_flush() re-arms LWS_CALLBACK_CLIENT_HTTP_WRITEABLE to finish
+  draining the remainder at the native level (confirmed by reading
+  lws-protocol.c's dispatch: `is_writeable_reason(reason)` always runs
+  socket_flush() first, then still falls through to call the JS-level
+  `on<Reason>` handler again on the *same* re-armed callback, with nothing
+  suppressing that second JS call) - and that re-entrant call used to
+  `wsi.write()` the *entire original body* a second time, queuing extra
+  duplicate bytes past what Content-Length had already promised and
+  corrupting the request framing. A raw TCP write (the Ollama path, no
+  TLS) almost always drains a body this size in one shot, which is why
+  this never surfaced there - lws_write() over TLS is bounded by the TLS
+  record size and legitimately returns a partial write far more often.
+  Fixed by setting `session.body = null` right after the (one real) queue
+  call, so a spurious re-entrant call hits the existing `!session.body`
+  guard and becomes a no-op - the native retry/re-arm in socket_flush()
+  was already sufficient to drain the rest on its own; the JS handler just
+  needed to stop re-queuing on top of it. Verified fixed: repeated calls
+  at 4000-16000 bytes that used to intermittently hang/close now
+  consistently return a real, well-formed HTTP response (a 429 rate-limit
+  JSON body, once the free-tier daily quota got used up during testing -
+  a corrupted/duplicated body would much more likely produce a raw
+  connection error or a 400, not a clean structured JSON error).
+  Not fully reverified at 20-28KB specifically: testing hit Gemini's
+  free-tier daily quota (20 requests/day/model) partway through, and
+  "closed" errors seen there afterward are plausibly just quota
+  exhaustion manifesting as a connection reset rather than a residual
+  version of this bug - re-run the repro below (after the daily quota
+  resets) at a few sizes in that range to be sure before assuming it's
+  100% clear.
+
+    import { GeminiClient } from './examples/ollama-repl/lib/gemini-client.js';
+    const client = new GeminiClient({});
+    await client.chat([{ role: 'system', content: 'x'.repeat(6000) }, { role: 'user', content: 'hi' }]);
+    // used to intermittently hang forever or reject with "Gemini connection failed: closed" -
+    // now returns a normal response (or a clean HTTP error) every time
+
+- stray-single-char-prefix-dirs (qjs-lws/): four empty directories - u/,
+  ut/, uti/, util/ - sit alongside the legitimate utils/ directory in the
+  project root, all with the identical mtime (2026-08-04 23:29). Never
+  showed up in `git status` (git doesn't track empty directories), so
+  they'd been sitting there unnoticed - found while filtering
+  gatherProjectContext()'s (repl.js) top-level layout listing down to
+  what .gitignore allows. Looks like something created utils/ by writing
+  its path one character at a time (mkdir 'u', then 'ut', then 'uti',
+  then 'util', then finally the real 'utils') and left every intermediate
+  step behind instead of just the final directory - same shape as the
+  character-by-character terminal-echo behavior seen in ChatREPL's own
+  output (examples/ollama-repl/lib/chat-repl.js) during manual testing
+  elsewhere in this session, though nothing connects them directly yet.
+  Not fixed or removed here - pre-existing, unrelated to the change in
+  progress.
+
+    not reproducible in plain JS - filesystem-state oddity, not a code
+    path caught in the act; `ls -la qjs-lws/u* qjs-lws/util` shows all
+    four as empty with matching mtimes

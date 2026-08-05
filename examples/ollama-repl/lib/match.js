@@ -7,7 +7,7 @@
 import { lstat, stat, readdir, S_IFDIR, S_IFMT, S_IFREG } from 'os';
 import { popen } from 'std';
 
-const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn', 'build']);
+export const SKIP_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn', 'build']);
 
 /** True if `pattern` contains any glob metacharacter. */
 export function isGlobPattern(pattern) {

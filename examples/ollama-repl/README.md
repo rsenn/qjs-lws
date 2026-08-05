@@ -62,27 +62,27 @@ model (`qwen2.5-coder` by default) about the files in your project.
   asked to approve it (`ChatREPL#confirm()`, `lib/chat-repl.js`) before it
   executes; a declined command is reported back to the model as declined.
 - **Automatic project scan at startup.** Before the first prompt, the
-  REPL runs its own `LIST:`/`READ:` of the project root - every README\*
-  and `CMakeLists.txt` if present - and seeds it into the conversation
-  automatically (`gatherProjectContext()`, `repl.js`), the same way Claude
-  Code reads project context up front instead of waiting to be asked.
+  REPL seeds the conversation with a shallow, top-level-only listing of
+  the project root (filtered to `SOURCE_EXT`, `lib/file-refs.js`, and
+  whatever `.gitignore` already excludes) plus the root `README.md` and
+  `CMakeLists.txt` if present (`gatherProjectContext()`, `repl.js`) - the
+  same way Claude Code reads project context up front instead of waiting
+  to be asked. Deliberately shallow: a full recursive listing plus every
+  README\* in the tree used to be seeded here, which ran to tens of KB
+  before a single word had been exchanged; a top-level overview is enough
+  to know the project's shape; `LIST:`/`READ:` reaches anything deeper.
   `/reset` clears conversation history but keeps this initial scan.
-- **QuickJS/qjs-modules awareness.** The system prompt gives the model a
-  concise primer on the QuickJS C API (`JSValue`/`JSContext`, the class +
-  opaque-struct pattern, `JS_CFUNC_MAGIC_DEF`/`JS_CGETSET_MAGIC_DEF`,
-  module registration, exceptions) and the qjs-modules JS built-ins
-  (`fs`/`console`/`process`/`util`), enough to work on qjs-\* native
-  modules without re-deriving the API from scratch every session.
-  Mentioning any QuickJS interpreter header by name (`quickjs.h`,
-  `cutils.h`, `list.h`, ...) or one of the qjs-modules built-ins
-  (`fs.js`, `console.js`, `process.js`, `util.js`) in a prompt attaches
-  the real file (`lib/reference-files.js`), same as any project file -
-  so the primer covers the shape, the actual source is a name-drop away
-  when a question needs it verbatim. The sibling `qjs-*` native-module
-  projects checked out next to this repo (`qjs-modules`, `qjs-ffi`,
-  `qjs-net`, ...) are real prior art for how a binding is structured -
-  `LIST:`/`READ:` can reach into any of them by directory name (e.g.
-  `LIST: qjs-modules`, `READ: qjs-ffi/ffi.c`), not just this project.
+- **QuickJS/qjs-modules awareness.** The system prompt points the model at
+  `quickjs.h` (the QuickJS C API) and the qjs-modules JS built-ins
+  (`fs`/`console`/`process`/`util`) by name rather than paraphrasing their
+  API inline - mentioning either in a prompt attaches the real file
+  (`lib/reference-files.js`), same as any project file, so the model reads
+  the actual source instead of a summary of it. The sibling `qjs-*`
+  native-module projects checked out next to this repo (`qjs-modules`,
+  `qjs-ffi`, `qjs-net`, ...) are real prior art for how a binding is
+  structured - `LIST:`/`READ:` can reach into any of them by directory
+  name (e.g. `LIST: qjs-modules`, `READ: qjs-ffi/ffi.c`), not just this
+  project.
 - **Real line editing + persisted history + Tab-completion.**
   `lib/chat-repl.js` drives the prompt loop through qjs-modules' built-in
   `REPL` (module `'repl'`) instead of a plain `std.in.getline()` loop -

@@ -43,28 +43,31 @@ REPL just prints as its final answer - no reply comes back to it, so the
 
 ## 2. Rework the system prompt and context mechanism
 
-Still largely unaddressed - this round's changes *added* reference
-material (headers, JS built-ins, sibling projects) to the same prompt
-rather than restructuring it, so the underlying problem (a growing wall
-of text a small local model won't reliably hold onto over a long session)
-got a bit worse, not better.
+Partly addressed: the prompt's QuickJS C API primer and the qjs-modules
+built-ins paragraph (the bulk of the "reference material" this item
+originally flagged) are gone - replaced with a one-line pointer telling
+the model to `READ:`/name-drop `quickjs.h`/`fs.js`/etc. instead of
+carrying a paraphrase of them inline. `SYSTEM_PROMPT` went from ~9.6KB to
+~2.6KB. `gatherProjectContext()`'s own payload dropped from a full
+recursive listing (up to 300 entries) plus every `README*` in the tree to
+a shallow top-level-only listing (filtered to `SOURCE_EXT`,
+`lib/file-refs.js`, and whatever `.gitignore` excludes) plus just the
+root `README.md`/`CMakeLists.txt` - on this project that's roughly an
+80KB first-turn payload down to the ~10-35KB range depending on `--root`.
 
-- Split the monolithic prompt into a short, front-loaded *behavioral*
-  block (use the tools, don't guess, ask if unsure) separate from the
-  *reference* material (QuickJS API primer, qjs-modules built-ins,
-  sibling-project awareness) - the reference material is useful but
-  shouldn't dilute the instructions that actually need to stick.
+Still open:
 - Consider re-injecting a short reminder of the tool-use rule
   periodically (e.g. appended to the "Tool results:" continuation message
   in `runToolLoop`) rather than relying on it surviving from the system
   prompt alone across a long conversation.
-- `gatherProjectContext()` currently does one fixed LIST + README/
-  CMakeLists.txt scan of `--root` at startup. For work centered on a
-  particular subtree (e.g. `lib/lws/`, a single `qjs-*` binding) this is
-  too shallow to be useful and never updates. Consider either scanning
-  `--root` more usefully by default (e.g. also listing immediate
-  subdirectories' file counts) or letting the model broaden its own view
-  via `LIST:` more cheaply than it can today.
+- `gatherProjectContext()`'s scan is now deliberately shallow and fixed at
+  startup - good for payload size, but it means work centered on a
+  particular subtree (e.g. `lib/lws/`, a single `qjs-*` binding) still
+  gets no automatic help beyond the top level, and the scan never
+  updates as a session goes on. That's an intentional trade for size
+  right now; if it turns out to cost too many extra `LIST:`/`READ:`
+  rounds in practice, consider letting the model broaden its own view
+  more cheaply instead of widening the automatic scan back out.
 - No memory of what's already been read: nothing stops the model from
   re-`READ:`ing the same file every round. A per-session "already shown"
   set (like `SentFiles`/`FileExchange` already track outgoing/written
@@ -108,3 +111,17 @@ answering from memory - especially for:
   their directories on every call (once per chat prompt, at minimum) -
   fine at current scale, but worth caching per-session if it's ever
   noticeably slow.
+
+## Done
+
+- `--provider gemini`: `lib/gemini-client.js` (`chat()`/`chatStream()`,
+  same shape as `OllamaClient`) and `repl.js --provider gemini` wiring it
+  in. Verified working end to end, streaming and non-streaming both, for
+  both a short standalone prompt and a request carrying a large (~20-28KB)
+  attached-context body - the large-body case used to intermittently hang
+  or drop the connection (see BUGS: tls-client-large-body-hangs-or-closes,
+  found while wiring this in - fixed in `lib/lws/protocols.js`, not in
+  this subproject) but now returns a normal response every time. That
+  BUGS entry has a caveat worth rereading: the ~20-28KB range specifically
+  wasn't fully reverified after the fix, since testing ran into Gemini's
+  free-tier daily request quota partway through.
