@@ -92,6 +92,22 @@ Check at the end of a task whether anything surfaced during the work
 that "shouldn't happen" but did) got logged; if not, log it before
 finishing.
 
+## Running scripts with qjsm
+
+To run a script (e.g. a throwaway test file while debugging), invoke it
+as the plain positional argument: `qjsm script.js [args]` - same as
+`repl.js`'s own header comment documents running itself
+(`qjsm repl.js [--model ...]`).
+
+Never use `qjsm -m script.js` (or `--module`) for this - `-m`/`--module`
+is qjsm's special module loader (package.json/.ts-aware resolution,
+per `qjsm --help`: "load an ES6 module"), unrelated to running a script
+as the main program. A plain script run without `-m` already supports
+`import`/`export` (it's ES module syntax either way) - `-m` is not
+"the way to get module support", it's a different, unrelated loading
+path, and using it to run a script is a category error, not just a
+stylistic difference.
+
 ## Subproject TODO.md files
 
 Several subdirectories (e.g. `examples/ollama-repl/`) keep their own
