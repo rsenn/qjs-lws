@@ -120,7 +120,7 @@ retry_bo_from_retryobj(JSContext* ctx, JSValueConst retry_obj) {
   lws_retry_bo_t* bo = NULL;
 
   if(JS_IsObject(retry_obj)) {
-    JSValue table_val = JS_GetPropertyStr(ctx, retry_obj, "retryMsTable");
+    JSValue table_val = js_get_property(ctx, retry_obj, "retry_ms_table");
     uint32_t* table = NULL;
     uint32_t count = 0;
 
@@ -143,10 +143,10 @@ retry_bo_from_retryobj(JSContext* ctx, JSValueConst retry_obj) {
         /* Default conceal_count to the whole table (don't report failure
            to the app until every entry's been tried once) unless given
            explicitly. */
-        bo->conceal_count = (uint16_t)(js_has_property(ctx, retry_obj, "concealCount") ? to_integerfree(ctx, js_get_property(ctx, retry_obj, "concealCount")) : count);
-        bo->secs_since_valid_ping = (uint16_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "secsSinceValidPing"));
-        bo->secs_since_valid_hangup = (uint16_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "secsSinceValidHangup"));
-        bo->jitter_percent = (uint8_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "jitterPercent"));
+        bo->conceal_count = (uint16_t)(js_has_property(ctx, retry_obj, "conceal_count") ? to_integerfree(ctx, js_get_property(ctx, retry_obj, "conceal_count")) : count);
+        bo->secs_since_valid_ping = (uint16_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "secs_since_valid_ping"));
+        bo->secs_since_valid_hangup = (uint16_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "secs_since_valid_hangup"));
+        bo->jitter_percent = (uint8_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "jitter_percent"));
       } else {
         js_free(ctx, table);
       }
@@ -461,7 +461,7 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
      reliable way to tell they belong together. Opt-in only now, off by
      default, so callers who don't need compression get correct fragment
      boundaries. */
-  if(to_boolfree(ctx, JS_GetPropertyStr(ctx, obj, "permessageDeflate"))) {
+  if(to_boolfree(ctx, js_get_property(ctx, obj, "permessage_deflate"))) {
     struct lws_extension* exts;
 
     if((exts = js_mallocz(ctx, sizeof(struct lws_extension) * 2)))
@@ -511,10 +511,7 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   /* How long (seconds) a client connection may sit waiting - for the TLS
      handshake, for the server to reply, etc - before lws gives up on it
      with e.g. "Timed out waiting server reply" (see wsi-timeout.c). Left
-     unset (0), lws_create_context() keeps its own default (15s), which is
-     too short for a request whose server-side work can legitimately take
-     longer (e.g. Ollama cold-loading a multi-GB model before it can answer
-     the first /api/chat call). */
+     unset (0), lws_create_context() keeps its own default (15s) */
   value = js_get_property(ctx, obj, "timeout_secs");
   ci->timeout_secs = to_integerfree(ctx, value);
 
@@ -529,19 +526,19 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
      LCCSCF_CACHE_COOKIES ssl_connection flag (tls_connect_info_fromobj(),
      lws-tls.c) - setting cookieJar here just makes the jar exist, it
      doesn't turn cookie capture/replay on for any given request. */
-  value = JS_GetPropertyStr(ctx, obj, "cookieJar");
+  value = js_get_property(ctx, obj, "cookie_jar");
 
   if(JS_IsObject(value)) {
     str_property(&ci->http_nsc_filepath, ctx, value, "path");
 
-    if(js_has_property(ctx, value, "maxFootprint"))
-      ci->http_nsc_heap_max_footprint = to_integerfree(ctx, js_get_property(ctx, value, "maxFootprint"));
+    if(js_has_property(ctx, value, "max_footprint"))
+      ci->http_nsc_heap_max_footprint = to_integerfree(ctx, js_get_property(ctx, value, "max_footprint"));
 
-    if(js_has_property(ctx, value, "maxItems"))
-      ci->http_nsc_heap_max_items = to_integerfree(ctx, js_get_property(ctx, value, "maxItems"));
+    if(js_has_property(ctx, value, "max_items"))
+      ci->http_nsc_heap_max_items = to_integerfree(ctx, js_get_property(ctx, value, "max_items"));
 
-    if(js_has_property(ctx, value, "maxPayload"))
-      ci->http_nsc_heap_max_payload = to_integerfree(ctx, js_get_property(ctx, value, "maxPayload"));
+    if(js_has_property(ctx, value, "max_payload"))
+      ci->http_nsc_heap_max_payload = to_integerfree(ctx, js_get_property(ctx, value, "max_payload"));
   }
 
   JS_FreeValue(ctx, value);

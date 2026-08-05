@@ -122,7 +122,7 @@ tls_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_con
   /* Per-connection opt-in to the context's cookie jar (see the `cookieJar`
      context-creation option, lws-context.c) - captures Set-Cookie from the
      response and replays matching cookies on this and future requests. */
-  if(to_boolfree(ctx, js_get_property(ctx, obj, "cacheCookies")))
+  if(to_boolfree(ctx, js_get_property(ctx, obj, "cache_cookies")))
     ci->ssl_connection |= LCCSCF_CACHE_COOKIES;
 #endif
 
@@ -198,13 +198,13 @@ lwsjs_generate_self_signed_cert(JSContext* ctx, JSValueConst this_val, int argc,
   info.key_bits = 2048;
 
   if(JS_IsObject(opts)) {
-    if(js_has_property(ctx, opts, "commonName"))
-      cn = to_stringfree(ctx, js_get_property(ctx, opts, "commonName"));
+    if(js_has_property(ctx, opts, "common_name"))
+      cn = to_stringfree(ctx, js_get_property(ctx, opts, "common_name"));
 
     if(!cn || !*cn) {
       str_free(ctx, &cn);
 
-      JSValue altNames = JS_GetPropertyStr(ctx, opts, "altNames");
+      JSValue altNames = js_get_property(ctx, opts, "alt_names");
 
       if(JS_IsArray(ctx, altNames))
         cn = to_stringfree(ctx, JS_GetPropertyUint32(ctx, altNames, 0));
@@ -215,8 +215,8 @@ lwsjs_generate_self_signed_cert(JSContext* ctx, JSValueConst this_val, int argc,
     if(js_has_property(ctx, opts, "days"))
       info.validity_days = to_int32free(ctx, js_get_property(ctx, opts, "days"));
 
-    if(js_has_property(ctx, opts, "keyBits"))
-      info.key_bits = to_int32free(ctx, js_get_property(ctx, opts, "keyBits"));
+    if(js_has_property(ctx, opts, "key_bits"))
+      info.key_bits = to_int32free(ctx, js_get_property(ctx, opts, "key_bits"));
   }
 
   if(!cn || !*cn) {
