@@ -234,7 +234,7 @@ async function chatRound(client, messages, opts) {
     if(opts.stream) {
       let first = true;
 
-      const reply = await client.chatStream(messages, {}, token => {
+      const { content: reply } = await client.chatStream(messages, {}, token => {
         if(first) {
           stopSpinner();
           stdout.puts(`\n${opts.provider}> `);
@@ -253,7 +253,7 @@ async function chatRound(client, messages, opts) {
       return reply;
     }
 
-    const reply = await client.chat(messages);
+    const { content: reply } = await client.chat(messages);
     stopSpinner();
     console.log(`\n${opts.provider}> ${reply}\n`);
     cogitated();

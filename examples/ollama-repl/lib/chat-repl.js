@@ -54,6 +54,7 @@ export class ChatREPL extends REPL {
     this.#root = root;
     this.showColors = false;
     this.ps1 = BRIGHT_WHITE + this.ps1;
+    this.inspectOptions.maxStringLength = Infinity;
     this.historyLoad(); // also registers historySave() as a cleanup handler
   }
 

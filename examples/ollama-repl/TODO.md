@@ -100,6 +100,38 @@ answering from memory - especially for:
   can burn through that quickly on a non-trivial question, and sibling-
   project exploration adds more rounds a session might need.
 
+## 4a. Follow-ups from the message-format/tool-use rewrite (2026-08-06)
+
+`OllamaClient`/`GeminiClient` now share one message/tool-use format instead
+of Gemini being forced through Ollama's flat `{role, content}` shape - see
+`API.md` for the full design, and its "What's explicitly out of scope here"
+section for the two biggest deliberate omissions (multimodal parts,
+wiring this into `repl.js`'s own tool loop). Concretely still open:
+
+- Not yet verified against a live Gemini/Ollama *tool-calling* exchange -
+  this environment had no reachable Ollama server or a valid
+  `GEMINI_API_KEY` to test against (only a deliberately-invalid one, to
+  confirm connectivity/request framing - see BUGS:
+  tls-client-large-body-closes-above-16kb, found via that same testing).
+  Checked so far: both files parse and import cleanly, both classes
+  instantiate/`destroy()` without error, `GeminiClient` was confirmed to
+  reach the real endpoint and get a real (well-formed, non-"closed")
+  response across a wide range of body sizes, and the request/response
+  shapes were reviewed against the vendored API docs (see `API.md`'s
+  research section). What's still unverified is a real `tools`/
+  `toolCalls` round trip specifically - re-verify with a valid key/server
+  before relying on it, especially `OllamaClient`'s streaming path, since
+  a `tool_calls` chunk arriving mid-stream (per Ollama's own docs) was
+  never observed directly here.
+- `repl.js`'s own `LIST:`/`READ:`/`RUN:` loop (`runToolLoop()`,
+  `lib/tool-requests.js`) still doesn't use this - it's a separate
+  plain-text-in-the-reply-body protocol, untouched by this rewrite. Using
+  real `tools`/`toolCalls` there instead (or alongside) is a bigger,
+  separate change - see `API.md`.
+- No multimodal message parts (images/audio/PDFs via `inlineData`/
+  `fileData`) - not needed for this project's text-only workflow yet;
+  `API.md` sketches how it'd extend the format if it ever is.
+
 ## 4. Smaller/related gaps noticed while assessing
 
 - `/files` and the session log record what was sent/written, but there's
@@ -111,6 +143,13 @@ answering from memory - especially for:
   their directories on every call (once per chat prompt, at minimum) -
   fine at current scale, but worth caching per-session if it's ever
   noticeably slow.
+- `OllamaClient`'s debug `Console` now sets `maxStringLength: Infinity` in
+  its `inspectOptions` (so a large attached-context body in a logged
+  request/response doesn't get truncated); `GeminiClient`'s debug
+  `Console` (`lib/gemini-client.js`) still only sets `depth: Infinity` and
+  will truncate long strings in `gemini-repl-debug.log`. Worth matching
+  the two if `GeminiClient`'s debug log is ever used to inspect a large
+  payload.
 
 ## Done
 
@@ -121,7 +160,23 @@ answering from memory - especially for:
   attached-context body - the large-body case used to intermittently hang
   or drop the connection (see BUGS: tls-client-large-body-hangs-or-closes,
   found while wiring this in - fixed in `lib/lws/protocols.js`, not in
-  this subproject) but now returns a normal response every time. That
-  BUGS entry has a caveat worth rereading: the ~20-28KB range specifically
-  wasn't fully reverified after the fix, since testing ran into Gemini's
-  free-tier daily request quota partway through.
+  this subproject) but now returns a normal response every time.
+- `--provider gemini` always failing with "Gemini connection failed:
+  closed" (2026-08-06, reported after the item above had already marked
+  this "Done"): a real, separate, previously-undiscovered bug, not the
+  quota-exhaustion false alarm the item above's old caveat suspected -
+  see BUGS: tls-client-large-body-closes-above-16kb. Any request body over
+  exactly 16384 bytes deterministically closed the connection before a
+  response ever arrived - turned out to be HTTP/2's own default max
+  DATA-frame size (this project's traffic negotiates h2 via ALPN), not a
+  TLS record-size limit as first suspected; `repl.js`'s own automatic
+  project-scan payload is routinely ~20-30KB, so this hit *every* Gemini
+  session, not just ones with a large attached file. Fixed natively in
+  `lws-socket.c` (`socket_flush()`), not in this subproject or even in
+  JS at all - `wsi.write()` now handles a body of any size transparently,
+  same as it always could for a small one - see the BUGS entry for the
+  full story (two earlier fix attempts landed in the wrong place/layer
+  and were reverted) and how the final fix was verified (100-100000 byte
+  bodies against the real endpoint, spanning several chunk boundaries,
+  plus a full `repl.js --provider gemini` session with its real ~29KB
+  startup payload).

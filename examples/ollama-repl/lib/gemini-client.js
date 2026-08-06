@@ -15,6 +15,11 @@
  * incrementally as it arrives, same shape as `OllamaClient#chatStream` - a
  * real `ReadableStream` (lib/lws/streams.js), no child process or second
  * connection needed.
+ *
+ * `messages`/`options`/return value follow this project's shared message
+ * and tool-use format (documented in `../API.md`, not Ollama's own wire
+ * shape) - `#toContents()` converts it natively into Gemini's `contents`/
+ * `tools`/`toolConfig` request shape and back out of its response.
  */
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
@@ -109,32 +114,59 @@ export class GeminiClient {
   }
 
   /**
-   * Converts the standard Ollama-shaped `[{ role, content }, ...]` message
-   * array (same shape `OllamaClient#chat` takes) into Gemini's `contents`
-   * array - Gemini only accepts `role: 'user' | 'model'` in `contents`, so
-   * `assistant` maps to `model` and any `system` messages are pulled out
-   * into a separate `systemInstruction` instead.
+   * Converts this project's shared message format (see API.md) into
+   * Gemini's `contents` array. `Content.role` only ever accepts `'user'` or
+   * `'model'` in this API - there is no third `'function'`/`'tool'` role -
+   * so `assistant` maps to `model`, `system` messages are pulled out into a
+   * separate `systemInstruction`, and `tool` messages (this project's
+   * format) map to a `'user'`-role turn carrying a `functionResponse` part,
+   * per the API's own contract for replying to a `functionCall`.
    */
   #toContents(messages) {
     const systemParts = [];
     const contents = [];
 
-    for(const { role, content } of messages) {
+    for(const { role, content, toolCalls, name } of messages) {
       if(role === 'system') {
         systemParts.push({ text: content });
         continue;
       }
 
-      contents.push({ role: role === 'assistant' ? 'model' : 'user', parts: [{ text: content }] });
+      if(role === 'tool') {
+        const response = content != null && typeof content === 'object' ? content : { result: content };
+        contents.push({ role: 'user', parts: [{ functionResponse: { name, response } }] });
+        continue;
+      }
+
+      const parts = [];
+      if(content) parts.push({ text: content });
+      for(const tc of toolCalls ?? []) parts.push({ functionCall: { name: tc.name, args: tc.args } });
+
+      contents.push({ role: role === 'assistant' ? 'model' : 'user', parts });
     }
 
     return { contents, systemInstruction: systemParts.length ? { parts: systemParts } : undefined };
   }
 
+  /** `toolChoice` (see API.md) -> Gemini's `toolConfig.functionCallingConfig`. */
+  #toToolConfig(toolChoice) {
+    if(!toolChoice) return undefined;
+
+    const { mode, allowed } = typeof toolChoice === 'string' ? { mode: toolChoice } : toolChoice;
+    return { functionCallingConfig: { mode: mode.toUpperCase(), ...(allowed ? { allowedFunctionNames: allowed } : {}) } };
+  }
+
   /** Shared connect+await-response half of chat()/chatStream() below. */
-  async #post(pathSuffix, messages, options) {
+  async #post(pathSuffix, messages, { tools, toolChoice, ...options }) {
     const { contents, systemInstruction } = this.#toContents(messages);
-    const payload = { ...options, contents, ...(systemInstruction ? { systemInstruction } : {}) };
+
+    const payload = {
+      ...options,
+      contents,
+      ...(systemInstruction ? { systemInstruction } : {}),
+      ...(tools ? { tools: [{ functionDeclarations: tools.map(({ name, description, parameters }) => ({ name, description, parameters })) }] } : {}),
+      ...(toolChoice ? { toolConfig: this.#toToolConfig(toolChoice) } : {}),
+    };
     this.#debugConsole?.debug('request', payload);
 
     const url = `${API_BASE}/${this.model}:${pathSuffix}`;
@@ -158,31 +190,49 @@ export class GeminiClient {
   }
 
   /**
-   * POSTs one non-streaming `:generateContent` request. `messages` is the
-   * standard Ollama chat array: `[{ role: 'system' | 'user' | 'assistant',
-   * content: string }, ...]`.
+   * Pulls `{ content, toolCalls }` (see API.md) out of one candidate's
+   * `parts[]` - shared between chat()'s single response and chatStream()'s
+   * per-event chunks. `id` is synthesized here (`name#index`); neither this
+   * API nor Ollama's gives one - see API.md's "common shape" note.
+   */
+  #toResult(parts) {
+    const content = parts.filter(p => p.text != null).map(p => p.text).join('');
+    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({ id: `${p.functionCall.name}#${i}`, name: p.functionCall.name, args: p.functionCall.args ?? {} }));
+
+    return { content, toolCalls: toolCalls.length ? toolCalls : undefined };
+  }
+
+  /**
+   * POSTs one non-streaming `:generateContent` request. `messages`/`options`
+   * follow this project's shared message/tool-use format - see API.md.
    *
-   * @returns {Promise<string>} the model's reply text
+   * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chat(messages, options = {}) {
     const resp = await this.#post('generateContent', messages, options);
     const data = await resp.json();
     this.#debugConsole?.debug('response', data);
 
-    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('');
-    if(!text) throw new Error(`unexpected Gemini response: ${JSON.stringify(data)}`);
+    const parts = data?.candidates?.[0]?.content?.parts;
+    if(!parts) throw new Error(`unexpected Gemini response: ${JSON.stringify(data)}`);
 
-    return text;
+    const result = this.#toResult(parts);
+    if(!result.content && !result.toolCalls) throw new Error(`unexpected Gemini response: ${JSON.stringify(data)}`);
+
+    return result;
   }
 
   /**
    * Same as chat(), but posts to `:streamGenerateContent?alt=sse` -
    * Gemini sends the response as Server-Sent Events, one `data: {...}`
-   * JSON chunk per event, as each part of the reply is generated.
+   * JSON chunk per event, as each part of the reply is generated. A
+   * `functionCall` part arrives whole in one event (see API.md) rather
+   * than token-by-token like `text`, so it's only visible in the returned
+   * object, not via `onToken`.
    *
    * @param {(token: string) => void} onToken called once per text chunk,
    *   in order, as SSE events arrive
-   * @returns {Promise<string>} the full reply text, once done
+   * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chatStream(messages, options = {}, onToken) {
     const resp = await this.#post('streamGenerateContent?alt=sse', messages, options);
@@ -190,6 +240,7 @@ export class GeminiClient {
 
     let buf = '';
     let full = '';
+    const toolCalls = [];
 
     for(;;) {
       const { done, value } = await reader.read();
@@ -212,15 +263,18 @@ export class GeminiClient {
         const chunk = JSON.parse(dataLine.slice(5).trim());
         this.#debugConsole?.debug('chunk', chunk);
 
-        const token = chunk?.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('') ?? '';
+        const parts = chunk?.candidates?.[0]?.content?.parts ?? [];
+        const { content: token, toolCalls: chunkCalls } = this.#toResult(parts);
 
         if(token) {
           full += token;
           onToken(token);
         }
+
+        for(const tc of chunkCalls ?? []) toolCalls.push({ ...tc, id: `${tc.name}#${toolCalls.length}` });
       }
 
-      if(done) return full;
+      if(done) return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
     }
   }
 

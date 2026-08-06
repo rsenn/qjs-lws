@@ -102,6 +102,32 @@ model (`qwen2.5-coder` by default) about the files in your project.
   whole non-streamed reply) arrives; a dim "Cogitated for N.Ns" line
   follows once a turn is fully done.
 
+## Using `OllamaClient`/`GeminiClient` directly
+
+Both `lib/ollama-client.js` and `lib/gemini-client.js` are usable on their
+own from a `qjsm` REPL, independent of `repl.js`'s own chat loop - handy for
+poking at a model manually, or for driving real API-native tool/function
+calling, which `repl.js`'s own `LIST:`/`READ:`/`RUN:` loop doesn't use (that
+loop is a plain-text protocol parsed out of the reply body, not either
+provider's actual tool-calling API). See `API.md` for the full design and
+more examples; short version:
+
+```js
+import { OllamaClient } from './lib/ollama-client.js';
+// or: import { GeminiClient } from './lib/gemini-client.js';
+
+const client = new OllamaClient({ model: 'qwen2.5-coder' });
+const { content } = await client.chat([{ role: 'user', content: 'hi' }]);
+console.log(content);
+```
+
+`chat()`/`chatStream()` accept a `tools: [{ name, description, parameters
+}]` option (`parameters` a JSON Schema object) and return `{ content,
+toolCalls? }` - `toolCalls` (`[{ id, name, args }]`) is present whenever the
+model asks to call one. Feed the result back as a `{ role: 'tool', name,
+content }` message to continue the exchange - same message shapes work
+against either client. `API.md` has a full round-trip example.
+
 ## Requirements
 
 - A running Ollama server with the model pulled:

@@ -18,6 +18,11 @@
  * JSON response incrementally as it arrives on the wire - no child process
  * or second connection needed, since the response body is a real
  * ReadableStream already (see chatStream()'s own comment below).
+ *
+ * `messages`/`options`/return value follow this project's shared message
+ * and tool-use format (documented in `../API.md`) - `#toMessages()`/
+ * `#toTools()`/`#toResult()` convert it natively into Ollama's own
+ * `messages`/`tools`/`message.tool_calls` wire shape and back.
  */
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
@@ -73,7 +78,7 @@ export class OllamaClient {
 
     if(debug || getenv('DEBUG')) {
       this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
-      this.#debugConsole = new Console(this.#debugFile, { inspectOptions: { depth: Infinity, compact: false } });
+      this.#debugConsole = new Console(this.#debugFile, { inspectOptions: { depth: Infinity, maxStringLength: Infinity, compact: false } });
     }
 
     this.#adapter = httpClient(
@@ -138,23 +143,61 @@ export class OllamaClient {
   }
 
   /**
-   * POSTs one non-streaming `/api/chat` request over the kept-alive
-   * connection. `messages` is the standard Ollama chat array:
-   * `[{ role: 'system' | 'user' | 'assistant', content: string }, ...]`.
-   *
-   * @returns {Promise<string>} the assistant's reply text
+   * Converts this project's shared message format (see API.md) into
+   * Ollama's own `messages` shape: a `tool` message's `content` is
+   * stringified if it isn't already a string (Ollama wants a plain string
+   * there, unlike Gemini's object-shaped `functionResponse.response`), and
+   * an assistant message's `toolCalls` becomes `tool_calls: [{ function:
+   * { name, arguments } }]` - Ollama's own field name is `arguments`, not
+   * this project's `args`.
    */
-  async chat(messages, { think = false, ...options } = {}) {
-    const payload = { ...options, model: this.model, messages, stream: false, think };
+  #toMessages(messages) {
+    return messages.map(({ role, content, toolCalls, name }) => {
+      if(role === 'tool') return { role, content: typeof content === 'string' ? content : JSON.stringify(content), tool_name: name };
+      if(toolCalls?.length) return { role, content: content ?? '', tool_calls: toolCalls.map(tc => ({ function: { name: tc.name, arguments: tc.args } })) };
+      return { role, content };
+    });
+  }
+
+  /** `tools` (see API.md) -> Ollama's `{ type: 'function', function: {...} }` wrapping. */
+  #toTools(tools) {
+    return tools?.map(({ name, description, parameters }) => ({ type: 'function', function: { name, description, parameters } }));
+  }
+
+  /**
+   * Pulls `{ content, toolCalls }` (see API.md) out of one Ollama
+   * `message` object - shared between chat()'s single response and
+   * chatStream()'s per-chunk `message`. `id` is synthesized here
+   * (`name#index`); Ollama's own `tool_calls` entries don't carry one.
+   */
+  #toResult(message, toolCallOffset = 0) {
+    const toolCalls = message?.tool_calls?.map((tc, i) => ({ id: `${tc.function.name}#${toolCallOffset + i}`, name: tc.function.name, args: tc.function.arguments ?? {} }));
+    return { content: message?.content ?? '', toolCalls: toolCalls?.length ? toolCalls : undefined };
+  }
+
+  /**
+   * POSTs one non-streaming `/api/chat` request over the kept-alive
+   * connection. `messages`/`options` follow this project's shared
+   * message/tool-use format - see API.md. `toolChoice` is accepted but
+   * silently ignored: Ollama's `/api/chat` has no forced-call knob, it
+   * always behaves like Gemini's `AUTO` mode.
+   *
+   * @returns {Promise<{content: string, toolCalls?: object[]}>}
+   */
+  async chat(messages, { think = false, tools, toolChoice, ...options } = {}) {
+    const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: false, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
     this.#debugConsole?.debug('request', payload);
 
     const resp = await this.#post(payload);
     const data = await resp.json();
     this.#debugConsole?.debug('response', data);
 
-    if(!data?.message?.content) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
+    if(!data?.message) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
 
-    return data.message.content;
+    const result = this.#toResult(data.message);
+    if(!result.content && !result.toolCalls) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
+
+    return result;
   }
 
   /**
@@ -170,11 +213,14 @@ export class OllamaClient {
    *
    * @param {(token: string) => void} onToken called once per token, in
    *   order, as they arrive - not once per network chunk, since a chunk
-   *   can (and often does) contain a partial line or several complete ones.
-   * @returns {Promise<string>} the full assistant reply, once done
+   *   can (and often does) contain a partial line or several complete
+   *   ones. Never fires for a `tool_calls` chunk - see API.md, those
+   *   arrive whole rather than token-by-token, and only show up in the
+   *   returned object.
+   * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
-  async chatStream(messages, { think = false, ...options } = {}, onToken) {
-    const payload = { ...options, model: this.model, messages, stream: true, think };
+  async chatStream(messages, { think = false, tools, toolChoice, ...options } = {}, onToken) {
+    const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: true, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
     this.#debugConsole?.debug('request', payload);
 
     const resp = await this.#post(payload);
@@ -182,6 +228,7 @@ export class OllamaClient {
 
     let buf = '';
     let full = '';
+    const toolCalls = [];
 
     for(;;) {
       const { done, value } = await reader.read();
@@ -202,17 +249,19 @@ export class OllamaClient {
 
         const chunk = JSON.parse(line);
         this.#debugConsole?.debug('chunk', chunk);
-        const token = chunk.message?.content ?? '';
+
+        const { content: token, toolCalls: chunkCalls } = this.#toResult(chunk.message, toolCalls.length);
+        for(const tc of chunkCalls ?? []) toolCalls.push(tc);
 
         if(token) {
           full += token;
           onToken(token);
         }
 
-        if(chunk.done) return full;
+        if(chunk.done) return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
       }
 
-      if(done) return full;
+      if(done) return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
     }
   }
 
