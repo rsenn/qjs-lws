@@ -70,6 +70,34 @@ socket_write_queue_clear(LWSSocket* s) {
   s->write_buffered = 0;
 }
 
+/* 0x4000/16384 - HTTP/2's own default SETTINGS_MAX_FRAME_SIZE (RFC 7540
+   §6.5.2), which every connection starts at whether or not the peer later
+   raises it. A single lws_write() call for an HTTP body write bigger than
+   this reliably closed the connection before a response ever arrived
+   instead of lws's own partial-write retry machinery (the loop below)
+   picking up where it left off, the way it does for a partial *plain* TCP
+   write over HTTP/1.1 - confirmed directly, deterministically, right at
+   this exact boundary, against a real HTTPS endpoint that negotiated h2
+   via ALPN (see BUGS: tls-client-large-body-closes-above-16kb). Read as
+   "TLS record size" at first (a single wsi.write() call above this size
+   over a *plain* TLS/h1 connection was never actually confirmed broken,
+   only assumed to be the same issue) - the debug log at the time this was
+   pinned down showed an h2 mux substream, not a bare TLS wsi, which is
+   what actually points at h2's own DATA-frame size cap instead: this
+   project's own h2 write path apparently doesn't split a body larger than
+   one frame's worth across multiple DATA frames itself, so a body over
+   the limit becomes a single frame the peer sees as invalid framing and
+   drops. Splitting it into separate wsi.write() calls no bigger than this
+   sidesteps that without needing to fix the h2 write path directly (or
+   nail down whether it's really that, versus something else specific to
+   this size - `lwsi_role_h2(wsi)` would let this check apply only to an
+   h2 connection, but requires including the h2 role's private header;
+   capping *any* HTTP body write's per-call size this way costs nothing on
+   plain HTTP/1.1, which already writes bodies far smaller than this in
+   practice, so the extra include isn't worth it just to narrow the
+   check). */
+#define HTTP_WRITE_CHUNK_MAX 16384
+
 /* Drain as many queued chunks as libwebsockets is willing to accept. If any
    remain (partial write, or lws is currently holding a partial internally),
    re-arm the writeable callback so we get called back to try again. */
@@ -84,6 +112,24 @@ socket_flush(LWSSocket* s) {
 
     WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
     size_t remaining = wc->len - wc->pos;
+    enum lws_write_protocol wp = wc->proto;
+
+    /* See the "HTTP body writes have no such per-message-boundary concept"
+       comment below - a WS message must never be split like this, only an
+       HTTP body write (LWS_WRITE_HTTP/LWS_WRITE_HTTP_FINAL) can be. */
+    BOOL is_ws_message = wc->proto != LWS_WRITE_HTTP && wc->proto != LWS_WRITE_HTTP_FINAL;
+
+    if(!is_ws_message && remaining > HTTP_WRITE_CHUNK_MAX) {
+      remaining = HTTP_WRITE_CHUNK_MAX;
+
+      /* This call won't reach the end of the chunk, so it isn't the FINAL
+         write yet even if the chunk as a whole is - only the call that
+         actually drains the last byte (wc->pos >= wc->len below) may carry
+         LWS_WRITE_HTTP_FINAL; an earlier, truncated call claiming FINAL
+         would tell lws the HTTP request body is complete before it is. */
+      if(wp == LWS_WRITE_HTTP_FINAL)
+        wp = LWS_WRITE_HTTP;
+    }
 
     if(lws_wsi_is_udp(s->wsi)) {
       struct lws_udp* udp;
@@ -94,7 +140,7 @@ socket_flush(LWSSocket* s) {
 
     int n;
 
-    if((n = lws_write(s->wsi, wc->buf + LWS_PRE + wc->pos, remaining, wc->proto)) < 0) {
+    if((n = lws_write(s->wsi, wc->buf + LWS_PRE + wc->pos, remaining, wp)) < 0) {
       /* Connection is dead — drop everything so we don't keep re-arming. */
       socket_write_queue_clear(s);
       return;
@@ -121,7 +167,7 @@ socket_flush(LWSSocket* s) {
                         "BUFLIST",
                         "NO_FIN",
                         "H2_STREAM_END",
-                    })[wc->proto & 0xf],
+                    })[wp & 0xf],
                     preview,
                     (size_t)n > sizeof(preview) - 1 ? "..." : "");
     }
@@ -135,10 +181,9 @@ socket_flush(LWSSocket* s) {
        separate WS frame, splitting one logical message into several the
        receiver can't reassemble. HTTP body writes have no such
        per-message-boundary concept, so those keep the retry loop, calling
-       lws_write() again with the remaining bytes and the same proto until
-       the whole chunk is out. */
-    BOOL is_ws_message = wc->proto != LWS_WRITE_HTTP && wc->proto != LWS_WRITE_HTTP_FINAL;
-
+       lws_write() again with the remaining bytes and the same proto (or,
+       for a chunk bigger than HTTP_WRITE_CHUNK_MAX, the same wp - see
+       is_ws_message above) until the whole chunk is out. */
     wc->pos = is_ws_message ? wc->len : wc->pos + (size_t)n;
     s->write_buffered -= is_ws_message ? remaining : (size_t)n;
 
