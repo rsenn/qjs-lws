@@ -31,7 +31,7 @@ const JS_LIBDIR = '/usr/local/lib/quickjs';
 const NATIVE_LIBDIR = '/usr/local/lib/x86_64-linux-gnu/quickjs';
 
 /** The QuickJS interpreter source tree - `root`'s parent directory. */
-function quickjsDir(root) {
+export function quickjsDir(root) {
   return root === '.' ? '..' : `${root}/..`;
 }
 

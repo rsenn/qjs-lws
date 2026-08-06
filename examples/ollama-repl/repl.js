@@ -21,6 +21,12 @@
  * lib/ollama-client.js's cross-tree imports rewritten to the installed
  * `lws/*.js` module path):
  *   ollama-repl [--model ...] [...]
+ *
+ * `--failsafe` drops all of the above scaffolding: no system prompt, no
+ * project scan, no file-ref attachment, no LIST:/READ:/RUN: tool loop, no
+ * "File:" auto-write - just the conversation, sent to the model as-is, for
+ * when the normal prompt/tooling machinery itself is what's under
+ * suspicion (or simply unwanted).
  */
 import { exit, out as stdout } from 'std';
 import { clearTimeout, setTimeout, stat, readdir, S_IFDIR } from 'os';
@@ -29,6 +35,7 @@ import { GeminiClient } from './lib/gemini-client.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
 import { extractRequests, runRequests } from './lib/tool-requests.js';
+import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
 import { fileMode, SKIP_DIRS } from './lib/match.js';
 import { ChatREPL } from './lib/chat-repl.js';
 import { SessionLog } from './lib/session-log.js';
@@ -43,7 +50,7 @@ import { runCommand } from './lib/run-command.js';
 const MAX_TOOL_ROUNDS = 4;
 
 function parseArgs(argv) {
-  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false };
+  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -54,8 +61,9 @@ function parseArgs(argv) {
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--stream') opts.stream = true;
     else if(arg === '-x' || arg === '--debug') opts.debug = true;
+    else if(arg === '--failsafe') opts.failsafe = true;
     else if(arg === '--help' || arg === '-h') {
-      console.log('Usage: qjsm repl.js [--provider ollama|gemini] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x]');
+      console.log('Usage: qjsm repl.js [--provider ollama|gemini] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe]');
       exit(0);
     }
   }
@@ -110,9 +118,14 @@ LIST recursively lists source files (and README*) under a directory -
 alongside this one (e.g. "LIST: qjs-modules"). READ shows a file's
 contents, or every file matching a glob. RUN executes a shell command in
 the project root and shows its output (you'll be asked to approve each
-one first). Issue as many as you need in one reply - each runs and you're
-shown the results and asked again, so build up what you need before
-committing to a final answer.
+one first) - use it for git (status/diff/log, to see what's actually
+changed or already there) and for testing: \`qjsm -e '<code>'\` evaluates
+a JS snippet immediately and shows the result, so you can check a
+QuickJS/C-binding API call actually works (or a syntax idea actually
+runs) before writing it into a file - much cheaper than writing a whole
+file and hoping. Issue as many requests as you need in one reply - each
+runs and you're shown the results and asked again, so build up what you
+need before committing to a final answer.
 
 The project's top-level layout and README/CMakeLists.txt are already
 given below, gathered automatically at session start - read that first.
@@ -120,7 +133,28 @@ For anything else - a subdirectory, a specific file, a sibling "qjs-*"
 project, the QuickJS C API (quickjs.h) or qjs-modules' JS built-ins
 (fs.js/console.js/process.js/util.js under /usr/local/lib/quickjs/) -
 READ:/LIST: it rather than guessing at its contents; naming a header or
-built-in by name attaches the real file automatically.`;
+built-in by name attaches the real file automatically.
+
+Writing a new native (C) QuickJS binding is a common request here - when
+one of examples/fib.c, examples/point.c, and the quickjs-binding-api.md
+cheat sheet are attached below, they're the reference for it, already
+picked for you; otherwise READ an existing one for the real shape of the
+boilerplate (a sibling "qjs-*" project's own .c file, or LIST: one of
+them if you don't know which - qjs-ffi and qjs-modules are the most
+representative), and READ quickjs.h for any exact JS_* signature the
+cheat sheet doesn't cover, rather than recalling it from memory. Before
+writing any C, sketch the JS-facing API in one or two lines as plain text
+(argument/return types, sync vs. async, e.g. \`deflate(data:
+ArrayBuffer|Uint8Array): ArrayBuffer\`) - catches a bad shape before code
+exists for it, and gives the human a checkpoint to redirect at. Verify
+the binding compiles/links and a quick JS-side smoke test actually works
+via RUN: - compile it standalone, not through this project's own build
+(that pulls in libwebsockets and a multi-minute link for something that
+needs none of it):
+\`gcc -shared -fPIC -I<quickjs-source-dir> -o binding.so binding.c
+-DJS_SHARED_LIBRARY [-lwhatever]\`, then \`qjsm -e '<smoke test importing
+./binding.so>'\` - before presenting it as done, don't just describe code
+that should work.`;
 
 /** @returns {{ text: string, attached: string[] }} */
 function attachFiles(prompt, root, fileExchange) {
@@ -359,12 +393,34 @@ async function gatherProjectContext(root) {
   return `LIST: . (top-level only)\n${layout || '(empty)'}${reads ? `\n\n${reads}` : ''}`;
 }
 
+/** One line per message: index, role, char count, and a truncated preview - the
+    non-debug ("summary") view for /context and /log below. */
+function summarizeMessages(msgs) {
+  return msgs
+    .map((m, i) => {
+      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const preview = content.replaceAll('\n', ' ').slice(0, 80);
+      return `[${i}] ${m.role} (${content.length} chars): ${preview}${content.length > 80 ? '...' : ''}`;
+    })
+    .join('\n');
+}
+
+/** Total char count across `msgs` - a rough proxy for outgoing request
+    size (see DEMO.md 5 on why this is a diagnostic, not a target), shown
+    alongside the message count in /context. */
+function totalChars(msgs) {
+  return msgs.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length), 0);
+}
+
 const HELP_TEXT = `/reset          - clear conversation history (keeps the initial project scan)
 /exit, /quit    - quit
 /help           - this text
 /run <command>  - run a shell command yourself, right now (no model round trip, no approval prompt - it's you asking, not the model)
+/binding <text> - force-attach the native-binding reference (fib.c/point.c/cheat sheet) for this prompt, even if it doesn't sound like a binding request
 /status         - show model/connection/session info
 /files          - dump this session's file exchange (sent, received, diffs)
+/context        - inspect the full context about to be sent to the model (system prompt + project scan + conversation) - raw, inspect()-colored, with -x; a one-line-per-message summary without it
+/log            - inspect just the conversation so far (no system prompt/project scan) - same raw-with--x/summary-without split as /context
 Anything else is sent to the model as a prompt.`;
 
 async function main() {
@@ -381,26 +437,28 @@ async function main() {
   const log = new SessionLog(`${opts.model}.log`);
   const sentFiles = new SentFiles(opts.model, opts.root);
   const fileExchange = new FileExchange(opts.model, opts.root);
-  const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+  const messages = opts.failsafe ? [] : [{ role: 'system', content: SYSTEM_PROMPT }];
 
   const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : `${opts.host}:${opts.port}`;
-  console.log(`ollama-repl: ${opts.provider}/${opts.model} @ ${endpoint}  (root: ${opts.root})`);
+  console.log(`ollama-repl: ${opts.provider}/${opts.model} @ ${endpoint}  (root: ${opts.root})${opts.failsafe ? '  [failsafe: no system prompt/project scan/tools]' : ''}`);
   //console.log(`Type a prompt and press Enter.\nReference files by name or glob (e.g. src/*.js) to attach them.`);
   console.log(`/help for commands.`);
   console.log(`Logging this session to ${opts.model}.log.`);
   console.log(`History persists (^R to search, up/down to recall).`);
 
-  console.log(`\x1b[2m(scanning project layout...)\x1b[0m`);
+  if(!opts.failsafe) {
+    console.log(`\x1b[2m(scanning project layout...)\x1b[0m`);
 
-  const projectContext = await gatherProjectContext(opts.root);
+    const projectContext = await gatherProjectContext(opts.root);
 
-  //console.log('projectContext', console.config({ maxStringLength: 32, maxArrayLength: 32 }), projectContext.length, projectContext.replaceAll(/\n/g, '\\n').slice(0, 50));
+    //console.log('projectContext', console.config({ maxStringLength: 32, maxArrayLength: 32 }), projectContext.length, projectContext.replaceAll(/\n/g, '\\n').slice(0, 50));
 
-  messages.push(
-    { role: 'user', content: `(automatic project scan at session start)\n\n${projectContext}` },
-    { role: 'assistant', content: "Got it - I have the project's layout and README/CMakeLists.txt contents above." },
-  );
-  log.toolResults(projectContext);
+    messages.push(
+      { role: 'user', content: `(automatic project scan at session start)\n\n${projectContext}` },
+      { role: 'assistant', content: "Got it - I have the project's layout and README/CMakeLists.txt contents above." },
+    );
+    log.toolResults(projectContext);
+  }
 
   console.log('ready!');
 
@@ -448,6 +506,19 @@ async function main() {
         return;
       }
 
+      if(prompt === '/context') {
+        if(opts.debug) console.log(messages);
+        else console.log(`context: ${messages.length} messages, ${totalChars(messages)} chars\n${summarizeMessages(messages)}`);
+        return;
+      }
+
+      if(prompt === '/log') {
+        const turns = messages.slice(baseMessageCount);
+        if(opts.debug) console.log(turns);
+        else console.log(turns.length ? summarizeMessages(turns) : '(no conversation yet)');
+        return;
+      }
+
       if(prompt.startsWith('/js ')) {
         repl.evalAndPrintStart(prompt.slice('/js '.length).trim());
         return;
@@ -463,11 +534,48 @@ async function main() {
         return;
       }
 
-      const { text: withFiles, attached } = attachFiles(prompt, opts.root, fileExchange);
-      log.prompt(prompt, attached);
+      if(opts.failsafe) {
+        log.prompt(prompt, []);
+
+        const turnStart = messages.length;
+        messages.push({ role: 'user', content: prompt });
+
+        let reply;
+        try {
+          reply = await chatRound(client, messages, opts);
+        } catch(e) {
+          console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
+          messages.length = turnStart; // don't leave a dangling/partial turn behind
+          return;
+        }
+
+        messages.push({ role: 'assistant', content: reply });
+        log.reply(reply);
+        return;
+      }
+
+      let forceBinding = false;
+      let effectivePrompt = prompt;
+      if(prompt.startsWith('/binding ')) {
+        forceBinding = true;
+        effectivePrompt = prompt.slice('/binding '.length).trim();
+        if(!effectivePrompt) return;
+      }
+
+      const { text: withFiles, attached } = attachFiles(effectivePrompt, opts.root, fileExchange);
+      log.prompt(effectivePrompt, attached);
+
+      let finalText = withFiles;
+      if(forceBinding || looksLikeBindingPrompt(effectivePrompt)) {
+        const { text: bindingText, attached: bindingAttached } = bindingContext(opts.root);
+        if(bindingText) {
+          console.log(`\x1b[2m(attached binding reference: ${bindingAttached.join(', ')})\x1b[0m`);
+          finalText = `${finalText}\n\n${bindingText}`;
+        }
+      }
 
       const turnStart = messages.length;
-      messages.push({ role: 'user', content: withFiles });
+      messages.push({ role: 'user', content: finalText });
 
       const confirmRun = cmd => repl.confirm(`Run this command?\n  ${cmd}`);
 

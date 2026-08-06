@@ -78,8 +78,8 @@ Still open:
 ## 3. Push the model harder toward using the harness
 
 Even with ASK: added and the prompt restructured, qwen2.5-coder needs to
-be told, explicitly and repeatedly, to *prefer* LIST:/READ:/RUN:/ASK: over
-answering from memory - especially for:
+be told, explicitly and repeatedly, to *prefer* LIST:/READ:/RUN:/
+ASK: over answering from memory - especially for:
 
 - C/QuickJS work: read the actual binding file and `quickjs.h` (via the
   `lib/reference-files.js` name-drop mechanism) before describing or
@@ -98,7 +98,12 @@ answering from memory - especially for:
 - `MAX_TOOL_ROUNDS` is 4 - worth revisiting once ASK:/heavier tool use
   land, since a real "explore, then ask, then read, then answer" sequence
   can burn through that quickly on a non-trivial question, and sibling-
-  project exploration adds more rounds a session might need.
+  project exploration adds more rounds a session might need. The new
+  "write a native binding" demo (README.md) is a concrete case that can
+  plausibly need more than 4: LIST a sibling project, READ a template
+  file, READ quickjs.h, RUN: the build, RUN: a smoke test
+  - that's 5-6 rounds before a final answer even on a clean run, before
+  counting a build failure or a wrong-signature retry.
 
 ## 4a. Follow-ups from the message-format/tool-use rewrite (2026-08-06)
 
@@ -134,11 +139,14 @@ wiring this into `repl.js`'s own tool loop). Concretely still open:
 
 ## 4. Smaller/related gaps noticed while assessing
 
-- `/files` and the session log record what was sent/written, but there's
-  no equivalent visibility into the LIST:/READ:/RUN:/ASK: tool-call
-  history from inside the REPL itself (only in `<model>.log`) - a
-  `/tools` command mirroring `/files` might help a user debug why the
-  model went down a particular path.
+- `/files` and the session log record what was sent/written; `/context`
+  and `/log` (`repl.js`, added 2026-08-06) now give REPL-side visibility
+  into the raw conversation too (LIST:/READ:/RUN: tool results are
+  embedded in the `user`-role messages they were fed back as, so they
+  show up there), closing most of what this bullet used to describe. Not
+  covered: a *filtered* view of just the tool-call history (request +
+  result pairs, without the surrounding chat turns) - still only in
+  `<model>.log` if that's specifically what's wanted.
 - `qjsProjectDirs()`/`referenceFiles()`/`nativeModules()` all re-`readdir()`
   their directories on every call (once per chat prompt, at minimum) -
   fine at current scale, but worth caching per-session if it's ever
@@ -150,6 +158,46 @@ wiring this into `repl.js`'s own tool loop). Concretely still open:
   will truncate long strings in `gemini-repl-debug.log`. Worth matching
   the two if `GeminiClient`'s debug log is ever used to inspect a large
   payload.
+
+## 5. Redesign the binding-writing context (see DEMO.md) - implemented, unverified live
+
+`DEMO.md` (2026-08-06) reconsidered from scratch what gets sent to the
+model for a "write a native (C) QuickJS binding" request, using zlib
+(`compress2`/`uncompress`/`crc32`, real signatures checked against
+`/usr/include/zlib.h`) as the worked example; its proposals are now
+implemented (full detail/rationale stays in `DEMO.md`, §9 tracks exactly
+what changed where):
+
+- `examples/ollama-repl/reference/quickjs-binding-api.md`: curated
+  ~150-line cheat sheet (was: naming "quickjs.h" attached the whole
+  1041-line header, `lib/reference-files.js`, for a request that only
+  ever needs ~60 lines of it). The full header is still one `READ:` away.
+- `lib/binding-context.js` (new): auto-attaches
+  `examples/fib.c`/`examples/point.c`/the cheat sheet whenever a prompt
+  looks like a binding request (keyword heuristic) *or* the new
+  `/binding <prompt>` REPL command is used (explicit override) -
+  `DEMO.md`'s two detection options resolved as "support both" rather
+  than picking one.
+- System prompt's binding paragraph (`repl.js`) now asks for a one/two
+  line JS-API sketch before any C gets written, and points verification
+  at a standalone `gcc -shared -fPIC ... -DJS_SHARED_LIBRARY` compile
+  instead of this project's own `CMakeLists.txt`/`build/` (libwebsockets,
+  multi-minute link) - root-caused as (plausibly) why the one live demo
+  attempt never returned; the standalone recipe was verified directly
+  with `point.c` (`new Point(3,4).norm() === 5`, no CMake involved).
+- `/context` (`repl.js`) now reports a total char count alongside the
+  message count, so context size is visible per-session instead of
+  eyeballed - a diagnostic, not an optimization target (curation quality
+  matters more than raw size).
+- README.md's demo walkthrough rewritten to match: the zlib
+  `deflate`/`inflate`/`crc32` design, the auto-attach/`/binding` step,
+  and the standalone build/smoke-test recipe.
+
+Still open: the live re-run this was all meant to unblock
+(`BUGS: ollama-native-binding-demo-never-replies` - does the smaller,
+curated context actually fix the never-replies case?) needs a reachable
+Ollama server or `GEMINI_API_KEY`, neither available where this work was
+done - see item 4a above for the same live-verification gap.
 
 ## Done
 
@@ -180,3 +228,46 @@ wiring this into `repl.js`'s own tool loop). Concretely still open:
   bodies against the real endpoint, spanning several chunk boundaries,
   plus a full `repl.js --provider gemini` session with its real ~29KB
   startup payload).
+- `OllamaClient#destroy()`/`GeminiClient#destroy()` (both `lib/*-
+  client.js`) made idempotent (2026-08-06): root-caused a user-reported
+  "Ctrl-C doesn't stop the REPL, then a TypeError" - a double Ctrl-C runs
+  every registered cleanup handler twice (a bug in the vendored qjs-
+  modules `repl.js`'s own `controlC()`/`exit()`, confirmed with a
+  standalone repro, not fixed here since it's a different project's code)
+  - and `destroy()` unconditionally called `this.#debugFile?.close()`
+  with no guard, throwing "invalid file handle" on the second call. That
+  throw happened *inside* the REPL's own `exit()`, before its
+  `std.exit()` call, so it silently prevented the process from ever
+  actually exiting - not just a cosmetic error. See BUGS:
+  repl-controlc-double-invokes-cleanup-handlers for the full mechanism
+  and repro. A `#destroyed` guard on both classes makes a second
+  `destroy()` call a safe no-op instead.
+- A `SEARCH:` request type (web search via Google's Custom Search JSON
+  API) was built and then dropped again before landing: every keyless
+  scraping target tried as an alternative (DuckDuckGo html/lite, Bing,
+  several public SearXNG instances) came back bot-walled or rate-limited
+  from this environment's IP, and the user decided against shipping a
+  key-gated API for this. `LIST:`/`READ:`/`RUN:` remain the only request
+  types.
+- System prompt (`repl.js`) extended with explicit "writing a new native
+  (C) QuickJS binding" guidance (read an existing sibling `qjs-*`
+  binding as a template, read `quickjs.h` for real signatures, verify via
+  `RUN:`/`qjsm -e` rather than just describing code) and a worked demo of
+  the same in README.md.
+  `RUN:`'s underlying `runCommand()` (`lib/run-command.js`) already ran
+  arbitrary shell commands via `/bin/sh -c` with no changes needed -
+  confirmed directly that both `git log`/`git status` and
+  `qjsm -e '<code>'` work through it exactly as the demo assumes. The
+  demo walkthrough itself describes the intended tool-use sequence rather
+  than a transcript of a real model run: no reachable Ollama server or
+  valid `GEMINI_API_KEY` in this environment to actually drive a live
+  multi-turn session end to end and confirm a model follows every step -
+  see item 3's `MAX_TOOL_ROUNDS` note above for a concrete gap this
+  scenario would likely hit first.
+- `/context` and `/log` REPL commands added (`repl.js`) - inspect the
+  full outgoing context (system prompt + project scan + conversation) or
+  just the conversation so far, without leaving the REPL. Default output
+  is a one-line-per-message summary; run with `-x` and they instead
+  `console.log()` the raw message array - full-depth, `inspect()`-colored
+  on a TTY, same formatting the existing `-x` debug log already used for
+  request/response payloads, just live in the terminal instead of a file.

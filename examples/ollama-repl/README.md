@@ -48,13 +48,14 @@ model (`qwen2.5-coder` by default) about the files in your project.
   convention. The system prompt asks it to suggest a real filename for
   every snippet it writes (even a quick example), so the auto-numbered
   fallback is mostly a safety net rather than the common case.
-- **Project awareness (LIST:/READ:/RUN:).** The system prompt tells the
-  model it can ask the REPL to list files (`lib/tool-requests.js`,
-  restricted to JS/C/HTML/CSS/Markdown + README\*), read a file or glob,
-  or run a shell command itself - to grep/search the codebase, inspect a
-  directory, or debug something (`lib/run-command.js`, output-capped and
-  time-bounded) - and to do so proactively, as soon as it's unsure about
-  something, rather than guessing. Each reply is scanned for these
+- **Project awareness (LIST:/READ:/RUN:).** The system prompt
+  tells the model it can ask the REPL to list files (`lib/tool-
+  requests.js`, restricted to JS/C/HTML/CSS/Markdown + README\*), read a
+  file or glob, run a shell command itself - to grep/search the codebase,
+  test a change (including a quick `qjsm -e '<code>'` one-liner to check
+  a JS/C-binding API call actually works before writing it into a file),
+  or drive `git` (status/diff/log). The model's told to do all of this proactively, as soon as it's unsure
+  about something, rather than guessing. Each reply is scanned for these
   request lines; if any are found, they're run and the results fed back
   as the model's next turn automatically (up to `MAX_TOOL_ROUNDS` rounds
   per prompt, in `repl.js`) before the final answer is shown. `RUN:`
@@ -130,16 +131,19 @@ against either client. `API.md` has a full round-trip example.
 
 ## Requirements
 
-- A running Ollama server with the model pulled:
+- `--provider ollama` (the default): a running Ollama server with the
+  model pulled:
   ```sh
   ollama pull qwen2.5-coder
   ```
+- `--provider gemini`: `GEMINI_API_KEY` exported in the environment (a
+  free-tier key from https://aistudio.google.com/apikey works).
 - `lws.so` built (see the repo root's build instructions).
 
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--model qwen2.5-coder] [--host localhost] [--port 11434] [--root .] [--stream] [-x]
+qjsm examples/ollama-repl/repl.js [--provider ollama|gemini] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x] [--failsafe]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -149,6 +153,13 @@ just `ollama-repl [...]` from `bin/`.
 
 `--root` is the project directory file references and writes are resolved
 against - defaults to the current directory.
+
+`--failsafe` strips out all of the REPL's own scaffolding: no system
+prompt, no automatic project scan, no file-ref attachment, no
+LIST:/READ:/RUN: tool loop, no "File:" auto-write. Each turn is just the
+message you typed, sent to the model as-is (conversation history is still
+kept across turns) - useful when you want a plain chat against the model
+itself, or when the scaffolding is what you're trying to rule out.
 
 `-x` (or the `DEBUG` env var, regardless of `-x`) logs every raw Ollama
 request/response - and, with `--stream`, every individual NDJSON chunk -
@@ -165,6 +176,84 @@ depth) instead of the terminal.
   requests - see above)
 - `/status` - model/connection/session info
 - `/files` - dump this session's file exchange (sent, received, diffs)
+- `/context` - inspect the full context about to be sent to the model
+  (system prompt + project scan + conversation) - a one-line-per-message
+  summary by default, or the raw message objects (`console.log`, so
+  `inspect()`-formatted and colored on a TTY) when run with `-x`
+- `/log` - same, but just the conversation so far (no system
+  prompt/project scan)
+- `/binding <text>` - force-attach the native-binding reference material
+  (see below) for this prompt, even if it doesn't happen to contain a
+  word the auto-detect heuristic looks for
+
+## Demo: writing a native QuickJS binding
+
+A worked example of the kind of session this project is meant for -
+asking the model to write a new native (C) QuickJS binding, grounded in
+this project's own conventions rather than guessed from memory. Works the
+same against either provider:
+
+```sh
+qjsm examples/ollama-repl/repl.js --provider ollama   # or --provider gemini
+```
+
+Any prompt that looks like a binding request (contains "binding",
+"native module", "quickjs module", ...) auto-attaches three small,
+curated references before it's sent - no need to ask for them by name:
+`examples/fib.c` (plain function export), `examples/point.c` (class
+binding), and `examples/ollama-repl/reference/quickjs-binding-api.md` (a
+~150-line cheat sheet excerpted from `quickjs.h`'s 1041 - the signatures
+that actually recur across bindings, each with the ownership rule that
+matters, grouped by concern: values/conversion, exceptions, classes &
+opaque data, memory, ArrayBuffer in/out, module registration). Use
+`/binding <prompt>` to force this even for a prompt that doesn't happen
+to contain a trigger word.
+
+```
+you> write a small native QuickJS module that binds compress2()/
+     uncompress()/crc32() from zlib as deflate()/inflate()/crc32() -
+     sketch the JS-facing API first, then implement it
+```
+
+A reasonable turn from here looks roughly like:
+
+1. A one- or two-line API sketch as plain text before any C - e.g.
+   `crc32(data): number`, `deflate(data): ArrayBuffer`, `inflate(data,
+   expectedSize): ArrayBuffer` (`uncompress()` needs the caller to
+   know/guess the output size up front - worth the model noticing and
+   asking about, or documenting a "guess, retry larger on `Z_BUF_ERROR`"
+   fallback).
+2. `READ: /usr/include/zlib.h` (or `LIST: /usr/include`) - the real
+   `compress2()`/`uncompress()`/`crc32()`/`compressBound()` signatures,
+   found locally rather than guessed.
+3. A `File: examples/ollama-repl/zlib-binding.c` block with the binding -
+   grounded in the auto-attached `point.c`/cheat-sheet shapes (§ above)
+   for the class-vs-plain-function boilerplate and the `js_malloc` +
+   `JS_NewArrayBuffer(..., free_func, ...)` pattern for the compressed-
+   output buffer.
+4. Compiled and smoke-tested standalone - **not** through this project's
+   own `CMakeLists.txt`/`build/` (that pulls in libwebsockets and a
+   multi-minute link for something that needs none of it):
+   `RUN: gcc -shared -fPIC -I<quickjs-source-dir> -o zlib-binding.so
+   examples/ollama-repl/zlib-binding.c -lz -DJS_SHARED_LIBRARY`, then
+   `RUN: qjsm -e 'import("./zlib-binding.so").then(m =>
+   console.log(m.crc32("hello")))'` - real output shown before it's
+   called done, same as `point.c` itself verifies (`new Point(3,4).norm()
+   === 5`, no CMake involved).
+5. `RUN: git diff --stat` / `RUN: git status` - a sanity check on what
+   actually changed, same as a human would before considering a change
+   finished.
+
+None of this is scripted or special-cased in `repl.js` beyond the
+auto-attach step above - it's the same `LIST:`/`READ:`/`RUN:` loop (see
+above) the system prompt already describes generically, plus the system
+prompt's own explicit "writing a new native (C) binding" guidance
+pointing at these same steps. A smaller/less capable local model may need
+more nudging in the prompt itself to actually follow through on every
+step (verify via `RUN:` instead of just describing code, in particular)
+than a larger hosted one does - see `TODO.md` item 3 for the broader
+"push the model harder toward using the harness" gap this demo exercises
+end to end.
 
 ## Notes / limitations
 
