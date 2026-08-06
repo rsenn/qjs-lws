@@ -65,20 +65,6 @@
     s.addEventListener('error', e => console.log('error:', JSON.stringify(e.message)));
     s.addEventListener('close', () => console.log('close')); // never fires
 
-- lwsjs_socket_close-use-after-free (lws-socket.c:825) [FIXED]: tests/unittests/test-tcpsocket.js
-  segfaults after the recent libwebsockets submodule bump, crashing inside
-  __lws_close_free_wsi() (called via lws_close_free_wsi() from
-  lwsjs_socket_close()). Confirmed with gdb: SIGSEGV backtrace goes
-  lwsjs_socket_close -> lws_close_free_wsi -> __lws_close_free_wsi -> garbage
-  address. lwsjs_socket_close()'s s->dispatching guard (added for the
-  RAW_ADOPT/RAW_CONNECTED reentrancy hazard documented just above it in the
-  same function) is not the culprit and was left alone - the real root
-  cause and fix are recorded under tcpsocket-close-segfault below (same
-  crash, same gdb backtrace, more precisely bisected there).
-
-    (run ctest in build/x86_64-linux-debug: test-tcpsocket.js reports
-    ***Exception: SegFault)
-
 - spawnandwaitfor-leak-on-timeout (tests/unittests/subprocess-utils.js:91,
   spawnAndWaitFor): when a spawned client subprocess doesn't print its
   marker within timeoutMs, waitForLog() throws out of spawnAndWaitFor()
@@ -136,54 +122,13 @@
     console.log(await ctx.resolve('example.com', { type: 'AAAA' }));
     // -> includes IPv4 addresses too, not just AAAA/IPv6
 
-- tcpsocket-close-segfault (lws-context.c:768, lwsjs_context_methods
-  METHOD_DESTROY) [FIXED]: the whole suite segfaulted deterministically,
-  confirmed both on this session's changes and on an unmodified checkout.
-  gdb backtrace bottomed out inside __lws_close_free_wsi() called from
-  lwsjs_socket_close(), itself called via a promise reaction job resuming
-  an async test function. Root cause: not lwsjs_socket_close() itself, but
-  ContextRefCounter.release() (lib/lws/context.js) calling `ctx.destroy()`
-  synchronously from inside the JS 'close' event handler that
-  lib/tcpsocket.js's/lib/tcpsocketstream.js's raw-protocol adapter fires
-  during that same close callback dispatch. `close()` called from a
-  microtask continuation (not from inside a native callback) takes
-  lwsjs_socket_close()'s "not dispatching" branch and calls
-  lws_close_free_wsi() directly, which synchronously fires the CLOSED
-  callback -> our JS close handler -> ctx.destroy() -> lws_context_destroy()
-  (lws-context.c METHOD_DESTROY, unconditional, no reentrancy guard) - all
-  while still unwinding inside lws_close_free_wsi() for a wsi owned by the
-  very context being destroyed. Bisected to this exact mechanism with a
-  minimal repro (createServer() + a lone TCPSocket client: `await
-  received; socket.close(); server.destroy();` - crashes; the same
-  close()/destroy() called synchronously from within a native callback
-  instead of after an await does not). Fixed in
-  ContextRefCounter.release() (lib/lws/context.js) by deferring the
-  `destroy()` call to a microtask (`Promise.resolve().then(...)`), so it
-  never runs while lws is still unwinding a native callback for that
-  context's own wsi. Verified: the full test-tcpsocket.js suite (10
-  tests) now runs to completion with no crash.
-
-    import { createServer, toString } from 'lws.so';
-    import { TCPSocket } from './lib/tcpsocket.js';
-    const port = 18326;
-    const server = createServer({ port, listenAcceptRole: 'raw-skt', listenAcceptProtocol: 'echo',
-      protocols: [{ name: 'echo', onRawRx(wsi, data) { wsi.write(data); } }] });
-    const socket = new TCPSocket('localhost', port);
-    const received = new Promise(resolve => {
-      socket.addEventListener('open', () => socket.send('hi'));
-      socket.addEventListener('message', e => resolve(toString(e.data)));
-    });
-    await received;
-    socket.close();     // frees the wsi synchronously (not inside a native callback)
-    server.destroy();   // used to crash: ctx.destroy() ran reentrantly from
-                         // the 'close' handler fired synchronously by socket.close() above
-
 - context-ref-counter-deferred-destroy-races-reuse (lib/lws/context.js,
-  ContextRefCounter.release): found while fixing tcpsocket-close-segfault
-  above - deferring `destroy()` to a microtask (the fix for that bug)
-  opened a narrow race: if a new `add()` lands on the same shared
-  singleton context between the deferred destroy being scheduled and it
-  actually running (e.g. one TCPSocketStream's last connection closes,
+  ContextRefCounter.release): found while fixing a since-resolved
+  use-after-free in ContextRefCounter.release() itself - deferring
+  `destroy()` to a microtask (that earlier fix) opened a narrow race: if a
+  new `add()` lands on the same shared singleton context between the
+  deferred destroy being scheduled and it actually running (e.g. one
+  TCPSocketStream's last connection closes,
   and a fresh TCPSocketStream reuses the still-live shared context before
   the microtask fires), the deferred destroy still runs unconditionally
   and pulls the context out from under the new connection - it never
@@ -348,55 +293,6 @@
     import { fetch } from './lib/fetch.js';
     await fetch('http://example.com'); // throws inside verbose() when run via `qjsm -m script.js`, not inside the interactive REPL
 
-- tls-client-large-body-hangs-or-closes (lib/lws/protocols.js:264,
-  onClientHttpWriteable) [FIXED]: a POST body over TLS (an https://
-  clientConnect) as small as ~5-7KB intermittently either hung forever or
-  dropped the connection immediately with a bare "closed" error - same
-  request size against the same code path was NOT deterministic: 1000 and
-  4000 bytes reliably succeeded, but repeated runs at
-  5000/6000/7000/8000/12000/16000/20000/28000 bytes each independently hit
-  either the hang or the close, with no clear size threshold separating
-  them. Root cause: onClientHttpWriteable used to call `wsi.write(session.
-  body.buffer, LWS_WRITE_HTTP_FINAL)` unconditionally every time it fired,
-  on the assumption (stated in its own old comment) that it only ever
-  fires once per body. False for a body that doesn't fully drain from
-  wsi.write()'s internal write queue in one round - lws-socket.c's
-  socket_flush() re-arms LWS_CALLBACK_CLIENT_HTTP_WRITEABLE to finish
-  draining the remainder at the native level (confirmed by reading
-  lws-protocol.c's dispatch: `is_writeable_reason(reason)` always runs
-  socket_flush() first, then still falls through to call the JS-level
-  `on<Reason>` handler again on the *same* re-armed callback, with nothing
-  suppressing that second JS call) - and that re-entrant call used to
-  `wsi.write()` the *entire original body* a second time, queuing extra
-  duplicate bytes past what Content-Length had already promised and
-  corrupting the request framing. A raw TCP write (the Ollama path, no
-  TLS) almost always drains a body this size in one shot, which is why
-  this never surfaced there - lws_write() over TLS is bounded by the TLS
-  record size and legitimately returns a partial write far more often.
-  Fixed by setting `session.body = null` right after the (one real) queue
-  call, so a spurious re-entrant call hits the existing `!session.body`
-  guard and becomes a no-op - the native retry/re-arm in socket_flush()
-  was already sufficient to drain the rest on its own; the JS handler just
-  needed to stop re-queuing on top of it. Verified fixed: repeated calls
-  at 4000-16000 bytes that used to intermittently hang/close now
-  consistently return a real, well-formed HTTP response (a 429 rate-limit
-  JSON body, once the free-tier daily quota got used up during testing -
-  a corrupted/duplicated body would much more likely produce a raw
-  connection error or a 400, not a clean structured JSON error).
-  Not fully reverified at 20-28KB specifically: testing hit Gemini's
-  free-tier daily quota (20 requests/day/model) partway through, and
-  "closed" errors seen there afterward are plausibly just quota
-  exhaustion manifesting as a connection reset rather than a residual
-  version of this bug - re-run the repro below (after the daily quota
-  resets) at a few sizes in that range to be sure before assuming it's
-  100% clear.
-
-    import { GeminiClient } from './examples/ollama-repl/lib/gemini-client.js';
-    const client = new GeminiClient({});
-    await client.chat([{ role: 'system', content: 'x'.repeat(6000) }, { role: 'user', content: 'hi' }]);
-    // used to intermittently hang forever or reject with "Gemini connection failed: closed" -
-    // now returns a normal response (or a clean HTTP error) every time
-
 - stray-single-char-prefix-dirs (qjs-lws/): four empty directories - u/,
   ut/, uti/, util/ - sit alongside the legitimate utils/ directory in the
   project root, all with the identical mtime (2026-08-04 23:29). Never
@@ -416,3 +312,30 @@
     not reproducible in plain JS - filesystem-state oddity, not a code
     path caught in the act; `ls -la qjs-lws/u* qjs-lws/util` shows all
     four as empty with matching mtimes
+
+
+- ctrl-c-hangs-then-throws-on-gemini-destroy (examples/ollama-repl/repl.js:488,
+  cleanup handler; examples/ollama-repl/lib/gemini-client.js:283, destroy):
+  user-reported - pressing Ctrl-C during a long-pending Gemini reply (9m28s
+  in the report, well within DEFAULT_TIMEOUT_SECS's 15-minute allowance)
+  did not stop the REPL; the process eventually surfaced "TypeError:
+  invalid file handle" from `this.#debugFile?.close()` inside
+  GeminiClient#destroy(), called via repl.js's `repl.addCleanupHandler(()
+  => { log.close(); client.destroy(); })`. Not root-caused yet - two
+  things worth checking first: (1) nothing in runToolLoop()/chatRound()
+  aborts the in-flight chat()/chatStream() call on SIGINT (no
+  AbortController/AbortSignal wired into GeminiClient#chat, `lib/lws/
+  protocols.js`'s HttpClientProtocol#connect(), or the REPL's own
+  interrupt handling), so a Ctrl-C during a pending reply may just be
+  queued/ignored until that promise settles rather than actually
+  cancelling anything; (2) the destroy() TypeError itself means
+  `this.#debugFile` (only set when `-x`/DEBUG is on) was already an
+  invalid handle by the time destroy() ran its own close() call, which
+  would need either a double destroy()/close() (repl's cleanup handler
+  only appears to be registered once, so not confirmed) or the `std`
+  file handle itself going bad after being held open across a very long
+  wait - not confirmed either way without reproducing directly.
+
+    not reproduced independently here - needs a real long-hanging (or
+    just very slow) Gemini request with `-x`/DEBUG on, then Ctrl-C mid-
+    wait, against `qjsm examples/ollama-repl/repl.js --provider gemini -x`

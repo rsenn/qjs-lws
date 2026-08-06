@@ -92,6 +92,14 @@ Check at the end of a task whether anything surfaced during the work
 that "shouldn't happen" but did) got logged; if not, log it before
 finishing.
 
+Once a bug is actually fixed, remove its entry from `BUGS` entirely -
+don't leave it in tagged `[FIXED]`. `BUGS` tracks what's still open, not a
+changelog of past fixes; a fix's own commit message (or, if the fix
+uncovered something worth remembering during the chase - a wrong
+assumption, a second bug found along the way, an install/build gotcha -
+a note in the relevant source comment) is where that history belongs
+instead.
+
 ## Running scripts with qjsm
 
 To run a script (e.g. a throwaway test file while debugging), invoke it
