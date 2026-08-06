@@ -143,7 +143,7 @@ against either client. `API.md` has a full round-trip example.
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--provider ollama|gemini] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x] [--failsafe]
+qjsm examples/ollama-repl/repl.js [--provider ollama|gemini] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -164,7 +164,11 @@ itself, or when the scaffolding is what you're trying to rule out.
 `-x` (or the `DEBUG` env var, regardless of `-x`) logs every raw Ollama
 request/response - and, with `--stream`, every individual NDJSON chunk -
 to `ollama-repl-debug.log` (append mode, `inspect()`-formatted, full
-depth) instead of the terminal.
+depth) instead of the terminal. A second `-x` (`-x -x`) additionally
+turns on `lws.so`'s own `LLL_USER` logging - the underlying HTTP
+connection itself (connect/write/read/close), not the request/response
+bodies - printed straight to stderr as it happens, for when the
+connection rather than the model traffic is what's under suspicion.
 
 ## REPL commands
 

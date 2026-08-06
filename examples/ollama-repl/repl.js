@@ -27,9 +27,17 @@
  * "File:" auto-write - just the conversation, sent to the model as-is, for
  * when the normal prompt/tooling machinery itself is what's under
  * suspicion (or simply unwanted).
+ *
+ * A second `-x`/`--debug` (e.g. `-x -x`) additionally turns on `lws.so`'s
+ * own LLL_USER logging (the underlying HTTP connection - connects,
+ * writes, reads, closes) to stderr, on top of the first `-x`'s
+ * request/response body logging to `<model>.log` - for when the model
+ * traffic itself looks fine but something at the socket/HTTP level
+ * (lib/lws/protocols.js, lib/lws/context.js) is suspect.
  */
-import { exit, out as stdout } from 'std';
+import { exit, out as stdout, err as stderr } from 'std';
 import { clearTimeout, setTimeout, stat, readdir, S_IFDIR } from 'os';
+import { logLevel, LLL_USER } from 'lws.so';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
@@ -50,7 +58,8 @@ import { runCommand } from './lib/run-command.js';
 const MAX_TOOL_ROUNDS = 4;
 
 function parseArgs(argv) {
-  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false };
+  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, lwsDebug: false, failsafe: false };
+  let debugCount = 0;
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -60,10 +69,12 @@ function parseArgs(argv) {
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--stream') opts.stream = true;
-    else if(arg === '-x' || arg === '--debug') opts.debug = true;
-    else if(arg === '--failsafe') opts.failsafe = true;
+    else if(arg === '-x' || arg === '--debug') {
+      opts.debug = true;
+      if(++debugCount >= 2) opts.lwsDebug = true;
+    } else if(arg === '--failsafe') opts.failsafe = true;
     else if(arg === '--help' || arg === '-h') {
-      console.log('Usage: qjsm repl.js [--provider ollama|gemini] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe]');
+      console.log('Usage: qjsm repl.js [--provider ollama|gemini] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x [-x]] [--failsafe]');
       exit(0);
     }
   }
@@ -425,6 +436,13 @@ Anything else is sent to the model as a prompt.`;
 
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
+
+  if(opts.lwsDebug) {
+    logLevel(LLL_USER, (level, msg) => {
+      stderr.puts(`${msg}\n`);
+      stderr.flush();
+    });
+  }
 
   let client;
   try {
