@@ -409,14 +409,9 @@
     qjsm examples/ollama-repl/repl.js --provider ollama --model qwen2.5-coder:latest -x
     you> write a tiny native QuickJS module that exposes one function, crc32(str), binding zlib's crc32() - look at how qjs-modules or qjs-ffi structure a small binding first, and check the real JS_* function signatures in quickjs.h rather than guessing. Show me the finished .c file.
 
-- serve-tls-option-segfaults (lib/serve.js, serve() -> lib/lws/context.js createContext() -> new LWSContext, `tls` option): passing `tls: { cert, key }` to serve()/createContext() segfaults the interpreter while constructing the LWSContext - confirmed the crash happens during context construction itself (a trace print placed right after generateSelfSignedCert() runs, one placed right after serve() never does), not during server.stop()/destroy(). Found while running tests/test-serve.js's own "tls option constructs an SSL-capable vhost" case, which crashed the whole suite before later tests could run. Not root-caused - out of scope for the flush()/streaming work this was found during.
+- serve-websocket-mountpoint-hangs-in-fuller-scenario (lib/serve.js, options.websocket.{open,message,close}, no server.upgrade() involved): tests/test-serve.js's "options.websocket.{open,message,close} wires an evented WebSocket directly" case fails/hangs - found while re-running the full suite after an unrelated TLS fix, not yet investigated. Unlike serve-upgrade-hangs-in-fuller-scenario below, this test uses a single fixed `websocket` mountpoint (no `.upgrade()` call at all), so it may be a distinct root cause rather than the same one.
 
-    qjsm -e '
-    import("./lib/lws/tls.js").then(async t => {
-      const { cert, key } = t.generateSelfSignedCert({ commonName: "localhost" });
-      const { serve } = await import("./lib/serve.js");
-      serve({ port: 8950, hostname: "localhost", tls: { cert, key } }); // segfaults here
-    });'
+    qjsm tests/test-serve.js   # look for "options.websocket.{open,message,close} wires an evented WebSocket directly"
 
 - serve-upgrade-hangs-in-fuller-scenario (lib/serve.js, server.upgrade() / makeUpgradeHook()): server.upgrade() works in every focused test tried - a raw createServer()+WsProtocol+upgrade-hook repro, a raw createServer()+WebSocket.protocol()+upgrade-hook repro, and a minimal serve({fetch, websocket}) test with a single /ws endpoint and ws.data all connected and exchanged messages correctly - but a fuller end-to-end test (multiple endpoints, a preceding plain fetch() request, an assert-heavy client harness) left the WS client hanging with no open/error/close event ever firing, no native LLL_USER log line for the attempt at all, and no clear repro reduced yet before this was set aside to finish the rest of the task. Something about the fuller scenario's exact shape triggers it; isolated pieces of that same scenario (plain fetch before connecting, URL parsing in the fetch handler, the connect()-via-Promise client helper) were each individually ruled out as the sole cause without finding what combination actually does it. Needs a fresh, patient bisection of the original failing test before server.upgrade() can be trusted beyond the single-endpoint case.
 

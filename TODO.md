@@ -152,15 +152,22 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
 ## 3. Tests / examples
 
 1. **`lib/serve.js` has real assertion-based coverage now**
-   (`tests/test-serve.js`, 33 `tinytest`-style cases: callback mode,
+   (`tests/test-serve.js`, 34 `tinytest`-style cases: callback mode,
    iterator mode, WS-via-iterator, raw fallback vs. `raw: { always }`,
    `Class` selection, `content-length` handling) - but it's root-level,
    not `tests/unittests/`, so it's still not wired into `DO_TESTS` (see
-   item 5 below). Its one TLS-vhost case (`tls option constructs an
-   SSL-capable vhost`) currently segfaults the whole suite before later
-   tests run - see `BUGS: serve-tls-option-segfaults` - had to be run
-   with that case temporarily removed to get a clean pass while verifying
-   the chunked-encoding/`server.upgrade()`/pub-sub work.
+   item 5 below). Its TLS-vhost case (`tls option constructs an
+   SSL-capable vhost`) now passes - the segfault was root-caused
+   (`lib/lws/tls.js` was unconditionally setting
+   `LWS_SERVER_OPTION_IGNORE_MISSING_CERT`, which made lws treat an
+   in-memory-only cert as absent and null out `vhost->tls.ssl_ctx` before
+   ALPN setup dereferenced it) and fixed by dropping that flag, since
+   `resolveTls()` already guarantees a cert/key pair is present by the
+   time it'd matter. 33/34 tests now pass; the one new failure
+   (`options.websocket.{open,message,close} wires an evented WebSocket
+   directly`) is unrelated to TLS - see `BUGS:
+   serve-websocket-mountpoint-hangs-in-fuller-scenario`, not yet
+   investigated.
 
 2. **No dedicated `tests/unittests/` coverage for `lib/lws/protocols.js`.**
    `HttpProtocol`/`HttpClientProtocol`/`WsProtocol`/`WsClientProtocol`/
