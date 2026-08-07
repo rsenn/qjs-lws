@@ -226,13 +226,14 @@ const TESTS = {
     server.stop();
   },
 
-  async 'callback mode: a missing content-length header is computed automatically'() {
+  async 'callback mode: a missing content-length header streams as chunked, not buffered'() {
     const port = nextPort();
     const body = 'auto-computed-length';
     const server = serve({ port, hostname: 'localhost', fetch: () => new Response(body) });
 
     const resp = await fetch(`http://127.0.0.1:${port}/`);
-    eq(String(body.length), resp.headers.get('content-length'));
+    eq('chunked', resp.headers.get('transfer-encoding'));
+    assert(!resp.headers.has('content-length'), 'expected no content-length on a chunked response');
     eq(body, await resp.text());
 
     server.stop();

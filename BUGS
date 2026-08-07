@@ -314,28 +314,110 @@
     four as empty with matching mtimes
 
 
-- ctrl-c-hangs-then-throws-on-gemini-destroy (examples/ollama-repl/repl.js:488,
-  cleanup handler; examples/ollama-repl/lib/gemini-client.js:283, destroy):
-  user-reported - pressing Ctrl-C during a long-pending Gemini reply (9m28s
-  in the report, well within DEFAULT_TIMEOUT_SECS's 15-minute allowance)
-  did not stop the REPL; the process eventually surfaced "TypeError:
-  invalid file handle" from `this.#debugFile?.close()` inside
-  GeminiClient#destroy(), called via repl.js's `repl.addCleanupHandler(()
-  => { log.close(); client.destroy(); })`. Not root-caused yet - two
-  things worth checking first: (1) nothing in runToolLoop()/chatRound()
-  aborts the in-flight chat()/chatStream() call on SIGINT (no
-  AbortController/AbortSignal wired into GeminiClient#chat, `lib/lws/
-  protocols.js`'s HttpClientProtocol#connect(), or the REPL's own
-  interrupt handling), so a Ctrl-C during a pending reply may just be
-  queued/ignored until that promise settles rather than actually
-  cancelling anything; (2) the destroy() TypeError itself means
-  `this.#debugFile` (only set when `-x`/DEBUG is on) was already an
-  invalid handle by the time destroy() ran its own close() call, which
-  would need either a double destroy()/close() (repl's cleanup handler
-  only appears to be registered once, so not confirmed) or the `std`
-  file handle itself going bad after being held open across a very long
-  wait - not confirmed either way without reproducing directly.
+- repl-controlc-double-invokes-cleanup-handlers (/usr/local/lib/quickjs/
+  repl.js:724-729, REPL#controlC; :259-264, REPL#exit): root cause of the
+  user-reported "Ctrl-C doesn't stop ollama-repl, then a TypeError"
+  symptom - confirmed directly with a standalone repro (below), not
+  specific to ollama-repl or Gemini. On the *second* Ctrl-C in a row (the
+  REPL's own "press again to quit" convention), `controlC()` runs every
+  registered cleanup handler itself in a loop, then calls `this.exit(0)` -
+  which runs the *same* `cleanupHandlers` Set through its own loop again,
+  since nothing clears or dedupes it in between. Every registered cleanup
+  handler therefore fires exactly twice on this path. For a handler that
+  isn't idempotent - ollama-repl's own `repl.addCleanupHandler(() => {
+  log.close(); client.destroy(); })` (examples/ollama-repl/repl.js:488)
+  chief among them, since `OllamaClient#destroy()`/`GeminiClient#destroy()`
+  (examples/ollama-repl/lib/{ollama,gemini}-client.js:~268) unconditionally
+  call `this.#ctx.destroy()` and `this.#debugFile?.close()` with no guard
+  against having already run - the second pass throws (a closed `std` file
+  handle's second `close()` throws "invalid file handle", exactly the
+  error the user saw). Worse: that throw happens *inside* `exit()`'s own
+  cleanup-handler loop, which runs *before* `exit()`'s `std.exit(exitCode)`
+  call - so the uncaught exception aborts `exit()` entirely and
+  `std.exit()` is never reached. That's the actual "doesn't stop" part:
+  the second Ctrl-C fully intends to quit and very nearly does, but a
+  non-idempotent cleanup handler throwing during the redundant second pass
+  silently prevents the process from ever actually exiting. (Separately,
+  still true and worth fixing regardless: nothing aborts the in-flight
+  chat()/chatStream() network call on SIGINT either - no AbortController/
+  AbortSignal wired into GeminiClient#chat, OllamaClient#chat, or
+  `lib/lws/protocols.js`'s HttpClientProtocol#connect() - so even a clean
+  double-invocation wouldn't cancel a pending request, just tear down the
+  context out from under it.) Root cause lives in `repl.js` from the
+  vendored qjs-modules dependency (`/usr/local/lib/quickjs/repl.js`), not
+  in this project - not fixed here. A local, cheap mitigation *is* in
+  scope for this project though: making `OllamaClient#destroy()`/
+  `GeminiClient#destroy()` idempotent (guard on a `#destroyed` flag, or
+  null out `#debugFile` after closing it) would stop the second,
+  redundant invocation from throwing and blocking `std.exit()`, without
+  needing the upstream double-invocation itself fixed.
 
-    not reproduced independently here - needs a real long-hanging (or
-    just very slow) Gemini request with `-x`/DEBUG on, then Ctrl-C mid-
-    wait, against `qjsm examples/ollama-repl/repl.js --provider gemini -x`
+    import { REPL } from 'repl';
+    const repl = new REPL('test', false);
+    let calls = 0;
+    repl.addCleanupHandler(() => {
+      calls++;
+      if (calls === 2) {
+        const f = std.open('/tmp/marker.txt', 'w');
+        f.close();
+        f.close(); // second close on an already-closed handle -> throws
+      }
+    });
+    repl.lastFun = repl.controlC; // simulate "second Ctrl-C in a row"
+    repl.controlC();
+    // throws "invalid file handle" from inside controlC() -> exit()'s own
+    // cleanup loop, before exit()'s std.exit(exitCode) call ever runs;
+    // `calls` is 2, not 1 - every cleanup handler fires twice on this path
+
+- false-positive-unhandled-rejection-warning (qjsm interpreter, promise job
+  queue): `await`ing a synchronously-throwing async function still prints
+  "Possibly unhandled promise rejection: <Error>" to stderr even when the
+  `await` is directly inside a `try { ... } catch { ... }` that correctly
+  catches it - cosmetic (the catch block does run, execution continues
+  normally), but noisy. Found while testing the new SEARCH: request
+  channel's error path (lib/web-search.js's webSearch() throwing
+  synchronously when GOOGLE_API_KEY/GOOGLE_CSE_ID aren't set, caught by
+  lib/tool-requests.js's runRequests()). Reproduces with a two-line async
+  function unrelated to this project's own code, both at top level and
+  nested inside another async function - an interpreter/job-queue
+  diagnostic quirk, not specific to ollama-repl. Not investigated further
+  or fixed - would need digging into quickjs's own promise rejection
+  tracking, out of scope here.
+
+    async function f() { throw new Error('boom'); }
+    try { await f(); } catch(e) { console.log('caught:', e.message); }
+    // prints "Possibly unhandled promise rejection: Error: boom" to
+    // stderr anyway, then "caught: boom" - the catch worked fine, the
+    // warning is just wrong
+
+- ollama-native-binding-demo-never-replies (examples/ollama-repl/lib/ollama-client.js
+  OllamaClient#chat, non-streaming path): a live `repl.js --provider ollama
+  --model qwen2.5-coder:latest` session, given the "write a native crc32
+  QuickJS binding" demo prompt (README.md's demo) plus the automatic
+  project-scan context and an attached quickjs.h, never got a reply -
+  ran the full 900s of an external `timeout` wrapper still showing
+  "Thinking..." and was killed. A trivial prompt ("say hi") against the
+  same model via `curl .../api/generate` returned in ~4s, so the Ollama
+  server itself isn't globally slow or unreachable; not root-caused -
+  could be the larger prompt driving very slow CPU prompt-processing, or
+  the model generating without ever emitting a stop token (no
+  num_predict cap is set anywhere in ollama-client.js), or something else
+  entirely - `-x`/`--debug` (logs the raw request/response) wasn't
+  enabled on this run, so there's no captured request size or raw
+  response to inspect. Not reproduced with a smaller prompt.
+
+    qjsm examples/ollama-repl/repl.js --provider ollama --model qwen2.5-coder:latest -x
+    you> write a tiny native QuickJS module that exposes one function, crc32(str), binding zlib's crc32() - look at how qjs-modules or qjs-ffi structure a small binding first, and check the real JS_* function signatures in quickjs.h rather than guessing. Show me the finished .c file.
+
+- serve-tls-option-segfaults (lib/serve.js, serve() -> lib/lws/context.js createContext() -> new LWSContext, `tls` option): passing `tls: { cert, key }` to serve()/createContext() segfaults the interpreter while constructing the LWSContext - confirmed the crash happens during context construction itself (a trace print placed right after generateSelfSignedCert() runs, one placed right after serve() never does), not during server.stop()/destroy(). Found while running tests/test-serve.js's own "tls option constructs an SSL-capable vhost" case, which crashed the whole suite before later tests could run. Not root-caused - out of scope for the flush()/streaming work this was found during.
+
+    qjsm -e '
+    import("./lib/lws/tls.js").then(async t => {
+      const { cert, key } = t.generateSelfSignedCert({ commonName: "localhost" });
+      const { serve } = await import("./lib/serve.js");
+      serve({ port: 8950, hostname: "localhost", tls: { cert, key } }); // segfaults here
+    });'
+
+- serve-upgrade-hangs-in-fuller-scenario (lib/serve.js, server.upgrade() / makeUpgradeHook()): server.upgrade() works in every focused test tried - a raw createServer()+WsProtocol+upgrade-hook repro, a raw createServer()+WebSocket.protocol()+upgrade-hook repro, and a minimal serve({fetch, websocket}) test with a single /ws endpoint and ws.data all connected and exchanged messages correctly - but a fuller end-to-end test (multiple endpoints, a preceding plain fetch() request, an assert-heavy client harness) left the WS client hanging with no open/error/close event ever firing, no native LLL_USER log line for the attempt at all, and no clear repro reduced yet before this was set aside to finish the rest of the task. Something about the fuller scenario's exact shape triggers it; isolated pieces of that same scenario (plain fetch before connecting, URL parsing in the fetch handler, the connect()-via-Promise client helper) were each individually ruled out as the sole cause without finding what combination actually does it. Needs a fresh, patient bisection of the original failing test before server.upgrade() can be trusted beyond the single-endpoint case.
+
+    not minimally reduced yet - see the description above for what was and wasn't ruled out; start from a serve({fetch, websocket}) with two distinct upgrade-accepting URL branches and a preceding plain fetch() call, then bisect down

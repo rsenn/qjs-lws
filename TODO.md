@@ -104,12 +104,30 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    `Response` does - right now static serving means dropping to
    `options.mounts` by hand.
 
-4. **`serve()`'s WS support is mount-path-only, not `server.upgrade()`-style.**
-   Bun's `fetch(req, server)` decides *dynamically*, per request, whether
-   to call `server.upgrade(req)`; our `serve()` only upgrades connections
-   that hit a statically-configured mount path (`/ws` by default) - a
-   deliberate scoping call made when `serve()` was first written, listed
-   here as a known, real gap rather than an oversight.
+4. **`server.upgrade()` implemented, not fully trusted yet** (`lib/serve.js`,
+   `makeUpgradeHook()`/`upgradeConnection()`) - `fetch(req, server)` can now
+   call `server.upgrade(req, {data})` to promote *this* connection to WS
+   dynamically (any URL/header-based decision), built on
+   `LWS_CALLBACK_HTTP_CONFIRM_UPGRADE` since lws never fires
+   `LWS_CALLBACK_HTTP` for a genuine upgrade request at all (confirmed
+   directly against lws's own server.c). Works in every *focused* test
+   tried (raw createServer() repros, a minimal single-endpoint
+   serve({fetch,websocket}) test, `ws.data` round-tripping correctly) -
+   but a fuller multi-endpoint test hung with no client-side open/error
+   event and no native log line at all, not yet root-caused - see
+   `BUGS: serve-upgrade-hangs-in-fuller-scenario`. Don't rely on this for
+   more than a single WS endpoint until that's bisected. Also see the
+   "Known constraint" paragraph in `serve()`'s own doc comment: which
+   registered protocol an upgrade binds to is decided by lws purely via
+   `Sec-WebSocket-Protocol` name matching (confirmed empirically -
+   completely independent of mount/URL), not something `.upgrade()`
+   overrides - only matters for a client passing custom subprotocols.
+   `server.publish(topic, message)`/`ws.subscribe()`/`ws.publish()` (pub/sub,
+   `lib/websocket.js`'s `TopicRegistry`) were added alongside this and
+   don't share the same open question - they're plain JS bookkeeping, no
+   native callback timing involved, and were verified working directly
+   (`ws.publish()` excludes the caller, `server.publish()` doesn't, closed
+   sockets are cleaned up).
 
 5. **`HttpClientProtocol.connect()` always buffers the whole request body**
    (`lib/lws/protocols.js`) before sending, to know `content-length` up
@@ -134,11 +152,15 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
 ## 3. Tests / examples
 
 1. **`lib/serve.js` has real assertion-based coverage now**
-   (`tests/test-serve.js`, 27+ `tinytest`-style cases: callback mode,
+   (`tests/test-serve.js`, 33 `tinytest`-style cases: callback mode,
    iterator mode, WS-via-iterator, raw fallback vs. `raw: { always }`,
    `Class` selection, `content-length` handling) - but it's root-level,
    not `tests/unittests/`, so it's still not wired into `DO_TESTS` (see
-   item 5 below).
+   item 5 below). Its one TLS-vhost case (`tls option constructs an
+   SSL-capable vhost`) currently segfaults the whole suite before later
+   tests run - see `BUGS: serve-tls-option-segfaults` - had to be run
+   with that case temporarily removed to get a clean pass while verifying
+   the chunked-encoding/`server.upgrade()`/pub-sub work.
 
 2. **No dedicated `tests/unittests/` coverage for `lib/lws/protocols.js`.**
    `HttpProtocol`/`HttpClientProtocol`/`WsProtocol`/`WsClientProtocol`/
@@ -146,12 +168,15 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    `test-websocketstream.js`/`test-tcpsocket.js`/`test-websocket.js` and
    `test-client.js`'s low-level scenarios). The newer hooks specifically
    (`redirect`/`read`/`handshake`/`filter` on the client side,
-   `headers`/`html`/`access`/`upgrade`/`auth` on the server side) have
-   essentially zero automated coverage - `headers`/`upgrade`/etc. weren't
-   even confirmed to *fire* under any tested mount configuration, only
+   `headers`/`html`/`access`/`auth` on the server side) still have
+   essentially zero automated coverage - `headers`/etc. weren't even
+   confirmed to *fire* under any tested mount configuration, only
    confirmed not to crash when wired in (confirmed *not* to fire for a
    `LWSMPRO_CALLBACK` mount specifically - see `test-serve.js`'s note next
-   to its dropped `options.headers` test).
+   to its dropped `options.headers` test). `upgrade` is the exception now:
+   confirmed firing correctly (with real headers/uri/method already
+   populated on `wsi`) while building `server.upgrade()` - see
+   `lib/serve.js`'s `makeUpgradeHook()`.
 
 3. **`lib/lws/app.js`, `middleware.js`, `session.js` have no
    `tests/unittests/` coverage** - only the informal `tests/test-app.js`
