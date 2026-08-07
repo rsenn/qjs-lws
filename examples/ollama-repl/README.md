@@ -101,7 +101,13 @@ model (`qwen2.5-coder` by default) about the files in your project.
   through the four Unicode quadrant-block glyphs) shows while waiting on
   the model, replaced by the reply the moment the first token (or the
   whole non-streamed reply) arrives; a dim "Cogitated for N.Ns" line
-  follows once a turn is fully done.
+  follows once a turn is fully done. Both clients cap how long it can spin:
+  `timeoutSecs` (15 minutes by default - see `DEFAULT_TIMEOUT_SECS` in
+  `lib/ollama-client.js`/`lib/gemini-client.js`) bounds both the initial
+  wait for a reply to begin and, separately, any gap between chunks once a
+  streamed reply is under way - a connection that goes silent past that
+  window is force-closed and the turn fails with a clear error instead of
+  leaving "Thinking..." running forever.
 
 ## Using `OllamaClient`/`GeminiClient` directly
 

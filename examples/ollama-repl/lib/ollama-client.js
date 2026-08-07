@@ -71,10 +71,13 @@ export class OllamaClient {
    *   DEBUG_LOG_PATH (also turned on by the `DEBUG` env var, regardless
    *   of this flag)
    */
+  #timeoutMs;
+
   constructor({ host = 'localhost', port = 11434, model, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false } = {}) {
     this.host = host;
     this.port = port;
     this.model = model;
+    this.#timeoutMs = timeoutSecs * 1000;
 
     if(debug || getenv('DEBUG')) {
       this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
@@ -120,7 +123,7 @@ export class OllamaClient {
   async #post(payload) {
     const url = `http://${this.host}:${this.port}/api/chat`;
 
-    const { req } = await this.#adapter.connect(this.#ctx, url, {
+    const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
@@ -130,7 +133,7 @@ export class OllamaClient {
     // Registered synchronously, right after connect() resolves - no
     // `await` in between - so no native callback can fire in the gap and
     // find nothing here to reject/resolve yet.
-    const resp = await new Promise((resolve, reject) => this.#settled.set(req, { resolve, reject }));
+    const resp = await this.#awaitResponse(req, wsi);
 
     /* Not `resp.ok`: Response's `.ok` is computed once at construction
        time (lib/lws/response.js), before HttpClientProtocol patches in
@@ -140,6 +143,41 @@ export class OllamaClient {
     if(resp.status < 200 || resp.status >= 300) throw new Error(`Ollama HTTP ${resp.status}: ${await resp.text().catch(() => '')}`);
 
     return resp;
+  }
+
+  /**
+   * Awaits the pending response for `req`, backstopped by `this.#timeoutMs`
+   * (mirrors the `timeout_secs` already given to `this.#ctx`) - not because
+   * lws's own per-connection timeout (wsi-timeout.c) shouldn't already
+   * catch a dead connection, but because the REPL's "Thinking..." spinner
+   * has no way out of its own if that native timer ever fails to fire (a
+   * missed re-arm, a callback lws never dispatches, a stalled write on the
+   * *request* side never completing so the "waiting for reply" clock never
+   * even starts, ...) - relying on a single layer's bookkeeping being
+   * correct, with an unbounded UI hang as the failure mode, isn't good
+   * enough here. On firing, this closes `wsi` itself (rather than trusting
+   * a hung connection to notice and clean up on its own) so a wedged
+   * socket isn't left around for the next request to try to reuse.
+   */
+  #awaitResponse(req, wsi) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#take(req);
+        wsi?.close();
+        reject(new Error(`Ollama: no response after ${(this.#timeoutMs / 1000).toFixed(0)}s - connection appears dead, aborting`));
+      }, this.#timeoutMs);
+
+      this.#settled.set(req, {
+        resolve: v => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        reject: e => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
+    });
   }
 
   /**
@@ -231,7 +269,7 @@ export class OllamaClient {
     const toolCalls = [];
 
     for(;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await this.#readWithTimeout(reader);
 
       /* toString() (lws.so) only accepts a real ArrayBuffer - passed a
          Uint8Array *view* (what getReader().read() yields here, per
@@ -265,7 +303,43 @@ export class OllamaClient {
     }
   }
 
+  /**
+   * Same backstop as #awaitResponse() above, but per network chunk once
+   * streaming has actually started: `this.#ctx`'s `timeout_secs` (and
+   * #awaitResponse()'s own timer) only guard the initial wait for a
+   * reply to *begin* - once headers/the first bytes arrive, lws considers
+   * the request "established" and nothing native times out a stream that
+   * then goes silent mid-response. Cancelling `reader` on timeout runs
+   * the stream's cancel algorithm (see the `httpClient()` response body's
+   * `cancel()`, lib/lws/protocols.js), which closes the underlying `wsi`.
+   */
+  #readWithTimeout(reader) {
+    let timer;
+
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reader.cancel().catch(() => {});
+        reject(new Error(`Ollama: stream stalled - no data for ${(this.#timeoutMs / 1000).toFixed(0)}s, aborting`));
+      }, this.#timeoutMs);
+    });
+
+    return Promise.race([reader.read(), timeout]).finally(() => clearTimeout(timer));
+  }
+
+  /* Idempotent - see BUGS: repl-controlc-double-invokes-cleanup-handlers.
+     A double Ctrl-C in the REPL (lib/chat-repl.js's base class) runs every
+     registered cleanup handler, including this one via destroy(), twice;
+     without this guard the second call's this.#debugFile?.close() throws
+     "invalid file handle" on the already-closed handle, and since that
+     throw happens inside the REPL's own exit()'s cleanup loop - which
+     runs *before* exit()'s std.exit() call - it silently stops the
+     process from ever actually exiting. */
+  #destroyed = false;
+
   destroy() {
+    if(this.#destroyed) return;
+    this.#destroyed = true;
+
     this.#ctx.destroy();
     this.#debugFile?.close();
   }

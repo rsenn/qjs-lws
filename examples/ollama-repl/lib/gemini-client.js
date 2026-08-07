@@ -55,6 +55,7 @@ export class GeminiClient {
   #settled = new Map();
   #debugConsole;
   #debugFile;
+  #timeoutMs;
 
   /**
    * @param {object} opts
@@ -72,6 +73,7 @@ export class GeminiClient {
 
     this.#apiKey = apiKey;
     this.model = model;
+    this.#timeoutMs = timeoutSecs * 1000;
 
     if(debug || getenv('DEBUG')) {
       this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
@@ -171,7 +173,7 @@ export class GeminiClient {
 
     const url = `${API_BASE}/${this.model}:${pathSuffix}`;
 
-    const { req } = await this.#adapter.connect(this.#ctx, url, {
+    const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': this.#apiKey },
       body: JSON.stringify(payload),
@@ -181,12 +183,48 @@ export class GeminiClient {
     // Registered synchronously, right after connect() resolves - no
     // `await` in between - see OllamaClient#post's identical comment for
     // why that ordering matters.
-    const resp = await new Promise((resolve, reject) => this.#settled.set(req, { resolve, reject }));
+    const resp = await this.#awaitResponse(req, wsi);
 
     // See OllamaClient#post's identical comment: `.status`, not `.ok`.
     if(resp.status < 200 || resp.status >= 300) throw new Error(`Gemini HTTP ${resp.status}: ${await resp.text().catch(() => '')}`);
 
     return resp;
+  }
+
+  /** Same backstop as OllamaClient#awaitResponse - see its own doc comment. */
+  #awaitResponse(req, wsi) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#take(req);
+        wsi?.close();
+        reject(new Error(`Gemini: no response after ${(this.#timeoutMs / 1000).toFixed(0)}s - connection appears dead, aborting`));
+      }, this.#timeoutMs);
+
+      this.#settled.set(req, {
+        resolve: v => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        reject: e => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
+    });
+  }
+
+  /** Same backstop as OllamaClient#readWithTimeout - see its own doc comment. */
+  #readWithTimeout(reader) {
+    let timer;
+
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reader.cancel().catch(() => {});
+        reject(new Error(`Gemini: stream stalled - no data for ${(this.#timeoutMs / 1000).toFixed(0)}s, aborting`));
+      }, this.#timeoutMs);
+    });
+
+    return Promise.race([reader.read(), timeout]).finally(() => clearTimeout(timer));
   }
 
   /**
@@ -243,7 +281,7 @@ export class GeminiClient {
     const toolCalls = [];
 
     for(;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await this.#readWithTimeout(reader);
 
       /* toString() (lws.so) only accepts a real ArrayBuffer - a Uint8Array
          *view* (what getReader().read() yields, per WHATWG) silently
@@ -278,7 +316,20 @@ export class GeminiClient {
     }
   }
 
+  /* Idempotent - see BUGS: repl-controlc-double-invokes-cleanup-handlers.
+     A double Ctrl-C in the REPL (lib/chat-repl.js's base class) runs every
+     registered cleanup handler, including this one via destroy(), twice;
+     without this guard the second call's this.#debugFile?.close() throws
+     "invalid file handle" on the already-closed handle, and since that
+     throw happens inside the REPL's own exit()'s cleanup loop - which
+     runs *before* exit()'s std.exit() call - it silently stops the
+     process from ever actually exiting. */
+  #destroyed = false;
+
   destroy() {
+    if(this.#destroyed) return;
+    this.#destroyed = true;
+
     this.#ctx.destroy();
     this.#debugFile?.close();
   }
