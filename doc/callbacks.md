@@ -66,7 +66,7 @@ first, final }` descriptor — use it to reassemble big frames.
 | `LWS_CALLBACK_HTTP_PMO`                   | `onHttpPmo`               | `(data, len)` |
 | `LWS_CALLBACK_FILTER_NETWORK_CONNECTION`  | `onFilterNetworkConnection` | `(sslPtr)` |
 | `LWS_CALLBACK_FILTER_HTTP_CONNECTION`     | `onFilterHttpConnection`  | `(urlString)` |
-| `LWS_CALLBACK_CHECK_ACCESS_RIGHTS`        | `onCheckAccessRights`     | `(buf, lenArray)` |
+| `LWS_CALLBACK_CHECK_ACCESS_RIGHTS`        | `onCheckAccessRights`     | `(uri, authMask)` — `uri` is a read-only `ArrayBuffer`, `authMask` the mount's `authentication_mode` bitmask (not a length) |
 | `LWS_CALLBACK_ADD_HEADERS`                | `onAddHeaders`            | `(buf, lenArray)` |
 | `LWS_CALLBACK_PROCESS_HTML`               | `onProcessHtml`           | `(buf, lenArray)` |
 | `LWS_CALLBACK_CLOSED_HTTP`                | `onClosedHttp`            | `()` |

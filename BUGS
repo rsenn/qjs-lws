@@ -1,26 +1,3 @@
-- check-access-rights-oob-buffer (lws-protocol.c:572,
-  lwsjs_callback_protocol): LWS_CALLBACK_CHECK_ACCESS_RIGHTS is
-  handled with the same code path as ADD_HEADERS/PROCESS_HTML, which
-  treats args.max_len as a buffer capacity. confirmed against
-  libwebsockets' server.c: for CHECK_ACCESS_RIGHTS, lws actually sets
-  args.max_len to the mount's auth_mask bitmask, unrelated to any
-  buffer size, while args.p/args.len point into the small
-  header-parse buffer. the memset and the ArrayBuffer handed to js
-  are both sized off that bitmask, so both go out of bounds whenever
-  the bitmask exceeds the real uri length.
-
-    import { createServer } from 'lws';
-
-    createServer({
-      port: 9001,
-      mounts: [{ mountpoint: '/', origin: '.', originProtocol: 'file',
-                 authentication_mode: 1 }], // any nonzero auth_mask bit
-      protocols: [{ name: 'http', onCheckAccessRights(wsi, buf) {
-        // buf is sized/zeroed using the auth_mask bitmask, not the
-        // real header-buffer length -- oob memset already happened
-      } }],
-    });
-
 - ws-close-payload-oob-read (lws-protocol.c:555,
   lwsjs_callback_protocol): the synthesized ws-close handling inside
   the CLIENT_RECEIVE branch reads in[0]/in[1] as the close code with
@@ -409,10 +386,16 @@
     qjsm examples/ollama-repl/repl.js --provider ollama --model qwen2.5-coder:latest -x
     you> write a tiny native QuickJS module that exposes one function, crc32(str), binding zlib's crc32() - look at how qjs-modules or qjs-ffi structure a small binding first, and check the real JS_* function signatures in quickjs.h rather than guessing. Show me the finished .c file.
 
-- serve-websocket-mountpoint-hangs-in-fuller-scenario (lib/serve.js, options.websocket.{open,message,close}, no server.upgrade() involved): tests/test-serve.js's "options.websocket.{open,message,close} wires an evented WebSocket directly" case fails/hangs - found while re-running the full suite after an unrelated TLS fix, not yet investigated. Unlike serve-upgrade-hangs-in-fuller-scenario below, this test uses a single fixed `websocket` mountpoint (no `.upgrade()` call at all), so it may be a distinct root cause rather than the same one.
-
-    qjsm tests/test-serve.js   # look for "options.websocket.{open,message,close} wires an evented WebSocket directly"
-
 - serve-upgrade-hangs-in-fuller-scenario (lib/serve.js, server.upgrade() / makeUpgradeHook()): server.upgrade() works in every focused test tried - a raw createServer()+WsProtocol+upgrade-hook repro, a raw createServer()+WebSocket.protocol()+upgrade-hook repro, and a minimal serve({fetch, websocket}) test with a single /ws endpoint and ws.data all connected and exchanged messages correctly - but a fuller end-to-end test (multiple endpoints, a preceding plain fetch() request, an assert-heavy client harness) left the WS client hanging with no open/error/close event ever firing, no native LLL_USER log line for the attempt at all, and no clear repro reduced yet before this was set aside to finish the rest of the task. Something about the fuller scenario's exact shape triggers it; isolated pieces of that same scenario (plain fetch before connecting, URL parsing in the fetch handler, the connect()-via-Promise client helper) were each individually ruled out as the sole cause without finding what combination actually does it. Needs a fresh, patient bisection of the original failing test before server.upgrade() can be trusted beyond the single-endpoint case.
 
     not minimally reduced yet - see the description above for what was and wasn't ruled out; start from a serve({fetch, websocket}) with two distinct upgrade-accepting URL branches and a preceding plain fetch() call, then bisect down
+
+- context-schedule-cancel-segfaults (tests/unittests/test-context-features.js, LWSContext#schedule()/timer.cancel()): running the full ctest suite segfaults inside test-context-features.js - confirmed to be after the "schedule() fires the callback once" case passes and before "schedule().cancel() prevents the callback from firing" completes, so the crash is somewhere in that second test's timer.cancel() (called twice back to back, then ctx.destroy() after a further schedule()+await). Found incidentally while verifying an unrelated CHECK_ACCESS_RIGHTS fix via `ctest`; confirmed pre-existing via git stash (crashes identically with that fix reverted). Not bisected further or root-caused.
+
+    qjsm -e '
+    import("lws").then(({ LWSContext }) => {
+      const ctx = new LWSContext({});
+      const timer = ctx.schedule(() => {}, 50);
+      timer.cancel();
+      timer.cancel();
+    });'

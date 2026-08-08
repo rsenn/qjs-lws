@@ -445,6 +445,7 @@ async function main() {
 
   if(opts.lwsDebug) {
     logLevel(LLL_USER, (level, msg) => {
+      msg = msg.replace(/^[^\]]*\]: [^:]*: /, '');
       stderr.puts(`${msg}\n`);
       stderr.flush();
     });

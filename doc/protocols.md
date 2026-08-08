@@ -85,7 +85,8 @@ passed to each `LWS_CALLBACK_*` reason. A short summary:
 | `WS_PEER_INITIATED_CLOSE` | `(code, reasonString)` |
 | `CLIENT_HTTP_REDIRECT` | `(url, status)` |
 | `ESTABLISHED_CLIENT_HTTP` | `(responseCode)` |
-| `ADD_HEADERS` / `CHECK_ACCESS_RIGHTS` / `PROCESS_HTML` | `(buf, lenArray)` — write into `buf`, update `lenArray[0]` |
+| `ADD_HEADERS` / `PROCESS_HTML` | `(buf, lenArray)` — write into `buf`, update `lenArray[0]` |
+| `CHECK_ACCESS_RIGHTS` | `(uri, authMask)` — `uri` is a read-only `ArrayBuffer` of the request path, `authMask` is the mount's `authentication_mode` bitmask (not a buffer length, despite sharing the same native struct as the two reasons above) |
 | `CLIENT_APPEND_HANDSHAKE_HEADER` | `(buf, lenArray)` — write headers with `wsi.addHeader(...)` |
 | `RAW_RX` / `MQTT_CLIENT_RX` | `(data, len)` |
 | `CLIENT_CONNECTION_ERROR` | `(message, errno)` |

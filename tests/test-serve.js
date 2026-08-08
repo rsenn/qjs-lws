@@ -435,9 +435,13 @@ const TESTS = {
           resolveClosed();
         },
       },
-      // A fetch/iterator-mode handler must never see this connection - Bun-style
-      // websocket handlers take the mount over entirely.
-      fetch: () => new Response('should not be reached'),
+      // Matches real Bun: fetch is called for every request, including a WS
+      // handshake - it's only actually upgraded once fetch calls
+      // server.upgrade(req) (see doc/bun.md's server.upgrade() section). A
+      // fetch that returns a Response instead leaves the connection as
+      // plain HTTP; it never reaches the evented open/message/close
+      // handlers above.
+      fetch: (req, srv) => (srv.upgrade(req) ? undefined : new Response('should not be reached')),
     });
 
     const client = new WebSocketStream(`ws://127.0.0.1:${port}/ws`);

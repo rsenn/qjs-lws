@@ -1,9 +1,10 @@
 /**
- * Parses LIST:/READ:/RUN: request lines out of a reply and executes them,
- * so the model can inspect the project - or run a command - before giving
- * its actual answer, instead of guessing. See the system prompt in
- * repl.js for the exact contract given to the model; repl.js's chat loop
- * is what bounds how many rounds of this run per turn (MAX_TOOL_ROUNDS).
+ * Parses LIST:/READ:/RUN: request lines out of a reply and executes
+ * them, so the model can inspect the project or run a command - before
+ * giving its actual answer, instead of guessing. See the system prompt
+ * in repl.js for the exact contract given to the model; repl.js's chat
+ * loop is what bounds how many rounds of this run per turn
+ * (MAX_TOOL_ROUNDS).
  */
 import { stat, S_IFREG } from 'os';
 import { loadFile } from 'std';

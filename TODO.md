@@ -163,11 +163,17 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    in-memory-only cert as absent and null out `vhost->tls.ssl_ctx` before
    ALPN setup dereferenced it) and fixed by dropping that flag, since
    `resolveTls()` already guarantees a cert/key pair is present by the
-   time it'd matter. 33/34 tests now pass; the one new failure
-   (`options.websocket.{open,message,close} wires an evented WebSocket
-   directly`) is unrelated to TLS - see `BUGS:
-   serve-websocket-mountpoint-hangs-in-fuller-scenario`, not yet
-   investigated.
+   time it'd matter. Re-running the suite after that fix also surfaced a
+   real regression in the `options.websocket.{open,message,close} wires an
+   evented WebSocket directly` case, introduced by `server.upgrade()`
+   (item 2.4 below): once a `fetch` handler and a Bun-style `websocket`
+   config are both present, `serve()` now correctly requires `fetch` to
+   call `server.upgrade(req)` to accept a WS handshake (matching real
+   Bun - `fetch` is called for *every* request, including upgrades), but
+   the test predated that feature and relied on the old shortcut (any WS
+   request to the mount auto-accepted regardless of what `fetch`
+   returned). Fixed by updating the test's `fetch` to call
+   `server.upgrade(req)`, not by changing `serve()`. All 34 tests pass.
 
 2. **No dedicated `tests/unittests/` coverage for `lib/lws/protocols.js`.**
    `HttpProtocol`/`HttpClientProtocol`/`WsProtocol`/`WsClientProtocol`/

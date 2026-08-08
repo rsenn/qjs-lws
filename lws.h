@@ -164,11 +164,18 @@ is_headers_reason(enum lws_callback_reasons reason) {
   }
 }
 
+/* LWS_CALLBACK_CHECK_ACCESS_RIGHTS is deliberately excluded here even
+   though it shares struct lws_process_html_args with the other two - its
+   post-callback pointer-advance step (lws-protocol.c) only makes sense
+   for a reason whose JS handler is given a real writable scratch buffer
+   and reports back how many bytes it used; CHECK_ACCESS_RIGHTS's last arg
+   is the auth_mask bitmask instead (see its own case in
+   lwsjs_callback_protocol()), and lws itself never reads args.p back
+   after this callback returns (server.c) - there's nothing to advance. */
 static inline BOOL
 is_htmlargs_reason(enum lws_callback_reasons reason) {
   switch(reason) {
     case LWS_CALLBACK_ADD_HEADERS:
-    case LWS_CALLBACK_CHECK_ACCESS_RIGHTS:
     case LWS_CALLBACK_PROCESS_HTML: return TRUE;
     default: return FALSE;
   }

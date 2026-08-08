@@ -742,8 +742,25 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
           break;
         }
 
+        /* LWS_CALLBACK_CHECK_ACCESS_RIGHTS does NOT share ADD_HEADERS/
+           PROCESS_HTML's arg shape below, despite reusing the same
+           struct lws_process_html_args - confirmed against
+           libwebsockets/lib/roles/http/server/server.c: for this reason,
+           args.max_len is set to the mount's auth_mask bitmask, not a
+           buffer capacity, and args.p/args.len already point at the real,
+           correctly-sized URI bytes in lws's own header-parse buffer.
+           Treating max_len as a capacity here (as the merged case below
+           used to) memset and ArrayBuffer past the real buffer's end
+           whenever the auth_mask bitmask value exceeds the URI length. */
+        case LWS_CALLBACK_CHECK_ACCESS_RIGHTS: {
+          struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
+
+          argv[buffer_index = i++] = JS_NewArrayBuffer(ctx, (uint8_t*)pha->p, pha->len, 0, 0, FALSE);
+          argv[i++] = JS_NewUint32(ctx, pha->max_len); /* the mount's auth_mask bitmask */
+          break;
+        }
+
         case LWS_CALLBACK_ADD_HEADERS:
-        case LWS_CALLBACK_CHECK_ACCESS_RIGHTS:
         case LWS_CALLBACK_PROCESS_HTML: {
           struct lws_process_html_args* pha = (struct lws_process_html_args*)in;
 
