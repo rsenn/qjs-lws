@@ -201,6 +201,7 @@ export class GeminiClient {
       }, this.#timeoutMs);
 
       this.#settled.set(req, {
+        wsi,
         resolve: v => {
           clearTimeout(timer);
           resolve(v);
@@ -211,6 +212,20 @@ export class GeminiClient {
         },
       });
     });
+  }
+
+  /** Same rationale as OllamaClient#abort - see its own doc comment.
+   * @returns {boolean} whether a pending request was actually aborted */
+  abort() {
+    if(!this.#settled.size) return false;
+
+    for(const { reject, wsi } of this.#settled.values()) {
+      wsi?.close();
+      reject(new Error('aborted (Ctrl-C)'));
+    }
+
+    this.#settled.clear();
+    return true;
   }
 
   /** Same backstop as OllamaClient#readWithTimeout - see its own doc comment. */

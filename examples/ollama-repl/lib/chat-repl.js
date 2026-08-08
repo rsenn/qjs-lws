@@ -39,6 +39,8 @@ export class ChatREPL extends REPL {
   #queue = [];
   #root;
 
+  #onAbort;
+
   /**
    * @param {string} name    ps1 prefix (e.g. "you" -> "you> ")
    * @param {(line: string) => Promise<void>} onLine  called once per
@@ -47,15 +49,37 @@ export class ChatREPL extends REPL {
    *   not run concurrently - see #run() below); the REPL prompt doesn't
    *   reappear until every queued onLine() call has settled.
    * @param {string} [root] project root, for Tab-completing paths.
+   * @param {() => boolean} [onAbort] called on Ctrl-C before the base
+   *   REPL's own handling (see sigintHandler() below); should cancel
+   *   whatever request is currently in flight and return true if it did,
+   *   false if nothing was actually pending.
    */
-  constructor(name, onLine, root = '.') {
+  constructor(name, onLine, root = '.', onAbort) {
     super(name, false);
     this.onLine = onLine;
     this.#root = root;
+    this.#onAbort = onAbort;
     this.showColors = false;
     this.ps1 = BRIGHT_WHITE + this.ps1;
     this.inspectOptions.maxStringLength = Infinity;
     this.historyLoad(); // also registers historySave() as a cleanup handler
+  }
+
+  /**
+   * Base REPL's own Ctrl-C (see /usr/local/lib/quickjs/repl.js's
+   * sigintHandler()) just forwards to readline, which without a request
+   * in flight is the desired "press again to quit" behavior - but with one
+   * in flight, forwarding it the same way did nothing to the actual
+   * pending chat()/chatStream() call (it kept running in the background)
+   * and a second, impatient press then killed the whole app instead of
+   * just that one request. Ask `onAbort` (repl.js wires it to the active
+   * client's abort()) whether there's actually a request to cancel first -
+   * if so, cancel it and stop there; otherwise fall through to the base
+   * behavior unchanged.
+   */
+  sigintHandler(arg) {
+    if(this.#onAbort?.()) return;
+    super.sigintHandler(arg);
   }
 
   /**

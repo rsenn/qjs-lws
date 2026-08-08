@@ -168,6 +168,7 @@ export class OllamaClient {
       }, this.#timeoutMs);
 
       this.#settled.set(req, {
+        wsi,
         resolve: v => {
           clearTimeout(timer);
           resolve(v);
@@ -178,6 +179,28 @@ export class OllamaClient {
         },
       });
     });
+  }
+
+  /**
+   * Cancels whatever request is currently awaiting a response (see
+   * #awaitResponse above) - closes its connection and rejects its pending
+   * promise, same as that method's own timeout path, just triggered by the
+   * caller (the REPL's Ctrl-C handler, see lib/chat-repl.js) instead of a
+   * timer. A no-op, returning false, when nothing is actually pending (e.g.
+   * mid-stream, past the initial #awaitResponse wait - see chatStream()'s
+   * own per-chunk #readWithTimeout, which this doesn't reach into).
+   * @returns {boolean} whether a pending request was actually aborted
+   */
+  abort() {
+    if(!this.#settled.size) return false;
+
+    for(const { reject, wsi } of this.#settled.values()) {
+      wsi?.close();
+      reject(new Error('aborted (Ctrl-C)'));
+    }
+
+    this.#settled.clear();
+    return true;
   }
 
   /**

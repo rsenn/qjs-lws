@@ -262,13 +262,18 @@ function startSpinner(label = 'Thinking') {
  * One chat() or chatStream() call, printed the same way either way -
  * shows a spinner (startSpinner() above) until the first sign of a reply
  * (the first token, or the whole reply for non-streaming), then a
- * "Cogitated for Ns" line once it's completely done.
+ * "Cogitated for Ns" line once it's completely done. `abortRef.current` is
+ * set to the active client's abort() for the duration of the call (and
+ * cleared after) - see main()'s ChatREPL construction below, whose Ctrl-C
+ * handler calls it to cancel the in-flight request instead of quitting.
  * @returns {Promise<string>} the reply text
  */
-async function chatRound(client, messages, opts) {
+async function chatRound(client, messages, opts, abortRef) {
   const t0 = Date.now();
   const stopSpinner = startSpinner();
   const cogitated = () => console.log(`\x1b[2mCogitated for ${((Date.now() - t0) / 1000).toFixed(1)}s\x1b[0m\n`);
+
+  abortRef.current = () => client.abort();
 
   // `finally` (not just the explicit stopSpinner() calls below, which only
   // cover the success path) - client.chat()/chatStream() throwing (a
@@ -304,6 +309,7 @@ async function chatRound(client, messages, opts) {
     cogitated();
     return reply;
   } finally {
+    abortRef.current = null;
     stopSpinner();
   }
 }
@@ -319,9 +325,9 @@ async function chatRound(client, messages, opts) {
  *
  * @returns {Promise<string>} the final reply shown to the user
  */
-async function runToolLoop(client, messages, opts, log, confirmRun) {
+async function runToolLoop(client, messages, opts, log, confirmRun, abortRef) {
   for(let round = 0; ; round++) {
-    const reply = await chatRound(client, messages, opts);
+    const reply = await chatRound(client, messages, opts, abortRef);
     messages.push({ role: 'assistant', content: reply });
     log.reply(reply);
 
@@ -484,6 +490,12 @@ async function main() {
   const baseMessageCount = messages.length;
   const startedAt = Date.now();
 
+  /* Set to the active client's abort() (see chatRound() above) for the
+     duration of whatever chat()/chatStream() call is currently in flight,
+     null otherwise - the ChatREPL constructed below calls it on Ctrl-C
+     instead of quitting, when there's actually something to cancel. */
+  const abortRef = { current: null };
+
   const repl = new ChatREPL(
     'you',
     async line => {
@@ -560,7 +572,7 @@ async function main() {
 
         let reply;
         try {
-          reply = await chatRound(client, messages, opts);
+          reply = await chatRound(client, messages, opts, abortRef);
         } catch(e) {
           console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
           messages.length = turnStart; // don't leave a dangling/partial turn behind
@@ -599,7 +611,7 @@ async function main() {
 
       let reply;
       try {
-        reply = await runToolLoop(client, messages, opts, log, confirmRun);
+        reply = await runToolLoop(client, messages, opts, log, confirmRun, abortRef);
       } catch(e) {
         console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
         messages.length = turnStart; // don't leave a dangling/partial turn behind
@@ -610,6 +622,7 @@ async function main() {
       log.modified(written);
     },
     opts.root,
+    () => abortRef.current?.() ?? false,
   );
 
   repl.addCleanupHandler(() => {

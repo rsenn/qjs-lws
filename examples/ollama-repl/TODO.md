@@ -228,6 +228,18 @@ done - see item 4a above for the same live-verification gap.
   bodies against the real endpoint, spanning several chunk boundaries,
   plus a full `repl.js --provider gemini` session with its real ~29KB
   startup payload).
+- Ctrl-C during "Thinking..." now aborts just the in-flight
+  chat()/chatStream() call instead of doing nothing on the first press and
+  killing the whole REPL on a second, impatient one (2026-08-08):
+  `OllamaClient#abort()`/`GeminiClient#abort()` (`lib/*-client.js`) close
+  the pending connection and reject its promise, same as the existing
+  per-call timeout path; `ChatREPL#sigintHandler()` (`lib/chat-repl.js`)
+  calls it (wired via a new `onAbort` constructor param, `repl.js`) when a
+  request is actually pending, falling through to the base REPL's normal
+  (idle) Ctrl-C handling otherwise. Only covers the pre-first-token wait
+  (`#awaitResponse`) - a `chatStream()` call that's already past that (mid-
+  stream, spinner already stopped) isn't abortable this way; out of scope
+  since the spinner it was reported against is gone by then anyway.
 - `OllamaClient#destroy()`/`GeminiClient#destroy()` (both `lib/*-
   client.js`) made idempotent (2026-08-06): root-caused a user-reported
   "Ctrl-C doesn't stop the REPL, then a TypeError" - a double Ctrl-C runs
