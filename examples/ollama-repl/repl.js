@@ -269,7 +269,7 @@ function startSpinner(label = 'Thinking') {
  * @returns {Promise<string>} the reply text
  */
 async function chatRound(client, messages, opts, abortRef) {
-  console.log('chatRound');
+  //console.log('chatRound');
   const t0 = Date.now();
   const stopSpinner = startSpinner();
   const cogitated = () => console.log(`\x1b[2mCogitated for ${((Date.now() - t0) / 1000).toFixed(1)}s\x1b[0m\n`);
@@ -285,7 +285,6 @@ async function chatRound(client, messages, opts, abortRef) {
     if(opts.stream) {
       let first = true;
 
-      console.log('chatRound', client, client.chatStream);
       const { content: reply } = await client.chatStream(messages, {}, token => {
         if(first) {
           stopSpinner();
