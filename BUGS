@@ -1,3 +1,16 @@
+- tinytest-summary-denominator-excludes-failures (tests/unittests/tinytest.js:42,57,60):
+  TinyTest.run()'s `count` only increments on the success path (line 57,
+  after the try block), never in the catch branch, but the failure
+  summary line reads `${failures} out of ${count} tests failed` -
+  `count` is meant to be the total tests run, not just the passing ones,
+  so a run with 1 failing test and 0 passing prints "1 out of 0 tests
+  failed" instead of "1 out of 1". Found while verifying the fix for
+  tinytest-always-prints-ok.
+
+    import { tests } from './tests/unittests/tinytest.js';
+    await tests({ 'always fails'() { throw new Error('nope'); } });
+    // prints "1 out of 0 tests failed." - should be "1 out of 1"
+
 - deferred-close-hangs-on-established-client-http (lws-protocol.c:~50,
   pollfd_handler's forced-service while loop; ops-h1.c:719-747,
   rops_handle_POLLIN_h1): closing an HTTP client wsi from
@@ -63,25 +76,6 @@
     const ctx = new LWSContext({});
     console.log(await ctx.resolve('example.com', { type: 'AAAA' }));
     // -> includes IPv4 addresses too, not just AAAA/IPv6
-
-- tinytest-always-prints-ok (tests/unittests/tinytest.js:50,56):
-  TinyTest.run() prints "Test: <name> OK" twice for every passing test (once
-  inside the try block, once again unconditionally right after the
-  try/catch), and prints it even for a test whose testAction() threw and
-  hit the catch block - the catch path increments `failures` and logs
-  "FAILED", but execution falls through to the same unconditional
-  console.log('Test:', testName, 'OK') afterward, so a failing run's output
-  reads as passing unless you're also watching the failures/count summary
-  line. Combined with console-error-kills-process above (which fires from
-  the same catch block right before this), a failing test currently kills
-  the process before this masking line even runs, but if that bug gets
-  fixed independently this one will start producing misleading "OK" output
-  for failed tests. Found while investigating why the streams.js migration
-  bugs weren't visibly failing in the test-streams.js run.
-
-    import { tests } from './tests/unittests/tinytest.js';
-    await tests({ 'always looks ok'() { throw new Error('nope'); } });
-    // prints "Test: always looks ok FAILED ..." AND "Test: always looks ok OK"
 
 - verbose-console-config-not-optional (lib/lws/util.js:94): verbose() calls
   console.config({...}) unconditionally, but the module-level LC constant
