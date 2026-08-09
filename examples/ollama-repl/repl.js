@@ -449,7 +449,7 @@ async function main() {
     let f = std.open('traffic.log', 'a+');
 
     logLevel(LLL_USER, (level, msg) => {
-      msg = msg.replace(/^[^\]]*\]: [^:]*: /, '');
+      //msg = msg.replace(/^[^\]]*\]: [^:]*: /, '');
       //f.puts(`\x1b[1;33m${msg}\x1b[0m\n`);
       f.puts(`${msg}\n`);
       f.flush();

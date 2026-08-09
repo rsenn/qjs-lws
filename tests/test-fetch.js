@@ -263,7 +263,7 @@ async function testMultipartPost() {
     const resp = await fetch(`http://127.0.0.1:${port}/upload`, { method: 'POST', body, keepAlive: false });
 
     assert(resp.status === 200, `expected 200, got ${resp.status}`);
-    assert((await resp.text()) === 'ok', 'expected the server\'s ack body');
+    assert((await resp.text()) === 'ok', "expected the server's ack body");
 
     assert(received.username === 'alice', `expected username "alice", got ${JSON.stringify(received.username)}`);
     assert(received.bio === 'hello world', `expected bio "hello world", got ${JSON.stringify(received.bio)}`);

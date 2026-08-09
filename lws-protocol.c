@@ -570,6 +570,8 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
       lwsl_wsi_user(wsi, "CONN %s\n", lwsjs_callback_name(reason));
     } else if(is_closed_reason(reason)) {
       lwsl_wsi_user(wsi, "CLOSE %s\n", lwsjs_callback_name(reason));
+    } else {
+      lwsl_wsi_user(wsi, "OTHER %s\n", lwsjs_callback_name(reason));
     }
   }
 
@@ -722,7 +724,7 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
        share one case. */
     BOOL args_built = FALSE;
 
-    if(reason == LWS_CALLBACK_CLIENT_RECEIVE && (((char*)in)[-2] & 0x7f) == 8) {
+    /*if(reason == LWS_CALLBACK_CLIENT_RECEIVE && (((char*)in)[-2] & 0x7f) == 8) {
       BOOL has_reason = cb == &handlers->callback;
       int code = (int)(((uint8_t*)in)[0]) << 8 | ((uint8_t*)in)[1];
 
@@ -738,7 +740,7 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
         argv[i++] = JS_NewStringLen(ctx, (char*)in + 2, len - 2);
 
       args_built = TRUE;
-    }
+    }*/
 
     if(!args_built) {
       switch(reason) {

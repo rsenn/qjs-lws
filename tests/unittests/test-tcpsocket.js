@@ -299,7 +299,11 @@ await tests({
     const client = await TCPSocket.connect({
       hostname: 'localhost',
       port,
-      socket: { data(socket, data) { resolveReceived(toString(data)); } },
+      socket: {
+        data(socket, data) {
+          resolveReceived(toString(data));
+        },
+      },
     });
 
     client.write('hello-connect');
@@ -344,7 +348,11 @@ await tests({
     const client = await TCPSocket.connect({
       hostname: 'localhost',
       port,
-      socket: { close(socket) { resolveClosed(true); } },
+      socket: {
+        close(socket) {
+          resolveClosed(true);
+        },
+      },
     });
 
     client.write('trigger');
@@ -365,7 +373,11 @@ await tests({
       await TCPSocket.connect({
         hostname: 'localhost',
         port,
-        socket: { connectError(socket, err) { resolveConnectError(err); } },
+        socket: {
+          connectError(socket, err) {
+            resolveConnectError(err);
+          },
+        },
       });
     } catch(e) {
       rejected = e;
@@ -381,7 +393,11 @@ await tests({
     const server = TCPSocket.listen({
       hostname: '0.0.0.0',
       port,
-      socket: { data(socket, data) { socket.write(data); } },
+      socket: {
+        data(socket, data) {
+          socket.write(data);
+        },
+      },
     });
 
     let resolveReceived;
@@ -438,7 +454,11 @@ await tests({
     const server = TCPSocket.listen({
       hostname: '0.0.0.0',
       port,
-      socket: { close(socket) { resolveClosed(true); } },
+      socket: {
+        close(socket) {
+          resolveClosed(true);
+        },
+      },
     });
 
     // Deferred via setTimeout, not called synchronously from onRawConnected -
