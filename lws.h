@@ -154,7 +154,6 @@ is_loadcerts_reason(enum lws_callback_reasons reason) {
 static inline BOOL
 is_headers_reason(enum lws_callback_reasons reason) {
   switch(reason) {
-
     case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
     case LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH:
     case LWS_CALLBACK_FILTER_HTTP_CONNECTION:
@@ -177,6 +176,38 @@ is_htmlargs_reason(enum lws_callback_reasons reason) {
   switch(reason) {
     case LWS_CALLBACK_ADD_HEADERS:
     case LWS_CALLBACK_PROCESS_HTML: return TRUE;
+    default: return FALSE;
+  }
+}
+
+static inline BOOL
+is_close_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_CLOSED_HTTP:
+    case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+    case LWS_CALLBACK_CLOSED:
+    case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
+    case LWS_CALLBACK_CLIENT_CLOSED:
+    case LWS_CALLBACK_RAW_PROXY_CLI_CLOSE:
+    case LWS_CALLBACK_RAW_PROXY_SRV_CLOSE:
+    case LWS_CALLBACK_RAW_CLOSE:
+    case LWS_CALLBACK_RAW_CLOSE_FILE: return TRUE;
+    default: return FALSE;
+  }
+}
+
+static inline BOOL
+is_connect_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+    case LWS_CALLBACK_ESTABLISHED:
+    case LWS_CALLBACK_CLIENT_ESTABLISHED:
+    case LWS_CALLBACK_RAW_PROXY_CLI_ADOPT:
+    case LWS_CALLBACK_RAW_PROXY_SRV_ADOPT:
+    case LWS_CALLBACK_RAW_ADOPT:
+    case LWS_CALLBACK_RAW_CONNECTED:
+    case LWS_CALLBACK_RAW_ADOPT_FILE:
+    case LWS_CALLBACK_MQTT_CLIENT_ESTABLISHED: return TRUE;
     default: return FALSE;
   }
 }

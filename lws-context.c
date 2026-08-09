@@ -39,7 +39,7 @@ static void service_tick_cancel(LWSContext*);
 #define SERVICE_TICK_MS 250
 
 static JSValue
-service_tick(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, void*opaque) {
+service_tick(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, void* opaque) {
   LWSContext* lws = opaque;
 
   /* The timer that invoked this callback has already fired (and

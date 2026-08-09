@@ -224,7 +224,7 @@ static const char* callback_names[] = {
     [LWS_CALLBACK_USER] = "USER",
 };
 
-  const char*
+const char*
 lwsjs_callback_name(enum lws_callback_reasons reason) {
   if(reason >= 0 && reason < countof(callback_names))
     return callback_names[reason];
@@ -232,7 +232,7 @@ lwsjs_callback_name(enum lws_callback_reasons reason) {
   return 0;
 }
 
-  /*enum lws_callback_reasons*/ int
+/*enum lws_callback_reasons*/ int
 lwsjs_callback_find(const char* name) {
   char buf[128];
 
@@ -558,7 +558,7 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
 
   if(wsi && is_rx_reason(reason)) {
     if(in && len > 0) {
-      char preview[41];
+      char preview[len + (len >> 2)];
 
       log_preview(preview, sizeof(preview), in, len);
       lwsl_wsi_user(wsi, "RX %s: %zu bytes: %s%s\n", lwsjs_callback_name(reason), len, preview, len > sizeof(preview) - 1 ? "..." : "");

@@ -147,7 +147,7 @@ socket_flush(LWSSocket* s) {
     }
 
     if(n > 0) {
-      char preview[41];
+      char preview[n + (n >> 2)];
 
       log_preview(preview, sizeof(preview), wc->buf + LWS_PRE + wc->pos, (size_t)n);
       lwsl_wsi_user(s->wsi,
@@ -826,7 +826,7 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     if(n > 0) {
-      char preview[41];
+      char preview[n + (n >> 2)];
 
       log_preview(preview, sizeof(preview), ptr, (size_t)n);
       lwsl_wsi_user(s->wsi, "TX %d bytes (proto=%d): %s%s\n", n, LWS_WRITE_HTTP_FINAL, preview, (size_t)n > sizeof(preview) - 1 ? "..." : "");
@@ -846,8 +846,11 @@ lwsjs_socket_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   LWSSocket* s;
   uint32_t reason = 1000;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
+
+  if(s->wsi == NULL)
+    return JS_UNDEFINED;
 
   if(argc > 0)
     reason = to_uint32(ctx, argv[0]);
