@@ -421,3 +421,60 @@ js_function_cclosure(JSContext* ctx, CClosureFunc* func, int length, int magic, 
 
   return func_obj;
 }
+
+static JSValue
+js_invoke_deferred_call(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst data[]) {
+  JSValueConst obj = data[0], method = data[1];
+  JSValue ret = JS_Call(ctx, method, obj, magic, &data[2]);
+
+  if(JS_IsException(ret))
+    js_error_print(ctx, JS_GetException(ctx));
+
+  JS_FreeValue(ctx, ret);
+  return JS_UNDEFINED;
+}
+
+/**
+ * Defers `obj[method_name](...argv)` to a microtask, for callers running
+ * from inside a native callback dispatch (LWSSocket's s->dispatching) where
+ * calling back into JS synchronously would be misinterpreted (e.g. a
+ * synchronous wsi.close() from inside onRawConnected/onClientEstablished
+ * gets read by libwebsockets as the callback returning nonzero, i.e.
+ * "reject this connection", instead of a graceful close - see BUGS).
+ * Implemented as Promise.resolve().then(<JS_NewCFunctionData closure>) so
+ * the invocation runs as a normal microtask job, same as a JS-authored
+ * `Promise.resolve().then(() => obj[method_name](...argv))` would.
+ */
+JSValue
+js_invoke_deferred(JSContext* ctx, JSValueConst obj, const char* method_name, int argc, JSValueConst argv[]) {
+  JSValue method = JS_GetPropertyStr(ctx, obj, method_name);
+
+  if(!JS_IsFunction(ctx, method)) {
+    JS_FreeValue(ctx, method);
+    return JS_ThrowTypeError(ctx, "'%s' is not a function", method_name);
+  }
+
+  JSValueConst* data = alloca(sizeof(JSValueConst) * (2 + argc));
+  data[0] = obj;
+  data[1] = method;
+
+  for(int i = 0; i < argc; i++)
+    data[2 + i] = argv[i];
+
+  JSValue fn = JS_NewCFunctionData(ctx, js_invoke_deferred_call, 0, argc, 2 + argc, data);
+  JS_FreeValue(ctx, method);
+
+  JSValue promise_ctor = global_get(ctx, "Promise");
+  JSValue resolve_fn = JS_GetPropertyStr(ctx, promise_ctor, "resolve");
+  JSValue resolved = JS_Call(ctx, resolve_fn, promise_ctor, 0, 0);
+  JS_FreeValue(ctx, resolve_fn);
+  JS_FreeValue(ctx, promise_ctor);
+
+  JSValue then_fn = JS_GetPropertyStr(ctx, resolved, "then");
+  JSValue chained = JS_Call(ctx, then_fn, resolved, 1, (JSValueConst[]){fn});
+  JS_FreeValue(ctx, then_fn);
+  JS_FreeValue(ctx, resolved);
+  JS_FreeValue(ctx, fn);
+
+  return chained;
+}

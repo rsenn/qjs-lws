@@ -36,6 +36,7 @@ void str_or_buf_property(const char**, const void**, unsigned int*, JSContext*, 
 size_t get_offset_length(JSContext*, int, JSValueConst[], size_t, size_t*);
 void* get_buffer(JSContext*, int, JSValueConst[], size_t*);
 JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*opaque_finalize)(void*));
+JSValue js_invoke_deferred(JSContext*, JSValueConst obj, const char* method_name, int argc, JSValueConst argv[]);
 
 static inline JSValue
 ptr_obj(JSContext* ctx, void* obj) {
