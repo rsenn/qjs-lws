@@ -85,25 +85,6 @@
     // stderr anyway, then "caught: boom" - the catch worked fine, the
     // warning is just wrong
 
-- ollama-native-binding-demo-never-replies (examples/ollama-repl/lib/ollama-client.js
-  OllamaClient#chat, non-streaming path): a live `repl.js --provider ollama
-  --model qwen2.5-coder:latest` session, given the "write a native crc32
-  QuickJS binding" demo prompt (README.md's demo) plus the automatic
-  project-scan context and an attached quickjs.h, never got a reply -
-  ran the full 900s of an external `timeout` wrapper still showing
-  "Thinking..." and was killed. A trivial prompt ("say hi") against the
-  same model via `curl .../api/generate` returned in ~4s, so the Ollama
-  server itself isn't globally slow or unreachable; not root-caused -
-  could be the larger prompt driving very slow CPU prompt-processing, or
-  the model generating without ever emitting a stop token (no
-  num_predict cap is set anywhere in ollama-client.js), or something else
-  entirely - `-x`/`--debug` (logs the raw request/response) wasn't
-  enabled on this run, so there's no captured request size or raw
-  response to inspect. Not reproduced with a smaller prompt.
-
-    qjsm examples/ollama-repl/repl.js --provider ollama --model qwen2.5-coder:latest -x
-    you> write a tiny native QuickJS module that exposes one function, crc32(str), binding zlib's crc32() - look at how qjs-modules or qjs-ffi structure a small binding first, and check the real JS_* function signatures in quickjs.h rather than guessing. Show me the finished .c file.
-
 - serve-upgrade-hangs-in-fuller-scenario (lib/serve.js, server.upgrade() / makeUpgradeHook()): server.upgrade() works in every focused test tried - a raw createServer()+WsProtocol+upgrade-hook repro, a raw createServer()+WebSocket.protocol()+upgrade-hook repro, and a minimal serve({fetch, websocket}) test with a single /ws endpoint and ws.data all connected and exchanged messages correctly - but a fuller end-to-end test (multiple endpoints, a preceding plain fetch() request, an assert-heavy client harness) left the WS client hanging with no open/error/close event ever firing, no native LLL_USER log line for the attempt at all, and no clear repro reduced yet before this was set aside to finish the rest of the task. Something about the fuller scenario's exact shape triggers it; isolated pieces of that same scenario (plain fetch before connecting, URL parsing in the fetch handler, the connect()-via-Promise client helper) were each individually ruled out as the sole cause without finding what combination actually does it. Needs a fresh, patient bisection of the original failing test before server.upgrade() can be trusted beyond the single-endpoint case.
 
     not minimally reduced yet - see the description above for what was and wasn't ruled out; start from a serve({fetch, websocket}) with two distinct upgrade-accepting URL branches and a preceding plain fetch() call, then bisect down
@@ -154,12 +135,3 @@
     ESTABLISHED_CLIENT_HTTP/SERVER_NEW_CLIENT_INSTANTIATED with no
     subsequent CLIENT_APPEND_HANDSHAKE_HEADER before CLIENT_HTTP_DROP_PROTOCOL
 
-- context-schedule-cancel-segfaults (tests/unittests/test-context-features.js, LWSContext#schedule()/timer.cancel()): running the full ctest suite segfaults inside test-context-features.js - confirmed to be after the "schedule() fires the callback once" case passes and before "schedule().cancel() prevents the callback from firing" completes, so the crash is somewhere in that second test's timer.cancel() (called twice back to back, then ctx.destroy() after a further schedule()+await). Found incidentally while verifying an unrelated CHECK_ACCESS_RIGHTS fix via `ctest`; confirmed pre-existing via git stash (crashes identically with that fix reverted). Not bisected further or root-caused.
-
-    qjsm -e '
-    import("lws").then(({ LWSContext }) => {
-      const ctx = new LWSContext({});
-      const timer = ctx.schedule(() => {}, 50);
-      timer.cancel();
-      timer.cancel();
-    });'
