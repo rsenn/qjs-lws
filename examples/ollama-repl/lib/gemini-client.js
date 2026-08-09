@@ -23,13 +23,7 @@
  */
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
-import {
-  LCCSCF_PIPELINE,
-  LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX,
-  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
-  LWS_SERVER_OPTION_IGNORE_MISSING_CERT,
-  toString,
-} from 'lws.so';
+import { LCCSCF_PIPELINE, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
 import { Console } from 'console';
 import { open as fopen, getenv } from 'std';
 
@@ -94,10 +88,7 @@ export class GeminiClient {
       this.#debugConsole = new Console(this.#debugFile, { inspectOptions: { depth: Infinity, compact: false } });
     }
 
-    this.#adapter = httpClient(
-      (req, resp) => this.#take(req)?.resolve(resp),
-      { error: (req, err) => this.#reject(req, err) },
-    );
+    this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
 
     /* Same SSL-enabling context options lib/fetch.js's buildContext() uses
        for a plain HTTPS request with no client-cert-style `tls` object -
@@ -276,7 +267,10 @@ export class GeminiClient {
    * API nor Ollama's gives one - see API.md's "common shape" note.
    */
   #toResult(parts) {
-    const content = parts.filter(p => p.text != null).map(p => p.text).join('');
+    const content = parts
+      .filter(p => p.text != null)
+      .map(p => p.text)
+      .join('');
     const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({ id: `${p.functionCall.name}#${i}`, name: p.functionCall.name, args: p.functionCall.args ?? {} }));
 
     return { content, toolCalls: toolCalls.length ? toolCalls : undefined };

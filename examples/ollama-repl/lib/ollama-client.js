@@ -108,10 +108,7 @@ export class OllamaClient {
       this.#debugConsole = new Console(this.#debugFile, { inspectOptions: { depth: Infinity, maxStringLength: Infinity, compact: false } });
     }
 
-    this.#adapter = httpClient(
-      (req, resp) => this.#take(req)?.resolve(resp),
-      { error: (req, err) => this.#reject(req, err) },
-    );
+    this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
 
     this.#ctx = this.#newContext();
   }

@@ -285,7 +285,7 @@ async function chatRound(client, messages, opts, abortRef) {
     if(opts.stream) {
       let first = true;
 
-  console.log('chatRound', client, client.chatStream);
+      console.log('chatRound', client, client.chatStream);
       const { content: reply } = await client.chatStream(messages, {}, token => {
         if(first) {
           stopSpinner();
@@ -361,7 +361,12 @@ async function gitIgnoredTopLevel(root) {
   const { output, status } = await runCommand('git ls-files --others --ignored --exclude-standard --directory -- .', { cwd: root });
   if(status !== 0) return new Set();
 
-  return new Set(output.split('\n').filter(Boolean).map(p => (p.indexOf('/') === -1 ? p : p.slice(0, p.indexOf('/')))));
+  return new Set(
+    output
+      .split('\n')
+      .filter(Boolean)
+      .map(p => (p.indexOf('/') === -1 ? p : p.slice(0, p.indexOf('/')))),
+  );
 }
 
 /**
