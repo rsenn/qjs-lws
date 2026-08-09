@@ -280,10 +280,15 @@ static JSValue
 lwsjs_timer_cancel(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* opaque) {
   LWSTimer* t = opaque;
 
-  list_del(&t->link);
-  lws_sul_cancel(&t->sul);
-  JS_FreeValue(ctx, t->callback);
-  js_free_rt(JS_GetRuntime(ctx), t);
+  if(t) {
+    list_del(&t->link);
+    lws_sul_cancel(&t->sul);
+    JS_FreeValue(ctx, t->callback);
+    js_free_rt(JS_GetRuntime(ctx), t);
+
+    JSValue cancel_fn = js_function_cclosure(ctx, lwsjs_timer_cancel, 0, 0, 0, NULL);
+    JS_SetPropertyStr(ctx, this_val, "cancel", cancel_fn);
+  }
 
   return JS_UNDEFINED;
 }
