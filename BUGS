@@ -1,25 +1,28 @@
-- test-websocket-hs-rejected-on-sync-close (lws-protocol.c, lwsjs_callback_protocol;
-  tests/unittests/test-websocket.js:158): "WebSocket.protocol() (server):
-  the close event fires when the peer closes" fails deterministically
-  (confirmed 3/3 runs) with "HS: Rejected at CLIENT_ESTABLISHED" delivered
-  to onClientConnectionError instead of the close event firing. Root cause:
-  the test's client calls wsi.close(1000, 'done') synchronously from
-  onClientEstablished; lwsjs_callback_protocol() forces that dispatch's
-  C-level return value to -1 whenever wsi.close() was called synchronously
-  during it (s->closed, checked right after the JS_Call), and
-  libwebsockets' client-ws.c treats a nonzero LWS_CALLBACK_CLIENT_ESTABLISHED
-  return as a rejected handshake specifically (not a graceful close) -
-  routed to CLIENT_CONNECTION_ERROR, which is mutually exclusive with ever
-  firing CLIENT_CLOSED (see core-net/close.c's already_did_cce handling).
-  Same mechanism documented at length in tests/unittests/test-ws.js's
-  header comment, which works around it by deferring the close() call a
-  microtask past onClientEstablished instead of calling it synchronously.
-  Not clear whether this test ever reliably passed or was already flaky
-  from the start; not otherwise investigated or fixed here since
-  test-websocket.js isn't otherwise in scope for this session's changes.
+- deferred-close-hangs-on-established-client-http (lws-socket.c,
+  lwsjs_socket_close): LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP has the same
+  "nonzero return from this specific callback means the connection was
+  rejected, not gracefully closed" semantics as LWS_CALLBACK_RAW_CONNECTED
+  and LWS_CALLBACK_CLIENT_ESTABLISHED (client-http.c:1536/1572, cce =
+  "HS: disallowed at ESTABLISHED"/"...by client filter" ->
+  CLIENT_CONNECTION_ERROR) - found while checking whether those two were
+  the only cases (see js_invoke_deferred() in js-utils.c and its use in
+  lwsjs_socket_close()). Applying the identical fix (deferring the close()
+  call a microtask via js_invoke_deferred() instead of setting
+  s->closed synchronously) does NOT work here: it reproducibly hung the
+  whole process instead of fixing the misrouting - not even a JS-level
+  setTimeout() fallback fired, suggesting something gets stuck in native
+  code rather than the deferred close simply never running. Not
+  investigated further; deliberately left out of the RAW_CONNECTED/
+  CLIENT_ESTABLISHED switch in lwsjs_socket_close() pending a root cause.
 
-    (run: env QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm
-    tests/unittests/test-websocket.js)
+    import { LWSContext } from 'lws.so';
+    const ctx = new LWSContext({
+      protocols: [{
+        name: 'http',
+        onEstablishedClientHttp(wsi) { wsi.close(); }, // hangs the process
+      }],
+    });
+    ctx.clientConnect({ address: 'example.com', port: 80, path: '/', host: 'example.com', method: 'GET', protocol: 'http' });
 
 - async-dns-qtype-ignored-on-cache-fill (libwebsockets/lib/system/async-dns/async-dns.c,
   used via lws_async_dns_query() from the new ctx.resolve() binding in

@@ -855,19 +855,37 @@ lwsjs_socket_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   if(argc > 0)
     reason = to_uint32(ctx, argv[0]);
 
-  /* A synchronous close() from inside LWS_CALLBACK_RAW_CONNECTED would
-     force this dispatch's return value to -1 below (see the
-     s->dispatching comment further down) - but for *this specific*
-     callback, ops-raw-skt.c's client adoption handling reads a nonzero
-     return as "the connection was rejected" (lws_inform_client_conn_fail(),
-     routing to CLIENT_CONNECTION_ERROR), not "close it gracefully". Defer
-     the actual close a microtask past the callback's own return instead,
-     so RAW_CONNECTED reports success normally and the deferred close()
-     call (now outside dispatch) produces a real RAW_CLOSE. See BUGS:
-     raw-client-immediate-close-fires-error-not-close. */
-  if(s->dispatching && s->dispatch_reason == LWS_CALLBACK_RAW_CONNECTED) {
-    js_invoke_deferred(ctx, this_val, "close", argc, argv);
-    return JS_UNDEFINED;
+  /* A synchronous close() from inside one of these client "connection
+     established" callbacks would force this dispatch's return value to
+     -1 below (see the s->dispatching comment further down) - but each of
+     them reads a nonzero return from *that specific* callback as "the
+     connection was rejected", not "close it gracefully", routing to
+     CLIENT_CONNECTION_ERROR instead of a graceful close:
+       - LWS_CALLBACK_RAW_CONNECTED: ops-raw-skt.c's lws_raw_skt_connect()
+         -> lws_inform_client_conn_fail() (formerly BUGS:
+         raw-client-immediate-close-fires-error-not-close)
+       - LWS_CALLBACK_CLIENT_ESTABLISHED (ws): client-ws.c -> cce = "HS:
+         Rejected at CLIENT_ESTABLISHED" (BUGS:
+         test-websocket-hs-rejected-on-sync-close)
+     Deliberately NOT LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP, which has the
+     same "nonzero return = rejected" semantics in client-http.c but
+     deferring the close there was tried and reproducibly hung the whole
+     process (not even a JS-level setTimeout fallback fired) - needs
+     separate investigation before it's safe to add here.
+     Server-side counterparts (RAW_ADOPT, ESTABLISHED) don't need this: a
+     nonzero return there goes straight to a real close
+     (lws_close_free_wsi()/lws_wsi_close()), since there's no "client
+     connection failed" concept for a server accepting a connection.
+     Defer the actual close a microtask past the callback's own return
+     instead, so the establishment callback reports success normally and
+     the deferred close() call (now outside dispatch) produces a real
+     CLOSE/RAW_CLOSE. */
+  if(s->dispatching) {
+    switch(s->dispatch_reason) {
+      case LWS_CALLBACK_RAW_CONNECTED:
+      case LWS_CALLBACK_CLIENT_ESTABLISHED: js_invoke_deferred(ctx, this_val, "close", argc, argv); return JS_UNDEFINED;
+      default: break;
+    }
   }
 
   if(socket_type(s->wsi) == SOCKET_WS) {
