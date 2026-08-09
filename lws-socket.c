@@ -855,6 +855,21 @@ lwsjs_socket_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   if(argc > 0)
     reason = to_uint32(ctx, argv[0]);
 
+  /* A synchronous close() from inside LWS_CALLBACK_RAW_CONNECTED would
+     force this dispatch's return value to -1 below (see the
+     s->dispatching comment further down) - but for *this specific*
+     callback, ops-raw-skt.c's client adoption handling reads a nonzero
+     return as "the connection was rejected" (lws_inform_client_conn_fail(),
+     routing to CLIENT_CONNECTION_ERROR), not "close it gracefully". Defer
+     the actual close a microtask past the callback's own return instead,
+     so RAW_CONNECTED reports success normally and the deferred close()
+     call (now outside dispatch) produces a real RAW_CLOSE. See BUGS:
+     raw-client-immediate-close-fires-error-not-close. */
+  if(s->dispatching && s->dispatch_reason == LWS_CALLBACK_RAW_CONNECTED) {
+    js_invoke_deferred(ctx, this_val, "close", argc, argv);
+    return JS_UNDEFINED;
+  }
+
   if(socket_type(s->wsi) == SOCKET_WS) {
     size_t n = 0;
     uint8_t* p = NULL;
