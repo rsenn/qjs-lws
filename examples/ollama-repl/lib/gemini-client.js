@@ -42,6 +42,15 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
    tuning. */
 const DEFAULT_TIMEOUT_SECS = 15 * 60;
 
+/* Mirrors OllamaClient's own IDLE_RECONNECT_MS - see its doc comment and
+   BUGS: ollama-pipelined-connection-hangs-after-idle-gap. Not directly
+   confirmed against a real Gemini idle timeout (that repro was Ollama-
+   specific), but GeminiClient uses the identical LCCSCF_PIPELINE
+   kept-alive pattern, so the same class of failure - a pipelined
+   connection going silently dead during an idle gap between prompts,
+   with no lifecycle callback ever firing to report it - applies here too. */
+const IDLE_RECONNECT_MS = 30_000;
+
 /* Mirrors OllamaClient's own debug log (see its DEBUG_LOG_PATH comment)
    but kept in a separate file so the two clients' logs don't interleave. */
 const DEBUG_LOG_PATH = 'gemini-repl-debug.log';
@@ -56,6 +65,10 @@ export class GeminiClient {
   #debugConsole;
   #debugFile;
   #timeoutMs;
+  #timeoutSecs;
+  /** Same rationale as OllamaClient#lastActivityAt - see its own doc
+      comment. */
+  #lastActivityAt = null;
 
   /**
    * @param {object} opts
@@ -74,6 +87,7 @@ export class GeminiClient {
     this.#apiKey = apiKey;
     this.model = model;
     this.#timeoutMs = timeoutSecs * 1000;
+    this.#timeoutSecs = timeoutSecs;
 
     if(debug || getenv('DEBUG')) {
       this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
@@ -89,10 +103,15 @@ export class GeminiClient {
        for a plain HTTPS request with no client-cert-style `tls` object -
        lws needs LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX (+ friends) up
        front to be able to make any TLS client connection at all. */
-    this.#ctx = createContext({
+    this.#ctx = this.#newContext();
+  }
+
+  /** Same rationale as OllamaClient#newContext - see its own doc comment. */
+  #newContext() {
+    return createContext({
       options: LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX | LWS_SERVER_OPTION_IGNORE_MISSING_CERT,
       protocols: [{ name: 'http', ...this.#adapter }],
-      timeout_secs: timeoutSecs,
+      timeout_secs: this.#timeoutSecs,
     });
   }
 
@@ -160,6 +179,14 @@ export class GeminiClient {
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(pathSuffix, messages, { tools, toolChoice, ...options }) {
+    std.puts('\x1b[1;35m\n#post\x1b[0m\n');
+
+    // See OllamaClient#post's identical IDLE_RECONNECT_MS check/comment.
+    if(this.#lastActivityAt != null && Date.now() - this.#lastActivityAt > IDLE_RECONNECT_MS) {
+      this.#ctx.destroy();
+      this.#ctx = this.#newContext();
+    }
+
     const { contents, systemInstruction } = this.#toContents(messages);
 
     const payload = {
@@ -262,8 +289,10 @@ export class GeminiClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chat(messages, options = {}) {
+    std.puts('\x1b[1;35m\nchat\x1b[0m\n');
     const resp = await this.#post('generateContent', messages, options);
     const data = await resp.json();
+    this.#lastActivityAt = Date.now();
     this.#debugConsole?.debug('response', data);
 
     const parts = data?.candidates?.[0]?.content?.parts;
@@ -288,6 +317,7 @@ export class GeminiClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chatStream(messages, options = {}, onToken) {
+    std.puts('\x1b[1;35m\nchatStream\x1b[0m\n');
     const resp = await this.#post('streamGenerateContent?alt=sse', messages, options);
     const reader = resp.body.getReader();
 
@@ -327,7 +357,10 @@ export class GeminiClient {
         for(const tc of chunkCalls ?? []) toolCalls.push({ ...tc, id: `${tc.name}#${toolCalls.length}` });
       }
 
-      if(done) return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
+      if(done) {
+        this.#lastActivityAt = Date.now();
+        return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
+      }
     }
   }
 

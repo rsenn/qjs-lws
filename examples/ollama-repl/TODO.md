@@ -201,6 +201,29 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- "Only the first prompt gets a reply, every one after it just hangs"
+  (2026-08-09): root-caused and fixed - both `OllamaClient` and
+  `GeminiClient` (`lib/ollama-client.js`/`lib/gemini-client.js`) reuse one
+  kept-alive/pipelined (`LCCSCF_PIPELINE`) connection for every request.
+  Sending the next prompt right after a reply always worked; leaving the
+  REPL idle for ~90s (normal human typing/reading time) before the next
+  one made that request hang forever - no reply, no error, confirmed via
+  `-x` debug logging that the request was sent but none of the connection
+  lifecycle callbacks (`onEstablishedClientHttp`/`onCompletedClientHttp`/
+  `onClosedClientHttp`/`onClientConnectionError`, `lib/lws/protocols.js`)
+  ever fired for it - the pipelined connection had gone silently dead
+  during the idle gap (most likely closed server-side) without lws
+  detecting it before trying to reuse it. Fixed by tracking when each
+  client's connection was last known good and discarding/recreating the
+  `LWSContext` (forcing a fresh TCP connection) if a new request starts
+  more than `IDLE_RECONNECT_MS` (30s - a conservative margin below the
+  observed ~90s failure point) after that. Verified fixed against a real
+  Ollama server: the exact same 90s-idle-gap repro that reliably hung
+  before the fix now gets a reply every time. The `GeminiClient` half of
+  the fix mirrors `OllamaClient`'s but wasn't verified live (no reachable
+  idle-timing repro against a real Gemini endpoint attempted) - same
+  live-verification gap as the rest of `GeminiClient`, see item 4a above.
+
 - `--provider gemini`: `lib/gemini-client.js` (`chat()`/`chatStream()`,
   same shape as `OllamaClient`) and `repl.js --provider gemini` wiring it
   in. Verified working end to end, streaming and non-streaming both, for

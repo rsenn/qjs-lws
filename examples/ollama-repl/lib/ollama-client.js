@@ -39,6 +39,23 @@ import { open as fopen, getenv } from 'std';
    CPU-only box. Overridable via `timeoutSecs` for tests/tuning. */
 const DEFAULT_TIMEOUT_SECS = 15 * 60;
 
+/* How long the kept-alive/pipelined connection (LCCSCF_PIPELINE, #post()
+   below) may sit idle between requests before it's discarded and replaced
+   with a fresh one, instead of being reused as-is. Idle time here means
+   the gap between one request finishing and the next one starting (normal
+   time spent waiting on the user, not time spent mid-request) - a real
+   idle keep-alive connection can go silently dead in that gap (confirmed
+   directly: Ollama's own server, or something between it and this client,
+   drops the connection after roughly 90s of inactivity), and lws's
+   pipelining doesn't detect that before trying to reuse it - the next
+   request then hangs forever with no reply and no error, since none of
+   the connection lifecycle callbacks ever fire for it either. See BUGS:
+   ollama-pipelined-connection-hangs-after-idle-gap for the full repro.
+   30s is a conservative margin below the observed ~90s failure point, not
+   a measured exact boundary - lower if a shorter real-world timeout ever
+   turns up. */
+const IDLE_RECONNECT_MS = 30_000;
+
 /* Every request payload and raw response, appended here (not the
    terminal, which is already busy with the "Thinking..." spinner/reply)
    when debug mode is on (`-x`/`--debug`, repl.js, or the `DEBUG` env var
@@ -59,6 +76,12 @@ export class OllamaClient {
   #settled = new Map();
   #debugConsole;
   #debugFile;
+  #timeoutSecs;
+  /** Date.now() the last time a request actually finished (a response was
+      received) - null until the first one has, so the idle-reconnect check
+      in #post() below never fires before there's even been a first
+      connection to go stale. */
+  #lastActivityAt = null;
 
   /**
    * @param {object} opts
@@ -78,6 +101,7 @@ export class OllamaClient {
     this.port = port;
     this.model = model;
     this.#timeoutMs = timeoutSecs * 1000;
+    this.#timeoutSecs = timeoutSecs;
 
     if(debug || getenv('DEBUG')) {
       this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
@@ -89,7 +113,14 @@ export class OllamaClient {
       { error: (req, err) => this.#reject(req, err) },
     );
 
-    this.#ctx = createContext({ protocols: [{ name: 'http', ...this.#adapter }], timeout_secs: timeoutSecs });
+    this.#ctx = this.#newContext();
+  }
+
+  /** Builds a fresh `LWSContext` bound to `#adapter` - factored out of the
+      constructor so #post() below can call it again to replace a
+      possibly-stale pipelined connection (see IDLE_RECONNECT_MS). */
+  #newContext() {
+    return createContext({ protocols: [{ name: 'http', ...this.#adapter }], timeout_secs: this.#timeoutSecs });
   }
 
   #take(req) {
@@ -121,6 +152,15 @@ export class OllamaClient {
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(payload) {
+    // See IDLE_RECONNECT_MS above: a pipelined connection that's sat idle
+    // too long may already be dead without lws having noticed - replace it
+    // with a fresh one rather than risk reusing a wsi that will never
+    // produce a response.
+    if(this.#lastActivityAt != null && Date.now() - this.#lastActivityAt > IDLE_RECONNECT_MS) {
+      this.#ctx.destroy();
+      this.#ctx = this.#newContext();
+    }
+
     const url = `http://${this.host}:${this.port}/api/chat`;
 
     const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
@@ -251,6 +291,7 @@ export class OllamaClient {
 
     const resp = await this.#post(payload);
     const data = await resp.json();
+    this.#lastActivityAt = Date.now();
     this.#debugConsole?.debug('response', data);
 
     if(!data?.message) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
@@ -319,10 +360,16 @@ export class OllamaClient {
           onToken(token);
         }
 
-        if(chunk.done) return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
+        if(chunk.done) {
+          this.#lastActivityAt = Date.now();
+          return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
+        }
       }
 
-      if(done) return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
+      if(done) {
+        this.#lastActivityAt = Date.now();
+        return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
+      }
     }
   }
 
