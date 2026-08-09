@@ -1,28 +1,50 @@
-- deferred-close-hangs-on-established-client-http (lws-socket.c,
-  lwsjs_socket_close): LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP has the same
-  "nonzero return from this specific callback means the connection was
-  rejected, not gracefully closed" semantics as LWS_CALLBACK_RAW_CONNECTED
-  and LWS_CALLBACK_CLIENT_ESTABLISHED (client-http.c:1536/1572, cce =
-  "HS: disallowed at ESTABLISHED"/"...by client filter" ->
-  CLIENT_CONNECTION_ERROR) - found while checking whether those two were
-  the only cases (see js_invoke_deferred() in js-utils.c and its use in
-  lwsjs_socket_close()). Applying the identical fix (deferring the close()
-  call a microtask via js_invoke_deferred() instead of setting
-  s->closed synchronously) does NOT work here: it reproducibly hung the
-  whole process instead of fixing the misrouting - not even a JS-level
-  setTimeout() fallback fired, suggesting something gets stuck in native
-  code rather than the deferred close simply never running. Not
-  investigated further; deliberately left out of the RAW_CONNECTED/
-  CLIENT_ESTABLISHED switch in lwsjs_socket_close() pending a root cause.
+- deferred-close-hangs-on-established-client-http (lws-protocol.c:~50,
+  pollfd_handler's forced-service while loop; ops-h1.c:719-747,
+  rops_handle_POLLIN_h1): closing an HTTP client wsi from
+  onEstablishedClientHttp via the same deferred-close trick used to fix
+  raw-client-immediate-close-fires-error-not-close/test-websocket-hs-
+  rejected-on-sync-close (js_invoke_deferred(), lws-socket.c) doesn't
+  just misroute the event here, it live-locks the whole process at
+  100% CPU forever - confirmed via verbose logging showing
+  "RECEIVE_CLIENT_HTTP (swallowed N dupes)" climbing into the hundreds
+  of thousands per second, and that not even an unrelated JS-level
+  setTimeout() ever fires again. Root cause: once HTTP headers finish
+  parsing, ops-h1.c's rops_handle_POLLIN_h1 sets wsi->client_rx_avail=1,
+  explicitly disables POLLIN for the wsi, and fires
+  LWS_CALLBACK_RECEIVE_CLIENT_HTTP - the contract (per its own comment,
+  "he'll usually ask for writeable callback and drain / re-enable it
+  there") is that the handler must call lws_http_client_read()
+  (wsi.httpClientRead()) to drain the response body, which is also what
+  re-arms polling. A handler that never does that (as
+  onEstablishedClientHttp-only code naturally wouldn't) leaves
+  client_rx_avail set forever; pollfd_handler's forced-service loop
+  (while(lws_service_adjust_timeout(...) == 0) lws_service_tsi(...);,
+  the external-poll-integration pattern libwebsockets itself documents)
+  assumes forced service always makes bounded progress and never
+  returns to the JS/event-loop layer until it doesn't need to run again
+  - here it never stops needing to run, so it spins in native C forever.
+  Deferring the close (making onEstablishedClientHttp report success
+  instead of triggering the old, synchronous-reject-and-close path via
+  bail3_l in client-http.c) is what exposes this: the old
+  misrouted-but-real close tore the wsi down immediately via
+  lws_close_free_wsi(), before ever reaching the
+  wait-for-body-consumption state this hangs in. Not fixed: would need
+  either draining/discarding the pending body before or instead of
+  deferring the close, or capping the forced-service loop's iteration
+  count - both bigger, riskier changes than this session's scope.
+  Deliberately left out of the RAW_CONNECTED/CLIENT_ESTABLISHED switch in
+  lwsjs_socket_close().
 
-    import { LWSContext } from 'lws.so';
-    const ctx = new LWSContext({
-      protocols: [{
-        name: 'http',
-        onEstablishedClientHttp(wsi) { wsi.close(); }, // hangs the process
-      }],
+    import { LWSContext, createServer, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK } from 'lws.so';
+    const server = createServer({
+      port: 29990, vhostName: 'localhost',
+      mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],
+      protocols: [{ name: 'http', onHttp(wsi) { wsi.respond(200, 4, {}); wsi.write('body', LWS_WRITE_HTTP_FINAL); } }],
     });
-    ctx.clientConnect({ address: 'example.com', port: 80, path: '/', host: 'example.com', method: 'GET', protocol: 'http' });
+    const ctx = new LWSContext({
+      protocols: [{ name: 'http', onEstablishedClientHttp(wsi) { wsi.close(); } }], // would hang if wired into the switch - no onReceiveClientHttp to drain the body
+    });
+    ctx.clientConnect({ address: 'localhost', port: 29990, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
 
 - async-dns-qtype-ignored-on-cache-fill (libwebsockets/lib/system/async-dns/async-dns.c,
   used via lws_async_dns_query() from the new ctx.resolve() binding in
@@ -41,24 +63,6 @@
     const ctx = new LWSContext({});
     console.log(await ctx.resolve('example.com', { type: 'AAAA' }));
     // -> includes IPv4 addresses too, not just AAAA/IPv6
-
-- quickjs-module-path-crashes-module-load (qjsm, module resolution):
-  setting QUICKJS_MODULE_PATH (tried as
-  QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." while debugging
-  tcpsocket-close-segfault above, to point qjsm at a local build instead
-  of the installed lws.so) segfaults during module loading, before any of
-  the target script's own top-level code runs - confirmed with a script
-  whose very first line writes a trace marker to a file, which never got
-  written. Removing the env var and just running `qjsm script.js` plain
-  from the project root (relying on the ./lws.so symlink) avoids this
-  entirely; not investigated further since the plain invocation works
-  fine and this project's own CLAUDE.md/README already say `qjsm
-  script.js` (no extra module-path env var) is the correct way to run a
-  script here.
-
-    QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm -e "std.exit(0)"
-    # or any script, plain qjsm.so-relative import - segfaults before
-    # reaching user code; not reduced further
 
 - tostring-silently-undefined-on-typed-array-view (js-utils.c:266,
   get_buffer; lws.c:322, FUNCTION_TO_STRING): toString(v) from lws.so
