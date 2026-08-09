@@ -883,8 +883,10 @@ lwsjs_socket_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   if(s->dispatching) {
     switch(s->dispatch_reason) {
       case LWS_CALLBACK_RAW_CONNECTED:
-      case LWS_CALLBACK_CLIENT_ESTABLISHED: js_invoke_deferred(ctx, this_val, "close", argc, argv); return JS_UNDEFINED;
-      default: break;
+      case LWS_CALLBACK_CLIENT_ESTABLISHED: {
+        JS_FreeValue(ctx, js_invoke_deferred(ctx, this_val, "close", argc, argv));
+        return JS_UNDEFINED;
+      }
     }
   }
 
