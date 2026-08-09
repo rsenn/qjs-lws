@@ -1,36 +1,30 @@
 /**
  * Exercises different client setups (WebSocket, HTTP GET, HTTP POST, raw
- * TCP) by running each client in this process and forking off a server
- * subprocess for it to connect to - a genuinely separate OS process and
- * event loop, not an in-process fake.
+ * TCP) against an in-process fixture server for each - createServer() on
+ * its own LWSContext, driven by the same event loop as the client under
+ * test, torn down with server.destroy() once the exchange completes.
  */
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { LWSContext, LWS_WRITE_TEXT, LWS_WRITE_HTTP_FINAL, toString, toArrayBuffer } from 'lws.so';
-import { spawnAndWaitFor, stopProcess, readLog, freePort } from './subprocess-utils.js';
-
-async function runServer(code, marker = 'READY') {
-  return spawnAndWaitFor(code, marker, { timeoutMs: 8000 });
-}
+import { LWSContext, createServer, LWS_WRITE_TEXT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, toString, toArrayBuffer, } from 'lws.so';
+import { freePort } from './subprocess-utils.js';
 
 await tests({
-  async 'WebSocket client: connects to a forked WS echo server and round-trips a message'() {
+  async 'WebSocket client: connects to an in-process WS echo server and round-trips a message'() {
     const port = freePort();
 
-    const serverCode = `
-      import { createServer, LWS_WRITE_TEXT, LWSMPRO_NO_MOUNT } from 'lws.so';
-      createServer({
-        port: ${port},
-        vhostName: 'localhost',
-        mounts: [{ mountpoint: '/echo', protocol: 'echo', originProtocol: LWSMPRO_NO_MOUNT }],
-        protocols: [{
+    const server = createServer({
+      port,
+      vhostName: 'localhost',
+      mounts: [{ mountpoint: '/echo', protocol: 'echo', originProtocol: LWSMPRO_NO_MOUNT }],
+      protocols: [
+        {
           name: 'echo',
-          onReceive(wsi, data) { wsi.write(data, LWS_WRITE_TEXT); },
-        }],
-      });
-      console.log('READY');
-    `;
-
-    const server = await runServer(serverCode);
+          onReceive(wsi, data) {
+            wsi.write(data, LWS_WRITE_TEXT);
+          },
+        },
+      ],
+    });
 
     let ctx;
     const result = await new Promise((resolve, reject) => {
@@ -56,32 +50,28 @@ await tests({
     });
 
     ctx.destroy();
-    stopProcess(server.pid);
+    server.destroy();
 
     eq('ping-from-parent', result);
   },
 
-  async 'HTTP client (GET): connects to a forked HTTP server and reads the response'() {
+  async 'HTTP client (GET): connects to an in-process HTTP server and reads the response'() {
     const port = freePort();
 
-    const serverCode = `
-      import { createServer, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK } from 'lws.so';
-      createServer({
-        port: ${port},
-        vhostName: 'localhost',
-        mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],
-        protocols: [{
+    const server = createServer({
+      port,
+      vhostName: 'localhost',
+      mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],
+      protocols: [
+        {
           name: 'http',
           onHttp(wsi) {
             wsi.respond(200, { 'content-type': 'text/plain' });
             wsi.write('hello ' + wsi.uri, LWS_WRITE_HTTP_FINAL);
           },
-        }],
-      });
-      console.log('READY');
-    `;
-
-    const server = await runServer(serverCode);
+        },
+      ],
+    });
 
     let ctx;
     const result = await new Promise((resolve, reject) => {
@@ -114,43 +104,46 @@ await tests({
     });
 
     ctx.destroy();
-    stopProcess(server.pid);
+    server.destroy();
 
     eq(200, result.status);
     eq('hello /world', result.body);
   },
 
-  async 'HTTP client (POST with body): a forked server echoes the request body back'() {
+  async 'HTTP client (POST with body): an in-process server echoes the request body back'() {
     const port = freePort();
+    const payload = 'the request body, round-tripped';
 
-    const serverCode = `
-      import { createServer, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK } from 'lws.so';
-      createServer({
-        port: ${port},
-        vhostName: 'localhost',
-        mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],
-        protocols: [{
+    const server = createServer({
+      port,
+      vhostName: 'localhost',
+      mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],
+      protocols: [
+        {
           name: 'http',
-          onHttp(wsi) { this.chunks = []; },
-          onHttpBody(wsi, buf) { this.chunks.push(new Uint8Array(buf).slice()); },
+          onHttp(wsi) {
+            this.chunks = [];
+          },
+          onHttpBody(wsi, buf) {
+            this.chunks.push(new Uint8Array(buf).slice());
+          },
           onHttpBodyCompletion(wsi) {
             const total = this.chunks.reduce((n, c) => n + c.byteLength, 0);
             const all = new Uint8Array(total);
             let off = 0;
-            for(const c of this.chunks) { all.set(c, off); off += c.byteLength; }
+            for(const c of this.chunks) {
+              all.set(c, off);
+              off += c.byteLength;
+            }
             wsi.wantWrite(() => {
               wsi.respond(200, { 'content-type': 'text/plain' });
               wsi.write(all.buffer, LWS_WRITE_HTTP_FINAL);
               return -1;
             });
           },
-        }],
-      });
-      console.log('READY');
-    `;
-
-    const server = await runServer(serverCode);
-    const payload = 'the request body, round-tripped';
+        },
+      ],
+    });
 
     let ctx;
     const result = await new Promise((resolve, reject) => {
@@ -189,31 +182,29 @@ await tests({
     });
 
     ctx.destroy();
-    stopProcess(server.pid);
+    server.destroy();
 
     eq(200, result.status);
     eq(payload, result.body);
   },
 
-  async 'Raw TCP client: connects to a forked raw echo server and round-trips bytes'() {
+  async 'Raw TCP client: connects to an in-process raw echo server and round-trips bytes'() {
     const port = freePort();
 
-    const serverCode = `
-      import { createServer, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws.so';
-      createServer({
-        port: ${port},
-        options: LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
-        listenAcceptRole: 'raw-skt',
-        listenAcceptProtocol: 'echo',
-        protocols: [{
+    const server = createServer({
+      port,
+      options: LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
+      listenAcceptRole: 'raw-skt',
+      listenAcceptProtocol: 'echo',
+      protocols: [
+        {
           name: 'echo',
-          onRawRx(wsi, data) { wsi.write(data); },
-        }],
-      });
-      console.log('READY');
-    `;
-
-    const server = await runServer(serverCode);
+          onRawRx(wsi, data) {
+            wsi.write(data);
+          },
+        },
+      ],
+    });
 
     let ctx;
     const result = await new Promise((resolve, reject) => {
@@ -239,7 +230,7 @@ await tests({
     });
 
     ctx.destroy();
-    stopProcess(server.pid);
+    server.destroy();
 
     eq('raw-from-parent', result);
   },
