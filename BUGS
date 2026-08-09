@@ -1,23 +1,3 @@
-- ws-close-payload-oob-read (lws-protocol.c:555,
-  lwsjs_callback_protocol): the synthesized ws-close handling inside
-  the CLIENT_RECEIVE branch reads in[0]/in[1] as the close code with
-  no check that len >= 2. the genuine WS_PEER_INITIATED_CLOSE handler
-  a few lines below (lws-protocol.c:625) correctly guards the same
-  read with len >= 2. per rfc 6455 a close frame legally carries 0 or
-  1 payload bytes, so this path reads past the frame payload whenever
-  a peer sends a bare or 1-byte close frame.
-
-    // requires a peer that sends a ws close frame with 0-1 bytes of
-    // payload to a client connection, so CLIENT_RECEIVE synthesizes
-    // the close-frame path instead of WS_PEER_INITIATED_CLOSE
-    // handling it directly
-    import { LWSContext } from 'lws';
-    const ctx = new LWSContext({ port: -1 });
-    ctx.clientConnect({
-      address: 'example.com', port: 443, path: '/', ssl_connection: 1,
-      protocol: 'chat',
-    });
-
 - raw-client-immediate-close-fires-error-not-close (lib/lws/protocols.js:485,
   RawProtocol.onClientConnectionError): closing a raw TCP client wsi
   (TCPSocket/TCPSocketStream) synchronously from within its own 'open'
@@ -41,22 +21,6 @@
     s.addEventListener('open', () => s.close());
     s.addEventListener('error', e => console.log('error:', JSON.stringify(e.message)));
     s.addEventListener('close', () => console.log('close')); // never fires
-
-- spawnandwaitfor-leak-on-timeout (tests/unittests/subprocess-utils.js:91,
-  spawnAndWaitFor): when a spawned client subprocess doesn't print its
-  marker within timeoutMs, waitForLog() throws out of spawnAndWaitFor()
-  before the caller ever reaches its own stopProcess(proc.pid) - the child
-  qjsm process is never killed and spins at ~100% cpu forever (confirmed
-  via ps: orphaned `qjsm /tmp/qjs-lws-test-*.js` processes still running
-  minutes later). This was found via tests/unittests/test-server.js (since
-  removed from the repo - every one of its subtests did `const log = await
-  runClient(...); ctx.destroy();` with no try/finally, so the same timeout
-  also skipped that subtest's own server ctx.destroy(), leaking the
-  LWSContext's listening socket/epoll fd and keeping the whole qjsm process
-  alive past its own "N out of M tests failed." summary line), but the bug
-  is in spawnAndWaitFor() itself, which test-client.js also uses - not
-  confirmed to reproduce there, just not ruled out. Not investigated
-  further beyond confirming the leak mechanism.
 
 - test-websocket-hs-rejected-on-sync-close (lws-protocol.c, lwsjs_callback_protocol;
   tests/unittests/test-websocket.js:158): "WebSocket.protocol() (server):
@@ -99,34 +63,6 @@
     console.log(await ctx.resolve('example.com', { type: 'AAAA' }));
     // -> includes IPv4 addresses too, not just AAAA/IPv6
 
-- context-ref-counter-deferred-destroy-races-reuse (lib/lws/context.js,
-  ContextRefCounter.release): found while fixing a since-resolved
-  use-after-free in ContextRefCounter.release() itself - deferring
-  `destroy()` to a microtask (that earlier fix) opened a narrow race: if a
-  new `add()` lands on the same shared singleton context between the
-  deferred destroy being scheduled and it actually running (e.g. one
-  TCPSocketStream's last connection closes,
-  and a fresh TCPSocketStream reuses the still-live shared context before
-  the microtask fires), the deferred destroy still runs unconditionally
-  and pulls the context out from under the new connection - it never
-  opens, and anything awaiting it hangs forever. Reproduced with
-  tests/unittests/test-tcpsocket.js's own back-to-back TCPSocketStream
-  tests (a close in one test race against connect in the very next one).
-  Fixed by rechecking the ref count inside the deferred callback itself,
-  not just when scheduling it - if it's no longer zero (or markServer()
-  was called in between), the deferred destroy is skipped.
-
-    not practically reproducible as a short standalone snippet - needs
-    two TCPSocketStream (or TCPSocket) instances sharing the class-static
-    context, back to back, timed so the second's connect() lands in the
-    same microtask window as the first's post-close deferred destroy;
-    see tests/unittests/test-tcpsocket.js's "TCPSocketStream (client)"
-    tests run consecutively for a real trigger
-
-    (run from the qjs-lws project root: qjsm tests/unittests/test-tcpsocket.js -
-    do not set QUICKJS_MODULE_PATH, see quickjs-module-path-crashes-module-load
-    below, it causes a separate, unrelated crash)
-
 - quickjs-module-path-crashes-module-load (qjsm, module resolution):
   setting QUICKJS_MODULE_PATH (tried as
   QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." while debugging
@@ -144,21 +80,6 @@
     QUICKJS_MODULE_PATH="build/x86_64-linux-debug;." qjsm -e "std.exit(0)"
     # or any script, plain qjsm.so-relative import - segfaults before
     # reaching user code; not reduced further
-
-- response-ok-stale-after-establish (lib/lws/response.js:35, Response
-  constructor; lib/lws/protocols.js:290, HttpClientProtocol#onEstablishedClientHttp):
-  `resp.ok` is computed once from `options.status` at construction time
-  (defaulting to 200 when the caller didn't pass a status, which
-  HttpClientProtocol never does), but the real HTTP status only gets
-  patched onto `resp.status` later, in onEstablishedClientHttp - `resp.ok`
-  is never recomputed, so it reads `true` for every client HTTP response
-  regardless of the actual status code. Found while building
-  examples/ollama-repl (its ollama-client.js checks `resp.status` directly
-  instead, with a comment explaining why). fetch() (lib/fetch.js) has the
-  same exposure for any caller checking `response.ok`.
-
-    const resp = await fetch('http://localhost:1/nope-should-404-or-refuse');
-    console.log(resp.ok); // true, even though resp.status is not 2xx
 
 - tostring-silently-undefined-on-typed-array-view (js-utils.c:266,
   get_buffer; lws.c:322, FUNCTION_TO_STRING): toString(v) from lws.so
@@ -201,22 +122,6 @@
       start(controller) { controller.enqueue(new Uint8Array([1, 2, 3])); },
     });
 
-- console-error-kills-process (native console.error binding, exercised via
-  quickjs qjs binary in build/x86_64-linux-debug/qjs): calling
-  console.error(...) silently terminates the script with exit code 0 - no
-  output, no exception surfaced, nothing after it runs. Confirmed with a
-  two-line repro outside streams.js entirely, so it's an engine/binding
-  issue, not an application bug. This is what made tests/unittests/test-
-  streams.js look like it was hanging/crashing on failing tests: tinytest.js
-  calls console.error() to report a failure, which killed the process
-  before it could print "FAILED" or continue to the next test - a passing
-  suite is silent about this, but any future failing test will look like a
-  silent hang again unless this is fixed.
-
-    console.log('a');
-    console.error('this line kills the process');
-    console.log('b'); // never printed, exit code is still 0
-
 - tinytest-always-prints-ok (tests/unittests/tinytest.js:50,56):
   TinyTest.run() prints "Test: <name> OK" twice for every passing test (once
   inside the try block, once again unconditionally right after the
@@ -236,25 +141,6 @@
     await tests({ 'always looks ok'() { throw new Error('nope'); } });
     // prints "Test: always looks ok FAILED ..." AND "Test: always looks ok OK"
 
-- stale-installed-lws-so (/usr/local/lib/x86_64-linux-gnu/quickjs/lws.so):
-  the ollama-repl's timeout_secs (createContext() -> lws-context.c:515-516)
-  looked broken at runtime even though the JS call and the native
-  js_get_property()/camelize() fallback are both correct in the current
-  source tree (confirmed by instrumenting lws-context.c with an fprintf
-  and running it against a fresh build/x86_64-linux-debug build, which
-  printed the correct value). The installed module qjsm actually loads,
-  /usr/local/lib/x86_64-linux-gnu/quickjs/lws.so, was stale relative to
-  the source tree, so the fix already present in source wasn't reflected
-  in the binary being run. Rebuilt build/x86_64-linux-debug and copied
-  lws.so to /usr/local/lib/x86_64-linux-gnu/quickjs/lws.so and /tmp/lws.so
-  (both paths qjsm resolves at runtime, per existing build-dir guidance)
-  to fix. Worth remembering: a fix landing in source here does not take
-  effect for ollama-repl until lws.so is rebuilt and reinstalled to both
-  of those paths.
-
-    not practically reproducible in plain JS - the mismatch was between
-    the installed .so and the source tree, not a logic bug
-
 - verbose-console-config-not-optional (lib/lws/util.js:94): verbose() calls
   console.config({...}) unconditionally, but the module-level LC constant
   right above it (line 3) guards the same call with `console.config?.(...)`
@@ -269,27 +155,6 @@
 
     import { fetch } from './lib/fetch.js';
     await fetch('http://example.com'); // throws inside verbose() when run via `qjsm -m script.js`, not inside the interactive REPL
-
-- stray-single-char-prefix-dirs (qjs-lws/): four empty directories - u/,
-  ut/, uti/, util/ - sit alongside the legitimate utils/ directory in the
-  project root, all with the identical mtime (2026-08-04 23:29). Never
-  showed up in `git status` (git doesn't track empty directories), so
-  they'd been sitting there unnoticed - found while filtering
-  gatherProjectContext()'s (repl.js) top-level layout listing down to
-  what .gitignore allows. Looks like something created utils/ by writing
-  its path one character at a time (mkdir 'u', then 'ut', then 'uti',
-  then 'util', then finally the real 'utils') and left every intermediate
-  step behind instead of just the final directory - same shape as the
-  character-by-character terminal-echo behavior seen in ChatREPL's own
-  output (examples/ollama-repl/lib/chat-repl.js) during manual testing
-  elsewhere in this session, though nothing connects them directly yet.
-  Not fixed or removed here - pre-existing, unrelated to the change in
-  progress.
-
-    not reproducible in plain JS - filesystem-state oddity, not a code
-    path caught in the act; `ls -la qjs-lws/u* qjs-lws/util` shows all
-    four as empty with matching mtimes
-
 
 - repl-controlc-double-invokes-cleanup-handlers (/usr/local/lib/quickjs/
   repl.js:724-729, REPL#controlC; :259-264, REPL#exit): root cause of the
