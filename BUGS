@@ -88,23 +88,6 @@
     console.log(toString(new Uint8Array([72, 105])));       // undefined
     console.log(toString(new Uint8Array([72, 105]).buffer)); // "Hi"
 
-- reassigned-const-detached-buffer-helpers (lib/lws/streams.js:399,410):
-  TransferArrayBuffer and IsDetachedBuffer are declared with `const` but
-  their own bodies self-reassign (`TransferArrayBuffer = buffer => ...`)
-  as a one-time memoized-strategy trick. In strict/module mode this throws
-  "'IsDetachedBuffer' is read-only" the first time either is called, which
-  happens on any byte-mode (`type: 'bytes'`) ReadableStream enqueue via
-  ReadableByteStreamControllerEnqueue. Predates the CTRL/STRM/READ/WRITE
-  hidden-props migration (commit f7646ad) - same bug exists at the
-  pre-migration commit (505e1e8). Found while manually exercising BYOB
-  reader paths, which aren't covered by tests/unittests/test-streams.js.
-
-    import { ReadableStream } from './lib/lws/streams.js';
-    new ReadableStream({
-      type: 'bytes',
-      start(controller) { controller.enqueue(new Uint8Array([1, 2, 3])); },
-    });
-
 - tinytest-always-prints-ok (tests/unittests/tinytest.js:50,56):
   TinyTest.run() prints "Test: <name> OK" twice for every passing test (once
   inside the try block, once again unconditionally right after the
