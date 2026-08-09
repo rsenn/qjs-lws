@@ -135,3 +135,38 @@
     ESTABLISHED_CLIENT_HTTP/SERVER_NEW_CLIENT_INSTANTIATED with no
     subsequent CLIENT_APPEND_HANDSHAKE_HEADER before CLIENT_HTTP_DROP_PROTOCOL
 
+- h2-window-update-overflow-fix-option-breaks-connect (libwebsockets/lib/tls/openssl/openssl-client.c:513):
+  setting the vhost option LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW
+  (meant to clamp an oversized incoming h2 WINDOW_UPDATE instead of
+  GOAWAY-ing the connection - see roles/h2/http2.c around
+  LWS_H2_FRAME_TYPE_WINDOW_UPDATE) makes every client TLS connect fail
+  immediately with SSL_ERROR_SYSCALL (errno 9, EBADF) before any h2
+  traffic is even exchanged - confirmed with a clean A/B in a minimal
+  qjs-lws script (examples/ollama-repl/lib/lws/context.js +
+  lib/lws/protocols.js's httpClient): identical connect() call to the
+  same https URL succeeds through TLS/ALPN and only then hits the
+  WINDOW_UPDATE-overflow warning without the option, but fails at
+  SSL_connect() itself as soon as the option bit is added to `options`.
+  Root cause not yet isolated (checked: the option's JS binding uses a
+  proper 64-bit to_int64free() conversion in lws-context.c, not a
+  32-bit-truncating one, and grepping for other users of bit 31 /
+  0x80000000 in core-net/tls turned up nothing that would collide).
+  Note: the WINDOW_UPDATE overflow this option exists to fix was itself
+  seen against two unrelated real hosts (api.mistral.ai and
+  example.com) with byte-for-byte identical numbers
+  (0x10000 + 0x7fff0000 = 0x80000000), which looks more like this dev
+  sandbox's outbound HTTPS proxy reterminating TLS with its own h2 stack
+  than genuine server behavior - so this may only be reproducible inside
+  a similar intercepting-proxy environment, not against a real origin
+  server directly.
+
+    import createContext from './lib/lws/context.js';
+    import { httpClient } from './lib/lws/protocols.js';
+    import { LCCSCF_PIPELINE, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW, LWS_SERVER_OPTION_IGNORE_MISSING_CERT } from 'lws.so';
+    const adapter = httpClient((req, resp) => console.log('status', resp.status), { error: (req, err) => console.log('error:', err.message) });
+    const ctx = createContext({
+      options: LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX | LWS_SERVER_OPTION_IGNORE_MISSING_CERT | LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW,
+      protocols: [{ name: 'http', ...adapter }], timeout_secs: 15,
+    });
+    await adapter.connect(ctx, 'https://example.com/', { method: 'GET', ssl_connection: LCCSCF_PIPELINE }); // logs "error: connect SYSCALL 9"
+

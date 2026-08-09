@@ -101,27 +101,28 @@ model (`qwen2.5-coder` by default) about the files in your project.
   through the four Unicode quadrant-block glyphs) shows while waiting on
   the model, replaced by the reply the moment the first token (or the
   whole non-streamed reply) arrives; a dim "Cogitated for N.Ns" line
-  follows once a turn is fully done. Both clients cap how long it can spin:
-  `timeoutSecs` (15 minutes by default - see `DEFAULT_TIMEOUT_SECS` in
-  `lib/ollama-client.js`/`lib/gemini-client.js`) bounds both the initial
-  wait for a reply to begin and, separately, any gap between chunks once a
-  streamed reply is under way - a connection that goes silent past that
-  window is force-closed and the turn fails with a clear error instead of
-  leaving "Thinking..." running forever.
+  follows once a turn is fully done. All three clients cap how long it can
+  spin: `timeoutSecs` (15 minutes by default - see `DEFAULT_TIMEOUT_SECS`
+  in `lib/ollama-client.js`/`lib/gemini-client.js`/`lib/mistral-client.js`)
+  bounds both the initial wait for a reply to begin and, separately, any
+  gap between chunks once a streamed reply is under way - a connection
+  that goes silent past that window is force-closed and the turn fails
+  with a clear error instead of leaving "Thinking..." running forever.
 
-## Using `OllamaClient`/`GeminiClient` directly
+## Using `OllamaClient`/`GeminiClient`/`MistralClient` directly
 
-Both `lib/ollama-client.js` and `lib/gemini-client.js` are usable on their
-own from a `qjsm` REPL, independent of `repl.js`'s own chat loop - handy for
-poking at a model manually, or for driving real API-native tool/function
-calling, which `repl.js`'s own `LIST:`/`READ:`/`RUN:` loop doesn't use (that
-loop is a plain-text protocol parsed out of the reply body, not either
-provider's actual tool-calling API). See `API.md` for the full design and
-more examples; short version:
+`lib/ollama-client.js`, `lib/gemini-client.js` and `lib/mistral-client.js`
+are all usable on their own from a `qjsm` REPL, independent of `repl.js`'s
+own chat loop - handy for poking at a model manually, or for driving real
+API-native tool/function calling, which `repl.js`'s own `LIST:`/`READ:`/
+`RUN:` loop doesn't use (that loop is a plain-text protocol parsed out of
+the reply body, not any provider's actual tool-calling API). See `API.md`
+for the full design and more examples; short version:
 
 ```js
 import { OllamaClient } from './lib/ollama-client.js';
 // or: import { GeminiClient } from './lib/gemini-client.js';
+// or: import { MistralClient } from './lib/mistral-client.js';
 
 const client = new OllamaClient({ model: 'qwen2.5-coder' });
 const { content } = await client.chat([{ role: 'user', content: 'hi' }]);
@@ -133,7 +134,7 @@ console.log(content);
 toolCalls? }` - `toolCalls` (`[{ id, name, args }]`) is present whenever the
 model asks to call one. Feed the result back as a `{ role: 'tool', name,
 content }` message to continue the exchange - same message shapes work
-against either client. `API.md` has a full round-trip example.
+against any of the three clients. `API.md` has a full round-trip example.
 
 ## Requirements
 
@@ -144,12 +145,14 @@ against either client. `API.md` has a full round-trip example.
   ```
 - `--provider gemini`: `GEMINI_API_KEY` exported in the environment (a
   free-tier key from https://aistudio.google.com/apikey works).
+- `--provider mistral`: `MISTRAL_API_KEY` exported in the environment (a
+  key from https://console.mistral.ai/api-keys).
 - `lws.so` built (see the repo root's build instructions).
 
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--provider ollama|gemini] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
+qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|mistral] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -201,10 +204,10 @@ connection rather than the model traffic is what's under suspicion.
 A worked example of the kind of session this project is meant for -
 asking the model to write a new native (C) QuickJS binding, grounded in
 this project's own conventions rather than guessed from memory. Works the
-same against either provider:
+same against any provider:
 
 ```sh
-qjsm examples/ollama-repl/repl.js --provider ollama   # or --provider gemini
+qjsm examples/ollama-repl/repl.js --provider ollama   # or --provider gemini / mistral
 ```
 
 Any prompt that looks like a binding request (contains "binding",

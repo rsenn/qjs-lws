@@ -179,6 +179,7 @@ retry_bo_free(JSRuntime* rt, const lws_retry_bo_t* bo) {
 typedef struct {
   JSContext* ctx;
   JSValue resolving_funcs[2];
+  adns_query_type_t qtype;
 } LWSDnsQuery;
 
 /* lws_async_dns_cb_t - fires exactly once, either synchronously from inside
@@ -205,6 +206,15 @@ lwsjs_resolve_cb(struct lws* wsi, const char* ads, const struct addrinfo* result
 
     for(p = result; p; p = p->ai_next) {
       lws_sockaddr46 sa46;
+
+      /* libwebsockets' async dns queries both A and AAAA together and
+         returns both families mixed into `result` regardless of which
+         qtype was actually asked for (see BUGS:
+         async-dns-qtype-ignored-on-cache-fill) - filter here so an AAAA
+         request only yields ipv6 addresses and vice versa. */
+      if((q->qtype == LWS_ADNS_RECORD_A && p->ai_family != AF_INET) ||
+         (q->qtype == LWS_ADNS_RECORD_AAAA && p->ai_family != AF_INET6))
+        continue;
 
       if(p->ai_addr && p->ai_addrlen <= sizeof(sa46)) {
         char buf[64];
@@ -973,6 +983,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
           JSValue promise = JS_NewPromiseCapability(ctx, q->resolving_funcs);
 
           q->ctx = ctx;
+          q->qtype = qtype;
           lws_async_dns_query(lws->ctx, 0, name, qtype, lwsjs_resolve_cb, NULL, q, NULL);
           ret = promise;
         }
