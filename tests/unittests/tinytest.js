@@ -47,11 +47,11 @@ const TinyTest = {
       //console.log('Test:', testName, testAction);
       try {
         await testAction();
-        console.log('Test:', testName, 'OK');
       } catch(e) {
         failures++;
         console.error('Test:', testName, 'FAILED', e);
         console.error(e.stack);
+        continue;
       }
       console.log('Test:', testName, 'OK');
       count++;

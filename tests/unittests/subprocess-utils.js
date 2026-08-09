@@ -7,6 +7,8 @@
  */
 import * as os from 'os';
 
+let portSeq = 0;
+
 /**
  * A port unlikely to collide with another concurrently-running instance of
  * this same suite (or the OS's own ephemeral range) - spread by pid so two

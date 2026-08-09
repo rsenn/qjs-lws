@@ -5,8 +5,10 @@
  * test, torn down with server.destroy() once the exchange completes.
  */
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { LWSContext, createServer, LWS_WRITE_TEXT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, toString, toArrayBuffer, } from 'lws.so';
+import { logLevel, LWSContext, createServer, LWS_WRITE_TEXT, LWS_WRITE_HTTP_FINAL, LWSMPRO_NO_MOUNT, LWSMPRO_CALLBACK, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG, toString, toArrayBuffer, } from 'lws.so';
 import { freePort } from './subprocess-utils.js';
+
+logLevel(0, () => {});
 
 await tests({
   async 'WebSocket client: connects to an in-process WS echo server and round-trips a message'() {
