@@ -1,16 +1,3 @@
-- tinytest-summary-denominator-excludes-failures (tests/unittests/tinytest.js:42,57,60):
-  TinyTest.run()'s `count` only increments on the success path (line 57,
-  after the try block), never in the catch branch, but the failure
-  summary line reads `${failures} out of ${count} tests failed` -
-  `count` is meant to be the total tests run, not just the passing ones,
-  so a run with 1 failing test and 0 passing prints "1 out of 0 tests
-  failed" instead of "1 out of 1". Found while verifying the fix for
-  tinytest-always-prints-ok.
-
-    import { tests } from './tests/unittests/tinytest.js';
-    await tests({ 'always fails'() { throw new Error('nope'); } });
-    // prints "1 out of 0 tests failed." - should be "1 out of 1"
-
 - deferred-close-hangs-on-established-client-http (lws-protocol.c:~50,
   pollfd_handler's forced-service while loop; ops-h1.c:719-747,
   rops_handle_POLLIN_h1): closing an HTTP client wsi from
