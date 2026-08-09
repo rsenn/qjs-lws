@@ -390,6 +390,52 @@
 
     not minimally reduced yet - see the description above for what was and wasn't ruled out; start from a serve({fetch, websocket}) with two distinct upgrade-accepting URL branches and a preceding plain fetch() call, then bisect down
 
+- h1-late-queued-pipeline-never-promoted (libwebsockets/lib/roles/h1/ops-h1.c,
+  rops_handle_POLLOUT_h1; contrast libwebsockets/lib/core-net/wsi.c:1720,
+  lws_wsi_mux_apply_queue): native root cause of the ollama-repl "only the
+  first prompt works" symptom (mitigated at the application layer - see
+  IDLE_RECONNECT_MS in examples/ollama-repl/lib/ollama-client.js/
+  gemini-client.js, and tests/test-keepalive.js's investigation - but not
+  fixable there, this lives entirely in vendored libwebsockets). When a
+  second HTTP/1.1 client request is queued onto an existing LCCSCF_PIPELINE
+  connection *after* the first transaction has already fully completed and
+  gone idle (as opposed to being queued while the first is still in
+  flight), it never gets sent: lws_client_connect_4_established()
+  (core-net/client/connect4.c:147) parks it on the parent wsi's
+  dll2_cli_txn_queue_owner in state LRS_H2_WAITING_TO_SEND_HEADERS and
+  calls lws_callback_on_writable(parent) - but nothing ever promotes it out
+  of that state for a plain H1 parent. The promotion logic that exists,
+  lws_wsi_mux_apply_queue() (core-net/wsi.c:1720), only checks
+  lwsi_role_h2()/h3//mqtt roles (called from roles/h2/http2.c,
+  roles/mqtt/mqtt.c, the quic files) - plain H1's own POLLOUT handler,
+  rops_handle_POLLOUT_h1 (roles/h1/ops-h1.c), never touches
+  dll2_cli_txn_queue_owner at all. The "back-to-back, still in flight"
+  case works fine because that handoff happens synchronously inside
+  lws_http_transaction_completed_client() (roles/http/client/
+  client-http.c:515) as transaction #1 itself completes - a wholly
+  different path that only fires if the queue is non-empty at that exact
+  moment. Confirmed via LLL_USER logging on a live ollama-repl session:
+  the second POST shows ESTABLISHED_CLIENT_HTTP (fired early/spuriously at
+  queue time) and SERVER_NEW_CLIENT_INSTANTIATED, but never
+  CLIENT_APPEND_HANDSHAKE_HEADER (where HttpClientProtocol sets
+  wsi.bodyPending=1 and writes the real request) - the queued child just
+  sits until a pending-timeout tears it down as CLIENT_HTTP_DROP_PROTOCOL.
+  Not fixed here: would need an H1-specific equivalent of
+  lws_wsi_mux_apply_queue(), called from rops_handle_POLLOUT_h1 (or
+  wherever the parent's writable event is actually dispatched for h1),
+  in vendored libwebsockets - a bigger, riskier native change than this
+  pass attempted.
+
+    tests/test-keepalive.js's fixture server can't
+    reproduce this directly (its keepalive_timeout closes cleanly, a real
+    FIN, which the client notices right away - a different failure mode);
+    reproduce against a real Ollama server instead: qjsm
+    examples/ollama-repl/repl.js --provider ollama --model
+    qwen2.5-coder:latest -x -x (second -x for LLL_USER), send one prompt,
+    wait ~90s past the reply, send a second - watch for
+    ESTABLISHED_CLIENT_HTTP/SERVER_NEW_CLIENT_INSTANTIATED with no
+    subsequent CLIENT_APPEND_HANDSHAKE_HEADER before CLIENT_HTTP_DROP_PROTOCOL
+
 - context-schedule-cancel-segfaults (tests/unittests/test-context-features.js, LWSContext#schedule()/timer.cancel()): running the full ctest suite segfaults inside test-context-features.js - confirmed to be after the "schedule() fires the callback once" case passes and before "schedule().cancel() prevents the callback from firing" completes, so the crash is somewhere in that second test's timer.cancel() (called twice back to back, then ctx.destroy() after a further schedule()+await). Found incidentally while verifying an unrelated CHECK_ACCESS_RIGHTS fix via `ctest`; confirmed pre-existing via git stash (crashes identically with that fix reverted). Not bisected further or root-caused.
 
     qjsm -e '
