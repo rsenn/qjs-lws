@@ -3,10 +3,12 @@
  * gets a reply, every one after it just hangs" report (see git log for
  * the OllamaClient/GeminiClient fix, and their IDLE_RECONNECT_MS doc
  * comments): OllamaClient/GeminiClient each reuse one kept-alive
- * (LCCSCF_PIPELINE) HTTP/1.1 connection for every request, and a request
- * sent after the connection has sat idle long enough for the *server* to
- * close it silently just hangs forever - no reply, no error - because
- * lws's pipelining never notices the close before reusing the wsi.
+ * (LCCSCF_PIPELINE) HTTP/1.1 connection for every POST /api/chat, and a
+ * request sent after the connection has sat idle long enough for the
+ * *server* to close it silently just hangs forever - no reply, no error -
+ * because lws's pipelining never notices the close before reusing the
+ * wsi. Requests here are POST + a JSON body, same shape as the real
+ * /api/chat traffic, not a bodyless GET.
  *
  * Reproduced here without Ollama or any external process: this project's
  * own HTTP server closes an idle HTTP/1.1 client connection after
@@ -20,7 +22,7 @@
  * connection:
  *  - the bare lws.so client API (LWSContext + a protocol object with
  *    onEstablishedClientHttp/onReceiveClientHttp callbacks) - same shape
- *    as tests/unittests/test-client.js's own "HTTP client (GET)" case.
+ *    as tests/unittests/test-client.js's own "HTTP client (POST)" case.
  *  - lib/lws/protocols.js's httpClient() adapter - what
  *    OllamaClient/GeminiClient actually build on.
  * If both hang the same way, the gap is native/lws-level, below either
@@ -29,26 +31,27 @@
  *
  * Result so far: neither variant reproduces a hang against this local
  * fixture server, even though the exact same idle-gap-then-reuse pattern
- * reliably hung against a real Ollama server (see the fixed BUGS entry's
- * git history). Most likely explanation: this server's keepalive_timeout
- * closes the idle connection *cleanly* (a real FIN), which the client
- * notices immediately on its next write/read attempt and reports as a
- * normal connection error - not the same failure mode as whatever
- * happened against Ollama, where nothing ever notices the connection is
- * gone at all. That points at something more like a silently black-holed
- * connection (no FIN/RST ever reaching the client - e.g. a stalled/half-
- * open TCP state) rather than a plain graceful idle-timeout close, which
- * this fixture can't reproduce without deliberately dropping packets
- * (e.g. an iptables DROP rule, not attempted here) instead of just
- * closing the socket normally.
+ * reliably hung against a real Ollama server (see BUGS:
+ * h1-late-queued-pipeline-never-promoted for the native root cause this
+ * pointed at instead). Most likely explanation: this server's
+ * keepalive_timeout closes the idle connection *cleanly* (a real FIN),
+ * which the client notices immediately on its next write/read attempt
+ * and reports as a normal connection error - not the same failure mode
+ * as whatever happened against Ollama, where nothing ever notices the
+ * connection is gone at all. That points at something more like a
+ * silently black-holed connection (no FIN/RST ever reaching the client)
+ * rather than a plain graceful idle-timeout close, which this fixture
+ * can't reproduce without deliberately dropping packets (e.g. an
+ * iptables DROP rule, not attempted here) instead of just closing the
+ * socket normally.
  */
-import { LWSContext, createServer, LCCSCF_PIPELINE, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK, toString } from 'lws.so';
+import { LWSContext, createServer, LCCSCF_PIPELINE, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK, toString, toArrayBuffer } from 'lws.so';
 import createContext from '../lib/lws/context.js';
 import { httpClient } from '../lib/lws/protocols.js';
 import * as std from 'std';
 
 function assert(cond, message) {
-  if(!cond) throw new Error('assertion failed: ' + message);
+  if(!cond) throw new Error(`assertion failed: ${message}`);
 }
 
 function sleep(ms) {
@@ -75,10 +78,17 @@ const IDLE_GAP_MS = 1800;
 // hang rather than a slow-but-working response.
 const HANG_TIMEOUT_MS = 5000;
 
-/** In-process fixture server: replies 'pong' to every request, and (via
-    a short keepalive_timeout) drops an idle HTTP/1.1 client connection
-    quickly - the same mechanism a real server (Ollama's included) uses
-    at its own, much longer, default. */
+// Same shape as OllamaClient#chat's own payload - a JSON body posted to
+// a keep-alive connection - just smaller.
+const REQUEST_BODY = JSON.stringify({ ping: 'are you there' });
+const REQUEST_BODY_LENGTH = String(toArrayBuffer(REQUEST_BODY).byteLength);
+
+/**
+ * In-process fixture server: reads (and discards) a POST body, replies
+ * 'pong', and - via a short keepalive_timeout - drops an idle HTTP/1.1
+ * client connection quickly, the same mechanism a real server (Ollama's
+ * included) uses at its own, much longer, default.
+ */
 function startServer() {
   return createServer({
     port: PORT,
@@ -88,7 +98,10 @@ function startServer() {
     protocols: [
       {
         name: 'http',
-        onHttp(wsi) {
+        onHttpBody() {
+          /* discard the request body - this probe doesn't care what it says */
+        },
+        onHttpBodyCompletion(wsi) {
           wsi.respond(200, { 'content-type': 'text/plain' });
           wsi.write('pong', LWS_WRITE_HTTP_FINAL);
         },
@@ -97,36 +110,18 @@ function startServer() {
   });
 }
 
-/** One GET / over `ctx`'s existing (possibly already-pipelined)
-    connection, via the bare lws.so client API. Unlike
-    tests/unittests/test-client.js's own "HTTP client (GET)" case, this
-    can't stash per-request state on `this` inside the callbacks below -
-    confirmed directly (see git history/commit message for this file)
-    that `this` there is some fresh per-session object, unrelated to (and
-    not even prototype-linked to) the protocol descriptor object passed
-    to `new LWSContext()` - so a later request's callbacks can't see
-    anything stored by an earlier one that way. `pending` (module-scope,
-    reassigned per call) carries the resolve/reject for whichever request
-    is currently in flight instead - safe here since this probe only ever
-    has one request outstanding at a time. */
-let pending = null;
-
-function requestPlainApi(ctx) {
-  return new Promise((resolve, reject) => {
-    pending = { resolve, reject, status: undefined };
-    ctx.clientConnect({
-      address: 'localhost',
-      port: PORT,
-      path: '/',
-      host: 'localhost',
-      method: 'GET',
-      protocol: 'http',
-      ssl_connection: LCCSCF_PIPELINE,
-    });
-  });
-}
-
-async function probe(label, requestOnce, destroy) {
+/**
+ * Runs `requestOnce()` once against a fresh connection, then again after
+ * IDLE_GAP_MS, and reports whether the second (idle-reused) request
+ * completed or hung - printing progress as it goes so a run's output
+ * tells the whole story on its own.
+ *
+ * @param {string} label - printed as this probe's section heading
+ * @param {() => Promise<{status: number, body: string}>} requestOnce
+ * @param {() => void} destroy - tears down whatever `requestOnce` used
+ * @returns {Promise<boolean>} true if both requests succeeded
+ */
+async function probeIdleReuse(label, requestOnce, destroy) {
   console.log(`\n=== ${label} ===`);
 
   try {
@@ -137,11 +132,7 @@ async function probe(label, requestOnce, destroy) {
     console.log(`waiting ${IDLE_GAP_MS}ms (> ${KEEPALIVE_TIMEOUT_SECS}s server keepalive_timeout) before reusing the connection...`);
     await sleep(IDLE_GAP_MS);
 
-    const second = await withTimeout(
-      requestOnce(),
-      HANG_TIMEOUT_MS,
-      `second request never settled within ${HANG_TIMEOUT_MS}ms - HANGS, same failure mode as the ollama-repl report`,
-    );
+    const second = await withTimeout(requestOnce(), HANG_TIMEOUT_MS, `second request never settled within ${HANG_TIMEOUT_MS}ms - HANGS, same failure mode as the ollama-repl report`);
     assert(second.status === 200 && second.body === 'pong', `unexpected second response: ${JSON.stringify(second)}`);
     console.log('second request (idle-reused pipelined connection): OK - no hang reproduced');
     return true;
@@ -153,12 +144,59 @@ async function probe(label, requestOnce, destroy) {
   }
 }
 
-async function testPlainApi() {
-  const proto = {
+/**
+ * Variant 1: the bare lws.so client API - LWSContext + a protocol object
+ * whose callbacks are native LWS_CALLBACK_* reasons directly, same shape
+ * as lib/lws/protocols.js's own HttpClientProtocol but hand-rolled here.
+ *
+ * State can't be stashed on `this` inside those callbacks the way
+ * tests/unittests/test-client.js's client-side examples try to: `this`
+ * there is some fresh per-session object, unrelated to (and not even
+ * prototype-linked to) the protocol descriptor object passed to `new
+ * LWSContext()` - confirmed directly while writing this file. `pending`
+ * (module-scope, reassigned per call) carries the resolve/reject/status
+ * for whichever request is currently in flight instead - safe here since
+ * this probe only ever has one request outstanding at a time.
+ */
+let pending = null;
+
+function requestViaPlainApi(ctx) {
+  return new Promise((resolve, reject) => {
+    pending = { resolve, reject, status: undefined };
+    ctx.clientConnect({
+      address: 'localhost',
+      port: PORT,
+      path: '/',
+      host: 'localhost',
+      method: 'POST',
+      protocol: 'http',
+      ssl_connection: LCCSCF_PIPELINE,
+    });
+  });
+}
+
+function makePlainApiProtocol() {
+  return {
     name: 'http',
+
+    // Compose the POST headers/body - same two-step handshake
+    // lib/lws/protocols.js's HttpClientProtocol itself uses (see its
+    // onClientAppendHandshakeHeader/onClientHttpWriteable), just written
+    // out directly instead of going through that adapter.
+    onClientAppendHandshakeHeader(wsi, buf, len) {
+      wsi.addHeader('content-type', 'application/json', buf, len);
+      wsi.addHeader('content-length', REQUEST_BODY_LENGTH, buf, len);
+      wsi.bodyPending = 1;
+    },
+    onClientHttpWriteable(wsi) {
+      wsi.write(REQUEST_BODY, LWS_WRITE_HTTP_FINAL);
+      wsi.bodyPending = 0;
+    },
+
     onEstablishedClientHttp(wsi, status) {
       if(pending) pending.status = status;
     },
+
     // Recognized native callback name (LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ)
     // - wsi.httpClientRead(buf) below re-enters synchronously into this
     // with the real (wsi, buf, len), same as lib/lws/protocols.js's own
@@ -169,63 +207,65 @@ async function testPlainApi() {
       wsi.httpClientRead(new ArrayBuffer(4096));
     },
     onReceiveClientHttpRead(wsi, buf, len) {
-      if(pending) {
-        const { resolve, status } = pending;
-        pending = null;
-        resolve({ status, body: toString(buf, 0, len) });
-      }
+      if(!pending) return;
+      const { resolve, status } = pending;
+      pending = null;
+      resolve({ status, body: toString(buf, 0, len) });
     },
+
     onClientConnectionError(wsi, msg) {
-      if(pending) {
-        const { reject } = pending;
-        pending = null;
-        reject(new Error(`connection error: ${msg}`));
-      }
+      if(!pending) return;
+      const { reject } = pending;
+      pending = null;
+      reject(new Error(`connection error: ${msg}`));
     },
-    onClosedClientHttp(wsi) {
-      if(pending) {
-        const { reject } = pending;
-        pending = null;
-        reject(new Error('closed before a body was received'));
-      }
+    onClosedClientHttp() {
+      if(!pending) return;
+      const { reject } = pending;
+      pending = null;
+      reject(new Error('closed before a body was received'));
     },
   };
-
-  const ctx = new LWSContext({ protocols: [proto] });
-
-  return probe('plain lws.so API', () => requestPlainApi(ctx), () => ctx.destroy());
 }
 
+async function testPlainApi() {
+  const ctx = new LWSContext({ protocols: [makePlainApiProtocol()] });
+
+  return probeIdleReuse(
+    'plain lws.so API',
+    () => requestViaPlainApi(ctx),
+    () => ctx.destroy(),
+  );
+}
+
+/**
+ * Variant 2: lib/lws/protocols.js's httpClient() adapter - what
+ * OllamaClient/GeminiClient actually build on, so this is the closest
+ * local stand-in for their own #post().
+ */
 async function testHttpClientAdapter() {
   const settled = new Map();
-  const adapter = httpClient((req, resp) => settled.get(req)?.resolve(resp), {
-    error: (req, err) => settled.get(req)?.reject(new Error(`connection error: ${err.message}`)),
-  });
+  const adapter = httpClient((req, resp) => settled.get(req)?.resolve(resp), { error: (req, err) => settled.get(req)?.reject(new Error(`connection error: ${err.message}`)) });
   const ctx = createContext({ protocols: [{ name: 'http', ...adapter }] });
 
   async function requestOnce() {
-    const { req } = await adapter.connect(ctx, `http://localhost:${PORT}/`, { method: 'GET', ssl_connection: LCCSCF_PIPELINE });
+    const { req } = await adapter.connect(ctx, `http://localhost:${PORT}/`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: REQUEST_BODY,
+      ssl_connection: LCCSCF_PIPELINE,
+    });
     const resp = await new Promise((resolve, reject) => settled.set(req, { resolve, reject }));
     return { status: resp.status, body: await resp.text() };
   }
 
-  return probe('httpClient() (lib/lws/protocols.js)', requestOnce, () => ctx.destroy());
+  return probeIdleReuse('httpClient() (lib/lws/protocols.js)', requestOnce, () => ctx.destroy());
 }
 
-async function main() {
-  const server = startServer();
-
-  let plainOk, adapterOk;
-  try {
-    plainOk = await testPlainApi();
-    adapterOk = await testHttpClientAdapter();
-  } finally {
-    server.destroy();
-  }
-
+function printSummary(plainOk, adapterOk) {
   console.log('\n=== summary ===');
-  console.log(`plain lws.so API,  idle-reused connection: ${plainOk ? 'OK' : 'HANGS/FAILS'}`);
-  console.log(`httpClient() adapter, idle-reused connection: ${adapterOk ? 'OK' : 'HANGS/FAILS'}`);
+  console.log(`plain lws.so API,      idle-reused connection: ${plainOk ? 'OK' : 'HANGS/FAILS'}`);
+  console.log(`httpClient() adapter,  idle-reused connection: ${adapterOk ? 'OK' : 'HANGS/FAILS'}`);
 
   if(!plainOk && !adapterOk) {
     console.log('\nBoth layers fail the same way -> the dead-pipelined-connection');
@@ -241,6 +281,20 @@ async function main() {
     console.log('connection (no FIN/RST ever arriving) - not reproducible here without');
     console.log('deliberately dropping packets instead of just closing the socket.');
   }
+}
+
+async function main() {
+  const server = startServer();
+
+  let plainOk, adapterOk;
+  try {
+    plainOk = await testPlainApi();
+    adapterOk = await testHttpClientAdapter();
+  } finally {
+    server.destroy();
+  }
+
+  printSummary(plainOk, adapterOk);
 
   if(!plainOk || !adapterOk) std.exit(1);
 }
