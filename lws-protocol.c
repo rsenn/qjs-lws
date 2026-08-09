@@ -556,14 +556,20 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   if(is_pollfd_reason(reason) && lwsjs_callback_pollfd(wsi, reason, user, in, len) == 0)
     return 0;
 
-  if(wsi && is_rx_reason(reason)) {
-    if(in && len > 0) {
-      char preview[len + (len >> 2)];
+  if(wsi) {
+    if(is_rx_reason(reason)) {
+      if(in && len > 0) {
+        char preview[len + (len >> 2)];
 
-      log_preview(preview, sizeof(preview), in, len);
-      lwsl_wsi_user(wsi, "RX %s: %zu bytes: %s%s\n", lwsjs_callback_name(reason), len, preview, len > sizeof(preview) - 1 ? "..." : "");
-    } else {
-      lwsl_wsi_user(wsi, "RX %s\n", lwsjs_callback_name(reason));
+        log_preview(preview, sizeof(preview), in, len);
+        lwsl_wsi_user(wsi, "RX %s: %zu bytes: %s%s\n", lwsjs_callback_name(reason), len, preview, len > sizeof(preview) - 1 ? "..." : "");
+      } else {
+        lwsl_wsi_user(wsi, "RX %s\n", lwsjs_callback_name(reason));
+      }
+    } else if(is_connected_reason(reason)) {
+      lwsl_wsi_user(wsi, "CONN %s\n", lwsjs_callback_name(reason));
+    } else if(is_closed_reason(reason)) {
+      lwsl_wsi_user(wsi, "CLOSE %s\n", lwsjs_callback_name(reason));
     }
   }
 

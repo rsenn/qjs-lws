@@ -681,6 +681,64 @@ context_free(JSRuntime* rt, LWSContext* lws) {
   js_free_rt(rt, lws);
 }
 
+static JSValue
+lwsjs_client_connect(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  LWSContext* lws;
+  JSValue ret = JS_UNDEFINED;
+
+  if(!(lws = lwsjs_context_data2(ctx, this_val)))
+    return JS_EXCEPTION;
+
+  if(lws->ctx == NULL)
+    return JS_ThrowInternalError(ctx, "LWSContext internal lws_context has been destroyed");
+
+  struct lws_client_connect_info info = {0};
+  char* uri = 0;
+  JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
+
+  if(argc > 0 && JS_IsString(argv[0])) {
+    char* tmp;
+
+    if((tmp = to_string(ctx, argv[0]))) {
+      uri = js_strdup(ctx, tmp);
+      client_connect_info_from_uri(ctx, tmp, &info);
+      js_free(ctx, tmp);
+    }
+  }
+
+  client_connect_info_fromobj(ctx, obj, &info);
+
+  LWSSocket* sock = socket_alloc(ctx);
+
+  sock->client = TRUE;
+  sock->type = info.method ? SOCKET_HTTP : SOCKET_WS;
+  sock->method = info.method ? lwsjs_method_index(info.method) : 0;
+  /* Ownership moves here, not freed by client_connect_info_free()
+     below - see the comment on client_connect_info_fromobj()'s
+     retry_and_idle_policy assignment. */
+  sock->retry = (struct lws_retry_bo*)info.retry_and_idle_policy;
+
+  ret = lwsjs_socket_wrap(ctx, sock);
+
+  info.context = lws->ctx;
+  info.pwsi = &sock->wsi;
+  info.opaque_user_data = obj_ptr(ctx, ret);
+
+  if(info.address == 0 && info.host)
+    info.address = js_strdup(ctx, info.host);
+
+  if(!uri)
+    uri = client_connect_info_to_uri(ctx, &info);
+
+  sock->uri = uri;
+
+  lws_client_connect_via_info(&info);
+
+  client_connect_info_free(JS_GetRuntime(ctx), &info);
+  JS_FreeValue(ctx, obj);
+  return ret;
+}
+
 JSClassID lwsjs_context_class_id;
 static JSValue lwsjs_context_proto, lwsjs_context_ctor;
 
@@ -738,7 +796,6 @@ enum {
   METHOD_ADOPTSOCKET,
   METHOD_ADOPTSOCKET_READBUF,
   METHOD_CANCELSERVICE,
-  METHOD_CLIENTCONNECT,
   METHOD_GETRANDOM,
   METHOD_ASYNCDNSSERVER_ADD,
   METHOD_ASYNCDNSSERVER_REMOVE,
@@ -827,54 +884,6 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       lws_cancel_service(lws->ctx);
       iohandler_cleanup(lws);
       service_tick_cancel(lws);
-      break;
-    }
-
-    case METHOD_CLIENTCONNECT: {
-      struct lws_client_connect_info info = {0};
-      char* uri = 0;
-      JSValue obj = JS_IsString(argv[0]) ? (argc > 1 && JS_IsObject(argv[1]) ? JS_DupValue(ctx, argv[1]) : JS_NewObject(ctx)) : JS_DupValue(ctx, argv[0]);
-
-      if(argc > 0 && JS_IsString(argv[0])) {
-        char* tmp;
-
-        if((tmp = to_string(ctx, argv[0]))) {
-          uri = js_strdup(ctx, tmp);
-          client_connect_info_from_uri(ctx, tmp, &info);
-          js_free(ctx, tmp);
-        }
-      }
-
-      client_connect_info_fromobj(ctx, obj, &info);
-
-      LWSSocket* sock = socket_alloc(ctx);
-
-      sock->client = TRUE;
-      sock->type = info.method ? SOCKET_HTTP : SOCKET_WS;
-      sock->method = info.method ? lwsjs_method_index(info.method) : 0;
-      /* Ownership moves here, not freed by client_connect_info_free()
-         below - see the comment on client_connect_info_fromobj()'s
-         retry_and_idle_policy assignment. */
-      sock->retry = (struct lws_retry_bo*)info.retry_and_idle_policy;
-
-      ret = lwsjs_socket_wrap(ctx, sock);
-
-      info.context = lws->ctx;
-      info.pwsi = &sock->wsi;
-      info.opaque_user_data = obj_ptr(ctx, ret);
-
-      if(info.address == 0 && info.host)
-        info.address = js_strdup(ctx, info.host);
-
-      if(!uri)
-        uri = client_connect_info_to_uri(ctx, &info);
-
-      sock->uri = uri;
-
-      lws_client_connect_via_info(&info);
-
-      client_connect_info_free(JS_GetRuntime(ctx), &info);
-      JS_FreeValue(ctx, obj);
       break;
     }
 
@@ -1170,7 +1179,7 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("adoptSocket", 1, lwsjs_context_methods, METHOD_ADOPTSOCKET),
     JS_CFUNC_MAGIC_DEF("adoptSocketReadbuf", 2, lwsjs_context_methods, METHOD_ADOPTSOCKET_READBUF),
     JS_CFUNC_MAGIC_DEF("cancelService", 0, lwsjs_context_methods, METHOD_CANCELSERVICE),
-    JS_CFUNC_MAGIC_DEF("clientConnect", 1, lwsjs_context_methods, METHOD_CLIENTCONNECT),
+    JS_CFUNC_DEF("clientConnect", 1, lwsjs_client_connect),
     JS_CFUNC_MAGIC_DEF("getRandom", 1, lwsjs_context_methods, METHOD_GETRANDOM),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, METHOD_ASYNCDNSSERVER_ADD),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, METHOD_ASYNCDNSSERVER_REMOVE),

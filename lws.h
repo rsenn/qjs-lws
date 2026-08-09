@@ -181,13 +181,14 @@ is_htmlargs_reason(enum lws_callback_reasons reason) {
 }
 
 static inline BOOL
-is_close_reason(enum lws_callback_reasons reason) {
+is_closed_reason(enum lws_callback_reasons reason) {
   switch(reason) {
     case LWS_CALLBACK_CLOSED_HTTP:
     case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
     case LWS_CALLBACK_CLOSED:
     case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
     case LWS_CALLBACK_CLIENT_CLOSED:
+    case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
     case LWS_CALLBACK_RAW_PROXY_CLI_CLOSE:
     case LWS_CALLBACK_RAW_PROXY_SRV_CLOSE:
     case LWS_CALLBACK_RAW_CLOSE:
@@ -197,7 +198,7 @@ is_close_reason(enum lws_callback_reasons reason) {
 }
 
 static inline BOOL
-is_connect_reason(enum lws_callback_reasons reason) {
+is_connected_reason(enum lws_callback_reasons reason) {
   switch(reason) {
     case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
     case LWS_CALLBACK_ESTABLISHED:
@@ -212,4 +213,44 @@ is_connect_reason(enum lws_callback_reasons reason) {
   }
 }
 
+static inline BOOL
+is_completed_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+    case LWS_CALLBACK_HTTP_FILE_COMPLETION:
+    case LWS_CALLBACK_COMPLETED_CLIENT_HTTP: return TRUE;
+    default: return FALSE;
+  }
+}
+
+static inline BOOL
+is_drop_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
+    case LWS_CALLBACK_CLIENT_HTTP_DROP_PROTOCOL:
+    case LWS_CALLBACK_WS_SERVER_DROP_PROTOCOL:
+    case LWS_CALLBACK_WS_CLIENT_DROP_PROTOCOL:
+    case LWS_CALLBACK_RAW_PROXY_CLI_DROP_PROTOCOL:
+    case LWS_CALLBACK_RAW_PROXY_SRV_DROP_PROTOCOL:
+    case LWS_CALLBACK_RAW_SKT_DROP_PROTOCOL:
+    case LWS_CALLBACK_RAW_FILE_DROP_PROTOCOL:
+    case LWS_CALLBACK_MQTT_DROP_PROTOCOL: return TRUE;
+    default: return FALSE;
+  }
+}
+
+static inline BOOL
+is_bind_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+    case LWS_CALLBACK_HTTP_BIND_PROTOCOL:
+    case LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL:
+    case LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL:
+    case LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL:
+    case LWS_CALLBACK_RAW_PROXY_CLI_BIND_PROTOCOL:
+    case LWS_CALLBACK_RAW_PROXY_SRV_BIND_PROTOCOL:
+    case LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL:
+    case LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL: return TRUE;
+    default: return FALSE;
+  }
+}
 #endif /* defined QJS_LWS_H */
