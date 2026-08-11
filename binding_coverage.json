@@ -1,0 +1,4961 @@
+{
+  "generatedAt": "2026-08-05T02:56:38.178Z",
+  "objects": [
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/js-utils.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws-context.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws-mount.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws-protocol.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws-sockaddr46.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws-socket.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws-spa.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws-tls.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws-vhost.c.o",
+    "build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir/lws.c.o"
+  ],
+  "libSources": [
+    "build/x86_64-linux-debug/libwebsockets/lib/libwebsockets.a"
+  ],
+  "publicApiFilter": "libwebsockets/include",
+  "libraries": {
+    "libwebsockets.a": {
+      "functions": {
+        "total": 808,
+        "implemented": 162,
+        "percentage": 20.05,
+        "list": [
+          {
+            "name": "__lws_close_free_wsi_final",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "__lws_sul_insert",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": false
+          },
+          {
+            "name": "__lws_sul_service_ripe",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": false
+          },
+          {
+            "name": "__lws_system_attach",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_context_info_defaults",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_dll2_search_sz_pl",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_log",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "_lws_log_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "_lws_log_cx_rl",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_log_rl",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_logv",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_plat_file_close",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_plat_file_open",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_plat_file_read",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_plat_file_seek_cur",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_plat_file_write",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "_lws_plat_service_forced_tsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "_lwsac_assert_valid",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_change_callback",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_check_path_match",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_construct",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_destruct",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_error_to_string",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_get_wildcard",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_parse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_parser_pop",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_parser_push",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_string_unify",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lejp_string_unify_part",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lejp.h",
+            "implemented": false
+          },
+          {
+            "name": "lhp_displaylist_layout",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lhp_prop_axis",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lhp_resolve_var_color",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lhp_set_dlo_padding_margin",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_SHA1",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adapt_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adapt.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adapt_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adapt.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adapt_get_level",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adapt.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adapt_get_val",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adapt.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adapt_report",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adapt.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adapt_report_val",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adapt.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_add_http_common_headers",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_add_http_header_by_name",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_add_http_header_by_token",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_add_http_header_content_length",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_add_http_header_status",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_adjust_protocol_psds",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adns_get_async_dns",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adns_get_server",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adns_get_tid",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adns_parse_udp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adopt_descriptor_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adopt.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_adopt_descriptor_vhost_via_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adopt.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_adopt_socket",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adopt.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_adopt_socket_readbuf",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adopt.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_adopt_socket_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adopt.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_adopt_socket_vhost_readbuf",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adopt.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_assert_fourcc",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_async_dns_dnssec_set_mode",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_async_dns_freeaddrinfo",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_async_dns_get_alpn",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_async_dns_get_rr_cache",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_async_dns_query",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_async_dns_server_add",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_async_dns_server_reload",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_async_dns_server_remove",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_async_ipc_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-ipc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_async_ipc_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-ipc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_async_ipc_queue_payload",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-ipc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_b32_decode_string",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_b32_decode_string_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_b32_encode_string",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_b64_decode_state_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_b64_decode_stateful",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_b64_decode_string",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_b64_decode_string_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_b64_encode_string",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_b64_encode_string_url",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-sha1-base64.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_base64_size",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-gencrypto.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist2_append_segment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist2_append_segment_take_ownership",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist2_destroy_all_segments",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist2_fragment_use",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist2_get_frag_start_or_NULL",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist2_next_segment_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist2_use_segment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_append_segment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_append_segment_take_ownership",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_describe",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_destroy_all_segments",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_fragment_use",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_get_frag_start_or_NULL",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_linear_copy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_linear_use",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_next_segment_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_total_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_buflist_use_segment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_debug_dump",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_expunge",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_footprint",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_item_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_item_remove",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_lookup",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_results_walk",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_write_through",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_all_protocol",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-writeable.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_all_protocol_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-writeable.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_all_protocol_vhost_args",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-writeable.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_http_dummy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_callback_interceptor",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-interceptor.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_on_writable",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_callback_on_writable_all_protocol",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-writeable.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_on_writable_all_protocol_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-writeable.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_stub_client",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-stub.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_vhost_protocols",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-writeable.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_callback_vhost_protocols_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-writeable.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cancel_service",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_cancel_service_pt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_canonical_hostname",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_chacha_encrypt_bytes",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_chacha_ivsetup",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_chacha_ivsetup_ietf",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_chacha_keysetup",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_chunked_html_process",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_clear_child_pending_on_writable",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_client_connect_via_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_client_http_body_pending",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_client_http_multipart",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_close_free_wsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_close_reason",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-write.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_cmdline_option",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cmdline_option_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_cmdline_option_cx_argv0",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cmdline_option_handle_builtin",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cmdline_options",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cmdline_options_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cmdline_passfail",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_conmon_release",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-conmon.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_conmon_wsi_take",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-conmon.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_context_default_loop_run_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_context_deprecate",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_context_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_context_is_being_destroyed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_context_is_deprecated",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_context_user",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_crc32",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_create_adopt_udp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adopt.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_create_context",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_create_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_csp_px",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_css_cascade_get_prop_atr",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_css_get_parent_block",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_css_pstack_name",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_default_loop_exit",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_destroy_event_pipe",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dir",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dir_du_cb",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dir_glob_cb",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dir_notify_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dir-notify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dir_notify_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dir-notify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dir_rm_rf_cb",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dir_via_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_diskcache_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-diskcache.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_diskcache_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-diskcache.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_diskcache_finalize_name",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-diskcache.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_diskcache_prepare",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-diskcache.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_diskcache_query",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-diskcache.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_diskcache_secs_to_idle",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-diskcache.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_diskcache_trim",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-diskcache.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dl_dump",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dl_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_add",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_adjust_dims",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_jpeg_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_jpeg_metadata_scan",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_jpeg_new",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_png_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_png_metadata_scan",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_png_new",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_rect_new",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_text_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_text_new",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_dlo_text_update",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_get_ids_boxes",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_list_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_list_render_line",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_render_add_id",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_render_dump_ids",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_render_free_ids",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_render_get_id",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_render_jpeg",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_render_png",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_display_render_rect",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_add_before",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_add_head",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_add_insert",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_add_sorted",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_add_sorted_priv",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_add_tail",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_clear",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_describe",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_foreach_safe",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_is_detached",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_owner_clear",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dll2_remove",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dll2.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_contents",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_file_choose",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_file_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_file_register",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_file_unregister",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_file_unregister_by_name",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_ss_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_ss_find",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ensure_user_space",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_evlib_tsi_to_evlib_pt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_evlib_wsi_to_evlib_pt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_explicit_bzero",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ext_parse_options",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ws-ext.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_extension_callback_pm_deflate",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ws-ext.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_extip_get_best",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_extip_report",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_filename_purify_inplace",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_finalize_http_header",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_finalize_startup",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_finalize_write_http_header",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_find_mount",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_flow_feed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_flow_req",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_font_choose",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_font_register",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fonts_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_frame_is_binary",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ws-state.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_fsmount_mount",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fsmount_unmount",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_add",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_comp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_div",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_mul",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_rounddown",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_roundup",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_sqrt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_string",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_fx_sub",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genaes_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genaes.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genaes_crypt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genaes.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genaes_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genaes.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genchacha_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genchacha_crypt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genchacha_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genchacha_stream",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_gencrypto_bits_to_bytes",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-gencrypto.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_gencrypto_jwe_alg_to_definition",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jose.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_gencrypto_jwe_enc_to_definition",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jose.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_gencrypto_jws_alg_to_definition",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jose.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_gencrypto_padded_length",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-gencrypto.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genec_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genec_destroy_elements",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genec_dump",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdh_compute_shared_secret",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdh_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdh_new_keypair",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdh_set_key",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdsa_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdsa_hash_sig_verify_jws",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdsa_hash_sign_jws",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdsa_new_keypair",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genecdsa_set_key",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_geneddsa_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_geneddsa_hash_sig_verify_jws",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_geneddsa_hash_sign_jws",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_geneddsa_new_keypair",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_geneddsa_set_key",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhash_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhash_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhash_render",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhash_render_prefixed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhash_size",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhash_update",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhkdf_expand",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhkdf_expand_label",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhkdf_extract",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhmac_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhmac_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhmac_size",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genhmac_update",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genhash.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_destroy_elements",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_hash_sig_verify",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_hash_sign",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_new_keypair",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_private_decrypt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_private_encrypt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_public_decrypt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_genrsa_public_encrypt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genrsa.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_allocated_heap",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_child",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_child_pending_on_writable",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_close_length",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_close_payload",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_context",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_count_threads",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_effective_uid_gid",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_fops",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_library_version",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_mimetype",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_network_wsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_opaque_parent_data",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_opaque_user_data",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_opcode",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_parent",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_peer_addresses",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_peer_simple",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_peer_simple_fd",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_peer_write_allowance",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_protocol",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_random",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_reserved_bits",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_socket_fd",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-cgi.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_ssl",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_tsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_txn_queue_depth",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_txn_queue_leader",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_udp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_urlarg_by_name",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_get_urlarg_by_name_safe",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_vhost_by_name",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_vhost_iface",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_vhost_listen_port",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_vhost_name",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_vhost_port",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_get_vhost_user",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_h2_client_stream_long_poll_rxonly",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_h2_get_peer_txcredit_estimate",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_h2_settings",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_h2_update_peer_txcredit",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_handle_POLLOUT_event",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-service.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_hdr_copy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_hdr_copy_fragment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_hdr_custom_copy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_hdr_custom_length",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_hdr_custom_name_foreach",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_hdr_extant",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_hdr_fragment_length",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_hdr_total_length",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_hex_from_byte_array",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_hex_len_to_byte_array",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_hex_random",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_hex_to_byte_array",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_html_get_atr",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_basic_auth_gen",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_basic_auth_gen2",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_check_retry_after",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_client_http_response",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_http_client_read",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_http_compression_apply",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_cookie_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_date_parse_unix",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_date_render_from_unix",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_get_uri_and_method",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_http_headers_detach",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_is_redirected_to_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_http_mark_sse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_mp_sm_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_mp_sm_fill",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_mp_sm_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_redirect",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_rel_to_url",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_remove_urlarg",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_http_transaction_completed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_http_zap_header",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_humanize",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_humanize_pad",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_init_vhost_client_ssl",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_interceptor_check",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-interceptor.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_interceptor_handle_http",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-interceptor.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_interface_to_sa",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_is_cgi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_is_final_fragment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_is_first_fragment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ws-state.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_is_lan_address",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_is_local_address",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_is_ssl",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jose_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jose.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jose_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jose.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_emit_next_line",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jpeg.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_free",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jpeg.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_get_bitdepth",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jpeg.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_get_bpp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jpeg.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_get_components",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jpeg.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_get_height",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_get_pixelsize",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jpeg.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_get_width",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jpeg_new",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jpeg.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jrpc_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jrpc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jrpc_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jrpc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jrpc_obj_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jrpc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jrpc_obj_get_opaque",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jrpc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jrpc_obj_id",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jrpc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jrpc_obj_parse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jrpc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_json_purify",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_json_purify_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_json_simple_find",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_json_simple_strcmp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwa_concat_kdf",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_auth_and_decrypt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_auth_and_decrypt_cbc_hs",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_be64",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_create_packet",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_encrypt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_json_parse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_parse_jose",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jose.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_render_compact",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwe_render_flattened",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwk_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jwk_dump",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwk_dup_oct",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwk_export",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwk_generate",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwk_import",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jwk_load",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jwk_rfc7638_fingerprint",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwk_save",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwk_strdup_meta",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwk.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_alloc_element",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_b64_compact_map",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_base64_enc",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_compact_decode",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_compact_encode",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_dup_element",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_encode_b64_element",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_encode_section",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_parse_jose",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jose.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_randomize_element",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_sig_confirm",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_sig_confirm_compact",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_sig_confirm_compact_b64",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_sig_confirm_compact_b64_map",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_sig_confirm_json",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_sign_from_b64",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwe.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_write_compact",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jws_write_flattened_json",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_auth_count_grants",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_auth_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jwt_auth_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jwt_auth_get_did",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_auth_get_exp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_auth_get_sec",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_auth_get_sub",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jwt_auth_get_uid",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_auth_query_grant",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jwt_auth_update",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jwt-auth.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_get_http_cookie_validate_jwt",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_sign_compact",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_sign_token_set_http_cookie",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_sign_via_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_jwt_signed_validate",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_jwt_token_sanity",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jws.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_lhp_construct",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_lhp_destruct",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_lhp_parse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_lhp_ss_browse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_lhp_tag_dlo_id",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-html.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_list_ptr_insert",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_log_emit_cx_file",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_log_prepend_context",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_log_prepend_ss",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_log_prepend_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_log_prepend_wsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_log_ratelimit_check",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_log_use_cx_file",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_alloc_lwsac",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_free_lwsac",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_item_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_item_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_item_key",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_item_key_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_item_lookup",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_item_value",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_map_item_value_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-map.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_minilex_parse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_now_secs",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_now_usecs",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-adapt.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_nstrstr",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_open",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_parse_cidr",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_parse_iso8601",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_parse_mac",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_parse_numeric_address",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_parse_uri",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_parse_uri_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_parse_uri_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_partial_buffered",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ws-state.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_plat_asyncdns_get_server",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-async-dns.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_plat_group_to_gid",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_plat_read_file",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_plat_recommended_rsa_bits",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_plat_user_to_uid",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_plat_write_cert",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_plat_write_file",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_pmo_get_str",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_pmo_search",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_poly1305_auth",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-genchacha.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_protocol_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_protocol_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_protocol_vh_priv_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_protocol_vh_priv_zalloc",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_pvo_get_str",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_pvo_search",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_raw_transaction_completed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-write.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_realloc",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_remaining_packet_payload",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_retry_get_delay_ms",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-retry.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_retry_sul_schedule",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-retry.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_retry_sul_schedule_retry_wsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-retry.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_return_http_status",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ring_bump_head",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ring_consume",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ring_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ring_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ring_dump",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ring_get_count_free_elements",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ring_get_count_waiting_elements",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ring_get_element",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ring_get_oldest_tail",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ring_insert",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ring_next_linear_insert_range",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ring_update_oldest_tail",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ring.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_routing_table_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_rx_flow_allow_all_protocol",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_rx_flow_control",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_sa46_compare_ads",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_sa46_is_ipv4_mapped",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_sa46_on_net",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_sa46_parse_numeric_address",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_sa46_write_numeric_address",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_send_pipe_choked",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ws-state.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ser_ru16be",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ser_ru32be",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ser_ru64be",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ser_wu16be",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ser_wu32be",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ser_wu64be",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_serve_http_file",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_serve_http_file_fragment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_service",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_service_adjust_timeout",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-service.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_service_do_ripe_rxflow",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_service_fd",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-service.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_service_fd_tsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-service.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_service_tsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-service.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_set_allocator",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_set_extension_option",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ws-ext.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_set_fops",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_set_log_level",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_set_opaque_parent_data",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_set_opaque_user_data",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_set_proxy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_set_socks",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_set_timeout",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_set_timeout_us",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_set_timer_usecs",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_set_wsi_user",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_sigbits",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_smd_msg_alloc",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-smd.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_smd_msg_free",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-smd.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_smd_msg_printf",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-smd.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_smd_msg_send",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-smd.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_smd_register",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-smd.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_smd_ss_msg_printf",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-smd.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_smd_ss_rx_forward",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_smd_unregister",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-smd.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_snprintf",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-jrpc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_socket_bind",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spa_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-spa.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_spa_create_via_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-spa.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_spa_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-spa.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_spa_finalize",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-spa.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_spa_get_length",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-spa.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_spa_get_string",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-spa.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_spa_process",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-spa.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_spawn_closedown_stdwsis",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spawn_get_fd_stdxxx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spawn_get_self_cgroup",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spawn_get_stdfd",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spawn_get_stdwsi_open_count",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spawn_piped",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spawn_piped_kill_child_process",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spawn_prepare_self_cgroup",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_spawn_stdwsi_closed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_sql_purify",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_sql_purify_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-purify.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_add_peer_tx_credit",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_adopt_raw",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_alloc_set_metadata",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_auth_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-policy.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_cancel_timeout",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_change_handlers",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_client_connect",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_dump_extant",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_get_context",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_get_est_peer_tx_credit",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_get_metadata",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_get_vhost",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_policy_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-policy.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_policy_overlay",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-policy.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_policy_parse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-policy.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_policy_parse_abandon",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-policy.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_policy_parse_begin",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-policy.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_request_tx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_request_tx_len",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_rideshare",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_server_ack",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_server_foreach_client",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_set_metadata",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_start_timeout",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_state_name",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_tag",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_to_user_object",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ss_validity_confirmed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-secure-streams.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ssl_client_connect2",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-callbacks.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_state_reg_deregister",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-state.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_state_reg_notifier",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-state.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_state_reg_notifier_list",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-state.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_state_transition",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-state.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_state_transition_steps",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-state.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_strcmp_wildcard",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tokenize.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_strexp_expand",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tokenize.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_strexp_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tokenize.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_strexp_reset_out",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tokenize.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_strncpy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_struct_default_lejp_cb",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-struct.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_struct_json_init_parse",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-struct.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_struct_json_serialize",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-struct.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_struct_json_serialize_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-struct.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_struct_json_serialize_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-struct.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_struct_schema_only_lejp_cb",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-struct.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_stub_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-stub.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_stub_get_secret",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-stub.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_stub_request",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-stub.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_stub_server_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-stub.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_stub_spawn",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-stub.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_sul2_schedule",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_sul_cancel",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_sul_earliest_wakeable_event",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_sul_schedule",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_sul_schedule_wakesuspend",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_surface_set_px",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-display.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_switches_print_help",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_adopt_stdin",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_blob_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_blob_direct_set",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_blob_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_blob_get_single_ptr",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_blob_get_size",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_blob_heap_append",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_blob_heap_empty",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_context_from_system_mgr",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_cpd_set",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_cpd_start",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_cpd_start_defer",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_cpd_state_get",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_get_blob",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_get_ops",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_get_state_manager",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_parse_policy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_system_policy_free",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-system.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_dequeue",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_dequeue_task",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_diagnose",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_dump",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_enqueue",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_finish",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_foreach_task_ss",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_foreach_task_wsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_get_task_ss",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_get_task_wsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_task_status",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_task_status_noreap",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_task_status_wsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_threadpool_task_sync",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-threadpool.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_timingsafe_bcmp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_acme_sni_cert_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_acme_sni_csr_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_acme_sni_csr_create_ecdsa",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_alloc_pem_to_der_file",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_cert_updated",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_cleanup_process",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_client_connect",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_client_upgrade",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_client_vhost_extra_cert_mem",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_peer_cert_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_session_dump_load",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tls-sessions.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_session_dump_save",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tls-sessions.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_session_is_reused",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tls_vhost_cert_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_token_to_string",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_tokenize",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tokenize.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_tokenize_cstr",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tokenize.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_tokenize_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-tokenize.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_txp_append",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-txpacer.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_txp_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-txpacer.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_txp_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-txpacer.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_emit_next_line",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_free",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_get_bitdepth",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_get_bpp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_get_components",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_get_format",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_get_height",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_get_pixelsize",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_get_width",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_inflate_data",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_inflator_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_inflator_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_upng_new",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-upng.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_urldecode",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_urlencode",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-http.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_validity_confirmed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-timeout-timer.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vbi_decode",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vbi_encode",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vfs_file_open",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vfs_file_seek_end",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vfs_file_seek_set",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vfs_get_length",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vfs_get_mod_time",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vfs_tell",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vh_tag",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_vhd_find_by_pvo",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vhost_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_vhost_destroy1",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vhost_foreach_listen_wsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vhost_name_to_protocol",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-protocols-plugins.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_vhost_set_mounts",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_vhost_user",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_wol",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_write",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-mqtt.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_write_numeric_address",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-network-helper.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_ws_sending_multifragment",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-ws-state.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_wsi_is_txn_queue_leader",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_wsi_tag",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_wsi_tsi",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_wsi_tx_credit",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-writeable.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_wsi_user",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_wsmsg_append",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_wsmsg_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_x509_cert_fingerprint",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_x509_create",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_x509_create_cert",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_x509_create_self_signed",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_x509_destroy",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_x509_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_x509_jwk_privkey_pem",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_x509_parse_from_pem",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_x509_public_to_jwk",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_x509_verify",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-x509.h",
+            "implemented": true
+          },
+          {
+            "name": "lws_xos",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-fault-injection.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_xos_init",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-fault-injection.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_xos_percent",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-fault-injection.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_align",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_cached_file",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_detach",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsac_extend",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_free",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-fts.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsac_get_next",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_get_tail_pos",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_info",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_reference",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsac_scan_extant",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_sizeof",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_total_alloc",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_total_overhead",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_unreference",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsac_use",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsac_use_backfill",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_use_cached_file_detach",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_use_cached_file_end",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_use_cached_file_start",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsac_use_zero",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-lwsac.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsl_context_get_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsl_emit_stderr",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsl_emit_stderr_notimestamp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsl_emit_syslog",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsl_hexdump",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsl_hexdump_level",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsl_hexdump_level_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsl_refcount_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsl_ss_get_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsl_timestamp",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsl_vhost_get_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsl_visible",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsl_wsi_get_cx",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-logs.h",
+            "implemented": true
+          },
+          {
+            "name": "lwsws_get_config_globals",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "lwsws_get_config_vhosts",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-context-vhost.h",
+            "implemented": false
+          },
+          {
+            "name": "wsi_from_fd",
+            "type": "T",
+            "header": "libwebsockets/include/libwebsockets/lws-eventlib-exports.h",
+            "implemented": true
+          }
+        ]
+      },
+      "data": {
+        "total": 9,
+        "implemented": 0,
+        "percentage": 0,
+        "list": [
+          {
+            "name": "fops_zip",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-vfs.h",
+            "implemented": false
+          },
+          {
+            "name": "humanize_schema_si",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "humanize_schema_si_bytes",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "humanize_schema_us",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-misc.h",
+            "implemented": false
+          },
+          {
+            "name": "log_cx",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-client.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_ops_heap",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_cache_ops_nscookiejar",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-cache-ttl.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_dlo_fops",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-dlo.h",
+            "implemented": false
+          },
+          {
+            "name": "lws_ec_curves",
+            "type": "D",
+            "header": "libwebsockets/include/libwebsockets/lws-genec.h",
+            "implemented": false
+          }
+        ]
+      },
+      "overall": {
+        "total": 817,
+        "implemented": 162,
+        "percentage": 19.83
+      }
+    }
+  },
+  "summary": {
+    "functions": {
+      "total": 808,
+      "implemented": 162,
+      "percentage": 20.05
+    },
+    "data": {
+      "total": 9,
+      "implemented": 0,
+      "percentage": 0
+    },
+    "overall": {
+      "total": 817,
+      "implemented": 162,
+      "percentage": 19.83
+    }
+  }
+}
