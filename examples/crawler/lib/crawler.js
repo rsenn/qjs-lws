@@ -304,6 +304,7 @@ export class Crawler {
       a delay table with jitter). Returns a page object or null on failure. */
   async #fetchPage(url) {
     let lastError;
+    let fatalError;
 
     for(let attempt = 0; attempt <= this.#retries; attempt++) {
       if(attempt > 0) {
@@ -323,11 +324,20 @@ export class Crawler {
         const resp = await fetch(url, { ...this.#fetchOptions });
 
         if(resp.status >= 500) {
-          lastError = new Error(`HTTP ${resp.status}`);
+          const headers = {};
+          resp.headers?.forEach?.((v, k) => headers[k] = v);
+          const body = await resp.text().catch(() => '');
+          lastError = new Error(`HTTP ${resp.status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
           continue;
         }
 
-        if(resp.status < 200 || resp.status >= 300) return null;
+        if(resp.status < 200 || resp.status >= 300) {
+          const headers = {};
+          resp.headers?.forEach?.((v, k) => headers[k] = v);
+          const body = await resp.text().catch(() => '');
+          fatalError = new Error(`HTTP ${resp.status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+          break;
+        }
 
         const ct = resp.headers?.get?.('content-type') ?? '';
         // Only parse HTML pages (not XML feeds like Atom/RSS)
@@ -353,6 +363,9 @@ export class Crawler {
         lastError = e;
       }
     }
+
+    // Non-retryable error (e.g. 4xx) — throw immediately
+    if(fatalError) throw fatalError;
 
     // All retries exhausted
     throw lastError ?? new Error(`failed to fetch ${url}`);
