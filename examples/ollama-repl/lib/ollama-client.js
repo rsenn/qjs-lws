@@ -117,7 +117,7 @@ export class OllamaClient {
       constructor so #post() below can call it again to replace a
       possibly-stale pipelined connection (see IDLE_RECONNECT_MS). */
   #newContext() {
-    return createContext({ protocols: [{ name: 'http', ...this.#adapter }], timeout_secs: this.#timeoutSecs });
+    return createContext({ protocols: [{ name: 'http', ...this.#adapter }], timeoutSecs: this.#timeoutSecs });
   }
 
   #take(req) {
@@ -189,7 +189,7 @@ export class OllamaClient {
 
   /**
    * Awaits the pending response for `req`, backstopped by `this.#timeoutMs`
-   * (mirrors the `timeout_secs` already given to `this.#ctx`) - not because
+   * (mirrors the `timeoutSecs` already given to `this.#ctx`) - not because
    * lws's own per-connection timeout (wsi-timeout.c) shouldn't already
    * catch a dead connection, but because the REPL's "Thinking..." spinner
    * has no way out of its own if that native timer ever fails to fire (a
@@ -377,7 +377,7 @@ export class OllamaClient {
 
   /**
    * Same backstop as #awaitResponse() above, but per network chunk once
-   * streaming has actually started: `this.#ctx`'s `timeout_secs` (and
+   * streaming has actually started: `this.#ctx`'s `timeoutSecs` (and
    * #awaitResponse()'s own timer) only guard the initial wait for a
    * reply to *begin* - once headers/the first bytes arrive, lws considers
    * the request "established" and nothing native times out a stream that

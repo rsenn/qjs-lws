@@ -1,12 +1,12 @@
 /**
  * Tests LWSSPA (lws-spa.c) via a real HTTP server/POST round trip:
  * numeric-index access (pre-existing), name-based access via
- * `param_names`/`paramNames`, the `.length` and `.paramNames` getters, and
+ * `paramNames`/`paramNames`, the `.length` and `.paramNames` getters, and
  * that method/prototype access (`process`/`finalize`/`Symbol.toStringTag`)
  * keeps working alongside the string-keyed property lookup.
  *
- * `.length` counts the contiguous run of populated `param_names` slots
- * starting at index 0 (not `count_params`, the allocated capacity) -
+ * `.length` counts the contiguous run of populated `paramNames` slots
+ * starting at index 0 (not `countParams`, the allocated capacity) -
  * with explicit `paramNames`, that's always `paramNames.length` (the
  * constructor fills them in order, no gaps); with none given, lws's own
  * "arbitrary POST items" dynamic-discovery mode (backed by the SPA's
@@ -88,8 +88,8 @@ await tests({
     destroy();
   },
 
-  async 'LWSSPA: param_names (snake_case) works the same as paramNames'() {
-    const { spa, destroy } = await parseForm({ param_names: ['foo'] }, 'foo=bar');
+  async 'LWSSPA: paramNames (snake_case) works the same as paramNames'() {
+    const { spa, destroy } = await parseForm({ paramNames: ['foo'] }, 'foo=bar');
 
     eq('bar', spa.foo);
     eq('bar', spa[0]);
@@ -97,7 +97,7 @@ await tests({
     destroy();
   },
 
-  async "LWSSPA: length defaults to paramNames.length when count_params isn't given"() {
+  async "LWSSPA: length defaults to paramNames.length when countParams isn't given"() {
     const { spa, destroy } = await parseForm({ paramNames: ['a', 'b', 'c'] }, 'a=1');
 
     eq(3, spa.length);

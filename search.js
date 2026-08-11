@@ -66,7 +66,7 @@ async function main() {
 
     const resp = await fetch(url, {
       h2: false,
-      retry: { retryMsTable: [2000, 5000, 10000], jitter_percent: 20 },
+      retry: { retryMsTable: [2000, 5000, 10000], jitterPercent: 20 },
       pctx: c => (ctx = c),
     });
     const text = await resp.text();

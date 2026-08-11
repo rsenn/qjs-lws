@@ -88,7 +88,7 @@ async function dialDirect(destination, onward) {
 
 /* ------------------------------------------------------------------ *
  * socks5 - hand-rolled. libwebsockets does have its own built-in SOCKS5
- * *client* (vhost-level `socks_proxy_address`/`socks_proxy_port`, wired
+ * *client* (vhost-level `socks_proxy_address`/`socksProxyPort`, wired
  * through in lws-context.c and backed by libwebsockets/lib/core-net/
  * socks5-client.c) - but driving it via a bare RAW-role clientConnect(),
  * the way an onward dial to an arbitrary per-request destination needs,

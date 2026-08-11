@@ -311,7 +311,7 @@ export class Crawler {
         /* Exponential backoff: retryDelayMs * 2^(attempt-1), with jitter
            applied as a random offset in [0, jitterPercent] of the base -
            same pattern lws uses internally (retry_bo_from_retryobj,
-           lws-context.c: jitter_percent applied to each table entry). */
+           lws-context.c: jitterPercent applied to each table entry). */
         const base = this.#retryDelayMs * Math.pow(2, attempt - 1);
         const jitter = ((base * this.#retryJitterPercent) / 100) * Math.random();
         const delay = base + jitter;

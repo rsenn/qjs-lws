@@ -12,7 +12,7 @@
  *
  * Reproduced here without Ollama or any external process: this project's
  * own HTTP server closes an idle HTTP/1.1 client connection after
- * `keepalive_timeout` seconds (lws default 5s, see
+ * `keepaliveTimeout` seconds (lws default 5s, see
  * libwebsockets/include/libwebsockets/lws-context-vhost.h) - the exact
  * same mechanism, just given a short (1s) timeout so the same class of
  * failure shows up in about a second instead of Ollama's observed ~90s.
@@ -34,7 +34,7 @@
  * reliably hung against a real Ollama server (see BUGS:
  * h1-late-queued-pipeline-never-promoted for the native root cause this
  * pointed at instead). Most likely explanation: this server's
- * keepalive_timeout closes the idle connection *cleanly* (a real FIN),
+ * keepaliveTimeout closes the idle connection *cleanly* (a real FIN),
  * which the client notices immediately on its next write/read attempt
  * and reports as a normal connection error - not the same failure mode
  * as whatever happened against Ollama, where nothing ever notices the
@@ -85,7 +85,7 @@ const REQUEST_BODY_LENGTH = String(toArrayBuffer(REQUEST_BODY).byteLength);
 
 /**
  * In-process fixture server: reads (and discards) a POST body, replies
- * 'pong', and - via a short keepalive_timeout - drops an idle HTTP/1.1
+ * 'pong', and - via a short keepaliveTimeout - drops an idle HTTP/1.1
  * client connection quickly, the same mechanism a real server (Ollama's
  * included) uses at its own, much longer, default.
  */
@@ -93,7 +93,7 @@ function startServer() {
   return createServer({
     port: PORT,
     vhostName: 'localhost',
-    keepalive_timeout: KEEPALIVE_TIMEOUT_SECS,
+    keepaliveTimeout: KEEPALIVE_TIMEOUT_SECS,
     mounts: [{ mountpoint: '/', protocol: 'http', originProtocol: LWSMPRO_CALLBACK }],
     protocols: [
       {
@@ -129,7 +129,7 @@ async function probeIdleReuse(label, requestOnce, destroy) {
     assert(first.status === 200 && first.body === 'pong', `unexpected first response: ${JSON.stringify(first)}`);
     console.log('first request (fresh connection): OK');
 
-    console.log(`waiting ${IDLE_GAP_MS}ms (> ${KEEPALIVE_TIMEOUT_SECS}s server keepalive_timeout) before reusing the connection...`);
+    console.log(`waiting ${IDLE_GAP_MS}ms (> ${KEEPALIVE_TIMEOUT_SECS}s server keepaliveTimeout) before reusing the connection...`);
     await sleep(IDLE_GAP_MS);
 
     const second = await withTimeout(requestOnce(), HANG_TIMEOUT_MS, `second request never settled within ${HANG_TIMEOUT_MS}ms - HANGS, same failure mode as the ollama-repl report`);

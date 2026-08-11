@@ -102,7 +102,7 @@ export class GeminiClient {
     return createContext({
       options: LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX | LWS_SERVER_OPTION_IGNORE_MISSING_CERT,
       protocols: [{ name: 'http', ...this.#adapter }],
-      timeout_secs: this.#timeoutSecs,
+      timeoutSecs: this.#timeoutSecs,
     });
   }
 

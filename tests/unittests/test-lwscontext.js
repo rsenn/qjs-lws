@@ -79,7 +79,7 @@ await tests({
     ctx.destroy();
   },
 
-  /* Regression for BUGS: option-key-casing-silently-ignored. local_port
+  /* Regression for BUGS: option-key-casing-silently-ignored. localPort
      (client_connect_info_fromobj, lws-context.c) was gated by a plain
      js_has_property() exact-match check with no camelCase fallback, so
      clientConnect({ localPort }) silently bound the default (any) source
