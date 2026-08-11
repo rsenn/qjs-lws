@@ -1,1 +1,0 @@
-node ollama-repl.js --provider=ollama --model=gpt-4 --root=/path/to/project
