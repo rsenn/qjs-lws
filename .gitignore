@@ -121,6 +121,7 @@ coverage/
 lcov.info
 *.log
 !CMakeLists.txt
+inspector-debug.log
 
 # ---------- private TLS material ----------
 # Keep the demo cert/key checked in (localhost.crt/.key) but block strays:
