@@ -114,7 +114,9 @@ class TerminalInput {
     while(this.#buffer.length > 0) {
       // Handle escape sequences
       if(this.#buffer[0] === '\x1b') {
-        // If buffer is just ESC, wait a bit to see if more comes
+        // If buffer is just ESC, wait to see if more comes (escape sequence)
+        // Screen/tmux can introduce 50-150ms latency between ESC and the
+        // rest of a function key sequence, so use a generous timeout.
         if(this.#buffer.length === 1) {
           if(!this.#escapeTimer) {
             this.#escapeTimer = setTimeout(() => {
@@ -122,7 +124,7 @@ class TerminalInput {
               this.#onKey?.('escape');
               this.#buffer = '';
               this.#escapeTimer = null;
-            }, 50);
+            }, 200);
           }
           break;
         }
