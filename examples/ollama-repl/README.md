@@ -103,15 +103,15 @@ model (`qwen2.5-coder` by default) about the files in your project.
   whole non-streamed reply) arrives; a dim "Cogitated for N.Ns" line
   follows once a turn is fully done. All three clients cap how long it can
   spin: `timeoutSecs` (15 minutes by default - see `DEFAULT_TIMEOUT_SECS`
-  in `lib/ollama-client.js`/`lib/gemini-client.js`/`lib/mistral-client.js`)
+  in `lib/ollama-client.js`/`lib/gemini-client.js`/`lib/openai-client.js`)
   bounds both the initial wait for a reply to begin and, separately, any
   gap between chunks once a streamed reply is under way - a connection
   that goes silent past that window is force-closed and the turn fails
   with a clear error instead of leaving "Thinking..." running forever.
 
-## Using `OllamaClient`/`GeminiClient`/`MistralClient` directly
+## Using `OllamaClient`/`GeminiClient`/`OpenAIClient` directly
 
-`lib/ollama-client.js`, `lib/gemini-client.js` and `lib/mistral-client.js`
+`lib/ollama-client.js`, `lib/gemini-client.js` and `lib/openai-client.js`
 are all usable on their own from a `qjsm` REPL, independent of `repl.js`'s
 own chat loop - handy for poking at a model manually, or for driving real
 API-native tool/function calling, which `repl.js`'s own `LIST:`/`READ:`/
@@ -122,7 +122,7 @@ for the full design and more examples; short version:
 ```js
 import { OllamaClient } from './lib/ollama-client.js';
 // or: import { GeminiClient } from './lib/gemini-client.js';
-// or: import { MistralClient } from './lib/mistral-client.js';
+// or: import { OpenAIClient } from './lib/openai-client.js';
 
 const client = new OllamaClient({ model: 'qwen2.5-coder' });
 const { content } = await client.chat([{ role: 'user', content: 'hi' }]);
@@ -145,14 +145,16 @@ against any of the three clients. `API.md` has a full round-trip example.
   ```
 - `--provider gemini`: `GEMINI_API_KEY` exported in the environment (a
   free-tier key from https://aistudio.google.com/apikey works).
-- `--provider mistral`: `MISTRAL_API_KEY` exported in the environment (a
-  key from https://console.mistral.ai/api-keys).
+- `--provider openai`: `OPENAI_API_KEY` exported in the environment (a
+  key from https://platform.openai.com/api-keys), or set `opts.apiKeyEnv`
+  to use a different environment variable for other OpenAI-compatible
+  providers (Mistral, Together, Groq, local servers, etc.).
 - `lws.so` built (see the repo root's build instructions).
 
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|mistral] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
+qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -207,7 +209,7 @@ this project's own conventions rather than guessed from memory. Works the
 same against any provider:
 
 ```sh
-qjsm examples/ollama-repl/repl.js --provider ollama   # or --provider gemini / mistral
+qjsm examples/ollama-repl/repl.js --provider ollama   # or --provider gemini / openai
 ```
 
 Any prompt that looks like a binding request (contains "binding",

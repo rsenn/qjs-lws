@@ -3,10 +3,11 @@
  * A Claude-Code-style REPL that talks to a local Ollama model (default:
  * qwen2.5-coder, over a kept-alive HTTP connection - lib/ollama-client.js,
  * built on the `httpClient` protocol adapter, lib/lws/protocols.js),
- * Google's Gemini API (lib/gemini-client.js), or Mistral's API
- * (lib/mistral-client.js, same `httpClient`-based structure as
- * GeminiClient) - `--provider` selects which. All three clients expose the
- * same `chat()`/`chatStream()` shape, so everything below this point is
+ * Google's Gemini API (lib/gemini-client.js), or any OpenAI-compatible API
+ * (lib/openai-client.js, same `httpClient`-based structure as GeminiClient
+ * - works with OpenAI, Mistral, Together, Groq, local servers, etc.) -
+ * `--provider` selects which. All three clients expose the same
+ * `chat()`/`chatStream()` shape, so everything below this point is
  * provider-agnostic.
  *
  * File/glob references typed into a prompt ("fix the bug in src/foo.js",
@@ -17,8 +18,8 @@
  *
  * Run (Ollama must already be running locally with the model pulled; for
  * `--provider gemini`, GEMINI_API_KEY must be exported instead, and for
- * `--provider mistral`, MISTRAL_API_KEY):
- *   qjsm repl.js [--provider ollama|gemini|mistral] [--model NAME] [--host localhost] [--port 11434] [--root .]
+ * `--provider openai`, OPENAI_API_KEY):
+ *   qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host localhost] [--port 11434] [--root .]
  * Or, once installed (see CMakeLists.txt - installs to bin/ollama-repl,
  * lib/ollama-client.js's cross-tree imports rewritten to the installed
  * `lws/*.js` module path):
@@ -42,7 +43,7 @@ import { clearTimeout, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { logLevel, LLL_USER } from 'lws.so';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
-import { MistralClient } from './lib/mistral-client.js';
+import { OpenAIClient } from './lib/openai-client.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
 import { extractRequests, runRequests } from './lib/tool-requests.js';
@@ -77,17 +78,17 @@ function parseArgs(argv) {
       if(++debugCount >= 2) opts.lwsDebug = true;
     } else if(arg === '--failsafe') opts.failsafe = true;
     else if(arg === '--help' || arg === '-h') {
-      console.log('Usage: qjsm repl.js [--provider ollama|gemini|mistral] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x [-x]] [--failsafe]');
+      console.log('Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x [-x]] [--failsafe]');
       exit(0);
     }
   }
 
-  if(opts.provider !== 'ollama' && opts.provider !== 'gemini' && opts.provider !== 'mistral') {
-    console.log(`\x1b[31merror: --provider must be "ollama", "gemini" or "mistral", got "${opts.provider}"\x1b[0m`);
+  if(opts.provider !== 'ollama' && opts.provider !== 'gemini' && opts.provider !== 'openai') {
+    console.log(`\x1b[31merror: --provider must be "ollama", "gemini" or "openai", got "${opts.provider}"\x1b[0m`);
     exit(1);
   }
 
-  opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : opts.provider === 'mistral' ? 'mistral-small-latest' : 'qwen2.5-coder';
+  opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : opts.provider === 'openai' ? 'gpt-4o-mini' : 'qwen2.5-coder';
 
   return opts;
 }
@@ -465,7 +466,7 @@ async function main() {
 
   let client;
   try {
-    client = opts.provider === 'gemini' ? new GeminiClient(opts) : opts.provider === 'mistral' ? new MistralClient(opts) : new OllamaClient(opts);
+    client = opts.provider === 'gemini' ? new GeminiClient(opts) : opts.provider === 'openai' ? new OpenAIClient(opts) : new OllamaClient(opts);
   } catch(e) {
     console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
     exit(1);
@@ -476,7 +477,7 @@ async function main() {
   const fileExchange = new FileExchange(opts.model, opts.root);
   const messages = opts.failsafe ? [] : [{ role: 'system', content: SYSTEM_PROMPT }];
 
-  const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : opts.provider === 'mistral' ? 'api.mistral.ai' : `${opts.host}:${opts.port}`;
+  const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : opts.provider === 'openai' ? 'api.openai.com' : `${opts.host}:${opts.port}`;
   console.log(`ollama-repl: ${opts.provider}/${opts.model} @ ${endpoint}  (root: ${opts.root})${opts.failsafe ? '  [failsafe: no system prompt/project scan/tools]' : ''}`);
   //console.log(`Type a prompt and press Enter.\nReference files by name or glob (e.g. src/*.js) to attach them.`);
   console.log(`/help for commands.`);
