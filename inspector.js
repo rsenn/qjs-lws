@@ -173,6 +173,9 @@ class TerminalInput {
       } else if(ch === '\x15') {
         // Ctrl+U - kill to beginning of line
         this.#killToStart();
+      } else if(ch === '\x17') {
+        // Ctrl+W - delete word backward
+        this.#deleteWordBackward();
       } else if(ch >= '\x01' && ch <= '\x1a') {
         // Other control characters
         this.#onKey?.(`ctrl-${String.fromCharCode(ch.charCodeAt(0) + 96)}`);
@@ -202,6 +205,35 @@ class TerminalInput {
       this.#textInput = this.#textInput.slice(0, this.#cursorPos) + this.#textInput.slice(this.#cursorPos + 1);
       this.#redrawLine();
     }
+  }
+
+  #deleteWordBackward() {
+    if(this.#cursorPos === 0) return;
+    const text = this.#textInput;
+    let pos = this.#cursorPos;
+    
+    // Skip trailing spaces
+    while(pos > 0 && text[pos - 1] === ' ') pos--;
+    // Skip word characters
+    while(pos > 0 && text[pos - 1] !== ' ') pos--;
+    
+    this.#textInput = text.slice(0, pos) + text.slice(this.#cursorPos);
+    this.#cursorPos = pos;
+    this.#redrawLine();
+  }
+
+  #deleteWordForward() {
+    if(this.#cursorPos === this.#textInput.length) return;
+    const text = this.#textInput;
+    let pos = this.#cursorPos;
+    
+    // Skip leading spaces
+    while(pos < text.length && text[pos] === ' ') pos++;
+    // Skip word characters
+    while(pos < text.length && text[pos] !== ' ') pos++;
+    
+    this.#textInput = text.slice(0, this.#cursorPos) + text.slice(pos);
+    this.#redrawLine();
   }
 
   #moveCursor(pos) {
@@ -282,6 +314,12 @@ class TerminalInput {
         break;
       case 'delete':
         this.#deleteAtCursor();
+        break;
+      case 'alt-backspace':
+        this.#deleteWordBackward();
+        break;
+      case 'alt-d':
+        this.#deleteWordForward();
         break;
       default:
         // Pass through other sequences (function keys, etc.)
@@ -368,6 +406,12 @@ class TerminalInput {
       '\x1bO21~': 'f10',
       '\x1bO23~': 'f11',
       '\x1bO24~': 'f12',
+
+      // Alt key combinations
+      '\x1b\x7f': 'alt-backspace',  // Alt+Backspace - delete word backward
+      '\x1b\x08': 'alt-backspace',  // Alt+Backspace (alternative)
+      '\x1bd': 'alt-d',             // Alt+D - delete word forward
+      '\x1bD': 'alt-d',             // Alt+Shift+D (alternative)
     };
 
     // Check if we have a complete sequence
