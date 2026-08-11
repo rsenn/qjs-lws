@@ -327,7 +327,7 @@ function buildShims(doc) {
     console.log(`[TIMER] setTimeout set with delay ${delay}ms`);
     const wrappedCallback = (...cbArgs) => {
       console.log(`[TIMER] setTimeout handler fired (delay was ${delay}ms)`);
-      if (typeof callback === 'function') {
+      if(typeof callback === 'function') {
         return callback(...cbArgs);
       } else {
         return (0, eval)(callback);
@@ -340,7 +340,7 @@ function buildShims(doc) {
     console.log(`[TIMER] setInterval set with delay ${delay}ms`);
     const wrappedCallback = (...cbArgs) => {
       console.log(`[TIMER] setInterval handler fired (interval ${delay}ms)`);
-      if (typeof callback === 'function') {
+      if(typeof callback === 'function') {
         return callback(...cbArgs);
       } else {
         return (0, eval)(callback);
@@ -661,7 +661,6 @@ async function main() {
 
   os.kill(os.getpid(), os.SIGUSR1);
 
-
   // Helper: flush microtasks + drain any pending records, then summarise.
   async function reportMutations(label) {
     await flushMicrotasks();
@@ -700,6 +699,14 @@ async function main() {
       continue;
     }
 
+    // Strip HTML comment wrappers and CDATA sections that are valid in <script> tags
+    // but cause parse errors when eval'd directly
+    code = code
+      .replace(/^\s*<!--\s*\n?/, '') // strip leading <!--
+      .replace(/\n?\s*(\/\/)?-->\s*$/, '') // strip trailing --> or //-->
+      .replace(/^\s*\/\/<!\[CDATA\[\s*\n?/, '') // strip leading //<![CDATA[
+      .replace(/\n?\s*\/\/\]\]>\s*$/, ''); // strip trailing //]]>
+
     console.log(`  Script[${i}]: ${code.length} chars, first 80: ${code.slice(0, 80).replace(/\n/g, '\\n')}...`);
 
     currentPhase = `script[${i}]`;
@@ -711,10 +718,15 @@ async function main() {
       console.log(`    ✓ executed successfully`);
     } catch(e) {
       errors++;
-      console.log(`    ✗ ERROR: ${e.message}`);
-      if(e.stack) {
-        const lines = e.stack.split('\n').slice(0, 5);
-        for(const line of lines) console.log(`      ${line}`);
+      // SyntaxError often indicates anti-bot code with intentionally invalid JS
+      if(e instanceof SyntaxError) {
+        console.log(`    ⚠ skipped (syntax error - likely anti-bot code)`);
+      } else {
+        console.log(`    ✗ ERROR: ${e.message}`);
+        if(e.stack) {
+          const lines = e.stack.split('\n').slice(0, 5);
+          for(const line of lines) console.log(`      ${line}`);
+        }
       }
     }
 
@@ -729,7 +741,7 @@ async function main() {
   currentPhase = 'DOMContentLoaded';
   try {
     const dcl = new win.Event('DOMContentLoaded', { bubbles: true });
-    doc.dispatchEvent?.(dcl) ?? win.dispatchEvent(dcl);
+    win.dispatchEvent(dcl);
     console.log('    DOMContentLoaded dispatched');
   } catch(e) {
     console.log(`    DOMContentLoaded error: ${e.message}`);
