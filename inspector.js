@@ -15,9 +15,11 @@
 import { fetch } from './lib/fetch.js';
 import { WebSocketStream } from './lib/websocketstream.js';
 import { TextDecoder } from 'textcode';
+import * as std from 'std';
 
 const DEFAULT_PORT = 9222;
 const DEFAULT_HOST = '127.0.0.1';
+const DEBUG_LOG_PATH = 'inspector-debug.log';
 
 class CDPInspector {
   #ws;
@@ -25,6 +27,17 @@ class CDPInspector {
   #seq = 1;
   #pending = new Map();
   #running = true;
+  #debugLog = null;
+
+  constructor() {
+    if(process.env.DEBUG) {
+      try {
+        this.#debugLog = std.open(DEBUG_LOG_PATH, 'a');
+      } catch(e) {
+        console.error(`Failed to open debug log: ${e.message}`);
+      }
+    }
+  }
 
   async discoverTargets(host, port) {
     const url = `http://${host}:${port}/json/list`;
@@ -118,8 +131,19 @@ class CDPInspector {
 
     const id = this.#seq++;
     const msg = { id, method, params };
+    const json = JSON.stringify(msg);
 
-    await this.#writer.write(JSON.stringify(msg));
+    // Log raw write traffic if DEBUG is enabled
+    if(this.#debugLog) {
+      try {
+        this.#debugLog.puts(json + '\n');
+        this.#debugLog.flush();
+      } catch(e) {
+        console.error(`Failed to write debug log: ${e.message}`);
+      }
+    }
+
+    await this.#writer.write(json);
 
     return new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
@@ -254,6 +278,13 @@ class CDPInspector {
   destroy() {
     this.#running = false;
     this.#ws?.close();
+    if(this.#debugLog) {
+      try {
+        this.#debugLog.close();
+      } catch(e) {
+        // Ignore close errors
+      }
+    }
   }
 }
 
