@@ -178,6 +178,7 @@ class CDPInspector {
   #terminal = null;
   #paused = false;
   #currentParams = null;
+  #scripts = new Map(); // scriptId -> url
 
   constructor() {
     if(process.env.DEBUG) {
@@ -301,8 +302,16 @@ class CDPInspector {
         const end = this.#findJsonObjectEnd(buf, start);
         if(end === -1) break;
 
+        const rawJson = buf.slice(start, end + 1);
         try {
-          const msg = JSON.parse(buf.slice(start, end + 1));
+          const msg = JSON.parse(rawJson);
+          
+          // Log received message if debug logging is enabled
+          if(this.#debugLog) {
+            this.#debugLog.puts(`RX: ${rawJson}\n`);
+            this.#debugLog.flush();
+          }
+          
           this.#dispatchMessage(msg);
         } catch(e) {
           // Skip malformed messages
@@ -356,7 +365,7 @@ class CDPInspector {
     // Log raw write traffic if DEBUG is enabled
     if(this.#debugLog) {
       try {
-        this.#debugLog.puts(json + '\n');
+        this.#debugLog.puts(`TX: ${json}\n`);
         this.#debugLog.flush();
       } catch(e) {
         console.error(`Failed to write debug log: ${e.message}`);
@@ -373,6 +382,7 @@ class CDPInspector {
   #onEvent(method, params) {
     switch(method) {
       case 'Debugger.scriptParsed':
+        this.#scripts.set(params.scriptId, params.url || params.scriptId);
         console.log(`[script parsed] ${params.url || params.scriptId}`);
         break;
 
@@ -381,7 +391,7 @@ class CDPInspector {
         this.#currentParams = params;
         console.log(`\n[paused] reason: ${params.reason}`);
         if(params.callFrames?.length > 0) {
-          this.#printCallFrame(params.callFrames[0]);
+          this.#printCurrentLocation(params.callFrames[0]);
         }
         this.#handlePaused(params);
         break;
@@ -407,10 +417,13 @@ class CDPInspector {
     }
   }
 
-  #printCallFrame(frame) {
+  #printCurrentLocation(frame) {
     const loc = frame.location;
     const funcName = frame.functionName || '(anonymous)';
-    console.log(`  at ${funcName} (${loc.scriptId}:${loc.lineNumber}:${loc.columnNumber})`);
+    const url = this.#scripts.get(loc.scriptId) || loc.scriptId;
+    
+    console.log(`\n  ► ${url}:${loc.lineNumber}`);
+    console.log(`    at ${funcName}`);
   }
 
   async #handlePaused(params) {
@@ -446,6 +459,8 @@ class CDPInspector {
       }
     }
 
+    // Show location again before help menu
+    this.#printCurrentLocation(frame);
     this.#printHelp();
   }
 
