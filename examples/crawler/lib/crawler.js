@@ -94,6 +94,7 @@ export class Crawler {
 
   #stopped = false;
   #paused = false;
+  #finished = false;
 
   // Async iterator plumbing: a FIFO of yielded pages, and a pending "done"
   // resolver that fires when the queue empties with no fetches in flight.
@@ -419,7 +420,8 @@ export class Crawler {
       }
     }
 
-    // Crawl finished - signal all waiting consumers.
+    // Crawl finished - mark as finished and signal all waiting consumers.
+    this.#finished = true;
     this.#flushWaiters();
   }
 
@@ -461,8 +463,8 @@ export class Crawler {
           return Promise.resolve({ value: this.#results.shift(), done: false });
         }
 
-        // If the crawl is stopped and no buffered results, we're done.
-        if(this.#stopped && this.#queue.length === 0 && this.#pending === 0) {
+        // If the crawl has finished (either naturally or via stop()), we're done.
+        if(this.#finished) {
           return Promise.resolve({ value: undefined, done: true });
         }
 
