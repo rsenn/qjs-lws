@@ -31,12 +31,6 @@ Added `TerminalInput` class with raw terminal mode support:
 - **F11** - Step Into
 - **Shift+F11** - Step Out
 
-#### Letter Shortcuts (work in GNU screen/tmux)
-- **r/c/p** - Continue (when paused) or Interrupt (when running)
-- **j** - Step Over (jump)
-- **i** - Step Into
-- **u** - Step Out (up)
-- **q** - Stop debugger
 - **ESC** - Stop debugger
 - **Ctrl+C** - Exit
 
@@ -150,6 +144,6 @@ DEBUG=1 qjsm inspector.js
 
 ## Known Limitations
 
-- Function keys may not work in GNU screen/tmux (use letter shortcuts instead)
+- Function keys may not work in GNU screen/tmux (configure multiplexer to pass through escape sequences)
 - Requires interactive TTY for keyboard controls (gracefully disables when unavailable)
 - Expression evaluation is single-line only (no multi-line support yet)

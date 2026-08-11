@@ -32,11 +32,11 @@ When paused at a breakpoint or exception:
 
 | Key | Action |
 |-----|--------|
-| **F5** or **r/c/p** | Continue (when paused) or Interrupt (when running) |
-| **F10** or **j** | Step Over |
-| **F11** or **i** | Step Into |
-| **Shift+F11** or **u** | Step Out |
-| **ESC** or **q** | Stop debugger and exit |
+| **F5** | Continue (when paused) or Interrupt (when running) |
+| **F10** | Step Over |
+| **F11** | Step Into |
+| **Shift+F11** | Step Out |
+| **ESC** | Stop debugger and exit |
 | **Ctrl+C** | Exit immediately |
 
 ## Debug Logging
@@ -62,7 +62,6 @@ The inspector uses high-level abstractions:
 Puts stdin in raw mode using `os.ttySetRaw()` and parses:
 - Function keys (F1-F12) with multiple escape sequence variants
 - Shift+function key combinations
-- Letter shortcuts for screen/tmux compatibility
 - Control characters
 
 Supports escape sequences from xterm, screen, tmux, and xfce4-terminal.
@@ -71,12 +70,9 @@ Supports escape sequences from xterm, screen, tmux, and xfce4-terminal.
 
 ### Function keys not working in screen/tmux
 
-If F10/F11 don't work in GNU screen or tmux, use the letter shortcuts instead:
-- **n** for step over (instead of F10)
-- **s** for step into (instead of F11)
-- **o** for step out (instead of Shift+F11)
-
-The letter shortcuts bypass terminal multiplexer key interception.
+If F10/F11 don't work in GNU screen or tmux, configure your terminal multiplexer
+to pass through function key escape sequences. For tmux, `set -g xterm-keys on`
+may help.
 
 ### No debug targets found
 
@@ -100,11 +96,11 @@ WebSocket: ws://127.0.0.1:9222/devtools/page/ABC123
 Connected to debugger.
 
 Debugger controls:
-  F5 / c      - Continue (when paused) or Interrupt (when running)
-  F10 / n     - Step Over
-  F11 / s     - Step Into
-  Shift+F11 / o - Step Out
-  ESC / q     - Stop debugger
+  F5          - Continue (when paused) or Interrupt (when running)
+  F10         - Step Over
+  F11         - Step Into
+  Shift+F11   - Step Out
+  ESC         - Stop debugger
   Ctrl+C      - Exit
 
 Debugger enabled.
@@ -121,11 +117,11 @@ Pause on exceptions: enabled.
     config: Object
 
 Debugger controls:
-  F5 / c      - Continue (when paused) or Interrupt (when running)
-  F10 / n     - Step Over
-  F11 / s     - Step Into
-  Shift+F11 / o - Step Out
-  ESC / q     - Stop debugger
+  F5          - Continue (when paused) or Interrupt (when running)
+  F10         - Step Over
+  F11         - Step Into
+  Shift+F11   - Step Out
+  ESC         - Stop debugger
   Ctrl+C      - Exit
 ```
 

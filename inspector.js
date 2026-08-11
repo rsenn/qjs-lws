@@ -17,14 +17,20 @@ import { WebSocketStream } from './lib/websocketstream.js';
 import { TextDecoder } from 'textcode';
 import * as std from 'std';
 import * as os from 'os';
+import { LLL_USER, LLL_WARN, LLL_ERR, logLevel } from 'lws.so';
 
-const DEFAULT_PORT = 9222;
-const DEFAULT_HOST = '127.0.0.1';
+const DEFAULT_PORT = process.env.CDP_PORT ? +process.env.CDP_PORT : 9222;
+const DEFAULT_HOST = process.env.CDP_HOST ? process.env.CDP_HOST : '127.0.0.1';
 const DEBUG_LOG_PATH = 'inspector-debug.log';
+
+logLevel((process.env.DEBUG ? LLL_USER : 0) | LLL_WARN | LLL_ERR, (l, m) => console.log(m.replace(/: \w+: /, ': ')));
 
 /**
  * Raw terminal input handler - puts stdin in raw mode and parses key sequences
  */
+const HISTORY_MAX = 500;
+const HISTORY_PATH = (process.env.HOME || '/tmp') + '/.qjs-inspector-history';
+
 class TerminalInput {
   #fd = 0; // stdin
   #buffer = '';
@@ -34,10 +40,50 @@ class TerminalInput {
   #onText = null;
   #escapeTimer = null;
   #prompt = '> ';
+  #history = [];
+  #historyIndex = -1;
+  #savedLine = '';
 
   constructor() {
     if(!os.isatty(this.#fd)) {
       throw new Error('stdin is not a TTY');
+    }
+    this.#loadHistory();
+  }
+
+  #loadHistory() {
+    try {
+      const f = std.open(HISTORY_PATH, 'r');
+      if(f) {
+        let line;
+        while((line = f.getline()) !== null) {
+          line = line.trim();
+          if(line) this.#history.push(line);
+        }
+        f.close();
+        if(this.#history.length > HISTORY_MAX) {
+          this.#history = this.#history.slice(-HISTORY_MAX);
+        }
+      }
+    } catch(e) {
+      // History file doesn't exist yet, start fresh
+    }
+    this.#historyIndex = this.#history.length;
+  }
+
+  saveHistory() {
+    try {
+      const f = std.open(HISTORY_PATH, 'w');
+      if(f) {
+        const start = Math.max(0, this.#history.length - HISTORY_MAX);
+        for(let i = start; i < this.#history.length; i++) {
+          f.puts(this.#history[i] + '\n');
+        }
+        f.flush();
+        f.close();
+      }
+    } catch(e) {
+      // Ignore write errors
     }
   }
 
@@ -128,6 +174,9 @@ class TerminalInput {
       } else if(ch >= '\x01' && ch <= '\x1a') {
         // Other control characters
         this.#onKey?.(`ctrl-${String.fromCharCode(ch.charCodeAt(0) + 96)}`);
+      } else if(this.#textInput === '' && 'gnso'.includes(ch)) {
+        // Letter shortcuts only when line is empty (avoid conflict with expression input)
+        this.#onKey?.(ch);
       } else {
         // Regular printable character - insert at cursor
         this.#insertChar(ch);
@@ -174,11 +223,17 @@ class TerminalInput {
 
   #submitLine() {
     const text = this.#textInput.trim();
-    if(text && this.#onText) {
-      this.#onText(text);
+    if(text) {
+      // Add to history (skip duplicates of last entry)
+      if(this.#history.length === 0 || this.#history[this.#history.length - 1] !== text) {
+        this.#history.push(text);
+      }
+      this.#historyIndex = this.#history.length;
+      this.#onText?.(text);
     }
     this.#textInput = '';
     this.#cursorPos = 0;
+    this.#savedLine = '';
     std.out.puts('\n');
     std.out.flush();
   }
@@ -201,7 +256,13 @@ class TerminalInput {
   }
 
   #handleSequence(seq) {
-    switch(seq) {
+    switch (seq) {
+      case 'up':
+        this.#historyPrev();
+        break;
+      case 'down':
+        this.#historyNext();
+        break;
       case 'left':
         if(this.#cursorPos > 0) {
           this.#cursorPos--;
@@ -226,6 +287,32 @@ class TerminalInput {
     }
   }
 
+  #historyPrev() {
+    if(this.#history.length === 0) return;
+    if(this.#historyIndex > 0) {
+      if(this.#historyIndex === this.#history.length) {
+        this.#savedLine = this.#textInput;
+      }
+      this.#historyIndex--;
+      this.#textInput = this.#history[this.#historyIndex];
+      this.#cursorPos = this.#textInput.length;
+      this.#redrawLine();
+    }
+  }
+
+  #historyNext() {
+    if(this.#historyIndex < this.#history.length) {
+      this.#historyIndex++;
+      if(this.#historyIndex === this.#history.length) {
+        this.#textInput = this.#savedLine;
+      } else {
+        this.#textInput = this.#history[this.#historyIndex];
+      }
+      this.#cursorPos = this.#textInput.length;
+      this.#redrawLine();
+    }
+  }
+
   #parseEscapeSequence() {
     // Common escape sequences - multiple variants for different terminals
     // (xterm, screen, tmux, etc. send different sequences)
@@ -239,27 +326,27 @@ class TerminalInput {
       '\x1b[21~': 'f10',
       '\x1b[23~': 'f11',
       '\x1b[24~': 'f12',
-      
+
       // Screen/tmux variants (often use [25~ and [26~ for F11/F12)
       '\x1b[25~': 'f11',
       '\x1b[26~': 'f12',
-      
+
       // Shift variants
       '\x1b[23;2~': 'shift-f11',
       '\x1b[24;2~': 'shift-f12',
       '\x1b[25;2~': 'shift-f11',
       '\x1b[26;2~': 'shift-f12',
-      
+
       // Alternative F11/F12 sequences (some terminals)
       '\x1b[28~': 'f11',
       '\x1b[29~': 'f12',
-      
+
       // Arrow keys
       '\x1b[A': 'up',
       '\x1b[B': 'down',
       '\x1b[C': 'right',
       '\x1b[D': 'left',
-      
+
       // Screen-specific sequences (sometimes prefixed with Esc-O)
       '\x1bO15~': 'f5',
       '\x1bO17~': 'f6',
@@ -315,17 +402,28 @@ class CDPInspector {
 
   #printHelp() {
     console.log('\nDebugger controls:');
-    console.log('  F5          - Continue (when paused) or Interrupt (when running)');
-    console.log('  F10         - Step Over');
-    console.log('  F11         - Step Into');
-    console.log('  Shift+F11   - Step Out');
+    console.log('  F5 / g      - Continue (when paused) or Interrupt (when running)');
+    console.log('  F10 / n     - Step Over (next)');
+    console.log('  F11 / s     - Step Into');
+    console.log('  Shift+F11 / o - Step Out');
     console.log('  ESC         - Stop debugger');
     console.log('  Ctrl+C      - Exit');
+    console.log('  Up/Down     - Navigate command history');
     console.log('  Type any expression and press Enter to evaluate in the page context\n');
   }
 
   async #handleKey(key) {
-    switch(key) {
+    // Screen/tmux-friendly letter shortcuts (GDB conventions)
+    const keyMap = {
+      'g': 'f5',         // go/continue
+      'n': 'f10',        // next (step over)
+      's': 'f11',        // step into
+      'o': 'shift-f11',  // step out
+    };
+
+    const mappedKey = keyMap[key] || key;
+
+    switch(mappedKey) {
       case 'f5':
         if(this.#paused) {
           console.log('[continue]');
@@ -378,7 +476,7 @@ class CDPInspector {
       const result = await this.send('Runtime.evaluate', {
         expression: text,
         returnByValue: true,
-        generatePreview: false
+        generatePreview: false,
       });
 
       if(result.exceptionDetails) {
@@ -456,13 +554,13 @@ class CDPInspector {
         const rawJson = buf.slice(start, end + 1);
         try {
           const msg = JSON.parse(rawJson);
-          
+
           // Log received message if debug logging is enabled
           if(this.#debugLog) {
             this.#debugLog.puts(`RX: ${rawJson}\n`);
             this.#debugLog.flush();
           }
-          
+
           this.#dispatchMessage(msg);
         } catch(e) {
           // Skip malformed messages
@@ -480,12 +578,24 @@ class CDPInspector {
 
     for(let i = start; i < str.length; i++) {
       const c = str[i];
-      if(escape) { escape = false; continue; }
-      if(c === '\\' && inString) { escape = true; continue; }
-      if(c === '"') { inString = !inString; continue; }
+      if(escape) {
+        escape = false;
+        continue;
+      }
+      if(c === '\\' && inString) {
+        escape = true;
+        continue;
+      }
+      if(c === '"') {
+        inString = !inString;
+        continue;
+      }
       if(inString) continue;
       if(c === '{') depth++;
-      else if(c === '}') { depth--; if(depth === 0) return i; }
+      else if(c === '}') {
+        depth--;
+        if(depth === 0) return i;
+      }
     }
     return -1;
   }
@@ -531,7 +641,7 @@ class CDPInspector {
   }
 
   #onEvent(method, params) {
-    switch(method) {
+    switch (method) {
       case 'Debugger.scriptParsed':
         this.#scripts.set(params.scriptId, params.url || params.scriptId);
         console.log(`[script parsed] ${params.url || params.scriptId}`);
@@ -572,7 +682,7 @@ class CDPInspector {
     const loc = frame.location;
     const funcName = frame.functionName || '(anonymous)';
     const url = this.#scripts.get(loc.scriptId) || loc.scriptId;
-    
+
     console.log(`\n  ► ${url}:${loc.lineNumber}`);
     console.log(`    at ${funcName}`);
   }
@@ -597,9 +707,7 @@ class CDPInspector {
         });
 
         for(const prop of result.result.slice(0, 10)) {
-          const value = prop.value?.value !== undefined
-            ? String(prop.value.value)
-            : prop.value?.description || prop.value?.type || '(unknown)';
+          const value = prop.value?.value !== undefined ? String(prop.value.value) : prop.value?.description || prop.value?.type || '(unknown)';
           console.log(`    ${prop.name}: ${value}`);
         }
         if(result.result.length > 10) {
@@ -644,7 +752,7 @@ class CDPInspector {
         this.#terminal = new TerminalInput();
         this.#terminal.start(
           key => this.#handleKey(key),
-          text => this.#evaluateExpression(text)
+          text => this.#evaluateExpression(text),
         );
         this.#printHelp();
       } catch(e) {
@@ -678,6 +786,7 @@ class CDPInspector {
   destroy() {
     this.#running = false;
     if(this.#terminal) {
+      this.#terminal.saveHistory();
       this.#terminal.stop();
       this.#terminal = null;
     }
