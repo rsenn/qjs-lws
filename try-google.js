@@ -19,6 +19,7 @@ import { Parser, Factory, Node, Element, MutationObserver } from 'dom';
 import { err as stderr, out as stdout } from 'std';
 import { setTimeout, clearTimeout } from 'os';
 import { setInterval, clearInterval } from 'timers';
+import { atob, btoa } from 'util';
 
 const TRACE_MISSING = true; // log every missing API access
 const TRACE_ERRORS = true; // log every thrown error
@@ -367,24 +368,8 @@ function buildShims(doc) {
     clearInterval,
 
     // Encoding
-    btoa: s => {
-      // Simple base64 encoding
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-      let result = '',
-        i = 0;
-      const bytes = [...s].map(c => c.charCodeAt(0));
-      while(i < bytes.length) {
-        const a = bytes[i++] ?? 0,
-          b = bytes[i++] ?? 0,
-          c = bytes[i++] ?? 0;
-        const triple = (a << 16) | (b << 8) | c;
-        result += chars[(triple >> 18) & 0x3f] + chars[(triple >> 12) & 0x3f];
-        result += i - 2 <= bytes.length ? chars[(triple >> 6) & 0x3f] : '=';
-        result += i - 1 <= bytes.length ? chars[triple & 0x3f] : '=';
-      }
-      return result;
-    },
-    atob: s => atob(s),
+    btoa,
+    atob,
 
     // Console
     console: trapMissing(
@@ -673,6 +658,9 @@ async function main() {
     characterDataOldValue: true,
   });
   console.log('    MutationObserver attached to <' + doc.documentElement.tagName + '> (subtree)');
+
+  os.kill(os.getpid(), os.SIGUSR1);
+
 
   // Helper: flush microtasks + drain any pending records, then summarise.
   async function reportMutations(label) {
