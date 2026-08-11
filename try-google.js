@@ -92,7 +92,7 @@ function summariseRecords(records, phaseLabel) {
     show(shown++, `childList ${tagOf(r.target)} +[${added}] -[${removed}]`);
   }
   for(const r of buckets.attributes) {
-    show(shown++, `attributes ${tagOf(r.target)}.${r.attributeName} = ${JSON.stringify((r.target.getAttribute?.(r.attributeName)) ?? '?')}`);
+    show(shown++, `attributes ${tagOf(r.target)}.${r.attributeName} = ${JSON.stringify(r.target.getAttribute?.(r.attributeName) ?? '?')}`);
   }
   for(const r of buckets.characterData) {
     const data = (r.target.data ?? '').slice(0, 60);
@@ -321,6 +321,33 @@ function buildShims(doc) {
     });
   }
 
+  // ─── Intercepted Timers ───
+  const interceptedSetTimeout = (callback, delay, ...args) => {
+    console.log(`[TIMER] setTimeout set with delay ${delay}ms`);
+    const wrappedCallback = (...cbArgs) => {
+      console.log(`[TIMER] setTimeout handler fired (delay was ${delay}ms)`);
+      if (typeof callback === 'function') {
+        return callback(...cbArgs);
+      } else {
+        return (0, eval)(callback);
+      }
+    };
+    return setTimeout(wrappedCallback, delay, ...args);
+  };
+
+  const interceptedSetInterval = (callback, delay, ...args) => {
+    console.log(`[TIMER] setInterval set with delay ${delay}ms`);
+    const wrappedCallback = (...cbArgs) => {
+      console.log(`[TIMER] setInterval handler fired (interval ${delay}ms)`);
+      if (typeof callback === 'function') {
+        return callback(...cbArgs);
+      } else {
+        return (0, eval)(callback);
+      }
+    };
+    return setInterval(wrappedCallback, delay, ...args);
+  };
+
   // Build the window object
   const win = {
     document: doc,
@@ -333,10 +360,10 @@ function buildShims(doc) {
     sessionStorage: makeStorage(),
     trustedTypes,
 
-    // Timers (from QuickJS 'os' module)
-    setTimeout,
+    // Timers (intercepted)
+    setTimeout: interceptedSetTimeout,
     clearTimeout,
-    setInterval,
+    setInterval: interceptedSetInterval,
     clearInterval,
 
     // Encoding
@@ -504,7 +531,7 @@ function buildShims(doc) {
     KeyboardEvent: EventStub,
 
     // requestAnimationFrame
-    requestAnimationFrame: cb => setTimeout(cb, 16),
+    requestAnimationFrame: cb => win.setTimeout(cb, 16),
     cancelAnimationFrame: id => clearTimeout(id),
 
     // queueMicrotask
@@ -616,6 +643,10 @@ async function main() {
   globalThis.CustomEvent = win.CustomEvent;
   globalThis.crypto = win.crypto;
   globalThis.MutationObserver = MutationObserver;
+  globalThis.setTimeout = win.setTimeout;
+  globalThis.clearTimeout = win.clearTimeout;
+  globalThis.setInterval = win.setInterval;
+  globalThis.clearInterval = win.clearInterval;
 
   // 3b. Attach a real MutationObserver to document.documentElement (with subtree).
   //     We collect every record into `mutationLog` tagged with the phase that
@@ -632,6 +663,7 @@ async function main() {
       mutationLog.push({ phase: currentPhase, records: [...records] });
     }
   });
+
   observer.observe(doc.documentElement, {
     childList: true,
     attributes: true,

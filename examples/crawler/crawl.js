@@ -68,7 +68,8 @@ function parseArgs(argv) {
     else if(arg === '--allow') opts.allowList = argv[++i].split(',').map(s => s.trim());
     else if(arg === '--no-follow') opts.followLinks = false;
     else if(arg === '-o' || arg === '--output') opts.output = argv[++i];
-    else if(arg === '--no-headers') opts.headers = false;
+    else if(arg == '-H' || arg === '--no-headers') opts.headers = false;
+    else if(arg === '--headers') opts.headers = true;
     else if(arg === '-q' || arg === '--quiet') opts.quiet = true;
     else if(!arg.startsWith('-')) opts.urls.push(arg);
     else {
@@ -127,7 +128,7 @@ async function main() {
   log(opts.quiet, `Output: ${opts.output ?? 'stdout'}\n`);
   log(opts.quiet, `URLs: ${opts.urls}\n`);
 
-  crawler.on('page', e => (stdout.puts(e.markdown), stdout.flush()));
+  //crawler.on('page', e => (stdout.puts(e.markdown), stdout.flush()));
 
   await crawler.start(opts.urls);
 

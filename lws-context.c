@@ -212,8 +212,7 @@ lwsjs_resolve_cb(struct lws* wsi, const char* ads, const struct addrinfo* result
          qtype was actually asked for (see BUGS:
          async-dns-qtype-ignored-on-cache-fill) - filter here so an AAAA
          request only yields ipv6 addresses and vice versa. */
-      if((q->qtype == LWS_ADNS_RECORD_A && p->ai_family != AF_INET) ||
-         (q->qtype == LWS_ADNS_RECORD_AAAA && p->ai_family != AF_INET6))
+      if((q->qtype == LWS_ADNS_RECORD_A && p->ai_family != AF_INET) || (q->qtype == LWS_ADNS_RECORD_AAAA && p->ai_family != AF_INET6))
         continue;
 
       if(p->ai_addr && p->ai_addrlen <= sizeof(sa46)) {
