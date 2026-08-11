@@ -164,7 +164,7 @@ export class OllamaClient {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
-      ssl_connection: LCCSCF_PIPELINE,
+      sslConnection: LCCSCF_PIPELINE,
     });
 
     // Registered synchronously, right after connect() resolves - no

@@ -64,7 +64,11 @@ async function main() {
       url = `https://serpapi.com/search?${qs}`;
     }
 
-    const resp = await fetch(url, { h2: false, pctx: c => (ctx = c) });
+    const resp = await fetch(url, {
+      h2: false,
+      retry: { retryMsTable: [2000, 5000, 10000], jitter_percent: 20 },
+      pctx: c => (ctx = c),
+    });
     const text = await resp.text();
     const data = JSON.parse(text);
 

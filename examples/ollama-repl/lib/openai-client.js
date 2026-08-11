@@ -215,7 +215,7 @@ export class OpenAIClient {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` },
       body: JSON.stringify(payload),
-      ssl_connection: LCCSCF_PIPELINE,
+      sslConnection: LCCSCF_PIPELINE,
       /* Forces http/1.1 over ALPN instead of letting the server negotiate
          h2 - some OpenAI-compatible servers send a connection-level
          WINDOW_UPDATE that overflows lws's 31-bit tx-credit max

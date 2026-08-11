@@ -170,7 +170,7 @@ function requestViaPlainApi(ctx) {
       host: 'localhost',
       method: 'POST',
       protocol: 'http',
-      ssl_connection: LCCSCF_PIPELINE,
+      sslConnection: LCCSCF_PIPELINE,
     });
   });
 }
@@ -253,7 +253,7 @@ async function testHttpClientAdapter() {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: REQUEST_BODY,
-      ssl_connection: LCCSCF_PIPELINE,
+      sslConnection: LCCSCF_PIPELINE,
     });
     const resp = await new Promise((resolve, reject) => settled.set(req, { resolve, reject }));
     return { status: resp.status, body: await resp.text() };
