@@ -39,8 +39,6 @@ import { html2md } from './html2md.js';
 import { LLL_USER, LLL_INFO, LLL_NOTICE, logLevel, toString } from 'lws.so';
 import { URL } from '../../../lib/lws/url.js';
 
-//logLevel(LLL_USER, (l, m) => console.log(m));
-
 const DEFAULT_USER_AGENT = 'qjs-crawler/1.0';
 
 /** Strip <script> and <style> blocks from HTML before markdown conversion -
@@ -337,11 +335,15 @@ export class Crawler {
         if(resp.status < 200 || resp.status >= 300) return null;
 
         const ct = resp.headers?.get?.('content-type') ?? '';
-        if(!/html|text/i.test(ct)) return null;
+        // Only parse HTML, XML, XHTML, and similar text-based markup formats
+        if(!/^(text\/html|application\/xhtml\+xml|application\/xml|text\/xml|text\/plain)\b/i.test(ct)) return null;
 
         const chunks = [];
         for await(const chunk of resp.body) chunks.push(toString(chunk.buffer ?? chunk));
         const html = chunks.join('');
+
+        /*console.log('url', url);
+        console.log('html', { html });*/
 
         const title = extractTitle(html) ?? url;
         const body = extractBody(html);
@@ -389,7 +391,12 @@ export class Crawler {
 
           // Discover and queue links if within depth budget.
           if(depth < this.#maxDepth) {
-            const toFollow = typeof this.#followLinks === 'function' ? this.#followLinks(page.links, page) : this.#followLinks ? page.links.filter(l => this.#isAllowed(l)) : [];
+            const toFollow =
+              typeof this.#followLinks === 'function'
+                ? this.#followLinks(page.links, page)
+                : this.#followLinks
+                  ? page.links.filter(l => this.#isAllowed(l) && !/\.(css|js)(\?|$)/i.test(l))
+                  : [];
 
             for(const link of toFollow) {
               if(!this.#visited.has(link)) {
