@@ -31,6 +31,9 @@
 import { exit, out as stdout, err as stderr } from 'std';
 import { Crawler } from './lib/crawler.js';
 import { LLL_USER, LLL_WARN, LLL_ERR, logLevel } from 'lws.so';
+import { Console } from 'console';
+
+globalThis.console = new Console(stderr, { inspectOptions: {} });
 
 function help() {
   stdout.puts(
@@ -124,7 +127,7 @@ async function main() {
   log(opts.quiet, `Output: ${opts.output ?? 'stdout'}\n`);
   log(opts.quiet, `URLs: ${opts.urls}\n`);
 
-crawler.on('page',  e=> console.log('page', e));
+  crawler.on('page', e => (stdout.puts(e.markdown), stdout.flush()));
 
   await crawler.start(opts.urls);
 

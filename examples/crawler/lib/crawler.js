@@ -337,7 +337,7 @@ export class Crawler {
         const ct = resp.headers?.get?.('content-type') ?? '';
         // Only parse HTML, XML, XHTML, and similar text-based markup formats
         if(!/(^text|xml|html)\b/i.test(ct)) {
-         console.log('Not parsing content-type:', ct);
+          console.log('Not parsing content-type:', ct);
           return null;
         }
 
