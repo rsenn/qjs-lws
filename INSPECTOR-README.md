@@ -32,10 +32,10 @@ When paused at a breakpoint or exception:
 
 | Key | Action |
 |-----|--------|
-| **F5** or **c** | Continue (when paused) or Interrupt (when running) |
-| **F10** or **n** | Step Over |
-| **F11** or **s** | Step Into |
-| **Shift+F11** or **o** | Step Out |
+| **F5** or **r/c/p** | Continue (when paused) or Interrupt (when running) |
+| **F10** or **j** | Step Over |
+| **F11** or **i** | Step Into |
+| **Shift+F11** or **u** | Step Out |
 | **ESC** or **q** | Stop debugger and exit |
 | **Ctrl+C** | Exit immediately |
 

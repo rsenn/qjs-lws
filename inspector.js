@@ -33,6 +33,7 @@ class TerminalInput {
   #onKey = null;
   #onText = null;
   #escapeTimer = null;
+  #prompt = '> ';
 
   constructor() {
     if(!os.isatty(this.#fd)) {
@@ -45,6 +46,7 @@ class TerminalInput {
     this.#onText = onText;
     os.ttySetRaw(this.#fd);
     os.setReadHandler(this.#fd, () => this.#onData());
+    this.#redrawLine(); // Show initial prompt
   }
 
   stop() {
@@ -178,21 +180,24 @@ class TerminalInput {
     this.#textInput = '';
     this.#cursorPos = 0;
     std.out.puts('\n');
+    std.out.flush();
   }
 
   #redrawLine() {
-    // Clear current line and redraw
+    // Clear current line and redraw with prompt
     const clearToEol = '\x1b[K'; // Clear from cursor to end of line
     const moveToStart = '\r'; // Carriage return to start of line
-    
-    // Move to start, clear line, write text
-    std.out.puts(moveToStart + clearToEol + this.#textInput);
-    
-    // Move cursor back to correct position
+
+    // Move to start, clear line, write prompt and text
+    std.out.puts(moveToStart + clearToEol + this.#prompt + this.#textInput);
+
+    // Move cursor back to correct position (accounting for prompt length)
     if(this.#cursorPos < this.#textInput.length) {
       const moveBack = this.#textInput.length - this.#cursorPos;
       std.out.puts(`\x1b[${moveBack}D`); // Move cursor left
     }
+
+    std.out.flush();
   }
 
   #handleSequence(seq) {
@@ -310,10 +315,10 @@ class CDPInspector {
 
   #printHelp() {
     console.log('\nDebugger controls:');
-    console.log('  F5 / c      - Continue (when paused) or Interrupt (when running)');
-    console.log('  F10 / n     - Step Over');
-    console.log('  F11 / s     - Step Into');
-    console.log('  Shift+F11 / o - Step Out');
+    console.log('  F5 / r/c/p  - Continue (when paused) or Interrupt (when running)');
+    console.log('  F10 / j     - Step Over');
+    console.log('  F11 / i     - Step Into');
+    console.log('  Shift+F11 / u - Step Out');
     console.log('  ESC / q     - Stop debugger');
     console.log('  Ctrl+C      - Exit');
     console.log('  Type any expression and press Enter to evaluate in the page context\n');
@@ -322,10 +327,10 @@ class CDPInspector {
   async #handleKey(key) {
     // Map letter shortcuts to function key equivalents
     const keyMap = {
-      'c': 'f5',
-      'n': 'f10',
-      's': 'f11',
-      'o': 'shift-f11',
+      'r': 'f5', 'c': 'f5', 'p': 'f5',
+      'j': 'f10',
+      'i': 'f11',
+      'u': 'shift-f11',
       'q': 'escape',
     };
     
