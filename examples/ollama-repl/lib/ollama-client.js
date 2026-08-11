@@ -177,7 +177,12 @@ export class OllamaClient {
        the real status on establishment (see onEstablishedClientHttp,
        lib/lws/protocols.js) - it's always true regardless of the actual
        response code. Check `.status` directly instead. */
-    if(resp.status < 200 || resp.status >= 300) throw new Error(`Ollama HTTP ${resp.status}: ${await resp.text().catch(() => '')}`);
+    if(resp.status < 200 || resp.status >= 300) {
+      const headers = {};
+      resp.headers?.forEach((v, k) => headers[k] = v);
+      const body = await resp.text().catch(() => '');
+      throw new Error(`Ollama HTTP ${resp.status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+    }
 
     return resp;
   }

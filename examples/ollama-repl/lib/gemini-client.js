@@ -204,7 +204,12 @@ export class GeminiClient {
     const resp = await this.#awaitResponse(req, wsi);
 
     // See OllamaClient#post's identical comment: `.status`, not `.ok`.
-    if(resp.status < 200 || resp.status >= 300) throw new Error(`Gemini HTTP ${resp.status}: ${await resp.text().catch(() => '')}`);
+    if(resp.status < 200 || resp.status >= 300) {
+      const headers = {};
+      resp.headers?.forEach((v, k) => headers[k] = v);
+      const body = await resp.text().catch(() => '');
+      throw new Error(`Gemini HTTP ${resp.status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+    }
 
     return resp;
   }
