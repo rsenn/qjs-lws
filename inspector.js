@@ -23,7 +23,7 @@ const DEFAULT_PORT = process.env.CDP_PORT ? +process.env.CDP_PORT : 9222;
 const DEFAULT_HOST = process.env.CDP_HOST ? process.env.CDP_HOST : '127.0.0.1';
 const DEBUG_LOG_PATH = 'inspector-debug.log';
 
-logLevel((process.env.DEBUG ? LLL_USER : 0) | LLL_WARN | LLL_ERR, (l, m) => console.log(m.replace(/: \w+: /, ': ')));
+logLevel((+process.env.DEBUG > 1 ? LLL_USER : 0) | LLL_WARN | LLL_ERR, (l, m) => console.log(m.replace(/: \w+: /, ': ')));
 
 /**
  * Raw terminal input handler - puts stdin in raw mode and parses key sequences
@@ -530,6 +530,27 @@ class CDPInspector {
     });
   }
 
+  async #promptForTarget(count) {
+    return new Promise(resolve => {
+      const readline = std.in;
+      while(true) {
+        std.out.puts(`Select target [1-${count}]: `);
+        std.out.flush();
+        const line = readline.getline();
+        if(line === null) {
+          console.log('\nNo input, exiting.');
+          std.exit(1);
+        }
+        const n = parseInt(line.trim(), 10);
+        if(n >= 1 && n <= count) {
+          resolve(n);
+          return;
+        }
+        console.log(`Invalid selection. Please enter a number between 1 and ${count}.`);
+      }
+    });
+  }
+
   async #readMessages(readable) {
     const reader = readable.getReader();
     const decoder = new TextDecoder();
@@ -730,8 +751,23 @@ class CDPInspector {
         return;
       }
 
-      const target = targets.find(t => t.type === 'page') || targets[0];
-      console.log(`Target: ${target.title || target.url}`);
+      let target;
+      if(targets.length === 1) {
+        target = targets[0];
+      } else {
+        // Multiple targets - let user select
+        console.log('\nAvailable debug targets:');
+        targets.forEach((t, i) => {
+          const type = t.type || 'unknown';
+          const title = t.title || t.url || 'untitled';
+          console.log(`  ${i + 1}. [${type}] ${title}`);
+        });
+
+        const selection = await this.#promptForTarget(targets.length);
+        target = targets[selection - 1];
+      }
+
+      console.log(`\nTarget: ${target.title || target.url}`);
       console.log(`URL: ${target.url}`);
 
       let wsUrl = target.webSocketDebuggerUrl;
