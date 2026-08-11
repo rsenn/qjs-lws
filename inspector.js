@@ -176,9 +176,6 @@ class TerminalInput {
       } else if(ch >= '\x01' && ch <= '\x1a') {
         // Other control characters
         this.#onKey?.(`ctrl-${String.fromCharCode(ch.charCodeAt(0) + 96)}`);
-      } else if(this.#textInput === '' && 'gnso'.includes(ch)) {
-        // Letter shortcuts only when line is empty (avoid conflict with expression input)
-        this.#onKey?.(ch);
       } else {
         // Regular printable character - insert at cursor
         this.#insertChar(ch);
@@ -404,10 +401,10 @@ class CDPInspector {
 
   #printHelp() {
     console.log('\nDebugger controls:');
-    console.log('  F5 / g      - Continue (when paused) or Interrupt (when running)');
-    console.log('  F10 / n     - Step Over (next)');
-    console.log('  F11 / s     - Step Into');
-    console.log('  Shift+F11 / o - Step Out');
+    console.log('  F5          - Continue (when paused) or Interrupt (when running)');
+    console.log('  F10         - Step Over');
+    console.log('  F11         - Step Into');
+    console.log('  Shift+F11   - Step Out');
     console.log('  ESC         - Stop debugger');
     console.log('  Ctrl+C      - Exit');
     console.log('  Up/Down     - Navigate command history');
@@ -415,17 +412,7 @@ class CDPInspector {
   }
 
   async #handleKey(key) {
-    // Screen/tmux-friendly letter shortcuts (GDB conventions)
-    const keyMap = {
-      'g': 'f5',         // go/continue
-      'n': 'f10',        // next (step over)
-      's': 'f11',        // step into
-      'o': 'shift-f11',  // step out
-    };
-
-    const mappedKey = keyMap[key] || key;
-
-    switch(mappedKey) {
+    switch(key) {
       case 'f5':
         if(this.#paused) {
           console.log('[continue]');
