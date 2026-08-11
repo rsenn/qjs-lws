@@ -346,6 +346,13 @@ class TerminalInput {
       '\x1b[C': 'right',
       '\x1b[D': 'left',
 
+      '\x1b[1': 'home',
+      '\x1b[3': 'delete',
+      '\x1b[2': 'insert',
+      '\x1b[4': 'end',
+      '\x1b[5': 'pageup',
+      '\x1b[6': 'pagedown',
+
       // Screen-specific sequences (sometimes prefixed with Esc-O)
       '\x1bO15~': 'f5',
       '\x1bO17~': 'f6',
@@ -412,7 +419,7 @@ class CDPInspector {
   }
 
   async #handleKey(key) {
-    switch(key) {
+    switch (key) {
       case 'f5':
         if(this.#paused) {
           console.log('[continue]');

@@ -15,7 +15,8 @@ const historyPath = (process.env.HOME || '/tmp') + '/.qjs-inspector-history';
 try {
   const f = std.open(historyPath, 'r');
   if(f) {
-    let line, i = 1;
+    let line,
+      i = 1;
     while((line = f.getline()) !== null) {
       console.log(`  ${i++}: ${line}`);
     }
