@@ -28,7 +28,9 @@ const DEBUG_LOG_PATH = 'inspector-debug.log';
 class TerminalInput {
   #fd = 0; // stdin
   #buffer = '';
+  #textInput = '';
   #onKey = null;
+  #onText = null;
   #escapeTimer = null;
 
   constructor() {
@@ -37,8 +39,9 @@ class TerminalInput {
     }
   }
 
-  start(onKey) {
+  start(onKey, onText) {
     this.#onKey = onKey;
+    this.#onText = onText;
     os.ttySetRaw(this.#fd);
     os.setReadHandler(this.#fd, () => this.#onData());
   }
@@ -91,14 +94,34 @@ class TerminalInput {
         continue;
       }
 
-      // Handle control characters
+      // Handle control characters and text input
       const ch = this.#buffer[0];
       this.#buffer = this.#buffer.slice(1);
 
       if(ch === '\x03') {
+        // Ctrl+C
         this.#onKey?.('ctrl-c');
+      } else if(ch === '\r' || ch === '\n') {
+        // Enter - submit the text
+        const text = this.#textInput.trim();
+        if(text && this.#onText) {
+          this.#onText(text);
+        }
+        this.#textInput = '';
+        std.out.puts('\n');
+      } else if(ch === '\x7f' || ch === '\x08') {
+        // Backspace - remove last character
+        if(this.#textInput.length > 0) {
+          this.#textInput = this.#textInput.slice(0, -1);
+          std.out.puts('\b \b'); // Erase character on screen
+        }
       } else if(ch >= '\x01' && ch <= '\x1a') {
+        // Other control characters
         this.#onKey?.(`ctrl-${String.fromCharCode(ch.charCodeAt(0) + 96)}`);
+      } else {
+        // Regular printable character - add to text input and echo
+        this.#textInput += ch;
+        std.out.puts(ch);
       }
     }
   }
@@ -197,7 +220,8 @@ class CDPInspector {
     console.log('  F11 / s     - Step Into');
     console.log('  Shift+F11 / o - Step Out');
     console.log('  ESC / q     - Stop debugger');
-    console.log('  Ctrl+C      - Exit\n');
+    console.log('  Ctrl+C      - Exit');
+    console.log('  Type any expression and press Enter to evaluate in the page context\n');
   }
 
   async #handleKey(key) {
@@ -257,6 +281,44 @@ class CDPInspector {
         this.destroy();
         std.exit(0);
         break;
+    }
+  }
+
+  async #evaluateExpression(text) {
+    try {
+      const result = await this.send('Runtime.evaluate', {
+        expression: text,
+        returnByValue: true,
+        generatePreview: false
+      });
+
+      if(result.exceptionDetails) {
+        const error = result.exceptionDetails;
+        if(error.exception?.description) {
+          console.error(`\x1b[31m${error.exception.description}\x1b[0m`);
+        } else if(error.text) {
+          console.error(`\x1b[31m${error.text}\x1b[0m`);
+        } else {
+          console.error('\x1b[31mUnknown error\x1b[0m');
+        }
+      } else {
+        const value = result.result;
+        if(value.value === undefined) {
+          console.log('\x1b[90mundefined\x1b[0m');
+        } else if(value.value === null) {
+          console.log('\x1b[90mnull\x1b[0m');
+        } else if(typeof value.value === 'string') {
+          console.log(`\x1b[33m"${value.value}"\x1b[0m`);
+        } else if(typeof value.value === 'number') {
+          console.log(`\x1b[34m${value.value}\x1b[0m`);
+        } else if(typeof value.value === 'boolean') {
+          console.log(`\x1b[34m${value.value}\x1b[0m`);
+        } else {
+          console.log(JSON.stringify(value.value, null, 2));
+        }
+      }
+    } catch(e) {
+      console.error(`Evaluation error: ${e.message}`);
     }
   }
 
@@ -491,7 +553,10 @@ class CDPInspector {
       // Initialize terminal input for keyboard controls
       try {
         this.#terminal = new TerminalInput();
-        this.#terminal.start(key => this.#handleKey(key));
+        this.#terminal.start(
+          key => this.#handleKey(key),
+          text => this.#evaluateExpression(text)
+        );
         this.#printHelp();
       } catch(e) {
         console.error(`Warning: ${e.message} - keyboard controls disabled`);
