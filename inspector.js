@@ -2,7 +2,7 @@
  * CDP (Chrome DevTools Protocol) inspector - connects to Chrome/Chromium
  * running with --remote-debugging-port and single-steps through scripts.
  *
- * Usage: qjsm inspector2.js [port]
+ * Usage: qjsm inspector.js [port]
  *
  * Prerequisites:
  *   chrome --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1
@@ -16,10 +16,157 @@ import { fetch } from './lib/fetch.js';
 import { WebSocketStream } from './lib/websocketstream.js';
 import { TextDecoder } from 'textcode';
 import * as std from 'std';
+import * as os from 'os';
 
 const DEFAULT_PORT = 9222;
 const DEFAULT_HOST = '127.0.0.1';
 const DEBUG_LOG_PATH = 'inspector-debug.log';
+
+/**
+ * Raw terminal input handler - puts stdin in raw mode and parses key sequences
+ */
+class TerminalInput {
+  #fd = 0; // stdin
+  #buffer = '';
+  #onKey = null;
+  #escapeTimer = null;
+
+  constructor() {
+    if(!os.isatty(this.#fd)) {
+      throw new Error('stdin is not a TTY');
+    }
+  }
+
+  start(onKey) {
+    this.#onKey = onKey;
+    os.ttySetRaw(this.#fd);
+    os.setReadHandler(this.#fd, () => this.#onData());
+  }
+
+  stop() {
+    os.setReadHandler(this.#fd, null);
+  }
+
+  #onData() {
+    const buf = new ArrayBuffer(64);
+    const n = os.read(this.#fd, buf, 0, 64);
+    if(n <= 0) return;
+
+    const decoder = new TextDecoder();
+    const data = decoder.decode(new Uint8Array(buf, 0, n));
+    this.#buffer += data;
+    this.#processBuffer();
+  }
+
+  #processBuffer() {
+    while(this.#buffer.length > 0) {
+      // Handle escape sequences
+      if(this.#buffer[0] === '\x1b') {
+        // If buffer is just ESC, wait a bit to see if more comes
+        if(this.#buffer.length === 1) {
+          if(!this.#escapeTimer) {
+            this.#escapeTimer = setTimeout(() => {
+              // ESC pressed alone
+              this.#onKey?.('escape');
+              this.#buffer = '';
+              this.#escapeTimer = null;
+            }, 50);
+          }
+          break;
+        }
+
+        // Clear pending ESC timer
+        if(this.#escapeTimer) {
+          clearTimeout(this.#escapeTimer);
+          this.#escapeTimer = null;
+        }
+
+        // Parse escape sequence
+        const seq = this.#parseEscapeSequence();
+        if(seq === null) {
+          // Incomplete sequence, wait for more data
+          break;
+        }
+        this.#onKey?.(seq);
+        continue;
+      }
+
+      // Handle control characters
+      const ch = this.#buffer[0];
+      this.#buffer = this.#buffer.slice(1);
+
+      if(ch === '\x03') {
+        this.#onKey?.('ctrl-c');
+      } else if(ch >= '\x01' && ch <= '\x1a') {
+        this.#onKey?.(`ctrl-${String.fromCharCode(ch.charCodeAt(0) + 96)}`);
+      }
+    }
+  }
+
+  #parseEscapeSequence() {
+    // Common escape sequences - multiple variants for different terminals
+    // (xterm, screen, tmux, etc. send different sequences)
+    const sequences = {
+      // Standard xterm sequences
+      '\x1b[15~': 'f5',
+      '\x1b[17~': 'f6',
+      '\x1b[18~': 'f7',
+      '\x1b[19~': 'f8',
+      '\x1b[20~': 'f9',
+      '\x1b[21~': 'f10',
+      '\x1b[23~': 'f11',
+      '\x1b[24~': 'f12',
+      
+      // Screen/tmux variants (often use [25~ and [26~ for F11/F12)
+      '\x1b[25~': 'f11',
+      '\x1b[26~': 'f12',
+      
+      // Shift variants
+      '\x1b[23;2~': 'shift-f11',
+      '\x1b[24;2~': 'shift-f12',
+      '\x1b[25;2~': 'shift-f11',
+      '\x1b[26;2~': 'shift-f12',
+      
+      // Alternative F11/F12 sequences (some terminals)
+      '\x1b[28~': 'f11',
+      '\x1b[29~': 'f12',
+      
+      // Arrow keys
+      '\x1b[A': 'up',
+      '\x1b[B': 'down',
+      '\x1b[C': 'right',
+      '\x1b[D': 'left',
+      
+      // Screen-specific sequences (sometimes prefixed with Esc-O)
+      '\x1bO15~': 'f5',
+      '\x1bO17~': 'f6',
+      '\x1bO18~': 'f7',
+      '\x1bO19~': 'f8',
+      '\x1bO20~': 'f9',
+      '\x1bO21~': 'f10',
+      '\x1bO23~': 'f11',
+      '\x1bO24~': 'f12',
+    };
+
+    // Check if we have a complete sequence
+    for(const [seq, key] of Object.entries(sequences)) {
+      if(this.#buffer.startsWith(seq)) {
+        this.#buffer = this.#buffer.slice(seq.length);
+        return key;
+      }
+    }
+
+    // Check if buffer could be start of a sequence
+    if(this.#buffer.length < 8) {
+      // Might be incomplete, wait for more
+      return null;
+    }
+
+    // Unknown sequence, consume the ESC and continue
+    this.#buffer = this.#buffer.slice(1);
+    return 'escape';
+  }
+}
 
 class CDPInspector {
   #ws;
@@ -28,6 +175,9 @@ class CDPInspector {
   #pending = new Map();
   #running = true;
   #debugLog = null;
+  #terminal = null;
+  #paused = false;
+  #currentParams = null;
 
   constructor() {
     if(process.env.DEBUG) {
@@ -36,6 +186,76 @@ class CDPInspector {
       } catch(e) {
         console.error(`Failed to open debug log: ${e.message}`);
       }
+    }
+  }
+
+  #printHelp() {
+    console.log('\nDebugger controls:');
+    console.log('  F5 / c      - Continue (when paused) or Interrupt (when running)');
+    console.log('  F10 / n     - Step Over');
+    console.log('  F11 / s     - Step Into');
+    console.log('  Shift+F11 / o - Step Out');
+    console.log('  ESC / q     - Stop debugger');
+    console.log('  Ctrl+C      - Exit\n');
+  }
+
+  async #handleKey(key) {
+    // Map letter shortcuts to function key equivalents
+    const keyMap = {
+      'c': 'f5',
+      'n': 'f10',
+      's': 'f11',
+      'o': 'shift-f11',
+      'q': 'escape',
+    };
+    
+    const mappedKey = keyMap[key] || key;
+    
+    switch(mappedKey) {
+      case 'f5':
+        if(this.#paused) {
+          console.log('[continue]');
+          this.#paused = false;
+          await this.send('Debugger.resume');
+        } else {
+          console.log('[interrupt]');
+          await this.send('Debugger.pause');
+        }
+        break;
+
+      case 'f10':
+        if(this.#paused) {
+          console.log('[step over]');
+          await this.send('Debugger.stepOver');
+        }
+        break;
+
+      case 'f11':
+        if(this.#paused) {
+          console.log('[step into]');
+          await this.send('Debugger.stepInto');
+        }
+        break;
+
+      case 'shift-f11':
+        if(this.#paused) {
+          console.log('[step out]');
+          await this.send('Debugger.stepOut');
+        }
+        break;
+
+      case 'escape':
+        console.log('\n[stopping debugger]');
+        await this.send('Debugger.disable');
+        this.destroy();
+        std.exit(0);
+        break;
+
+      case 'ctrl-c':
+        console.log('\n[exiting]');
+        this.destroy();
+        std.exit(0);
+        break;
     }
   }
 
@@ -157,6 +377,8 @@ class CDPInspector {
         break;
 
       case 'Debugger.paused':
+        this.#paused = true;
+        this.#currentParams = params;
         console.log(`\n[paused] reason: ${params.reason}`);
         if(params.callFrames?.length > 0) {
           this.#printCallFrame(params.callFrames[0]);
@@ -165,6 +387,8 @@ class CDPInspector {
         break;
 
       case 'Debugger.resumed':
+        this.#paused = false;
+        this.#currentParams = null;
         console.log('[resumed]');
         break;
 
@@ -193,7 +417,7 @@ class CDPInspector {
     const frame = params.callFrames?.[0];
     if(!frame) {
       console.log('  (no call frames)');
-      await this.send('Debugger.resume');
+      this.#printHelp();
       return;
     }
 
@@ -222,8 +446,7 @@ class CDPInspector {
       }
     }
 
-    console.log('\n  [stepping...]');
-    await this.send('Debugger.stepInto');
+    this.#printHelp();
   }
 
   async run(host = DEFAULT_HOST, port = DEFAULT_PORT) {
@@ -250,6 +473,15 @@ class CDPInspector {
       await this.connect(wsUrl);
       console.log('Connected to debugger.\n');
 
+      // Initialize terminal input for keyboard controls
+      try {
+        this.#terminal = new TerminalInput();
+        this.#terminal.start(key => this.#handleKey(key));
+        this.#printHelp();
+      } catch(e) {
+        console.error(`Warning: ${e.message} - keyboard controls disabled`);
+      }
+
       await this.send('Debugger.enable');
       console.log('Debugger enabled.');
 
@@ -260,10 +492,9 @@ class CDPInspector {
       console.log('Pause on exceptions: enabled.');
 
       console.log('\nWaiting for debugger events...\n');
-      console.log('Use Ctrl+C to stop.\n');
 
       await this.send('Debugger.pause');
-      console.log('Paused. Stepping through script...\n');
+      console.log('Paused. Use keyboard controls to debug.\n');
 
       // Keep the event loop alive
       await new Promise(() => {});
@@ -277,6 +508,10 @@ class CDPInspector {
 
   destroy() {
     this.#running = false;
+    if(this.#terminal) {
+      this.#terminal.stop();
+      this.#terminal = null;
+    }
     this.#ws?.close();
     if(this.#debugLog) {
       try {
