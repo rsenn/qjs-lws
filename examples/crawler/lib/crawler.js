@@ -38,6 +38,7 @@ import { generateSelfSignedCert } from '../../../lib/lws/tls.js';
 import { html2md } from './html2md.js';
 import { LLL_USER, LLL_INFO, LLL_NOTICE, logLevel, toString } from 'lws.so';
 import { URL } from '../../../lib/lws/url.js';
+import { Repeater } from 'repeater';
 
 const DEFAULT_USER_AGENT = 'qjs-crawler/1.0';
 
@@ -94,13 +95,14 @@ export class Crawler {
 
   #stopped = false;
   #paused = false;
-  #finished = false;
 
-  // Async iterator plumbing: a FIFO of yielded pages, and a pending "done"
-  // resolver that fires when the queue empties with no fetches in flight.
-  #results = [];
-  #waiters = []; // resolve fns from for-await consumers
-  #done = null; // { resolve } - set when the crawl loop has ended
+  // Repeater: native push-based async stream (quickjs-repeater.c). The
+  // executor captures push/stop for the crawl loop to use; the Repeater
+  // itself handles buffering, backpressure, and the async iterator
+  // protocol - replacing the old #results/#waiters manual plumbing.
+  #repeater;
+  #push;
+  #stopRepeater;
   #drain = null; // the crawl loop's current idle resolver
 
   #listeners = new Map();
@@ -165,6 +167,14 @@ export class Crawler {
       const { cert } = generateSelfSignedCert({ commonName: 'crawler', altNames: ['localhost', '127.0.0.1'] });
       this.#fetchOptions.tls = { ca: cert };
     }
+
+    this.#repeater = new Repeater(async (push, stop) => {
+      this.#push = push;
+      this.#stopRepeater = stop;
+      // The executor runs on first next() (i.e. when `for await` starts
+      // iterating). By then, start() has already seeded the queue.
+      await this.#run();
+    });
   }
 
   get visited() {
@@ -266,8 +276,8 @@ export class Crawler {
       this.#drain = null;
     }
 
-    // Wake any for-await consumers blocked on #waiters.
-    this.#flushWaiters();
+    // Terminate the Repeater stream so for-await consumers get done.
+    this.#stopRepeater?.();
   }
 
   /** Pause dequeuing. In-flight fetches still complete and yield results,
@@ -286,22 +296,6 @@ export class Crawler {
       this.#drain.resolve();
       this.#drain = null;
     }
-  }
-
-  /** Push a page result into the consumer queue, waking any blocked
-      for-await reader. */
-  #pushResult(page) {
-    if(this.#waiters.length > 0) {
-      this.#waiters.shift()({ value: page, done: false });
-    } else {
-      this.#results.push(page);
-    }
-  }
-
-  /** Resolve all blocked for-await consumers with `done: true`. */
-  #flushWaiters() {
-    for(const resolve of this.#waiters) resolve({ value: undefined, done: true });
-    this.#waiters = [];
   }
 
   /** Fetch one page: GET, extract title, strip noise, convert to markdown,
@@ -389,7 +383,7 @@ export class Crawler {
         const page = await this.#fetchPage(url);
 
         if(page) {
-          this.#pushResult(page);
+          this.#push(page);
           this.#emit('page', page);
 
           // Discover and queue links if within depth budget.
@@ -420,9 +414,8 @@ export class Crawler {
       }
     }
 
-    // Crawl finished - mark as finished and signal all waiting consumers.
-    this.#finished = true;
-    this.#flushWaiters();
+    // Crawl finished - terminate the Repeater stream.
+    this.#stopRepeater();
   }
 
   /** Start crawling one or more seed URLs. Returns a promise that resolves
@@ -450,31 +443,14 @@ export class Crawler {
 
     this.#emit('start', { seeds: [...this.#visited] });
 
-    return this.#run();
+    // The crawl loop runs inside the Repeater executor, which fires on
+    // first next() - i.e. when `for await` begins iterating.
   }
 
-  /** Async iterator protocol - enables `for await (const page of crawler)`.
-      Each iteration yields one page object:
+  /** Async iterator protocol - delegates to the Repeater's own
+      async iterator. Each iteration yields one page object:
         { url: string, title: string, markdown: string, links: string[] } */
   [Symbol.asyncIterator]() {
-    return {
-      next: () => {
-        if(this.#results.length > 0) {
-          return Promise.resolve({ value: this.#results.shift(), done: false });
-        }
-
-        // If the crawl has finished (either naturally or via stop()), we're done.
-        if(this.#finished) {
-          return Promise.resolve({ value: undefined, done: true });
-        }
-
-        // Block until a page is available or the crawl ends.
-        return new Promise(resolve => this.#waiters.push(resolve));
-      },
-      return: () => {
-        this.stop();
-        return Promise.resolve({ value: undefined, done: true });
-      },
-    };
+    return this.#repeater[Symbol.asyncIterator]();
   }
 }
