@@ -280,6 +280,9 @@ class TerminalInput {
       case 'end':
         this.#moveCursor(this.#textInput.length);
         break;
+      case 'delete':
+        this.#deleteAtCursor();
+        break;
       default:
         // Pass through other sequences (function keys, etc.)
         this.#onKey?.(seq);
@@ -346,12 +349,15 @@ class TerminalInput {
       '\x1b[C': 'right',
       '\x1b[D': 'left',
 
-      '\x1b[1': 'home',
-      '\x1b[3': 'delete',
-      '\x1b[2': 'insert',
-      '\x1b[4': 'end',
-      '\x1b[5': 'pageup',
-      '\x1b[6': 'pagedown',
+      // Navigation keys (with tilde suffix)
+      '\x1b[1~': 'home',
+      '\x1b[3~': 'delete',
+      '\x1b[2~': 'insert',
+      '\x1b[4~': 'end',
+      '\x1b[5~': 'pageup',
+      '\x1b[6~': 'pagedown',
+      '\x1b[H': 'home',
+      '\x1b[F': 'end',
 
       // Screen-specific sequences (sometimes prefixed with Esc-O)
       '\x1bO15~': 'f5',
