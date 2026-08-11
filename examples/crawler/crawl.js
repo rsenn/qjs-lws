@@ -30,6 +30,7 @@
  */
 import { exit, out as stdout, err as stderr } from 'std';
 import { Crawler } from './lib/crawler.js';
+import { LLL_USER, LLL_WARN, LLL_ERR, logLevel } from 'lws.so';
 
 function help() {
   stdout.puts(
@@ -49,12 +50,14 @@ function parseArgs(argv) {
     headers: true,
     quiet: false,
     urls: [],
+    debug: false,
   };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
 
     if(arg === '-h' || arg === '--help') help();
+    else if(arg === '-x' || arg === '--debug') opts.debug = (opts.debug ?? 0) + 1;
     else if(arg === '-d' || arg === '--depth') opts.depth = +argv[++i];
     else if(arg === '--delay') opts.delay = +argv[++i];
     else if(arg === '--same-host') opts.sameHost = true;
@@ -88,6 +91,9 @@ async function main() {
   if(argv.length === 0) help();
 
   const opts = parseArgs(argv);
+
+  if(opts.debug) logLevel(LLL_USER | LLL_WARN | LLL_ERR, (l, m) => console.log(m.replace(/: \w+: /, ': ')));
+
   const crawler = new Crawler({
     maxDepth: opts.depth,
     sameHost: opts.sameHost,
@@ -117,6 +123,8 @@ async function main() {
   log(opts.quiet, `Starting crawl: ${opts.urls.length} seed(s), depth=${opts.depth}, sameHost=${opts.sameHost}${opts.allowList ? ', allow=' + opts.allowList.join(',') : ''}`);
   log(opts.quiet, `Output: ${opts.output ?? 'stdout'}\n`);
   log(opts.quiet, `URLs: ${opts.urls}\n`);
+
+crawler.on('page',  e=> console.log('page', e));
 
   await crawler.start(opts.urls);
 

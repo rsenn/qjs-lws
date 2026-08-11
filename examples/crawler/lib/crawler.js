@@ -336,7 +336,10 @@ export class Crawler {
 
         const ct = resp.headers?.get?.('content-type') ?? '';
         // Only parse HTML, XML, XHTML, and similar text-based markup formats
-        if(!/^(text\/html|application\/xhtml\+xml|application\/xml|text\/xml|text\/plain)\b/i.test(ct)) return null;
+        if(!/(^text|xml|html)\b/i.test(ct)) {
+         console.log('Not parsing content-type:', ct);
+          return null;
+        }
 
         const chunks = [];
         for await(const chunk of resp.body) chunks.push(toString(chunk.buffer ?? chunk));
@@ -395,7 +398,7 @@ export class Crawler {
               typeof this.#followLinks === 'function'
                 ? this.#followLinks(page.links, page)
                 : this.#followLinks
-                  ? page.links.filter(l => this.#isAllowed(l) && !/\.(css|js)(\?|$)/i.test(l))
+                  ? page.links.filter(l => this.#isAllowed(l) && !/\.(css|js|gif|jpe?g|png|webm|ico|pdf)(\?|$)/i.test(l))
                   : [];
 
             for(const link of toFollow) {
