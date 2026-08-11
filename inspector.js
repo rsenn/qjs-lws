@@ -315,28 +315,17 @@ class CDPInspector {
 
   #printHelp() {
     console.log('\nDebugger controls:');
-    console.log('  F5 / r/c/p  - Continue (when paused) or Interrupt (when running)');
-    console.log('  F10 / j     - Step Over');
-    console.log('  F11 / i     - Step Into');
-    console.log('  Shift+F11 / u - Step Out');
-    console.log('  ESC / q     - Stop debugger');
+    console.log('  F5          - Continue (when paused) or Interrupt (when running)');
+    console.log('  F10         - Step Over');
+    console.log('  F11         - Step Into');
+    console.log('  Shift+F11   - Step Out');
+    console.log('  ESC         - Stop debugger');
     console.log('  Ctrl+C      - Exit');
     console.log('  Type any expression and press Enter to evaluate in the page context\n');
   }
 
   async #handleKey(key) {
-    // Map letter shortcuts to function key equivalents
-    const keyMap = {
-      'r': 'f5', 'c': 'f5', 'p': 'f5',
-      'j': 'f10',
-      'i': 'f11',
-      'u': 'shift-f11',
-      'q': 'escape',
-    };
-    
-    const mappedKey = keyMap[key] || key;
-    
-    switch(mappedKey) {
+    switch(key) {
       case 'f5':
         if(this.#paused) {
           console.log('[continue]');
