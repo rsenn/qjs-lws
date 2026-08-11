@@ -29,6 +29,7 @@ class TerminalInput {
   #fd = 0; // stdin
   #buffer = '';
   #textInput = '';
+  #cursorPos = 0; // Current cursor position in textInput
   #onKey = null;
   #onText = null;
   #escapeTimer = null;
@@ -69,7 +70,7 @@ class TerminalInput {
         if(this.#buffer.length === 1) {
           if(!this.#escapeTimer) {
             this.#escapeTimer = setTimeout(() => {
-              // ESC pressed alone
+              // ESC pressed alone - clear line
               this.#onKey?.('escape');
               this.#buffer = '';
               this.#escapeTimer = null;
@@ -90,7 +91,7 @@ class TerminalInput {
           // Incomplete sequence, wait for more data
           break;
         }
-        this.#onKey?.(seq);
+        this.#handleSequence(seq);
         continue;
       }
 
@@ -103,26 +104,120 @@ class TerminalInput {
         this.#onKey?.('ctrl-c');
       } else if(ch === '\r' || ch === '\n') {
         // Enter - submit the text
-        const text = this.#textInput.trim();
-        if(text && this.#onText) {
-          this.#onText(text);
-        }
-        this.#textInput = '';
-        std.out.puts('\n');
+        this.#submitLine();
       } else if(ch === '\x7f' || ch === '\x08') {
-        // Backspace - remove last character
-        if(this.#textInput.length > 0) {
-          this.#textInput = this.#textInput.slice(0, -1);
-          std.out.puts('\b \b'); // Erase character on screen
-        }
+        // Backspace - delete character before cursor
+        this.#backspace();
+      } else if(ch === '\x04') {
+        // Ctrl+D - delete character at cursor
+        this.#deleteAtCursor();
+      } else if(ch === '\x01') {
+        // Ctrl+A - move to beginning of line
+        this.#moveCursor(0);
+      } else if(ch === '\x05') {
+        // Ctrl+E - move to end of line
+        this.#moveCursor(this.#textInput.length);
+      } else if(ch === '\x0b') {
+        // Ctrl+K - kill to end of line
+        this.#killToEnd();
+      } else if(ch === '\x15') {
+        // Ctrl+U - kill to beginning of line
+        this.#killToStart();
       } else if(ch >= '\x01' && ch <= '\x1a') {
         // Other control characters
         this.#onKey?.(`ctrl-${String.fromCharCode(ch.charCodeAt(0) + 96)}`);
       } else {
-        // Regular printable character - add to text input and echo
-        this.#textInput += ch;
-        std.out.puts(ch);
+        // Regular printable character - insert at cursor
+        this.#insertChar(ch);
       }
+    }
+  }
+
+  #insertChar(ch) {
+    this.#textInput = this.#textInput.slice(0, this.#cursorPos) + ch + this.#textInput.slice(this.#cursorPos);
+    this.#cursorPos++;
+    this.#redrawLine();
+  }
+
+  #backspace() {
+    if(this.#cursorPos > 0) {
+      this.#textInput = this.#textInput.slice(0, this.#cursorPos - 1) + this.#textInput.slice(this.#cursorPos);
+      this.#cursorPos--;
+      this.#redrawLine();
+    }
+  }
+
+  #deleteAtCursor() {
+    if(this.#cursorPos < this.#textInput.length) {
+      this.#textInput = this.#textInput.slice(0, this.#cursorPos) + this.#textInput.slice(this.#cursorPos + 1);
+      this.#redrawLine();
+    }
+  }
+
+  #moveCursor(pos) {
+    this.#cursorPos = Math.max(0, Math.min(pos, this.#textInput.length));
+    this.#redrawLine();
+  }
+
+  #killToEnd() {
+    this.#textInput = this.#textInput.slice(0, this.#cursorPos);
+    this.#redrawLine();
+  }
+
+  #killToStart() {
+    this.#textInput = this.#textInput.slice(this.#cursorPos);
+    this.#cursorPos = 0;
+    this.#redrawLine();
+  }
+
+  #submitLine() {
+    const text = this.#textInput.trim();
+    if(text && this.#onText) {
+      this.#onText(text);
+    }
+    this.#textInput = '';
+    this.#cursorPos = 0;
+    std.out.puts('\n');
+  }
+
+  #redrawLine() {
+    // Clear current line and redraw
+    const clearToEol = '\x1b[K'; // Clear from cursor to end of line
+    const moveToStart = '\r'; // Carriage return to start of line
+    
+    // Move to start, clear line, write text
+    std.out.puts(moveToStart + clearToEol + this.#textInput);
+    
+    // Move cursor back to correct position
+    if(this.#cursorPos < this.#textInput.length) {
+      const moveBack = this.#textInput.length - this.#cursorPos;
+      std.out.puts(`\x1b[${moveBack}D`); // Move cursor left
+    }
+  }
+
+  #handleSequence(seq) {
+    switch(seq) {
+      case 'left':
+        if(this.#cursorPos > 0) {
+          this.#cursorPos--;
+          this.#redrawLine();
+        }
+        break;
+      case 'right':
+        if(this.#cursorPos < this.#textInput.length) {
+          this.#cursorPos++;
+          this.#redrawLine();
+        }
+        break;
+      case 'home':
+        this.#moveCursor(0);
+        break;
+      case 'end':
+        this.#moveCursor(this.#textInput.length);
+        break;
+      default:
+        // Pass through other sequences (function keys, etc.)
+        this.#onKey?.(seq);
     }
   }
 
