@@ -94,6 +94,97 @@ decamelize(char* dst, size_t dlen, const char* src) {
   return j;
 }
 
+/* WHATWG Encoding Standard's UTF-8 decoder (non-fatal mode): replaces
+   every malformed byte or byte sequence with U+FFFD instead of
+   rejecting the input, byte-range boundaries (including the 0xE0/0xED/
+   0xF0/0xF4 lead-byte special cases that rule out overlong encodings,
+   surrogate halves, and code points past U+10FFFF) taken directly from
+   the spec's decoder algorithm. Used by toString()'s noThrow mode. */
+static JSValue
+lossy_utf8_decode(JSContext* ctx, const uint8_t* p, size_t n) {
+  uint8_t* out;
+  size_t out_len = 0, i = 0, seen = 0, needed = 0;
+  uint32_t cp = 0;
+  uint8_t lower = 0x80, upper = 0xbf;
+  JSValue ret;
+
+  if(n == 0)
+    return JS_NewStringLen(ctx, "", 0);
+
+  if(!(out = js_malloc(ctx, n * UTF8_CHAR_LEN_MAX)))
+    return JS_EXCEPTION;
+
+  while(i < n) {
+    uint8_t b = p[i];
+
+    if(!needed) {
+      if(b < 0x80) {
+        out_len += unicode_to_utf8(out + out_len, b);
+        ++i;
+        continue;
+      }
+
+      if(b >= 0xc2 && b <= 0xdf) {
+        needed = 1;
+        cp = b & 0x1f;
+      } else if(b >= 0xe0 && b <= 0xef) {
+        if(b == 0xe0)
+          lower = 0xa0;
+        else if(b == 0xed)
+          upper = 0x9f;
+        needed = 2;
+        cp = b & 0x0f;
+      } else if(b >= 0xf0 && b <= 0xf4) {
+        if(b == 0xf0)
+          lower = 0x90;
+        else if(b == 0xf4)
+          upper = 0x8f;
+        needed = 3;
+        cp = b & 0x07;
+      } else {
+        /* not a valid lead byte: consume it, emit U+FFFD */
+        out_len += unicode_to_utf8(out + out_len, 0xfffd);
+        ++i;
+        continue;
+      }
+
+      seen = 0;
+      ++i;
+      continue;
+    }
+
+    if(b < lower || b > upper) {
+      /* bad continuation byte: discard the sequence-so-far as a single
+         U+FFFD, but don't consume this byte - it's reprocessed as a
+         fresh potential lead byte on the next iteration. */
+      out_len += unicode_to_utf8(out + out_len, 0xfffd);
+      needed = seen = cp = 0;
+      lower = 0x80;
+      upper = 0xbf;
+      continue;
+    }
+
+    lower = 0x80;
+    upper = 0xbf;
+    cp = (cp << 6) | (b & 0x3f);
+    ++seen;
+    ++i;
+
+    if(seen == needed) {
+      out_len += unicode_to_utf8(out + out_len, cp);
+      needed = seen = cp = 0;
+    }
+  }
+
+  if(needed)
+    /* truncated multi-byte sequence at end of input */
+    out_len += unicode_to_utf8(out + out_len, 0xfffd);
+
+  ret = JS_NewStringLen(ctx, (const char*)out, out_len);
+  js_free(ctx, out);
+  return ret;
+}
+
 int
 lwsjs_html_process_args(JSContext* ctx, struct lws_process_html_args* pha, int argc, JSValueConst argv[]) {
   size_t len;
@@ -276,9 +367,43 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     case FUNCTION_TO_STRING: {
       size_t n;
       uint8_t* p;
+      int no_throw = FALSE, buf_argc = argc;
 
-      if((p = get_buffer(ctx, argc, argv, &n)))
-        ret = JS_NewStringLen(ctx, (const char*)p, n);
+      /* trailing boolean argument selects WHATWG-style lossy decoding
+         (replace invalid UTF-8 with U+FFFD) instead of throwing; not
+         part of the buffer/offset/length arguments forwarded below. */
+      if(argc > 0 && JS_IsBool(argv[argc - 1])) {
+        no_throw = JS_ToBool(ctx, argv[argc - 1]);
+        --buf_argc;
+      }
+
+      if((p = get_buffer(ctx, buf_argc, argv, &n))) {
+        if(no_throw) {
+          ret = lossy_utf8_decode(ctx, p, n);
+        } else {
+          const uint8_t *ptr = p, *end = p + n;
+
+          while(ptr < end) {
+            const uint8_t* next;
+
+            if(unicode_from_utf8(ptr, end - ptr, &next) < 0) {
+              size_t offset = ptr - p, shown = MIN((size_t)(end - ptr), 4), i;
+              char bytes[3 * 4 + 1] = {0};
+
+              for(i = 0; i < shown; i++)
+                snprintf(bytes + i * 3, 4, "%02x ", ptr[i]);
+
+              ret = JS_ThrowTypeError(ctx, "invalid UTF-8 at offset %zu: %s", offset, bytes);
+              break;
+            }
+
+            ptr = next;
+          }
+
+          if(!JS_IsException(ret))
+            ret = JS_NewStringLen(ctx, (const char*)p, n);
+        }
+      }
 
       break;
     }

@@ -37,19 +37,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    wrapper classes + tests), but a real crash, not just a hang - highest
    severity of anything in this file, even though the trigger is narrow.
 
-3. **`toString()` (`lws.c`, `FUNCTION_TO_STRING`) silently returns
-   `undefined` for typed-array views** instead of accepting them or
-   throwing. Confirmed directly: `toString(new Uint8Array(...))` →
-   `undefined`, `toString(view.buffer)` → the correct string. This is what
-   caused `lib/lws/stream-utils.js`'s `concatArrayBuffer()` (which used to
-   return a `Uint8Array`, not the `ArrayBuffer` its own JSDoc promised) to
-   silently break `Body.text()`/`.json()` for *every* body, everywhere,
-   with no error to point at - just a body that read back as `undefined`.
-   Either accept `ArrayBuffer`-backed views directly, or throw a
-   `TypeError` for unsupported input so a similar future mismatch fails at
-   the call site instead of several layers up.
-
-4. **Break up `callback_protocol()`** (`lws-context.c:1456-1736`, ~280
+3. **Break up `callback_protocol()`** (`lws-context.c:1456-1736`, ~280
    lines) - one long if/else-if cascade doing per-`reason` argument
    marshalling for the JS callback dispatch (deciding whether `in`/`len`
    become a string, an ArrayBuffer, an int, a `[buf, len]` pair to mutate,
@@ -59,11 +47,11 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    reason's argument shape without re-deriving the whole cascade - this is
    exactly the class of bug that ate the most debugging time this session.
 
-5. **Break up `lwsjs_socket_methods()` / `lwsjs_socket_get()`**
+4. **Break up `lwsjs_socket_methods()` / `lwsjs_socket_get()`**
    (`lws-socket.c`, ~470 / ~460 lines) - same shape, same rationale: one
    giant `magic`-keyed switch each for every `LWSSocket` method/property.
 
-6. **`LWSContext.vhost` getter is commented out**
+5. **`LWSContext.vhost` getter is commented out**
    (`lws-context.c:1234`). Right now the only way to reach a vhost object
    is `ctx.getVhostByName(name)`, and `serve()` (`lib/serve.js`) has no
    reliable way to report the *actual* bound port - `Server.port` just
@@ -72,7 +60,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    only one exists) is a small, contained win that unblocks a real gap in
    `lib/serve.js` (see §2).
 
-7. **MQTT is only reachable generically.** `LWS_CALLBACK_MQTT_*` reasons
+6. **MQTT is only reachable generically.** `LWS_CALLBACK_MQTT_*` reasons
    are named in the reason table (`lws.c`) so they already dispatch through
    the generic `on<CamelCase>` mechanism, but there's no MQTT-specific
    convenience surface (subscribe/publish/QoS, `lws_mqtt_client_send_publish`,
@@ -84,7 +72,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
 ## 2. JS: wrappers / auxiliary functions
 
 1. **`serve()` can't report the real bound port** (`lib/serve.js`,
-   `Server` class) - depends on C §1.5 above, but even a workaround
+   `Server` class) - depends on C §1.4 above, but even a workaround
    (`ctx.getVhostByName(host)` right after `createContext()`, falling back
    to the requested port) would be a real improvement over echoing back a
    possibly-`0` port.

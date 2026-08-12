@@ -273,9 +273,31 @@ get_typedarray_buffer(JSContext* ctx, JSValueConst value, size_t* p_offset, size
     /* JS_GetTypedArrayBuffer threw; discard the exception so the caller can
      * treat this as a silent "not a typed array" probe. */
     JS_FreeValue(ctx, JS_GetException(ctx));
-    buffer = JS_DupValue(ctx, value);
-    offset = 0;
-    bytes = SIZE_MAX;
+
+    /* DataView is a distinct QuickJS class, not a TypedArray, so
+       JS_GetTypedArrayBuffer() never recognizes it and there's no
+       dedicated public getter for it either - but it exposes the same
+       .buffer/.byteOffset/.byteLength as plain accessor properties, so
+       read those the way JS code would instead. */
+    buffer = JS_GetPropertyStr(ctx, value, "buffer");
+
+    if(JS_IsException(buffer)) {
+      JS_FreeValue(ctx, JS_GetException(ctx));
+      buffer = JS_UNDEFINED;
+    }
+
+    if(JS_IsObject(buffer)) {
+      JSValue v = JS_GetPropertyStr(ctx, value, "byteOffset");
+      offset = to_uint32free(ctx, v);
+      v = JS_GetPropertyStr(ctx, value, "byteLength");
+      bytes = to_uint32free(ctx, v);
+    } else {
+      JS_FreeValue(ctx, buffer);
+      buffer = JS_DupValue(ctx, value);
+      offset = 0;
+      bytes = SIZE_MAX;
+    }
+
     bytes_per_element = 1;
   }
 

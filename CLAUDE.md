@@ -116,6 +116,19 @@ as the main program. A plain script run without `-m` already supports
 path, and using it to run a script is a category error, not just a
 stylistic difference.
 
+## Option-object property casing
+
+`js_get_property()` (`js-utils.c`) is the canonical way to read a named
+property off a JS option object anywhere in this project's native code.
+It checks the name as given first, then falls back to that name's
+camelCase spelling before giving up - so a snake_case-canonical option
+name (matching the underlying lws struct field) is also readable as
+camelCase without extra per-call handling. Use `js_get_property()` (not
+a raw `JS_GetPropertyStr()`) for any new option-object field so this
+fallback keeps applying uniformly; see the function's own doc comment
+in `js-utils.c` for the exact precedence and the reasoning about
+`js_is_prop_undefined()`'s intentionally narrower check.
+
 ## Subproject TODO.md files
 
 Several subdirectories (e.g. `examples/ollama-repl/`) keep their own
