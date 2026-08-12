@@ -26,7 +26,6 @@ import { createServer, LWSContext, toArrayBuffer, toString, LWS_SERVER_OPTION_ON
 import { TCPSocket, CLOSED } from '../../lib/tcpsocket.js';
 import { TCPSocketStream } from '../../lib/tcpsocketstream.js';
 import { freePort } from './subprocess-utils.js';
-import { setTimeout } from 'os';
 import * as std from 'std';
 
 /* Every raw listener here needs the same low-level wiring: no HTTP mount
@@ -106,11 +105,9 @@ await tests({
   },
 
   async 'TCPSocket (client): the close event fires when the peer closes'() {
-    // Closes from onRawRx (after data has actually arrived), not
-    // onRawAdopt: wsi.close() called synchronously within onRawAdopt
-    // itself segfaults natively (confirmed directly, reproducible in
-    // isolation) - a real, separately-worth-tracking bug, sidestepped here
-    // rather than chased down at the C level.
+    // Closes from onRawRx (after data has actually arrived) - see the
+    // synchronous-onRawAdopt-close variant below for the case that used
+    // to segfault before the libwebsockets submodule bump.
     const port = freePort();
     const server = rawProtocolServer(port, 'echo', {
       name: 'echo',
@@ -121,6 +118,29 @@ await tests({
 
     const socket = new TCPSocket('localhost', port);
     socket.addEventListener('open', () => socket.send('trigger'));
+    await new Promise(resolve => socket.addEventListener('close', resolve, { once: true }));
+
+    eq(CLOSED, socket.readyState);
+    server.destroy();
+  },
+
+  async 'TCPSocket (client): the close event fires when wsi.close() is called synchronously from onRawAdopt'() {
+    // Regression test: wsi.close() called synchronously within onRawAdopt
+    // itself used to segfault natively (confirmed directly, reproducible
+    // in isolation) - fixed by the libwebsockets submodule bump (see git
+    // history around the removed TODO.md item for the original repro).
+    // Previously worked around by deferring via
+    // setTimeout(() => wsi.close(), 0) or closing from a later callback
+    // (onRawRx, above) instead.
+    const port = freePort();
+    const server = rawProtocolServer(port, 'echo', {
+      name: 'echo',
+      onRawAdopt(wsi) {
+        wsi.close();
+      },
+    });
+
+    const socket = new TCPSocket('localhost', port);
     await new Promise(resolve => socket.addEventListener('close', resolve, { once: true }));
 
     eq(CLOSED, socket.readyState);
@@ -199,10 +219,10 @@ await tests({
   },
 
   async 'TCPSocket.protocol() (server): fires close when the client disconnects'() {
-    // wsi.close() called synchronously within onRawConnected itself
-    // segfaults natively (confirmed directly, reproducible in isolation,
-    // same underlying issue as the onRawAdopt case noted above) - deferred
-    // via setTimeout so it runs as its own, later native callback instead.
+    // wsi.close() called synchronously within onRawConnected itself used
+    // to segfault natively (same underlying issue as the onRawAdopt case
+    // above) - fixed by the libwebsockets submodule bump. Previously
+    // worked around via setTimeout(() => wsi.close(), 0).
     const port = freePort();
 
     let resolveClosed;
@@ -221,7 +241,7 @@ await tests({
         {
           name: 'raw',
           onRawConnected(wsi) {
-            setTimeout(() => wsi.close(), 0);
+            wsi.close();
           },
           onClientConnectionError(wsi, msg) {
             resolveClosed(Promise.reject(new Error(msg)));
@@ -461,10 +481,8 @@ await tests({
       },
     });
 
-    // Deferred via setTimeout, not called synchronously from onRawConnected -
-    // see the note on the analogous TCPSocket.protocol() test above.
     const client = rawClient(port, {
-      onConnected: wsi => setTimeout(() => wsi.close(), 0),
+      onConnected: wsi => wsi.close(),
       onError: msg => resolveClosed(Promise.reject(new Error(msg))),
     });
 
@@ -516,8 +534,6 @@ await tests({
   },
 
   async 'TCPSocketStream (client): closed resolves once the connection closes'() {
-    // Closes from onRawRx, not onRawAdopt - see the note on the analogous
-    // TCPSocket test above.
     const port = freePort();
     const server = rawProtocolServer(port, 'echo', {
       name: 'echo',

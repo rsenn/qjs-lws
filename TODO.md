@@ -23,21 +23,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    casings, or - cheaper and safer - throw/warn on any object key that
    isn't a recognized option name, so a typo fails loud instead of silent.
 
-2. **`wsi.close()` segfaults when called synchronously from the raw
-   role's very first callback** (`onRawAdopt` server-side, `onRawConnected`
-   client-side) - confirmed directly and reproducibly, both directions,
-   in isolation against a plain `createServer()`/`LWSContext` pair (see
-   `tests/unittests/test-tcpsocket.js`'s comments on the two tests that
-   had to route around it). Closing from a *later* callback (`onRawRx`,
-   or a `setTimeout(() => wsi.close(), 0)`-deferred call right after
-   adopt/connect) works fine - only the immediate, same-call-stack close
-   crashes. Smells like a use-after-free/double-free in wsi teardown
-   racing the adopt/connect callback's own still-in-progress bookkeeping.
-   Not chased further at the C level this session (scope was JS-side
-   wrapper classes + tests), but a real crash, not just a hang - highest
-   severity of anything in this file, even though the trigger is narrow.
-
-3. **Break up `callback_protocol()`** (`lws-context.c:1456-1736`, ~280
+2. **Break up `callback_protocol()`** (`lws-context.c:1456-1736`, ~280
    lines) - one long if/else-if cascade doing per-`reason` argument
    marshalling for the JS callback dispatch (deciding whether `in`/`len`
    become a string, an ArrayBuffer, an int, a `[buf, len]` pair to mutate,
@@ -47,11 +33,11 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    reason's argument shape without re-deriving the whole cascade - this is
    exactly the class of bug that ate the most debugging time this session.
 
-4. **Break up `lwsjs_socket_methods()` / `lwsjs_socket_get()`**
+3. **Break up `lwsjs_socket_methods()` / `lwsjs_socket_get()`**
    (`lws-socket.c`, ~470 / ~460 lines) - same shape, same rationale: one
    giant `magic`-keyed switch each for every `LWSSocket` method/property.
 
-5. **`LWSContext.vhost` getter is commented out**
+4. **`LWSContext.vhost` getter is commented out**
    (`lws-context.c:1234`). Right now the only way to reach a vhost object
    is `ctx.getVhostByName(name)`, and `serve()` (`lib/serve.js`) has no
    reliable way to report the *actual* bound port - `Server.port` just
@@ -60,7 +46,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    only one exists) is a small, contained win that unblocks a real gap in
    `lib/serve.js` (see §2).
 
-6. **MQTT is only reachable generically.** `LWS_CALLBACK_MQTT_*` reasons
+5. **MQTT is only reachable generically.** `LWS_CALLBACK_MQTT_*` reasons
    are named in the reason table (`lws.c`) so they already dispatch through
    the generic `on<CamelCase>` mechanism, but there's no MQTT-specific
    convenience surface (subscribe/publish/QoS, `lws_mqtt_client_send_publish`,
