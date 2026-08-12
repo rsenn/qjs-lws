@@ -11,10 +11,11 @@ await tests({
     assertStrictEquals(false, a.bodyUsed);
   },
 
-  async 'text()/arrayBuffer() resolve to empty for a null/undefined body, matching WHATWG Request/Response'() {
+  async 'text()/arrayBuffer()/blob() resolve to empty for a null/undefined body, matching WHATWG Request/Response'() {
     for(const init of [null, undefined]) {
       eq('', await new Body(init).text());
       eq(0, (await new Body(init).arrayBuffer()).byteLength);
+      eq(0, (await new Body(init).blob()).size);
     }
   },
 

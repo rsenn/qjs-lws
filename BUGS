@@ -170,15 +170,3 @@
     });
     await adapter.connect(ctx, 'https://example.com/', { method: 'GET', ssl_connection: LCCSCF_PIPELINE }); // logs "error: connect SYSCALL 9"
 
-- body-blob-throws-on-null-body (lib/lws/body.js:112, Body.blob()): calls
-  readWholeStream(this.body) directly, so it still throws a TypeError
-  ("cannot read property 'Symbol.asyncIterator' of null") for a Body
-  constructed with a null/undefined body, same root cause
-  arrayBuffer()/text()/json() had before they were fixed to treat a null
-  body as empty. Not fixed here since it wasn't part of that fix's scope
-  (TODO.md's item only named text()/arrayBuffer()/json()) - a real
-  Request/Response.blob() resolves to an empty Blob instead of throwing.
-
-    import { Body } from './lib/lws/body.js';
-    await new Body(null).blob(); // throws TypeError instead of resolving to an empty Blob
-
