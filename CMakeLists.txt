@@ -643,6 +643,14 @@ install(PROGRAMS examples/ollama-repl/repl.js
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
         RENAME ollama-repl)
 
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/search.js" _SEARCH_JS_CONTENT)
+string(REPLACE "'./lib/fetch.js'" "'fetch'" _SEARCH_JS_CONTENT "${_SEARCH_JS_CONTENT}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/search.js" "${_SEARCH_JS_CONTENT}")
+
+install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/search.js"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        RENAME search)
+
 # examples/ollama-repl/lib/*.js import the project's own lib/lws/*.js by a
 # relative, in-repo path (../../../lib/lws/...) that only resolves next to
 # this source tree - once installed, lib/ goes dir-less ('file.js') and
