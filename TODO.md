@@ -63,22 +63,14 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    to the requested port) would be a real improvement over echoing back a
    possibly-`0` port.
 
-2. **`Body.text()`/`.arrayBuffer()`/`.json()` throw on a `null` body**
-   (`lib/lws/body.js`) instead of resolving to `''`/an empty buffer like a
-   real WHATWG `Request`/`Response` does (`new Request(url).text()` is
-   `''`, not a throw). Hit directly this session and had to work around it
-   in `serve()`'s own request handler (`req.body ? await req.text() : ''`).
-   `arrayBuffer()` should just treat `this.body == null` as "empty" rather
-   than calling `readWholeStream(null)`.
-
-3. **No static-file convenience in `serve()`.** The low-level mount API
+2. **No static-file convenience in `serve()`.** The low-level mount API
    (`LWSMPRO_FILE`) already serves files efficiently at the C level, but
    the new Bun-shaped `serve()` has no ergonomic "serve this directory"
    option the way `Bun.serve({ static: {...} })` / a `Bun.file()`-backed
    `Response` does - right now static serving means dropping to
    `options.mounts` by hand.
 
-4. **`server.upgrade()` implemented, not fully trusted yet** (`lib/serve.js`,
+3. **`server.upgrade()` implemented, not fully trusted yet** (`lib/serve.js`,
    `makeUpgradeHook()`/`upgradeConnection()`) - `fetch(req, server)` can now
    call `server.upgrade(req, {data})` to promote *this* connection to WS
    dynamically (any URL/header-based decision), built on
@@ -103,13 +95,13 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    (`ws.publish()` excludes the caller, `server.publish()` doesn't, closed
    sockets are cleaned up).
 
-5. **`HttpClientProtocol.connect()` always buffers the whole request body**
+4. **`HttpClientProtocol.connect()` always buffers the whole request body**
    (`lib/lws/protocols.js`) before sending, to know `content-length` up
    front (see C §1 - lws's client body write has no chunked-encoding
    fallback). Fine for typical bodies; there's no path for streaming a
    body of unknown size without buffering it entirely in memory first.
 
-6. **Duplicated wsi-introspection helpers.** Now that `WebSocketStream`/
+5. **Duplicated wsi-introspection helpers.** Now that `WebSocketStream`/
    `TCPSocketStream` are independent of `WebSocket`/`TCPSocket` (as of the
    last two commits), the small `protocol`/`extensions` getters and
    `peer`/`local`-address readers are defined twice each, once per
@@ -117,7 +109,7 @@ Sorted by leverage - highest-impact / most-likely-to-bite-someone-again first.
    `lib/lws/wsi-info.js` now that there's no other reason for the
    duplication.
 
-7. **`lib/lws/mimetypes.js`'s `extraMimetypes` list is tiny and oddly
+6. **`lib/lws/mimetypes.js`'s `extraMimetypes` list is tiny and oddly
    personal** (`.sublime-project`, `.sublime-workspace` alongside `.md`/
    `.c`/`.h`) - reads like a dev's local leftovers rather than a general
    table. Either expand it into a real common-mimetypes list or document

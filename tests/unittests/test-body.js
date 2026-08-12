@@ -11,6 +11,22 @@ await tests({
     assertStrictEquals(false, a.bodyUsed);
   },
 
+  async 'text()/arrayBuffer() resolve to empty for a null/undefined body, matching WHATWG Request/Response'() {
+    for(const init of [null, undefined]) {
+      eq('', await new Body(init).text());
+      eq(0, (await new Body(init).arrayBuffer()).byteLength);
+    }
+  },
+
+  async 'json() throws a SyntaxError (not a TypeError) for a null/undefined body'() {
+    try {
+      await new Body(null).json();
+      fail('expected a throw for an empty (null-body) JSON parse');
+    } catch(e) {
+      assert(e instanceof SyntaxError, 'expected SyntaxError, got ' + e);
+    }
+  },
+
   async 'string body round-trips through text()'() {
     const b = new Body('hello world');
     eq('hello world', await b.text());
