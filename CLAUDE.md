@@ -425,65 +425,128 @@ Any code written against the spec (which is most web code) will break with the c
 
 ## Response vs ServerResponse Architecture Assessment (August 13, 2026)
 
-### The Problem
+### Historical Context: How the Merge Happened
 
-There's an architectural tension between two response patterns that got merged into one file:
+**Original Design (commit 1d2aaf3, earlier):**
+- `ServerResponse` was a standalone class in `lib/lws/app.js`
+- Did NOT extend `Response`
+- Had its own private fields: `#headers`, `#status`, `#ended`, `#headersSent`, `#chunked`
+- Had Express-style chaining methods: `status()`, `set()`, `append()`, `type()`, `cookie()`, `clearCookie()`, `redirect()`, `json()`, `send()`, `write()`, `end()`
+- All methods returned `this` for chaining
+- `Response` was in `lib/lws/response.js` and followed WHATWG patterns
 
-1. **Response** (WHATWG Fetch API): `status` must be a readonly property, constructed with `new Response(body, { status: 200 })`
-2. **ServerResponse** (Express-style middleware): needs chaining methods like `res.status(200).type('text/plain').end()`
+**The Merge (commit 350c6af, later):**
+- `ServerResponse` moved to `lib/lws/response.js`
+- Now extends `Response`
+- Comment explains: "ServerRequest/ServerResponse now live in ./request.js/./response.js (alongside Request/Response, which they share cookie-handling code with)"
+- The merge happened because both classes needed cookie-handling code (`buildSetCookie`)
+- It seemed natural to put related response classes together
+- Inheritance was used for code reuse
 
-Currently `ServerResponse extends Response`, and the Express-style chaining pattern has "creeped" into the base `Response` class.
+### Was the Merge Inevitable?
 
-### Where Each Pattern Is Used
+**Yes and no:**
 
-**WHATWG Response (status as property):**
-- `lib/serve.js` line 288-292: fetch handlers return `new Response(body, { status: 404 })`
-- `lib/serve.js` line 330: error responses use `new Response(String(e), { status: 500 })`
-- `lib/fetch.js`: client-side fetch() returns Response objects
-- `lib/lws/protocols.js` line 349: HTTP client protocol creates Response objects
+**Inevitable aspects:**
+- Both classes represent HTTP responses and share many concepts (headers, status, body)
+- Both need cookie-handling code
+- Code duplication would have been significant if kept separate
+- The bridge pattern in `serve.js` (flushing Response onto ServerResponse) makes inheritance natural
 
-**Express ServerResponse (status as method, chaining):**
-- `lib/lws/app.js` lines 187, 222, 228: `res.status(500).type('text/plain').end()`
-- `lib/lws/middleware.js` lines 51, 54, 98, 101, 124, 142, 207: `res.status(code).type('...').end('...')`
-- `lib/serve.js` line 308: `resp.status(response.statusCode)` - flushes a Response onto a ServerResponse
+**Not inevitable:**
+- The Express chaining methods (`status()`, `type()`, etc.) should have stayed on ServerResponse only
+- The `cookie()` and `clearCookie()` methods should never have been added to the base Response class
+- The inheritance relationship doesn't require polluting Response's API with Express conveniences
 
-### The Bridge Pattern
+### Alternative Architectures That Could Have Prevented This
 
-The `flush()` function in `lib/serve.js` (line 308) bridges the two patterns:
+**1. Composition over inheritance:**
 ```javascript
-async function flush(resp, response) {
-  resp.status(response.statusCode);  // resp is ServerResponse (method), response is Response (property)
-  response.headers.forEach((value, name) => resp.append(name, value));
-  // ... stream body
+class ServerResponse {
+  #response;
+  constructor(wsi) {
+    this.#response = new Response(null);
+    this.#wsi = wsi;
+  }
+  // Delegate Response methods, add Express methods
 }
 ```
+- Pros: Clean separation
+- Cons: More boilerplate, need to delegate all Response methods
 
-This is actually correct! It reads `statusCode` from the WHATWG Response and calls `status()` method on the Express ServerResponse.
+**2. Shared utility module:**
+```javascript
+// lib/lws/response-utils.js
+export function buildSetCookie(name, value, opts) { ... }
+export function parseCookies(header) { ... }
 
-### Non-Standard Extensions in Response
+// Both Response and ServerResponse import from utils
+```
+- Pros: No inheritance needed
+- Cons: Doesn't solve broader issue that they share headers/status/body concepts
 
-The base `Response` class has two Express-style convenience methods that don't belong in WHATWG:
-- `cookie(name, value, opts)` - returns `this` for chaining
-- `clearCookie(name, opts)` - returns `this` for chaining
+**3. Interface-based (TypeScript-style):**
+```javascript
+// Both implement ResponseLike interface
+// But JavaScript doesn't enforce interfaces
+```
+- Pros: Clear contract
+- Cons: More complex, doesn't help with code reuse
 
-These are Express conveniences that should only be on `ServerResponse`.
+**4. Keep inheritance but be disciplined (what we're doing):**
+```javascript
+class Response {
+  // WHATWG-only: readonly properties, constructor-based
+}
+
+class ServerResponse extends Response {
+  // Express conveniences: chaining methods, streaming
+}
+```
+- Pros: Code reuse works, both APIs available
+- Cons: Need discipline about what goes on Response vs ServerResponse
+- **This is the right approach, we just need to clean up the API surface**
+
+### The Real Problem
+
+The merge itself wasn't wrong - it was a reasonable refactoring to share code. The problem is that **Express conveniences leaked into the base Response class**:
+
+**What should be on Response (WHATWG):**
+- Constructor-based initialization: `new Response(body, { status: 200 })`
+- Readonly properties: `status`, `statusText`, `headers`, `ok`, `body`, `bodyUsed`
+- Static methods: `Response.json()`, `Response.redirect()`, `Response.error()`
+- Instance methods: `clone()`
+- Body mixin: `text()`, `json()`, `arrayBuffer()`, `blob()`, `formData()`, `bytes()`
+
+**What should be on ServerResponse only (Express):**
+- Chaining methods: `status(code)`, `set(name, value)`, `type(contentType)`
+- Cookie methods: `cookie()`, `clearCookie()`
+- Streaming: `write()`, `end()`, `send()`, `json()`
+- State tracking: `headersSent`, `sent`
+
+**What both need (shared):**
+- Headers management
+- Status code
+- Body handling
+- Cookie building logic (but as a utility, not a method on Response)
 
 ### The Untangling Strategy
 
-**Phase 1: Fix Response.status (already done)**
-- Convert `status` from method to readonly property ✓
-- Keep `statusCode` as deprecated alias ✓
-- Update all chaining usage in middleware/app ✓
+**Phase 1** (done): Fix `Response.status` to be a readonly property ✓
+- Converted from method to readonly property
+- Kept `statusCode` as deprecated alias
+- Updated all middleware/app code
 
-**Phase 2: Move Express conveniences to ServerResponse only**
-- Move `cookie()` and `clearCookie()` from `Response` to `ServerResponse`
-- Update `buildSetCookie()` to be a private helper in response.js
-- Remove the chaining return from any remaining Response methods
+**Phase 2** (pending): Move Express conveniences to ServerResponse only
+- Move `cookie()` and `clearCookie()` from Response to ServerResponse
+- Extract `buildSetCookie()` as a module-level utility (already done)
+- Remove chaining return from Response methods (already done)
 
-**Phase 3: Clarify the separation in documentation**
-- Document that `Response` is WHATWG Fetch API (readonly properties, constructor-based)
-- Document that `ServerResponse` is Express-style middleware (chaining methods)
-- Document the bridge pattern: fetch handlers return Response, middleware uses ServerResponse
+**Phase 3** (pending): Document the separation
+- Response = WHATWG Fetch API (readonly properties, constructor-based, immutable after construction)
+- ServerResponse = Express middleware (chaining methods, streaming-oriented, mutable until sent)
+- Bridge pattern: `flush()` in serve.js copies Response properties onto ServerResponse
+- Fetch handlers return Response; middleware uses ServerResponse
 
 ### Why This Matters
 
@@ -505,7 +568,8 @@ These are Express conveniences that should only be on `ServerResponse`.
 
 1. **lib/lws/response.js**:
    - Move `cookie()` and `clearCookie()` to ServerResponse only
-   - Add deprecation warnings for old chaining patterns (optional)
+   - Already extracted `buildSetCookie()` as module-level utility
+   - Already fixed `status` to be a readonly property
 
 2. **lib/lws/middleware.js**:
    - Already uses ServerResponse correctly (no changes needed after Phase 1)
@@ -540,15 +604,15 @@ serve({ port: 8080 }, req => {
 // Internally: flush() copies Response properties onto ServerResponse
 ```
 
-### Historical Context
+### Conclusion
 
-The user's insight is correct: ServerResponse was originally for Express middleware (app.js), and Response was for the Fetch API. They got merged into one file, and the Express chaining pattern leaked into the base Response class. The fix is to:
-1. Keep Response WHATWG-compliant (readonly properties)
-2. Keep ServerResponse Express-style (chaining methods)
-3. Document the bridge pattern clearly
-4. Move Express-only conveniences to ServerResponse
+The merge was a reasonable refactoring to share code, but the Express conveniences should never have been added to the base Response class. The fix is to:
+1. Keep Response WHATWG-compliant (readonly properties, no chaining)
+2. Keep ServerResponse Express-style (chaining methods, streaming)
+3. Move Express-only methods to ServerResponse
+4. Document the bridge pattern clearly
 
-This preserves both APIs for their intended use cases without breaking compatibility with either ecosystem.
+This preserves both APIs for their intended use cases without breaking compatibility with either ecosystem. The inheritance relationship is fine - we just need to be disciplined about what belongs on the base class.
 
 ## Response.status Usage Mapping (Completed August 13, 2026)
 
