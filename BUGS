@@ -174,21 +174,27 @@
 
 ## API Compatibility Bugs (from doc/api-compatibility.md assessment)
 
-### body-formData-returns-wrong-type (lib/lws/body.js, WHATWG Fetch spec):
-  Body.formData() returns a plain null-prototype object instead of a
-  FormData instance. No FormData class exists in the codebase at all.
-  Code that does instanceof FormData or calls .get()/.getAll()/.append()
-  on the result will fail. The spec mandates Promise<FormData>.
-  Fix: implement a FormData class, update formData() to return an instance.
-
-    const form = await response.formData();
-    console.log(form instanceof FormData); // false - plain object
-    console.log(form.get('field')); // TypeError - no get() method
+### ~~body-formData-returns-wrong-type~~ [FIXED]
+Body.formData() now returns a proper FormData instance instead of a plain object.
+Implemented lib/lws/formdata.js with full WHATWG FormData API.
 
 ### headers-iteration-order-wrong (lib/lws/headers.js, WHATWG Fetch spec): **FIXED**
   Headers now iterates in sorted (lexicographic by lowercase name) order
   as required by the spec, not insertion order. Fixed in keys(), values(),
   entries(), and [Symbol.iterator]() methods.
+
+### headers-constructor-invalid-init (lib/lws/headers.js, WHATWG Fetch spec): **FIXED**
+  Headers constructor now throws TypeError for invalid init types (null, numbers,
+  non-objects) as required by the spec. Previously silently ignored invalid types
+  or threw generic Error instead of TypeError.
+
+### request-url-normalization (lib/lws/request.js, WHATWG Fetch spec): **FIXED**
+  Request constructor now normalizes URLs using the URL class, adding trailing
+  slashes and resolving relative URLs as required by the spec.
+
+### request-content-type-inference (lib/lws/request.js, WHATWG Fetch spec): **FIXED**
+  Request constructor now infers Content-Type for string bodies as
+  text/plain;charset=UTF-8 when not explicitly set, per the spec.
 
 ### fetch-no-request-input (lib/fetch.js, WHATWG Fetch spec): **FIXED**
   fetch() now accepts both URL strings and Request objects as the first
