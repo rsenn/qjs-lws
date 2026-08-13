@@ -283,12 +283,23 @@ different options work correctly. All 8 unit tests pass.
   Next steps: wire up request/websocket tracking, implement subscriberCount,
   requestIP, and closeIdleConnections with actual lws context integration.
 
-### websockethandler-missing-10-options (lib/serve.js, Bun.js WebSocket API):
-  WebSocketHandler is missing 10 of 13 options: drain() for backpressure,
-  ping()/pong() handlers, perMessageDeflate compression, maxPayloadLength,
-  idleTimeout, backpressureLimit, closeOnBackpressureLimit, sendPings,
-  publishToSelf. Can't implement backpressure handling, compression, or
-  WebSocket lifecycle management.
+### websockethandler-missing-10-options (lib/serve.js, Bun.js WebSocket API): **PARTIALLY FIXED**
+  Added support for all 10 missing WebSocket handler options:
+  - drain() - accepted but not wired (our WebSocket doesn't expose backpressure events yet)
+  - ping() - wired to 'ping' event listener
+  - pong() - wired to 'pong' event listener
+  - perMessageDeflate - accepted but not implemented (needs lws compression support)
+  - maxPayloadLength - accepted but not implemented (needs lws configuration)
+  - idleTimeout - accepted but not implemented (needs lws timeout configuration)
+  - backpressureLimit - accepted but not implemented (needs lws backpressure support)
+  - closeOnBackpressureLimit - accepted but not implemented (needs lws backpressure support)
+  - sendPings - accepted but not implemented (needs lws ping configuration)
+  - publishToSelf - accepted but not implemented (needs TopicRegistry changes)
+  
+  All options are now accepted without errors, but only ping/pong handlers are fully functional.
+  The rest require underlying lws library support or additional implementation work.
+  
+  All 34 serve tests pass.
 
 ### serverwebsocket-missing-3-members (lib/websocket.js, Bun.js WebSocket API): **FIXED**
 ServerWebSocket now has remoteAddress (client address getter), remotePort, localAddress, 
