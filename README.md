@@ -2,7 +2,7 @@
 
 [libwebsockets](https://libwebsockets.org/) bindings for QuickJS.
 
-Build instructions: [`doc/native/building.md`](doc/native/building.md).
+Build instructions: [`doc/building.md`](doc/building.md).
 Full API reference: [`doc/`](doc/README.md).
 
 ```js

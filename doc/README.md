@@ -35,7 +35,7 @@ import { LWSContext /* … */ } from 'lws';
 | [js/helpers.md](js/helpers.md)       | JS helpers shipped under `lib/` (fetch, serve, WebSocket, TCPSocket) |
 | [js/bun.md](js/bun.md)               | `serve()`'s Bun-compatible API surface in detail: `server.upgrade()`, WS pub/sub, chunked streaming, and their real constraints |
 | [native/examples.md](native/examples.md)     | Twelve copy-paste examples covering every role |
-| [native/building.md](native/building.md)     | Build instructions and CMake options |
+| [building.md](building.md)     | Build instructions and CMake options |
 
 ## Architecture overview
 
