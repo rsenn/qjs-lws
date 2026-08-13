@@ -170,3 +170,151 @@
     });
     await adapter.connect(ctx, 'https://example.com/', { method: 'GET', ssl_connection: LCCSCF_PIPELINE }); // logs "error: connect SYSCALL 9"
 
+---
+
+## API Compatibility Bugs (from doc/api-compatibility.md assessment)
+
+### response-status-is-method-not-property (lib/lws/response.js, WHATWG Fetch
+  spec): Response.status is implemented as a chainable setter method
+  (status(code)) with a separate statusCode getter, instead of the spec's
+  readonly unsigned short property. Code that does response.status === 200
+  compares a function reference to a number and always evaluates to false.
+  This is the single most serious spec violation in the Fetch implementation
+  and breaks all standard Response handling code. The method form exists
+  because the protocol layer patches status onto Response objects at runtime
+  for client responses, but the design should have been a property from the
+  start. Fix: convert status to a property, keep statusCode as deprecated alias.
+
+    const res = new Response('body', { status: 200 });
+    console.log(res.status === 200); // false - res.status is a function
+    console.log(res.statusCode === 200); // true - but non-standard name
+
+### body-formData-returns-wrong-type (lib/lws/body.js, WHATWG Fetch spec):
+  Body.formData() returns a plain null-prototype object instead of a
+  FormData instance. No FormData class exists in the codebase at all.
+  Code that does instanceof FormData or calls .get()/.getAll()/.append()
+  on the result will fail. The spec mandates Promise<FormData>.
+  Fix: implement a FormData class, update formData() to return an instance.
+
+    const form = await response.formData();
+    console.log(form instanceof FormData); // false - plain object
+    console.log(form.get('field')); // TypeError - no get() method
+
+### headers-iteration-order-wrong (lib/lws/headers.js, WHATWG Fetch spec):
+  Headers iterates in insertion order (plain object for...in) instead of
+  the spec-mandated sorted (lexicographic by lowercase name) order.
+  Code that depends on sorted header ordering produces different results
+  than spec-compliant implementations. Fix: sort headers by name before
+  iteration in keys()/values()/entries()/[Symbol.iterator]().
+
+    const h = new Headers();
+    h.set('z-header', '1');
+    h.set('a-header', '2');
+    for (const [name] of h) console.log(name);
+    // prints: z-header, a-header (insertion order)
+    // spec requires: a-header, z-header (sorted order)
+
+### fetch-no-request-input (lib/fetch.js, WHATWG Fetch spec): fetch() only
+  accepts URL strings as the first argument. The spec allows fetch(input)
+  where input can be a Request object or a URL string. Code that constructs
+  Request objects and passes them to fetch() will fail. Fix: check if first
+  argument is a Request instance and extract url/method/headers/body from it.
+
+    const req = new Request('https://example.com/', { method: 'POST', body: 'data' });
+    const res = await fetch(req); // fails - expects URL string
+
+### fetch-wrong-error-type (lib/fetch.js, WHATWG Fetch spec): Network errors
+  throw a custom ConnectionError class instead of the spec-mandated TypeError.
+  Error handling code that catches TypeError for network failures won't catch
+  qjs-lws errors. Fix: throw TypeError (or a subclass) instead of ConnectionError.
+
+    try { await fetch('https://nonexistent.invalid/'); }
+    catch(e) { console.log(e instanceof TypeError); } // false - ConnectionError
+
+### fetch-abortsignal-incomplete (lib/fetch.js, WHATWG Fetch spec): Multiple
+  problems with AbortSignal handling: (1) doesn't throw DOMException with
+  name "AbortError" when aborted, (2) overwrites existing signal.onabort
+  handler instead of using addEventListener, (3) no pre-check if signal is
+  already aborted before making request. Code that catches AbortError won't
+  work, existing signal handlers get overwritten, pre-aborted signals don't
+  prevent the request. Fix: throw error with name='AbortError', use
+  addEventListener, check signal.aborted before initiating.
+
+    const ctrl = new AbortController();
+    ctrl.abort();
+    try { await fetch('https://example.com/', { signal: ctrl.signal }); }
+    catch(e) { console.log(e.name === 'AbortError'); } // false - wrong error type
+
+### missing-bytes-method (lib/lws/body.js, lib/lws/response.js, WHATWG Fetch
+  spec): Neither Body nor Response implements the bytes() method that returns
+  Promise<Uint8Array>. This is a newer addition to the Fetch spec but is
+  straightforward to implement (similar to arrayBuffer() but returns Uint8Array).
+
+### clone-no-bodyused-check (lib/lws/request.js, lib/lws/response.js, WHATWG
+  Fetch spec): Request.clone() and Response.clone() don't check if bodyUsed
+  is true before cloning. The spec requires clone() to throw TypeError if the
+  body has already been consumed. Cloning a consumed request/response doesn't
+  throw as expected. Fix: add if (this.bodyUsed) throw new TypeError(...) at
+  start of clone() methods.
+
+### websocket-missing-url-property (lib/websocket.js, WHATWG WebSocket API):
+  The WebSocket constructor receives a URL but doesn't store it, so
+  websocket.url returns undefined. The spec defines a readonly url property.
+  Fix: store URL in constructor and expose as getter.
+
+    const ws = new WebSocket('wss://echo.websocket.events/');
+    console.log(ws.url); // undefined - should be 'wss://echo.websocket.events/'
+
+### server-missing-url-property (lib/serve.js, Bun.js Server API): Bun.js
+  provides server.url as a URL object (e.g., http://localhost:3000) but the
+  implementation only stores port and hostname separately. Bun.js code that
+  uses server.url won't work. Fix: add url getter that constructs URL from
+  hostname and port.
+
+    const server = serve({ port: 3000 }, req => new Response('ok'));
+    console.log(server.url); // undefined - should be URL { href: 'http://localhost:3000/' }
+
+### eventtarget-missing-options (lib/lws/events.js, WHATWG DOM API):
+  addEventListener() doesn't support the options parameter (capture, once,
+  passive, signal). Can't use { once: true } for one-time listeners or
+  { signal } for AbortSignal-based listener removal. The minimal EventTarget
+  is sufficient for internal use but lacks features useful for user code.
+  Fix: add options parameter, prioritize once and signal.
+
+### udpsocket-send-different-signature (lib/udpsocket.js, Bun.js UDP API):
+  Bun uses socket.send(data, port, address) but the implementation uses
+  socket.sendTo(data, peer) where peer is a sockaddr object. Bun.js UDP code
+  won't work without adaptation. Fix: add send(data, port, address) method
+  matching Bun's signature, keep sendTo() as alternative.
+
+### server-missing-11-methods (lib/serve.js, Bun.js Server API): Server
+  object is missing 11 of 15 properties/methods: url (see above), reload()
+  for hot-reload, ref()/unref() for process lifecycle, subscriberCount(),
+  requestIP(), timeout(), pendingRequests, pendingWebSockets,
+  closeIdleConnections(), development flag, id, fetch() for internal requests.
+  Impact: many Bun.js server management patterns won't work (graceful shutdown,
+  health checks, metrics).
+
+### websockethandler-missing-10-options (lib/serve.js, Bun.js WebSocket API):
+  WebSocketHandler is missing 10 of 13 options: drain() for backpressure,
+  ping()/pong() handlers, perMessageDeflate compression, maxPayloadLength,
+  idleTimeout, backpressureLimit, closeOnBackpressureLimit, sendPings,
+  publishToSelf. Can't implement backpressure handling, compression, or
+  WebSocket lifecycle management.
+
+### serverwebsocket-missing-3-members (lib/websocket.js, Bun.js WebSocket API):
+  ServerWebSocket missing remoteAddress (client address getter), subscriptions
+  (array of subscribed topics), cork() (batch writes). Can't access client IP
+  from WebSocket handlers or inspect subscription state.
+
+### udpsocket-missing-10-methods (lib/udpsocket.js, Bun.js UDP API):
+  UDPSocket missing sendMany() for batch send, setBroadcast(), setTTL(),
+  addMembership()/dropMembership() for multicast, setMulticastTTL(),
+  setMulticastLoopback(), setMulticastInterface(),
+  addSourceSpecificMembership()/dropSourceSpecificMembership() for SSM.
+  Can't implement multicast, broadcast, or socket options.
+
+---
+
+See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
+
