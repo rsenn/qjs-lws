@@ -261,13 +261,27 @@ different options work correctly. All 8 unit tests pass.
   Also fixed sendTo() to use wsi.write() instead of non-existent wsi.sendTo().
   All tests pass.
 
-### server-missing-11-methods (lib/serve.js, Bun.js Server API): Server
-  object is missing 11 of 15 properties/methods: url (see above), reload()
-  for hot-reload, ref()/unref() for process lifecycle, subscriberCount(),
-  requestIP(), timeout(), pendingRequests, pendingWebSockets,
-  closeIdleConnections(), development flag, id, fetch() for internal requests.
-  Impact: many Bun.js server management patterns won't work (graceful shutdown,
-  health checks, metrics).
+### server-missing-11-methods (lib/serve.js, Bun.js Server API): **PARTIALLY FIXED**
+  Added stub implementations for all 11 missing methods/properties:
+  - url (getter) - returns URL object constructed from hostname/port
+  - development (getter) - returns development flag (default false)
+  - id (getter) - returns unique server identifier
+  - pendingRequests (getter) - returns count of in-flight HTTP requests (tracking not yet wired)
+  - pendingWebSockets (getter) - returns count of active WebSocket connections (tracking not yet wired)
+  - stop() - already existed
+  - ref()/unref() - no-op stubs (lws contexts already manage process lifecycle)
+  - subscriberCount(topic) - stub returning 0 (needs TopicRegistry integration)
+  - requestIP(request) - stub returning null (needs wsi access)
+  - timeout(seconds) - no-op stub (needs lws context integration)
+  - closeIdleConnections() - stub returning 0 (needs lws context integration)
+  - reload(options) - no-op stub (complex implementation needed)
+  - fetch(request) - stub returning 501 (needs routing through handlers)
+  
+  Added internal tracking methods (_incrementRequests, _decrementRequests, 
+  _incrementWebSockets, _decrementWebSockets) for future use.
+  
+  Next steps: wire up request/websocket tracking, implement subscriberCount,
+  requestIP, and closeIdleConnections with actual lws context integration.
 
 ### websockethandler-missing-10-options (lib/serve.js, Bun.js WebSocket API):
   WebSocketHandler is missing 10 of 13 options: drain() for backpressure,

@@ -131,7 +131,7 @@ in the relevant spec.
 ### Remaining Spec Violations (see BUGS file)
 - WebSocket missing `url` property
 - Server missing `url` property
-- Server missing 11 methods (reload, ref/unref, subscriberCount, etc.)
+- Server methods partially implemented (11 stubs added, need lws context integration)
 - WebSocketHandler missing 10 options (drain, ping/pong, compression, etc.)
 - UDPSocket missing 10 methods (sendMany, multicast, broadcast, etc.)
 
