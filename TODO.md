@@ -84,12 +84,6 @@ in the relevant spec.
 
 - `lwsjs_callback_protocol()` in `lws-protocol.c` is a ~460-line function;
   per-reason marshaller functions would make new reasons safer to add.
-- `serve()` cannot report actual bound port for ephemeral ports (port: 0).
-  `LWSContext.getVhostByName()` returns undefined for vhosts created
-  internally by `createContext()` because those vhosts don't have a JS
-  user pointer set. Needs C API work: either modify `lws_vhost_object()`
-  to create an LWSVhost wrapper when no user pointer exists, or add a
-  `port` property directly to LWSContext.
 - `HttpClientProtocol.connect()` buffers the full request body to know
   `content-length` before sending (no chunked-encoding path).
 - `lib/lws/mimetypes.js` extra list is dev-specific (`.sublime-project` etc).
