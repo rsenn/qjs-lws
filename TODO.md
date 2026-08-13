@@ -131,7 +131,6 @@ in the relevant spec.
 ### Remaining Spec Violations (see BUGS file)
 - WebSocket missing `url` property
 - Server missing `url` property
-- UDPSocket send() signature differs from Bun (sendTo vs send)
 - Server missing 11 methods (reload, ref/unref, subscriberCount, etc.)
 - WebSocketHandler missing 10 options (drain, ping/pong, compression, etc.)
 - UDPSocket missing 10 methods (sendMany, multicast, broadcast, etc.)

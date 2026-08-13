@@ -250,11 +250,16 @@ different options work correctly. All 8 unit tests pass.
     target.addEventListener('test', handler, { once: true, signal: controller.signal });
     controller.abort(); // handler is automatically removed
 
-### udpsocket-send-different-signature (lib/udpsocket.js, Bun.js UDP API):
-  Bun uses socket.send(data, port, address) but the implementation uses
-  socket.sendTo(data, peer) where peer is a sockaddr object. Bun.js UDP code
-  won't work without adaptation. Fix: add send(data, port, address) method
-  matching Bun's signature, keep sendTo() as alternative.
+### ~~udpsocket-send-different-signature~~ [FIXED]
+  Added Bun.js-compatible send(data, port, address) signature to UDPSocket.
+  The native wsi.write() already accepts an optional peer parameter (LWSSockAddr46),
+  so we just needed to detect the Bun.js signature and construct the peer object.
+  Updated UDPSocket.send() to support three signatures:
+  - send(data, port, address) - Bun.js style (new)
+  - send(data, peer) - current style with sockaddr46 object
+  - send(data) - for connected sockets
+  Also fixed sendTo() to use wsi.write() instead of non-existent wsi.sendTo().
+  All tests pass.
 
 ### server-missing-11-methods (lib/serve.js, Bun.js Server API): Server
   object is missing 11 of 15 properties/methods: url (see above), reload()

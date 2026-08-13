@@ -16,7 +16,7 @@ export function concatBytes(arrays) {
   return out;
 }
 
-/** wsi.write()/wsi.sendTo() only accept a plain ArrayBuffer (or string) - never a typed-array view. */
+/** wsi.write() only accepts a plain ArrayBuffer (or string) - never a typed-array view. */
 export function toArrayBuffer(u8) {
   return u8.byteOffset === 0 && u8.byteLength === u8.buffer.byteLength ? u8.buffer : u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
 }

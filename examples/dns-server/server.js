@@ -9,7 +9,7 @@
  *   - ctx.createUdp({ address, ... })      one-shot connected sockets for
  *                                          each upstream UDP query
  *   - ctx.clientConnect({ method: 'RAW' }) the TCP fallback leg
- *   - wsi.sendTo(data, peerAddr)           reply to *this* query's client,
+ *   - wsi.write(data, peerAddr)            reply to *this* query's client,
  *                                          not whichever peer the listener
  *                                          last happened to hear from
  *
