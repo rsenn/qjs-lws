@@ -423,6 +423,133 @@ This means:
 
 Any code written against the spec (which is most web code) will break with the current implementation.
 
+## Response vs ServerResponse Architecture Assessment (August 13, 2026)
+
+### The Problem
+
+There's an architectural tension between two response patterns that got merged into one file:
+
+1. **Response** (WHATWG Fetch API): `status` must be a readonly property, constructed with `new Response(body, { status: 200 })`
+2. **ServerResponse** (Express-style middleware): needs chaining methods like `res.status(200).type('text/plain').end()`
+
+Currently `ServerResponse extends Response`, and the Express-style chaining pattern has "creeped" into the base `Response` class.
+
+### Where Each Pattern Is Used
+
+**WHATWG Response (status as property):**
+- `lib/serve.js` line 288-292: fetch handlers return `new Response(body, { status: 404 })`
+- `lib/serve.js` line 330: error responses use `new Response(String(e), { status: 500 })`
+- `lib/fetch.js`: client-side fetch() returns Response objects
+- `lib/lws/protocols.js` line 349: HTTP client protocol creates Response objects
+
+**Express ServerResponse (status as method, chaining):**
+- `lib/lws/app.js` lines 187, 222, 228: `res.status(500).type('text/plain').end()`
+- `lib/lws/middleware.js` lines 51, 54, 98, 101, 124, 142, 207: `res.status(code).type('...').end('...')`
+- `lib/serve.js` line 308: `resp.status(response.statusCode)` - flushes a Response onto a ServerResponse
+
+### The Bridge Pattern
+
+The `flush()` function in `lib/serve.js` (line 308) bridges the two patterns:
+```javascript
+async function flush(resp, response) {
+  resp.status(response.statusCode);  // resp is ServerResponse (method), response is Response (property)
+  response.headers.forEach((value, name) => resp.append(name, value));
+  // ... stream body
+}
+```
+
+This is actually correct! It reads `statusCode` from the WHATWG Response and calls `status()` method on the Express ServerResponse.
+
+### Non-Standard Extensions in Response
+
+The base `Response` class has two Express-style convenience methods that don't belong in WHATWG:
+- `cookie(name, value, opts)` - returns `this` for chaining
+- `clearCookie(name, opts)` - returns `this` for chaining
+
+These are Express conveniences that should only be on `ServerResponse`.
+
+### The Untangling Strategy
+
+**Phase 1: Fix Response.status (already done)**
+- Convert `status` from method to readonly property ✓
+- Keep `statusCode` as deprecated alias ✓
+- Update all chaining usage in middleware/app ✓
+
+**Phase 2: Move Express conveniences to ServerResponse only**
+- Move `cookie()` and `clearCookie()` from `Response` to `ServerResponse`
+- Update `buildSetCookie()` to be a private helper in response.js
+- Remove the chaining return from any remaining Response methods
+
+**Phase 3: Clarify the separation in documentation**
+- Document that `Response` is WHATWG Fetch API (readonly properties, constructor-based)
+- Document that `ServerResponse` is Express-style middleware (chaining methods)
+- Document the bridge pattern: fetch handlers return Response, middleware uses ServerResponse
+
+### Why This Matters
+
+**For WHATWG compatibility:**
+- Standard web code expects `response.status === 200` to work
+- `fetch()` clients in browsers, Bun, and Deno all use the property form
+- Any library written for standard Fetch API will break with method form
+
+**For Express compatibility:**
+- Express middleware expects `res.status(200).type('text/plain').end()` chaining
+- This is the dominant server-side pattern in Node.js ecosystem
+- Middleware libraries (cors, helmet, etc.) depend on this API
+
+**Both patterns are correct for their use cases:**
+- WHATWG Response: immutable, declarative, fetch-oriented
+- Express ServerResponse: mutable, imperative, streaming-oriented
+
+### Files That Need Updates
+
+1. **lib/lws/response.js**:
+   - Move `cookie()` and `clearCookie()` to ServerResponse only
+   - Add deprecation warnings for old chaining patterns (optional)
+
+2. **lib/lws/middleware.js**:
+   - Already uses ServerResponse correctly (no changes needed after Phase 1)
+
+3. **lib/lws/app.js**:
+   - Already uses ServerResponse correctly (no changes needed after Phase 1)
+
+4. **lib/serve.js**:
+   - Already bridges correctly via `flush()` (no changes needed)
+
+5. **doc/api-compatibility.md**:
+   - Document the Response vs ServerResponse distinction
+   - Explain when to use which pattern
+
+### Testing Strategy
+
+```javascript
+// WHATWG pattern (Response)
+const res = new Response('body', { status: 200 });
+assert(res.status === 200);  // property
+assert(typeof res.status === 'number');
+
+// Express pattern (ServerResponse)
+app.get('/', (req, res) => {
+  res.status(200).type('text/plain').end('ok');  // chaining
+});
+
+// Bridge pattern (serve.js)
+serve({ port: 8080 }, req => {
+  return new Response('ok', { status: 200 });  // returns Response
+});
+// Internally: flush() copies Response properties onto ServerResponse
+```
+
+### Historical Context
+
+The user's insight is correct: ServerResponse was originally for Express middleware (app.js), and Response was for the Fetch API. They got merged into one file, and the Express chaining pattern leaked into the base Response class. The fix is to:
+1. Keep Response WHATWG-compliant (readonly properties)
+2. Keep ServerResponse Express-style (chaining methods)
+3. Document the bridge pattern clearly
+4. Move Express-only conveniences to ServerResponse
+
+This preserves both APIs for their intended use cases without breaking compatibility with either ecosystem.
+
 ## Response.status Usage Mapping (Completed August 13, 2026)
 
 The explore agent completed a comprehensive mapping of all Response.status usages across the codebase:

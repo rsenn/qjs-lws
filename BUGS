@@ -314,6 +314,17 @@
   addSourceSpecificMembership()/dropSourceSpecificMembership() for SSM.
   Can't implement multicast, broadcast, or socket options.
 
+### response-cookie-clearCookie-are-express-not-whatwg (lib/lws/response.js):
+  Response.cookie() and Response.clearCookie() are Express-style convenience
+  methods that don't belong on the WHATWG Response class. They return `this`
+  for chaining (non-standard) and are only meaningful for server-side
+  responses. These should be moved to ServerResponse only.
+
+    const res = new Response('body');
+    res.cookie('session', 'abc123');  // works but shouldn't - not WHATWG
+    // Should only be available on ServerResponse:
+    app.get('/', (req, res) => res.cookie('session', 'abc123').end('ok'));
+
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.

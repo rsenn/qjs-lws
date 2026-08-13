@@ -520,6 +520,7 @@ All middleware follows Express conventions with proper async support and error h
    - Current: `response.status(code)` / `response.statusCode`
    - Required: `response.status` (readonly property)
    - Impact: All standard Response handling code currently broken
+   - Status: ✓ DONE (August 13, 2026)
 
 2. **Body.formData()**: Return FormData instance instead of plain object
    - Requires implementing a FormData class
@@ -532,6 +533,38 @@ All middleware follows Express conventions with proper async support and error h
 4. **Headers iteration order**: Sort headers lexicographically
    - Current: insertion order
    - Required: sorted order per spec
+
+### Response vs ServerResponse Untangling (High Priority)
+
+The `Response` class (WHATWG Fetch API) and `ServerResponse` class (Express-style middleware) have been merged, causing the Express chaining pattern to leak into the WHATWG API. See `CLAUDE.md` for full architectural assessment.
+
+**The Problem:**
+- `Response` should follow WHATWG: readonly properties, constructor-based
+- `ServerResponse` should follow Express: chaining methods like `res.status(200).type('text/plain').end()`
+- Currently `ServerResponse extends Response`, and Express conveniences like `cookie()`/`clearCookie()` are on the base `Response` class where they don't belong
+
+**Phase 1** (done): Fix `Response.status` to be a readonly property ✓
+- Converted from method to readonly property
+- Kept `statusCode` as deprecated alias
+- Updated all middleware/app code to use ServerResponse chaining correctly
+
+**Phase 2** (pending): Move Express conveniences to ServerResponse only
+- Move `cookie()` and `clearCookie()` from Response to ServerResponse
+- These are Express-style methods that don't belong on WHATWG Response
+- They return `this` for chaining (non-standard for Response)
+- Only meaningful for server-side responses that haven't been sent yet
+
+**Phase 3** (pending): Document the separation
+- Response = WHATWG Fetch API (readonly properties, constructor-based, immutable after construction)
+- ServerResponse = Express middleware (chaining methods, streaming-oriented, mutable until sent)
+- Bridge pattern: `flush()` in serve.js copies Response properties onto ServerResponse
+- Fetch handlers return Response; middleware uses ServerResponse
+
+**Impact:**
+- Preserves WHATWG compatibility for fetch() clients and standard web code
+- Preserves Express compatibility for middleware (cors, helmet, etc.)
+- Both APIs remain available for their intended use cases
+- No breaking changes for existing code (ServerResponse still has chaining)
 
 ### High Priority Improvements
 
