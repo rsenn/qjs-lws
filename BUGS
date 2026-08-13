@@ -316,12 +316,25 @@ send() calls until the callback completes. All 8 unit tests pass.
       }); // all messages sent together
     });
 
-### udpsocket-missing-10-methods (lib/udpsocket.js, Bun.js UDP API):
-  UDPSocket missing sendMany() for batch send, setBroadcast(), setTTL(),
-  addMembership()/dropMembership() for multicast, setMulticastTTL(),
-  setMulticastLoopback(), setMulticastInterface(),
-  addSourceSpecificMembership()/dropSourceSpecificMembership() for SSM.
-  Can't implement multicast, broadcast, or socket options.
+### udpsocket-missing-10-methods (lib/udpsocket.js, Bun.js UDP API): **PARTIALLY FIXED**
+  Added stub implementations for all 10 missing methods:
+  - sendMany(packets) - throws Error (needs lws batch send support)
+  - setBroadcast(flag) - no-op (needs lws SO_BROADCAST support)
+  - setTTL(ttl) - no-op (needs lws IP_TTL support)
+  - addMembership(multicastAddress, multicastInterface) - throws Error (needs lws multicast support)
+  - dropMembership(multicastAddress, multicastInterface) - throws Error (needs lws multicast support)
+  - setMulticastTTL(ttl) - no-op (needs lws IP_MULTICAST_TTL support)
+  - setMulticastLoopback(flag) - no-op (needs lws IP_MULTICAST_LOOP support)
+  - setMulticastInterface(multicastInterface) - no-op (needs lws IP_MULTICAST_IF support)
+  - addSourceSpecificMembership(sourceAddress, groupAddress, multicastInterface) - throws Error (needs lws SSM support)
+  - dropSourceSpecificMembership(sourceAddress, groupAddress, multicastInterface) - throws Error (needs lws SSM support)
+  
+  All methods now exist and are callable. Some are no-ops (socket options),
+  others throw errors (multicast/batch operations) indicating they need
+  underlying lws library support.
+  
+  Next steps: implement actual socket option and multicast support when
+  lws library provides the necessary APIs.
 
 ### response-cookie-clearCookie-are-express-not-whatwg (lib/lws/response.js): **FIXED**
   Removed cookie() and clearCookie() from the WHATWG Response class. These

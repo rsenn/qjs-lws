@@ -133,7 +133,7 @@ in the relevant spec.
 - Server missing `url` property
 - Server methods partially implemented (11 stubs added, need lws context integration)
 - WebSocketHandler options partially implemented (10 stubs added, ping/pong wired)
-- UDPSocket missing 10 methods (sendMany, multicast, broadcast, etc.)
+- UDPSocket methods partially implemented (10 stubs added, need lws multicast/socket option support)
 
 ## Thin Layer Compatibility Strategy
 
