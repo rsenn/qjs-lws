@@ -100,11 +100,12 @@ in the relevant spec.
 
 ## Completed Work
 
-### Response vs ServerResponse Untangling (commit e139858)
+### Response vs ServerResponse Untangling (commit e139858, latest)
 - ✅ `Response` now has readonly `status` property (WHATWG compliant)
 - ✅ `ServerResponse` has chainable `status(code)` method (Express conventions)
 - ✅ Client-side Response created with status/headers when established (not mutated)
 - ✅ `serve.js` bridges them via `flush()` function
+- ✅ Removed `cookie()` and `clearCookie()` from Response (Express-style, not WHATWG)
 - ✅ All tests pass
 
 ### WHATWG Fetch API Compliance
@@ -134,7 +135,6 @@ in the relevant spec.
 - Server missing 11 methods (reload, ref/unref, subscriberCount, etc.)
 - WebSocketHandler missing 10 options (drain, ping/pong, compression, etc.)
 - UDPSocket missing 10 methods (sendMany, multicast, broadcast, etc.)
-- Response.cookie()/clearCookie() are Express-style, not WHATWG
 
 ## Thin Layer Compatibility Strategy
 

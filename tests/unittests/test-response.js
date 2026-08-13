@@ -1,5 +1,5 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
-import { Response } from '../../lib/lws/response.js';
+import { Response, ServerResponse } from '../../lib/lws/response.js';
 
 await tests({
   'default status is 200, ok is true'() {
@@ -71,8 +71,8 @@ await tests({
     eq(1, JSON.parse(body).a);
   },
 
-  'cookie() appends a Set-Cookie header'() {
-    const r = new Response('x');
+  'cookie() appends a Set-Cookie header (ServerResponse only)'() {
+    const r = new ServerResponse(null);
     r.cookie('a', '1', { httpOnly: true, path: '/' });
     const sc = r.headers.get('set-cookie');
     assert(sc.startsWith('a=1'), 'expected cookie value, got ' + sc);
@@ -80,8 +80,8 @@ await tests({
     assert(sc.includes('Path=/'), 'expected Path attribute, got ' + sc);
   },
 
-  'clearCookie() expires the cookie immediately'() {
-    const r = new Response('x');
+  'clearCookie() expires the cookie immediately (ServerResponse only)'() {
+    const r = new ServerResponse(null);
     r.clearCookie('a');
     const sc = r.headers.get('set-cookie');
     assert(sc.includes('Max-Age=0'), 'expected Max-Age=0, got ' + sc);
