@@ -27,9 +27,9 @@ in the relevant spec.
 - `ByteLengthQueuingStrategy`, `CountQueuingStrategy` — `lib/lws/streams.js`
 
 ### DOM / Events (WHATWG DOM Standard)
-- `EventTarget` — `lib/lws/events.js`
-- `AbortController` — `lib/lws/abort.js`
-- `AbortSignal` (+ `.timeout()`, `.any()`, `.abort()`) — `lib/lws/abort.js`
+- ✅ `EventTarget` — `lib/lws/events.js` (with `once` and `signal` options)
+- ✅ `AbortController` — `lib/lws/abort.js`
+- ✅ `AbortSignal` (+ `.timeout()`, `.any()`, `.abort()`) — `lib/lws/abort.js`
 
 ### WebSocket APIs
 - `WebSocket` (WHATWG + Bun pub/sub) — `lib/websocket.js`
@@ -115,6 +115,13 @@ in the relevant spec.
 - ✅ **Headers iteration order** now sorted lexicographically (not insertion order)
 - ✅ **Response.status** is readonly property (not method)
 
+### WHATWG DOM Standard Compliance
+- ✅ **EventTarget options** - supports `once` and `signal` per WHATWG DOM spec
+  - `once: true` automatically removes listener after first invocation
+  - `signal: AbortSignal` removes listener when signal is aborted
+  - Handles edge cases: already-aborted signals, wrapped listener removal
+  - All 8 unit tests pass
+
 ### Remaining Fetch API Issues
 - ❌ **fetch()** doesn't accept Request objects as first argument
 - ❌ **fetch()** throws ConnectionError instead of TypeError for network errors
@@ -123,11 +130,9 @@ in the relevant spec.
 ### Remaining Spec Violations (see BUGS file)
 - WebSocket missing `url` property
 - Server missing `url` property
-- EventTarget missing options parameter (once, signal)
 - UDPSocket send() signature differs from Bun (sendTo vs send)
 - Server missing 11 methods (reload, ref/unref, subscriberCount, etc.)
 - WebSocketHandler missing 10 options (drain, ping/pong, compression, etc.)
-- ServerWebSocket missing 3 members (remoteAddress, subscriptions, cork)
 - UDPSocket missing 10 methods (sendMany, multicast, broadcast, etc.)
 - Response.cookie()/clearCookie() are Express-style, not WHATWG
 

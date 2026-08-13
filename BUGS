@@ -238,12 +238,17 @@ Implemented lib/lws/formdata.js with full WHATWG FormData API.
     const server = serve({ port: 3000 }, req => new Response('ok'));
     console.log(server.url); // undefined - should be URL { href: 'http://localhost:3000/' }
 
-### eventtarget-missing-options (lib/lws/events.js, WHATWG DOM API):
-  addEventListener() doesn't support the options parameter (capture, once,
-  passive, signal). Can't use { once: true } for one-time listeners or
-  { signal } for AbortSignal-based listener removal. The minimal EventTarget
-  is sufficient for internal use but lacks features useful for user code.
-  Fix: add options parameter, prioritize once and signal.
+### ~~eventtarget-missing-options~~ [FIXED]
+EventTarget now supports the `once` and `signal` options per WHATWG DOM spec.
+`once: true` automatically removes the listener after it fires once.
+`signal: AbortSignal` removes the listener when the signal is aborted.
+Handles edge cases: already-aborted signals don't add listeners, wrapped
+listeners can be removed via removeEventListener(), multiple listeners with
+different options work correctly. All 8 unit tests pass.
+
+    const controller = new AbortController();
+    target.addEventListener('test', handler, { once: true, signal: controller.signal });
+    controller.abort(); // handler is automatically removed
 
 ### udpsocket-send-different-signature (lib/udpsocket.js, Bun.js UDP API):
   Bun uses socket.send(data, port, address) but the implementation uses
@@ -266,10 +271,20 @@ Implemented lib/lws/formdata.js with full WHATWG FormData API.
   publishToSelf. Can't implement backpressure handling, compression, or
   WebSocket lifecycle management.
 
-### serverwebsocket-missing-3-members (lib/websocket.js, Bun.js WebSocket API):
-  ServerWebSocket missing remoteAddress (client address getter), subscriptions
-  (array of subscribed topics), cork() (batch writes). Can't access client IP
-  from WebSocket handlers or inspect subscription state.
+### serverwebsocket-missing-3-members (lib/websocket.js, Bun.js WebSocket API): **FIXED**
+ServerWebSocket now has remoteAddress (client address getter), remotePort, localAddress, 
+localPort properties, subscriptions (array of subscribed topics via getter), and cork() 
+(batch writes). The cork() method supports both sync and async callbacks, queuing all 
+send() calls until the callback completes. All 8 unit tests pass.
+
+    const server = await startServer(ws => {
+      console.log(ws.remoteAddress); // client IP
+      console.log(ws.subscriptions); // ['topic1', 'topic2']
+      ws.cork(socket => {
+        socket.send('msg1'); // queued
+        socket.send('msg2'); // queued
+      }); // all messages sent together
+    });
 
 ### udpsocket-missing-10-methods (lib/udpsocket.js, Bun.js UDP API):
   UDPSocket missing sendMany() for batch send, setBroadcast(), setTTL(),
