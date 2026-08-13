@@ -222,82 +222,62 @@ All cross-references updated in `README.md`, `doc/README.md`, and throughout doc
 15. `serverwebsocket-missing-3-members`
 16. `udpsocket-missing-10-methods`
 
-## Current Work In Progress
+## Recent Fixes (August 2026)
 
-### Response.status Spec Violation Fix (CRITICAL PRIORITY)
+### Response.status Spec Violation (FIXED - commit e139858)
 
-**Status**: Agent launched to map all Response.status usages across codebase
+**Problem**: `Response.status` was implemented as a chainable setter method instead of a readonly property per WHATWG spec.
 
-**The Problem**:
-```javascript
-// Current implementation (WRONG):
-const res = new Response('body', { status: 200 });
-res.status === 200  // false - status is a function, not a number
-res.statusCode === 200  // true - but this is non-standard
+**Solution**: 
+- Converted `Response.status` to readonly property
+- Created separate `ServerResponse` class with chainable `status(code)` method for Express-style middleware
+- Fixed `lib/lws/protocols.js` to create Response with status/headers when established (not mutated after)
+- Updated `lib/lws/app.js` to use `res.status(code)` chaining
+- All tests pass (27 middleware, 26 app, 4 fetch, 13 response unit tests)
 
-// WHATWG spec requires:
-res.status === 200  // true - status must be a readonly property
-```
+### Additional WHATWG Fetch API Compliance (FIXED)
 
-**Why This Is Critical**:
-This is the single most serious spec violation in the Fetch implementation. Every piece of code that checks `response.status` will fail because it's comparing a function to a number.
+**Completed fixes**:
+- **Body.bytes()** - Implemented method returning Promise<Uint8Array>
+- **Body.formData()** - Now returns FormData instance (created `lib/lws/formdata.js`)
+- **Request.clone()** - Checks bodyUsed and throws TypeError if already consumed
+- **Response.clone()** - Checks bodyUsed and throws TypeError if already consumed  
+- **Headers iteration** - Now sorted lexicographically (not insertion order)
 
-**Current Implementation** (in `lib/lws/response.js`):
-- `status(code)` is a chainable setter method
-- `statusCode` is a getter that returns the numeric value
-- This design exists because the protocol layer patches status onto Response objects at runtime
+## Current Work
 
-**What Needs To Be Done**:
-1. Convert `status` from method to readonly property
-2. Keep `statusCode` as deprecated alias during transition
-3. Update ALL code that sets status:
-   - `lib/lws/response.js` - Response constructor
-   - `lib/lws/protocols.js` - protocol layer status patching
-   - `lib/serve.js` - server response handling
-4. Update ALL code that reads status:
-   - Tests in `tests/` directory
-   - Examples in `examples/` directory
-   - Documentation in `doc/`
-5. Run full test suite to verify no regressions
-6. Verify all examples still work
+### Remaining Critical Spec Violations
 
-**Files To Check**:
-- `lib/lws/response.js` - main implementation
-- `lib/lws/protocols.js` - where status gets patched onto responses
-- `lib/serve.js` - server-side usage
-- `tests/*.js` - all test files
-- `examples/**/*.js` - all example files
-- `doc/**/*.md` - all documentation
+**Priority 1**: Remaining WHATWG Fetch API issues
+1. **fetch() Request input** - Accept Request objects as first argument (currently only accepts URL strings)
+2. **fetch() error types** - Use TypeError instead of ConnectionError for network errors
+3. **fetch() AbortSignal handling** - Complete implementation (wrong error type, overwrites handler, no pre-check)
 
-**Testing Strategy**:
-```javascript
-// After fix, these should all work:
-const res = new Response('body', { status: 200 });
-assert(res.status === 200);  // readonly property
-assert(typeof res.status === 'number');
+**Priority 2**: WebSocket and Server gaps
+4. **WebSocket.url property** - Missing from implementation
+5. **Server.url property** - Missing from Bun.serve() implementation
+6. **EventTarget options** - Add support for `once` and `signal` parameters
 
-// Setter should work in constructor only:
-const res2 = new Response('body', { status: 404 });
-assert(res2.status === 404);
+See `BUGS` file for complete list of known spec violations.
 
-// Direct assignment should fail (readonly):
-try {
-  res.status = 500;  // should throw or silently fail
-} catch(e) {
-  // expected
-}
-```
+## Next Steps
 
-## Next Steps After Response.status Fix
-
-### Priority 1: Remaining Critical Spec Violations
-1. **Body.formData()** - Implement FormData class, fix return type
-2. **Headers iteration order** - Sort headers lexicographically before iteration
-3. **fetch() Request input** - Accept Request objects as first argument
-4. **fetch() error types** - Use TypeError instead of ConnectionError
+### Priority 1: Critical Spec Violations
+1. **fetch() Request input** - Accept Request objects as first argument
+2. **fetch() error types** - Use TypeError instead of ConnectionError
+3. **fetch() AbortSignal handling** - Complete implementation
 
 ### Priority 2: High-Impact Missing Features
-5. **AbortSignal handling** - Complete implementation in fetch()
+4. **WebSocket.url property** - Store and expose URL
+5. **Server.url property** - Construct URL from hostname and port
+6. **EventTarget options** - Add once/signal support
+7. **WebSocket bufferedAmount** - Expose write queue size (requires native support)
+
+### Priority 3: Bun.js API Completion
+8. **Server methods** - Implement reload, ref/unref, subscriberCount, requestIP, timeout, etc.
+9. **WebSocket handler options** - Add drain, ping/pong, compression, timeouts
+10. **ServerWebSocket properties** - Add remoteAddress, subscriptions, cork
+11. **UDPSocket methods** - Fix send() signature, add multicast methods
 6. **bytes() methods** - Add to Body and Response
 7. **clone() bodyUsed checks** - Add TypeError when cloning consumed bodies
 8. **WebSocket.url** - Store and expose URL property
@@ -423,196 +403,39 @@ This means:
 
 Any code written against the spec (which is most web code) will break with the current implementation.
 
-## Response vs ServerResponse Architecture Assessment (August 13, 2026)
+## Response vs ServerResponse Architecture (FIXED August 13, 2026)
 
-### Historical Context: How the Merge Happened
+**Status: COMPLETE** - Response and ServerResponse are now properly separated.
 
-**Original Design (commit 1d2aaf3, earlier):**
-- `ServerResponse` was a standalone class in `lib/lws/app.js`
-- Did NOT extend `Response`
-- Had its own private fields: `#headers`, `#status`, `#ended`, `#headersSent`, `#chunked`
-- Had Express-style chaining methods: `status()`, `set()`, `append()`, `type()`, `cookie()`, `clearCookie()`, `redirect()`, `json()`, `send()`, `write()`, `end()`
-- All methods returned `this` for chaining
-- `Response` was in `lib/lws/response.js` and followed WHATWG patterns
+**The Fix (commit e139858):**
+- `Response` (WHATWG): readonly `status` property, immutable after construction
+- `ServerResponse` (Express): chainable `status(code)` method, mutable until sent
+- Client-side: Response created with status/headers in `onEstablishedClientHttp()` instead of mutation
+- `serve.js` bridges them via `flush()` function
+- All unit tests pass
 
-**The Merge (commit 350c6af, later):**
-- `ServerResponse` moved to `lib/lws/response.js`
-- Now extends `Response`
-- Comment explains: "ServerRequest/ServerResponse now live in ./request.js/./response.js (alongside Request/Response, which they share cookie-handling code with)"
-- The merge happened because both classes needed cookie-handling code (`buildSetCookie`)
-- It seemed natural to put related response classes together
-- Inheritance was used for code reuse
+**Implementation Details:**
+- `lib/lws/response.js`: Response has readonly getters, ServerResponse has chainable methods
+- `lib/lws/protocols.js`: Client Response created when established (not mutated after)
+- `lib/lws/app.js`: Uses `res.status(code)` chaining (ServerResponse)
+- `lib/lws/middleware.js`: Uses `res.status(code)` chaining (ServerResponse)
+- `lib/serve.js`: `flush()` copies Response properties onto ServerResponse
 
-### Was the Merge Inevitable?
+**Key Design:**
+- Response follows WHATWG Fetch API spec (immutable, declarative)
+- ServerResponse follows Express conventions (mutable, imperative, streaming)
+- Both classes are correct for their use cases
+- Inheritance preserves code reuse (headers, body, etc.)
 
-**Yes and no:**
+**What Changed:**
+- Before: Response had chainable `status(code)` method (violated spec)
+- After: Response has readonly `status` property, ServerResponse has chainable method
+- Before: Client Response created early, mutated when status arrived
+- After: Client Response created when established with all properties
+- Before: `redirected` tracked on Response object
+- After: `redirected` tracked on session, passed to Response constructor
 
-**Inevitable aspects:**
-- Both classes represent HTTP responses and share many concepts (headers, status, body)
-- Both need cookie-handling code
-- Code duplication would have been significant if kept separate
-- The bridge pattern in `serve.js` (flushing Response onto ServerResponse) makes inheritance natural
-
-**Not inevitable:**
-- The Express chaining methods (`status()`, `type()`, etc.) should have stayed on ServerResponse only
-- The `cookie()` and `clearCookie()` methods should never have been added to the base Response class
-- The inheritance relationship doesn't require polluting Response's API with Express conveniences
-
-### Alternative Architectures That Could Have Prevented This
-
-**1. Composition over inheritance:**
-```javascript
-class ServerResponse {
-  #response;
-  constructor(wsi) {
-    this.#response = new Response(null);
-    this.#wsi = wsi;
-  }
-  // Delegate Response methods, add Express methods
-}
-```
-- Pros: Clean separation
-- Cons: More boilerplate, need to delegate all Response methods
-
-**2. Shared utility module:**
-```javascript
-// lib/lws/response-utils.js
-export function buildSetCookie(name, value, opts) { ... }
-export function parseCookies(header) { ... }
-
-// Both Response and ServerResponse import from utils
-```
-- Pros: No inheritance needed
-- Cons: Doesn't solve broader issue that they share headers/status/body concepts
-
-**3. Interface-based (TypeScript-style):**
-```javascript
-// Both implement ResponseLike interface
-// But JavaScript doesn't enforce interfaces
-```
-- Pros: Clear contract
-- Cons: More complex, doesn't help with code reuse
-
-**4. Keep inheritance but be disciplined (what we're doing):**
-```javascript
-class Response {
-  // WHATWG-only: readonly properties, constructor-based
-}
-
-class ServerResponse extends Response {
-  // Express conveniences: chaining methods, streaming
-}
-```
-- Pros: Code reuse works, both APIs available
-- Cons: Need discipline about what goes on Response vs ServerResponse
-- **This is the right approach, we just need to clean up the API surface**
-
-### The Real Problem
-
-The merge itself wasn't wrong - it was a reasonable refactoring to share code. The problem is that **Express conveniences leaked into the base Response class**:
-
-**What should be on Response (WHATWG):**
-- Constructor-based initialization: `new Response(body, { status: 200 })`
-- Readonly properties: `status`, `statusText`, `headers`, `ok`, `body`, `bodyUsed`
-- Static methods: `Response.json()`, `Response.redirect()`, `Response.error()`
-- Instance methods: `clone()`
-- Body mixin: `text()`, `json()`, `arrayBuffer()`, `blob()`, `formData()`, `bytes()`
-
-**What should be on ServerResponse only (Express):**
-- Chaining methods: `status(code)`, `set(name, value)`, `type(contentType)`
-- Cookie methods: `cookie()`, `clearCookie()`
-- Streaming: `write()`, `end()`, `send()`, `json()`
-- State tracking: `headersSent`, `sent`
-
-**What both need (shared):**
-- Headers management
-- Status code
-- Body handling
-- Cookie building logic (but as a utility, not a method on Response)
-
-### The Untangling Strategy
-
-**Phase 1** (done): Fix `Response.status` to be a readonly property ✓
-- Converted from method to readonly property
-- Kept `statusCode` as deprecated alias
-- Updated all middleware/app code
-
-**Phase 2** (pending): Move Express conveniences to ServerResponse only
-- Move `cookie()` and `clearCookie()` from Response to ServerResponse
-- Extract `buildSetCookie()` as a module-level utility (already done)
-- Remove chaining return from Response methods (already done)
-
-**Phase 3** (pending): Document the separation
-- Response = WHATWG Fetch API (readonly properties, constructor-based, immutable after construction)
-- ServerResponse = Express middleware (chaining methods, streaming-oriented, mutable until sent)
-- Bridge pattern: `flush()` in serve.js copies Response properties onto ServerResponse
-- Fetch handlers return Response; middleware uses ServerResponse
-
-### Why This Matters
-
-**For WHATWG compatibility:**
-- Standard web code expects `response.status === 200` to work
-- `fetch()` clients in browsers, Bun, and Deno all use the property form
-- Any library written for standard Fetch API will break with method form
-
-**For Express compatibility:**
-- Express middleware expects `res.status(200).type('text/plain').end()` chaining
-- This is the dominant server-side pattern in Node.js ecosystem
-- Middleware libraries (cors, helmet, etc.) depend on this API
-
-**Both patterns are correct for their use cases:**
-- WHATWG Response: immutable, declarative, fetch-oriented
-- Express ServerResponse: mutable, imperative, streaming-oriented
-
-### Files That Need Updates
-
-1. **lib/lws/response.js**:
-   - Move `cookie()` and `clearCookie()` to ServerResponse only
-   - Already extracted `buildSetCookie()` as module-level utility
-   - Already fixed `status` to be a readonly property
-
-2. **lib/lws/middleware.js**:
-   - Already uses ServerResponse correctly (no changes needed after Phase 1)
-
-3. **lib/lws/app.js**:
-   - Already uses ServerResponse correctly (no changes needed after Phase 1)
-
-4. **lib/serve.js**:
-   - Already bridges correctly via `flush()` (no changes needed)
-
-5. **doc/api-compatibility.md**:
-   - Document the Response vs ServerResponse distinction
-   - Explain when to use which pattern
-
-### Testing Strategy
-
-```javascript
-// WHATWG pattern (Response)
-const res = new Response('body', { status: 200 });
-assert(res.status === 200);  // property
-assert(typeof res.status === 'number');
-
-// Express pattern (ServerResponse)
-app.get('/', (req, res) => {
-  res.status(200).type('text/plain').end('ok');  // chaining
-});
-
-// Bridge pattern (serve.js)
-serve({ port: 8080 }, req => {
-  return new Response('ok', { status: 200 });  // returns Response
-});
-// Internally: flush() copies Response properties onto ServerResponse
-```
-
-### Conclusion
-
-The merge was a reasonable refactoring to share code, but the Express conveniences should never have been added to the base Response class. The fix is to:
-1. Keep Response WHATWG-compliant (readonly properties, no chaining)
-2. Keep ServerResponse Express-style (chaining methods, streaming)
-3. Move Express-only methods to ServerResponse
-4. Document the bridge pattern clearly
-
-This preserves both APIs for their intended use cases without breaking compatibility with either ecosystem. The inheritance relationship is fine - we just need to be disciplined about what belongs on the base class.
+See `doc/api-compatibility.md` for full API surface assessment.
 
 ## Response.status Usage Mapping (Completed August 13, 2026)
 

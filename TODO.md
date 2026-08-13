@@ -98,6 +98,39 @@ in the relevant spec.
     - `/websockets/` — WebSocket API tests
     - `/FileAPI/` — File API tests
 
+## Completed Work
+
+### Response vs ServerResponse Untangling (commit e139858)
+- ✅ `Response` now has readonly `status` property (WHATWG compliant)
+- ✅ `ServerResponse` has chainable `status(code)` method (Express conventions)
+- ✅ Client-side Response created with status/headers when established (not mutated)
+- ✅ `serve.js` bridges them via `flush()` function
+- ✅ All tests pass
+
+### WHATWG Fetch API Compliance
+- ✅ **Body.bytes()** method implemented - returns Promise<Uint8Array>
+- ✅ **Body.formData()** now returns FormData instance (not plain object)
+- ✅ **Request.clone()** checks bodyUsed and throws TypeError if already consumed
+- ✅ **Response.clone()** checks bodyUsed and throws TypeError if already consumed
+- ✅ **Headers iteration order** now sorted lexicographically (not insertion order)
+- ✅ **Response.status** is readonly property (not method)
+
+### Remaining Fetch API Issues
+- ❌ **fetch()** doesn't accept Request objects as first argument
+- ❌ **fetch()** throws ConnectionError instead of TypeError for network errors
+- ❌ **fetch()** AbortSignal handling incomplete (wrong error type, overwrites handler, no pre-check)
+
+### Remaining Spec Violations (see BUGS file)
+- WebSocket missing `url` property
+- Server missing `url` property
+- EventTarget missing options parameter (once, signal)
+- UDPSocket send() signature differs from Bun (sendTo vs send)
+- Server missing 11 methods (reload, ref/unref, subscriberCount, etc.)
+- WebSocketHandler missing 10 options (drain, ping/pong, compression, etc.)
+- ServerWebSocket missing 3 members (remoteAddress, subscriptions, cork)
+- UDPSocket missing 10 methods (sendMany, multicast, broadcast, etc.)
+- Response.cookie()/clearCookie() are Express-style, not WHATWG
+
 ## Thin Layer Compatibility Strategy
 
 The goal is to maximize compatibility with scripts written for WHATWG standards, browsers, Bun, and Deno without adding significant bloat to `lib/`. The strategy focuses on:

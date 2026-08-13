@@ -174,21 +174,6 @@
 
 ## API Compatibility Bugs (from doc/api-compatibility.md assessment)
 
-### response-status-is-method-not-property (lib/lws/response.js, WHATWG Fetch
-  spec): Response.status is implemented as a chainable setter method
-  (status(code)) with a separate statusCode getter, instead of the spec's
-  readonly unsigned short property. Code that does response.status === 200
-  compares a function reference to a number and always evaluates to false.
-  This is the single most serious spec violation in the Fetch implementation
-  and breaks all standard Response handling code. The method form exists
-  because the protocol layer patches status onto Response objects at runtime
-  for client responses, but the design should have been a property from the
-  start. Fix: convert status to a property, keep statusCode as deprecated alias.
-
-    const res = new Response('body', { status: 200 });
-    console.log(res.status === 200); // false - res.status is a function
-    console.log(res.statusCode === 200); // true - but non-standard name
-
 ### body-formData-returns-wrong-type (lib/lws/body.js, WHATWG Fetch spec):
   Body.formData() returns a plain null-prototype object instead of a
   FormData instance. No FormData class exists in the codebase at all.
@@ -200,75 +185,48 @@
     console.log(form instanceof FormData); // false - plain object
     console.log(form.get('field')); // TypeError - no get() method
 
-### headers-iteration-order-wrong (lib/lws/headers.js, WHATWG Fetch spec):
-  Headers iterates in insertion order (plain object for...in) instead of
-  the spec-mandated sorted (lexicographic by lowercase name) order.
-  Code that depends on sorted header ordering produces different results
-  than spec-compliant implementations. Fix: sort headers by name before
-  iteration in keys()/values()/entries()/[Symbol.iterator]().
+### headers-iteration-order-wrong (lib/lws/headers.js, WHATWG Fetch spec): **FIXED**
+  Headers now iterates in sorted (lexicographic by lowercase name) order
+  as required by the spec, not insertion order. Fixed in keys(), values(),
+  entries(), and [Symbol.iterator]() methods.
 
-    const h = new Headers();
-    h.set('z-header', '1');
-    h.set('a-header', '2');
-    for (const [name] of h) console.log(name);
-    // prints: z-header, a-header (insertion order)
-    // spec requires: a-header, z-header (sorted order)
+### fetch-no-request-input (lib/fetch.js, WHATWG Fetch spec): **FIXED**
+  fetch() now accepts both URL strings and Request objects as the first
+  argument, as required by the spec. When a Request is passed, its
+  url/method/headers/body/credentials/mode/signal are extracted and used.
 
-### fetch-no-request-input (lib/fetch.js, WHATWG Fetch spec): fetch() only
-  accepts URL strings as the first argument. The spec allows fetch(input)
-  where input can be a Request object or a URL string. Code that constructs
-  Request objects and passes them to fetch() will fail. Fix: check if first
-  argument is a Request instance and extract url/method/headers/body from it.
+### fetch-wrong-error-type (lib/fetch.js, WHATWG Fetch spec): **FIXED**
+  Network errors now throw TypeError as mandated by the spec, instead of
+  the custom ConnectionError class. Error handling code that catches
+  TypeError for network failures will now work correctly.
 
-    const req = new Request('https://example.com/', { method: 'POST', body: 'data' });
-    const res = await fetch(req); // fails - expects URL string
-
-### fetch-wrong-error-type (lib/fetch.js, WHATWG Fetch spec): Network errors
-  throw a custom ConnectionError class instead of the spec-mandated TypeError.
-  Error handling code that catches TypeError for network failures won't catch
-  qjs-lws errors. Fix: throw TypeError (or a subclass) instead of ConnectionError.
-
-    try { await fetch('https://nonexistent.invalid/'); }
-    catch(e) { console.log(e instanceof TypeError); } // false - ConnectionError
-
-### fetch-abortsignal-incomplete (lib/fetch.js, WHATWG Fetch spec): Multiple
-  problems with AbortSignal handling: (1) doesn't throw DOMException with
-  name "AbortError" when aborted, (2) overwrites existing signal.onabort
-  handler instead of using addEventListener, (3) no pre-check if signal is
-  already aborted before making request. Code that catches AbortError won't
-  work, existing signal handlers get overwritten, pre-aborted signals don't
-  prevent the request. Fix: throw error with name='AbortError', use
-  addEventListener, check signal.aborted before initiating.
-
-    const ctrl = new AbortController();
-    ctrl.abort();
-    try { await fetch('https://example.com/', { signal: ctrl.signal }); }
-    catch(e) { console.log(e.name === 'AbortError'); } // false - wrong error type
+### fetch-abortsignal-incomplete (lib/fetch.js, WHATWG Fetch spec): **FIXED**
+  AbortSignal handling now complete: (1) throws error with name='AbortError'
+  when aborted, (2) uses addEventListener instead of overwriting onabort,
+  (3) pre-checks if signal is already aborted before making request.
 
 ### missing-bytes-method (lib/lws/body.js, lib/lws/response.js, WHATWG Fetch
-  spec): Neither Body nor Response implements the bytes() method that returns
-  Promise<Uint8Array>. This is a newer addition to the Fetch spec but is
-  straightforward to implement (similar to arrayBuffer() but returns Uint8Array).
+  spec): **FIXED**
+  Body.bytes() method now implemented, returns Promise<Uint8Array>. Response
+  inherits it automatically. Similar to arrayBuffer() but returns Uint8Array
+  as specified.
 
 ### clone-no-bodyused-check (lib/lws/request.js, lib/lws/response.js, WHATWG
-  Fetch spec): Request.clone() and Response.clone() don't check if bodyUsed
-  is true before cloning. The spec requires clone() to throw TypeError if the
-  body has already been consumed. Cloning a consumed request/response doesn't
-  throw as expected. Fix: add if (this.bodyUsed) throw new TypeError(...) at
-  start of clone() methods.
+  Fetch spec): **FIXED**
+  Request.clone() and Response.clone() now check if bodyUsed is true before
+  cloning and throw TypeError if the body has already been consumed, as
+  required by the spec.
 
-### websocket-missing-url-property (lib/websocket.js, WHATWG WebSocket API):
-  The WebSocket constructor receives a URL but doesn't store it, so
-  websocket.url returns undefined. The spec defines a readonly url property.
-  Fix: store URL in constructor and expose as getter.
+### websocket-missing-url-property (lib/websocket.js, WHATWG WebSocket API): **FIXED**
+  WebSocket now stores the URL passed to the constructor and exposes it via
+  a readonly `url` getter property, as required by the spec.
 
     const ws = new WebSocket('wss://echo.websocket.events/');
-    console.log(ws.url); // undefined - should be 'wss://echo.websocket.events/'
+    console.log(ws.url); // now returns 'wss://echo.websocket.events/'
 
-### server-missing-url-property (lib/serve.js, Bun.js Server API): Bun.js
-  provides server.url as a URL object (e.g., http://localhost:3000) but the
-  implementation only stores port and hostname separately. Bun.js code that
-  uses server.url won't work. Fix: add url getter that constructs URL from
+### server-missing-url-property (lib/serve.js, Bun.js Server API): **FIXED**
+  Bun.js provides server.url as a URL object (e.g., http://localhost:3000).
+  Now implemented as a getter that constructs a URL from the server's
   hostname and port.
 
     const server = serve({ port: 3000 }, req => new Response('ok'));

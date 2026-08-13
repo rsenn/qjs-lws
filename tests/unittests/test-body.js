@@ -66,10 +66,11 @@ await tests({
     const b = new Body('a=1&b=hello+world&a=2');
     b.headers = { get: () => 'application/x-www-form-urlencoded' };
     const fd = await b.formData();
-    eq('hello world', fd.b);
-    assert(Array.isArray(fd.a), 'repeated key should collect into an array');
-    eq('1', fd.a[0]);
-    eq('2', fd.a[1]);
+    eq('hello world', fd.get('b'));
+    const aValues = fd.getAll('a');
+    assert(Array.isArray(aValues), 'repeated key should collect into an array');
+    eq('1', aValues[0]);
+    eq('2', aValues[1]);
   },
 
   'constructing with an unsupported body type throws'() {

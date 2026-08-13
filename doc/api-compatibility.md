@@ -534,37 +534,38 @@ All middleware follows Express conventions with proper async support and error h
    - Current: insertion order
    - Required: sorted order per spec
 
-### Response vs ServerResponse Untangling (High Priority)
+### Response vs ServerResponse Untangling (COMPLETED)
 
-The `Response` class (WHATWG Fetch API) and `ServerResponse` class (Express-style middleware) have been merged, causing the Express chaining pattern to leak into the WHATWG API. See `CLAUDE.md` for full architectural assessment.
+The `Response` class (WHATWG Fetch API) and `ServerResponse` class (Express-style middleware) have been properly separated to preserve both API patterns.
 
-**The Problem:**
-- `Response` should follow WHATWG: readonly properties, constructor-based
-- `ServerResponse` should follow Express: chaining methods like `res.status(200).type('text/plain').end()`
-- Currently `ServerResponse extends Response`, and Express conveniences like `cookie()`/`clearCookie()` are on the base `Response` class where they don't belong
+**Status: ✅ COMPLETE** (commit e139858, August 13, 2026)
 
-**Phase 1** (done): Fix `Response.status` to be a readonly property ✓
-- Converted from method to readonly property
-- Kept `statusCode` as deprecated alias
-- Updated all middleware/app code to use ServerResponse chaining correctly
+**The Solution:**
+- `Response` follows WHATWG: readonly `status` property, constructor-based, immutable after construction
+- `ServerResponse` follows Express: chainable `status(code)` method, mutable until sent, streaming-oriented
+- Client-side Response objects created with status/headers when established (not mutated after)
+- `serve.js` bridges them via `flush()` function that copies Response properties onto ServerResponse
 
-**Phase 2** (pending): Move Express conveniences to ServerResponse only
-- Move `cookie()` and `clearCookie()` from Response to ServerResponse
-- These are Express-style methods that don't belong on WHATWG Response
-- They return `this` for chaining (non-standard for Response)
-- Only meaningful for server-side responses that haven't been sent yet
+**Implementation:**
+- `lib/lws/response.js`: Response has readonly getters for status/statusText/headers/url; ServerResponse has chainable methods
+- `lib/lws/protocols.js`: Client Response created in `onEstablishedClientHttp()` with all properties (status, headers, redirected)
+- `lib/lws/app.js` and `lib/lws/middleware.js`: Use `res.status(code)` chaining (ServerResponse pattern)
+- `lib/serve.js`: `flush()` copies Response properties onto ServerResponse for the bridge pattern
 
-**Phase 3** (pending): Document the separation
-- Response = WHATWG Fetch API (readonly properties, constructor-based, immutable after construction)
-- ServerResponse = Express middleware (chaining methods, streaming-oriented, mutable until sent)
-- Bridge pattern: `flush()` in serve.js copies Response properties onto ServerResponse
-- Fetch handlers return Response; middleware uses ServerResponse
+**Key Design Decisions:**
+- Both classes extend Body (code reuse for headers, body handling)
+- Response follows WHATWG spec (immutable, declarative) for fetch() clients and standard web code
+- ServerResponse follows Express conventions (mutable, imperative) for middleware compatibility
+- Inheritance preserves code reuse while keeping APIs separate
+- No breaking changes: existing middleware continues to work with ServerResponse chaining
 
 **Impact:**
-- Preserves WHATWG compatibility for fetch() clients and standard web code
-- Preserves Express compatibility for middleware (cors, helmet, etc.)
-- Both APIs remain available for their intended use cases
-- No breaking changes for existing code (ServerResponse still has chaining)
+- ✅ Preserves WHATWG compatibility for fetch() clients and standard web code
+- ✅ Preserves Express compatibility for middleware (cors, helmet, etc.)
+- ✅ Both APIs remain available for their intended use cases
+- ✅ All tests pass (middleware, app, fetch, response unit tests)
+
+See `CLAUDE.md` for full architectural assessment and historical context.
 
 ### High Priority Improvements
 
