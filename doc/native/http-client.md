@@ -155,7 +155,7 @@ it reuses one shared `LWSContext`/vhost across calls specifically so
 repeat requests to the same origin can queue/mux onto an existing
 connection. Pass `keepAlive: false`, or a custom `tls` option, to get
 an isolated one-off context instead. See
-[tests/test-fetch.js](../tests/test-fetch.js) for a same-host crawler
+[tests/test-fetch.js]../../tests/test-fetch.js) for a same-host crawler
 that exercises this and reports how many distinct TCP connections the
 whole crawl actually used.
 

@@ -29,7 +29,7 @@ WebSocket connections (`options.websocket`, default mountpoint
 handler as a bare `WebSocketStream` / `TCPSocket` instead of a
 `Request` - check with `instanceof`. `raw: { always: true }` treats
 *every* connection as raw, even ones that look like valid HTTP; see
-[`doc/raw-tcp.md`](raw-tcp.md#always-raw-listener-even-for-http-looking-traffic)
+[`doc/native/raw-tcp.md`](../native/raw-tcp.md#always-raw-listener-even-for-http-looking-traffic)
 for why that needs `lib/serve.js` and can't just be a `createServer()`
 option flag by itself.
 
@@ -162,7 +162,7 @@ counterpart - see `lib/serve.js`'s own use of it for the shape.
 EventTarget-style raw TCP socket (`TCPSocket`) and an independent
 Streams-based view (`TCPSocketStream`, its own file) - same
 relationship as `WebSocket`/`WebSocketStream` above. Both also expose
-a `.protocol(name, callback)` static (see [doc/raw-tcp.md](raw-tcp.md)
+a `.protocol(name, callback)` static (see [doc/native/raw-tcp.md](../native/raw-tcp.md)
 for the underlying `raw()` role adapter) as a `createServer()`-
 integrated alternative to the `TCPSocket#bind()`/`.listen()` shown
 below:

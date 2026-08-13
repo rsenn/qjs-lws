@@ -2,7 +2,7 @@
 
 [libwebsockets](https://libwebsockets.org/) bindings for QuickJS.
 
-Build instructions: [`doc/building.md`](doc/building.md).
+Build instructions: [`doc/native/building.md`](doc/native/building.md).
 Full API reference: [`doc/`](doc/README.md).
 
 ```js
@@ -26,7 +26,7 @@ const ctx = createServer(info);
 ```
 
 `info` mirrors `struct lws_context_creation_info`. Recognised keys
-(see [`doc/LWSContext.md`](doc/LWSContext.md) for the full list):
+(see [`doc/native/LWSContext.md`](doc/native/LWSContext.md) for the full list):
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -34,11 +34,11 @@ const ctx = createServer(info);
 | `vhostName`            | string | Virtual host name |
 | `iface`                | string | Interface to bind |
 | `options`              | number | OR-mask of `LWS_SERVER_OPTION_*` |
-| `mounts`               | array  | HTTP mount points — see [`doc/mounts.md`](doc/mounts.md) |
+| `mounts`               | array  | HTTP mount points — see [`doc/native/mounts.md`](doc/native/mounts.md) |
 | `protocols`            | array  | Protocol handler objects (below) |
 | `listenAcceptRole`     | string | Role applied with `LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG` |
 | `listenAcceptProtocol` | string | Protocol applied with the role |
-| `serverSslCert` / `serverSslPrivateKey` / `serverSslCa` | string \| ArrayBuffer | TLS material — see [`doc/tls.md`](doc/tls.md) |
+| `serverSslCert` / `serverSslPrivateKey` / `serverSslCa` | string \| ArrayBuffer | TLS material — see [`doc/native/tls.md`](doc/native/tls.md) |
 
 Property names accept both `camelCase` and `snake_case`.
 
@@ -62,7 +62,7 @@ can implement either a single generic `callback` or named
 }
 ```
 
-- `wsi` is an `LWSSocket` — see [`doc/LWSSocket.md`](doc/LWSSocket.md).
+- `wsi` is an `LWSSocket` — see [`doc/native/LWSSocket.md`](doc/native/LWSSocket.md).
 - The handler's `this` is a per-connection plain object the binding
   allocates automatically (libwebsockets `user` data); use it to
   carry connection-local state.
@@ -85,7 +85,7 @@ Common reason constants (exported on the module — `import {…} from 'lws'`):
 | `LWS_CALLBACK_SERVER_WRITEABLE`   | 11 | Server: connection is writeable |
 | `LWS_CALLBACK_HTTP`               | 12 | HTTP request arrived (server) |
 
-The full table is in [`doc/callbacks.md`](doc/callbacks.md).
+The full table is in [`doc/native/callbacks.md`](doc/native/callbacks.md).
 
 ## Minimal WebSocket server
 
@@ -159,11 +159,11 @@ ctx.clientConnect('https://example.com/');
   the libwebsockets pollfd callbacks and registers fds via
   QuickJS's own `os.setReadHandler` / `os.setWriteHandler`. The
   script stays alive while any fd is registered. See
-  [`doc/event-loop.md`](doc/event-loop.md).
+  [`doc/native/event-loop.md`](doc/native/event-loop.md).
 - Convenience wrappers (`fetch`, `serve`, `WebSocket`, `TCPSocket`,
   `TCPSocketStream`, `URL`/`URLSearchParams`) live under
   [`lib/`](lib/) and are documented in
-  [`doc/helpers.md`](doc/helpers.md).
+  [`doc/js/helpers.md`](doc/js/helpers.md).
 - `lib/lws/url.js` is a from-spec implementation of the WHATWG URL
   Standard's basic URL parser — special schemes, relative-URL
   resolution, IPv4/IPv6 hosts, `file:`/opaque-path URLs, and a
@@ -176,4 +176,4 @@ ctx.clientConnect('https://example.com/');
   reading (`text()`/`json()`/`arrayBuffer()`) is UTF-8-correct for
   both string and binary bodies, and `Response.redirected` reflects
   whether `fetch()` actually followed a redirect.
-- More end-to-end examples in [`doc/examples.md`](doc/examples.md).
+- More end-to-end examples in [`doc/native/examples.md`](doc/native/examples.md).

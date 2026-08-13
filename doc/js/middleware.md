@@ -137,7 +137,7 @@ mutating headers throws.
 | `secure({ …overrides })`                | Helmet-style baseline of security headers |
 
 For multipart bodies use `LWSSPA` directly inside your handler — see
-[`LWSSPA.md`](LWSSPA.md). Doing it here would mean shipping a second
+[`../native/LWSSPA.md`](../native/LWSSPA.md). Doing it here would mean shipping a second
 parser that competes with the C one.
 
 ## Mounting sub-routers

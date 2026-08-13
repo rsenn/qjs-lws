@@ -15,7 +15,7 @@ under `Unreleased` until that changes.
   component). `URLSearchParams` writes back through to its parent
   `URL`'s `search`/`href`. Known deviation: no IDNA/Punycode (non-ASCII
   domain labels stay as lowercased UTF-8 rather than `xn--` form).
-  See [doc/helpers.md](doc/helpers.md#liblwsurljs).
+  See [doc/js/helpers.md](doc/js/helpers.md#liblwsurljs).
 - `Response` gained a `redirected` property (default `false`,
   preserved by `clone()`); `lib/fetch.js` sets it to `true` when lws
   follows a redirect.
@@ -24,7 +24,7 @@ under `Unreleased` until that changes.
   (`lws-epoll.c`/`lws-epoll.h`) instead of one `os.setReadHandler`/
   `setWriteHandler` registration per fd. Previously these sources
   existed but were unconditionally excluded from the build. See
-  [doc/event-loop.md](doc/event-loop.md#optional-epoll7-backend-use_epoll).
+  [doc/native/event-loop.md](doc/native/event-loop.md#optional-epoll7-backend-use_epoll).
 - Traffic logging under `LLL_USER`: every payload actually handed to
   `lws_write()` via `wsi.write()`/`wsi.respond()` now logs a `TX <n>
   bytes (proto=<p>): <preview>` line (`lws-socket.c`), and every
@@ -70,9 +70,9 @@ under `Unreleased` until that changes.
   `LCCSCF_PIPELINE` client connection queueing/muxing (h1 pipelining,
   h2 mux streams) — previously this state was private to `struct lws`
   and unobservable from JS. See
-  [doc/LWSSocket.md](doc/LWSSocket.md#pipelining--keep-alive-introspection)
+  [doc/native/LWSSocket.md](doc/native/LWSSocket.md#pipelining--keep-alive-introspection)
   and
-  [doc/http-client.md](doc/http-client.md#connection-pipelining--keep-alive).
+  [doc/native/http-client.md](doc/native/http-client.md#connection-pipelining--keep-alive).
 - Requires a small patch to the vendored libwebsockets adding the
   underlying `lws_get_txn_queue_leader()`, `lws_wsi_is_txn_queue_leader()`,
   and `lws_get_txn_queue_depth()` C accessors (not present upstream).

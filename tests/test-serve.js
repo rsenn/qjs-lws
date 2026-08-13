@@ -437,7 +437,7 @@ const TESTS = {
       },
       // Matches real Bun: fetch is called for every request, including a WS
       // handshake - it's only actually upgraded once fetch calls
-      // server.upgrade(req) (see doc/bun.md's server.upgrade() section). A
+      // server.upgrade(req) (see doc/js/bun.md's server.upgrade() section). A
       // fetch that returns a Response instead leaves the connection as
       // plain HTTP; it never reaches the evented open/message/close
       // handlers above.

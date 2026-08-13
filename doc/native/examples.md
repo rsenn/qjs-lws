@@ -3,7 +3,7 @@
 End-to-end snippets you can paste into a `.js` file and run with
 `qjs -I path/to/build script.js`. They use only the C-side API
 documented in [module.md](module.md); the higher-level wrappers
-under `lib/` are covered in [helpers.md](helpers.md).
+under `lib/` are covered in [../js/helpers.md](../js/helpers.md).
 
 ## 1. WebSocket echo server
 
