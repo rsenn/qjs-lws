@@ -29,9 +29,8 @@ WebSocket connections (`options.websocket`, default mountpoint
 handler as a bare `WebSocketStream` / `TCPSocket` instead of a
 `Request` - check with `instanceof`. `raw: { always: true }` treats
 *every* connection as raw, even ones that look like valid HTTP; see
-[`doc/native/raw-tcp.md`](../native/raw-tcp.md#always-raw-listener-even-for-http-looking-traffic)
-for why that needs `lib/serve.js` and can't just be a `createServer()`
-option flag by itself.
+[`doc/native/raw-tcp.md`](../native/raw-tcp.md#mixed-http-and-raw)
+for details.
 
 `websocket`/`raw`, given as objects, also take a `Class` - the
 constructor used to wrap accepted connections in place of the
