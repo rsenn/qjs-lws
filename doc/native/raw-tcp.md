@@ -34,8 +34,7 @@ into the JS protocols table.
 
 ## Raw listener
 
-`tcpsocket.js` shows the pattern: pass
-`LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG`
+Pass `LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG`
 in `options` so the listener accepts plain TCP and routes new
 connections through the protocol named in `listenAcceptProtocol`.
 
@@ -130,77 +129,3 @@ none of `onRawAdopt`/`onRawRx`/`onHttp` ever fire for them. This is a
 libwebsockets behavior, not something these C bindings do - nothing
 in `protocols_fromarray()`/`protocol_from()` (`lws-context.c`) treats
 array position specially.
-
-`lib/serve.js`'s `raw: { always: true }` option takes care of this
-ordering for you:
-
-```js
-import { serve, Response } from './lib/serve.js';
-import { TCPSocket } from './lib/tcpsocket.js';
-
-serve({
-  port: 8080,
-  raw: { always: true }, // every connection is raw, even HTTP-looking ones
-  fetch: x => (x instanceof TCPSocket ? x.addEventListener('message', e => x.send(e.data)) : new Response('unreachable')),
-});
-```
-
-Plain `raw: true` (or `raw: { protocol: 'name' }`) keeps the
-fallback-only behavior instead - HTTP still works normally, and only
-non-HTTP-looking connections fall through to the raw handler; see
-`serve()`'s own doc comment in `lib/serve.js` for the full option
-shape.
-
-## High-level wrappers: `lib/tcpsocket.js` / `lib/tcpsocketstream.js`
-
-`TCPSocket` (`lib/tcpsocket.js`) wraps the raw protocol with an
-EventTarget view. `TCPSocketStream` (`lib/tcpsocketstream.js`) is a
-separate, independent WHATWG-streams view - it doesn't wrap `TCPSocket`,
-it talks to the raw protocol directly via `lib/lws/protocols.js`.
-
-```js
-import { toString } from 'lws';
-import { TCPSocket } from './lib/tcpsocket.js';
-
-const s = new TCPSocket('example.com', 80);
-s.addEventListener('open',    () => s.send('GET / HTTP/1.0\r\n\r\n'));
-s.addEventListener('message', e => console.log(toString(e.data)));
-s.addEventListener('close',   () => console.log('closed'));
-```
-
-`TCPSocket` also has a `Bun.listen()`/`Bun.connect()`-compatible surface
-(https://bun.com/docs/runtime/networking/tcp) - `static listen()`/
-`static connect()`, plus `write()`/`end()`/`.data` alongside `send()`/
-`close()` on every socket - for code written against that shape instead
-of `EventTarget`:
-
-```js
-import { TCPSocket } from './lib/tcpsocket.js';
-
-const server = TCPSocket.listen({
-  hostname: '0.0.0.0',
-  port: 8080,
-  socket: {
-    open(socket) { socket.data = { connectedAt: Date.now() }; },
-    data(socket, data) { socket.write(data); }, // echo
-    close(socket) {},
-    error(socket, err) {},
-  },
-});
-// server.stop() to tear it down
-
-const client = await TCPSocket.connect({
-  hostname: 'example.com',
-  port: 80,
-  socket: {
-    data(socket, data) { console.log(toString(data)); },
-  },
-});
-client.write('GET / HTTP/1.0\r\n\r\n');
-```
-
-TCP only (no `unix` domain sockets, `tls` is best-effort - see
-`static listen()`'s own doc comment in `lib/tcpsocket.js`), and `.stop()`
-on a `listen()` result tears down only that listener - it builds its own
-private `LWSContext` rather than sharing the one every plain `TCPSocket`
-uses, specifically so it can do that without affecting anything else.

@@ -150,14 +150,12 @@ accessors on `LWSSocket` — see
 These accessors require the `lws_get_txn_queue_leader()` /
 `lws_wsi_is_txn_queue_leader()` / `lws_get_txn_queue_depth()` patch
 to the vendored libwebsockets in `patches/`; upstream lws does not
-expose this state. `lib/fetch.js` uses `LCCSCF_PIPELINE` by default —
-it reuses one shared `LWSContext`/vhost across calls specifically so
-repeat requests to the same origin can queue/mux onto an existing
-connection. Pass `keepAlive: false`, or a custom `tls` option, to get
-an isolated one-off context instead. See
-[tests/test-fetch.js]../../tests/test-fetch.js) for a same-host crawler
-that exercises this and reports how many distinct TCP connections the
-whole crawl actually used.
+expose this state.
+
+Set `LCCSCF_PIPELINE` in `ssl_connection` to reuse one shared
+`LWSContext`/vhost across calls so repeat requests to the same origin
+can queue/mux onto an existing connection. Pass `keepAlive: false`,
+or a custom `tls` option, to get an isolated one-off context instead.
 
 ## Promise wrapper: `lib/fetch.js`
 
