@@ -26,10 +26,8 @@ called on such an instance. Recognised keys:
 | `onFinalContent(name, filename, buf)` | falls back to `onContent` | Final chunk for a field |
 | `onClose(name, filename)`       | optional | A field finished |
 
-`onOpen`/`onContent`/`onClose` fire regardless of `paramNames` (that's
-how `lib/lws/multipart.js`'s `MultipartParser` streams file uploads
-without ever declaring field names up front). `paramNames` only
-controls *indexed/named value retrieval* (`spa[n]`/`spa.name`, see
+`onOpen`/`onContent`/`onClose` fire regardless of `paramNames`.
+`paramNames` only controls *indexed/named value retrieval* (`spa[n]`/`spa.name`, see
 below) - without it, lws falls back to "arbitrary POST items" mode:
 it discovers field names as they arrive and assigns them storage
 slots itself, in first-seen order, so `spa[0]`/`spa.length`/

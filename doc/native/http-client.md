@@ -156,24 +156,3 @@ Set `LCCSCF_PIPELINE` in `ssl_connection` to reuse one shared
 `LWSContext`/vhost across calls so repeat requests to the same origin
 can queue/mux onto an existing connection. Pass `keepAlive: false`,
 or a custom `tls` option, to get an isolated one-off context instead.
-
-## Promise wrapper: `lib/fetch.js`
-
-`lib/fetch.js` builds a WHATWG-`fetch`-shaped API on top of these
-callbacks:
-
-```js
-import { fetch } from './lib/fetch.js';
-
-const res = await fetch('https://example.com/', { tls: {} });
-console.log(res.status, res.headers);
-for await (const chunk of res.body) console.log(toString(chunk));
-```
-
-It uses the `ReadableStream` adapter from `lib/lws/streams.js` and a
-permissive default TLS setup.
-
-By default it also shares one `LWSContext` across calls and sets
-`LCCSCF_PIPELINE` — see [Connection pipelining / keep-alive](#connection-pipelining--keep-alive)
-above. Pass `{ tls: {...} }` (a custom TLS config) or `{ keepAlive: false }`
-to fall back to an isolated context per call instead.

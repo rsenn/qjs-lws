@@ -53,9 +53,7 @@ and queue data inside the writeable callback:
 You can also pass a one-shot handler to `wantWrite`:
 
 ```js
-import { waitWrite } from './lib/lws/util.js';
-
-await waitWrite(wsi);    // resolves on next writeable
+await new Promise(r => wsi.wantWrite(r));    // resolves on next writeable
 wsi.write('hello');
 ```
 

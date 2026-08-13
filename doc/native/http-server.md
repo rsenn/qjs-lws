@@ -134,13 +134,11 @@ up to date by `addHeader`.
 ## Static-file mounts and rewriting HTML
 
 ```js
-import extraMimetypes from './lib/lws/mimetypes.js';
-
 createServer({
   port: 8080,
   mounts: [
     { mountpoint: '/static', origin: './public', def: 'index.html',
-      originProtocol: LWSMPRO_FILE, extraMimetypes },
+      originProtocol: LWSMPRO_FILE },
     { mountpoint: '/api', protocol: 'http', originProtocol: LWSMPRO_CALLBACK },
   ],
   protocols: [{ name: 'http', onHttp(wsi, uri){ /* … */ } }],
@@ -163,9 +161,3 @@ onHttp(wsi, uri) {
   // …
 }
 ```
-
-## High-level helper: `lib/serve.js`
-
-`lib/serve.js` wraps this pattern as `serve(opts, handler)` where
-`handler(request)` returns a `Response` (similar to Bun's `serve`).
-It uses the same C bindings.

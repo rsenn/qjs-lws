@@ -1,107 +1,10 @@
 # Raw TCP
 
-libwebsockets supports "raw" sockets — plain TCP without HTTP /
-WebSocket framing. qjs-lws exposes this through the same protocol
-table by selecting the `raw-skt` role and using the `onRaw*`
-callbacks.
+Raw TCP connections bypass HTTP and WebSocket framing entirely. They're useful for custom protocols, database clients, game servers, or any protocol that isn't HTTP/WS.
 
-## Raw client
+## Creating a Raw Listener
 
-```js
-import { LWSContext, toArrayBuffer, toString } from 'lws';
-
-const ctx = new LWSContext({
-  protocols: [{
-    name: 'raw',
-    onConnecting(wsi, fd)        { /* socket() just returned */ },
-    onRawConnected(wsi)          { wsi.write(toArrayBuffer('GET / HTTP/1.0\r\n\r\n')); },
-    onRawRx(wsi, data)           { console.log(toString(data)); },
-    onRawWriteable(wsi)          { /* called when send buffer drains */ },
-    onRawClose(wsi, errno)       { ctx.cancelService(); },
-  }],
-});
-
-ctx.clientConnect({
-  address: 'example.com',
-  port:    80,
-  method:  'RAW',
-  protocol: 'raw',
-});
-```
-
-`method: 'RAW'` triggers raw mode; `protocol` is the name lookup
-into the JS protocols table.
-
-## Raw listener
-
-Pass `LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG`
-in `options` so the listener accepts plain TCP and routes new
-connections through the protocol named in `listenAcceptProtocol`.
-
-```js
-import {
-  createServer, toString,
-  LWS_SERVER_OPTION_ONLY_RAW,
-  LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
-} from 'lws';
-
-createServer({
-  port: 1234,
-  options: LWS_SERVER_OPTION_ONLY_RAW
-         | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
-  listenAcceptRole:     'raw-skt',
-  listenAcceptProtocol: 'echo',
-  protocols: [{
-    name: 'echo',
-    onRawAdopt(wsi)        { console.log('accept', wsi.peer?.host); },
-    onRawRx(wsi, data)     { wsi.write(data); },
-    onRawClose(wsi)        { console.log('close'); },
-  }],
-});
-```
-
-## Raw vs. WebSocket lifecycle
-
-| Event | Raw                 | WebSocket |
-|-------|---------------------|-----------|
-| Accept new conn | `onRawAdopt`  | `onEstablished` |
-| Outbound connected | `onRawConnected` | `onClientEstablished` |
-| Bytes available | `onRawRx`     | `onReceive` / `onClientReceive` |
-| Ready to write | `onRawWriteable` | `onServerWriteable` / `onClientWriteable` |
-| Closed | `onRawClose(errno)`  | `onClosed` / `onClientClosed` |
-
-Raw sockets have no framing — `wsi.write(data)` writes the bytes as
-is, no `LWS_PRE` padding is added (the binding only adds it for the
-WebSocket role).
-
-## Mixed listener (HTTP + raw fall-back)
-
-`LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG` lets a
-single port serve HTTP **and** drop to raw mode when the first
-bytes don't look like HTTP:
-
-```js
-import { createServer, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
-
-createServer({
-  port: 8080,
-  options: LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
-  listenAcceptRole:     'raw-skt',
-  listenAcceptProtocol: 'raw-echo',
-  protocols: [
-    { name: 'http',     onHttp(wsi)   { /* … */ } },
-    { name: 'raw-echo', onRawRx(wsi, d) { wsi.write(d); } },
-  ],
-});
-```
-
-## Always-raw listener (even for HTTP-looking traffic)
-
-`LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG` above only
-drops to raw when the first bytes *fail* to parse as HTTP. To route
-*every* connection to raw unconditionally - including one that starts
-with a well-formed `GET / HTTP/1.1`  - use
-`LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG` instead:
+To accept raw TCP connections, use `listenAcceptRole: 'raw-skt'` and specify which protocol should handle them with `listenAcceptProtocol`:
 
 ```js
 import { createServer, LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
@@ -109,23 +12,112 @@ import { createServer, LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG } from
 createServer({
   port: 8080,
   options: LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG,
-  listenAcceptRole:     'raw-skt',
-  listenAcceptProtocol: 'raw',
+  listenAcceptRole: 'raw-skt',
+  listenAcceptProtocol: 'my-raw',
   protocols: [
-    { name: 'raw',  onRawRx(wsi, d) { wsi.write(d); } }, // must come first - see below
-    { name: 'http', onHttp(wsi)     { /* never reached while raw is adopting everything */ } },
-  ],
+    { name: 'http', /* ... */ },
+    { name: 'my-raw', /* ... */ }
+  ]
 });
 ```
 
-**Gotcha, confirmed empirically against this vendored lws build:**
-even though `listen_accept_role`/`listen_accept_protocol` are given
-explicitly (so lws's own docs say the protocol is looked up by name,
-not position), `LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG`
-only actually binds new connections to the named raw protocol when
-that protocol is `protocols[0]`. With an `'http'` (or any other)
-protocol listed first, adopted connections are silently dropped -
-none of `onRawAdopt`/`onRawRx`/`onHttp` ever fire for them. This is a
-libwebsockets behavior, not something these C bindings do - nothing
-in `protocols_fromarray()`/`protocol_from()` (`lws-context.c`) treats
-array position specially.
+The protocol named in `listenAcceptProtocol` can be anywhere in the `protocols` array — libwebsockets will look it up by name when binding the socket.
+
+## Raw Client Connections
+
+Use `clientConnect()` with `raw: true` to initiate outbound raw TCP:
+
+```js
+import { LWSContext, LCCSCF_USE_SSL } from 'lws';
+
+const ctx = new LWSContext({
+  protocols: [{
+    name: 'raw-client',
+    onClientConnect(wsi) {
+      wsi.write('HELLO\n');
+    },
+    onClientRx(wsi, data, len) {
+      console.log('received:', data);
+    },
+    onClientClose(wsi) {
+      console.log('connection closed');
+    }
+  }]
+});
+
+ctx.clientConnect('example.com', 1234, {
+  raw: true,
+  protocol: 'raw-client'
+});
+```
+
+## Raw Callbacks
+
+### Server-side (listener)
+
+- `onRawAccept(wsi)` — Called when a new connection is accepted
+- `onRawRx(wsi, data, len)` — Called when data is received
+- `onRawClose(wsi)` — Called when the connection closes
+- `onRawWriteable(wsi)` — Called when the socket is ready to write (after `wantWrite()`)
+
+### Client-side
+
+- `onClientConnect(wsi)` — Called when the connection is established
+- `onClientRx(wsi, data, len)` — Called when data is received
+- `onClientClose(wsi)` — Called when the connection closes
+- `onClientWriteable(wsi)` — Called when the socket is ready to write
+
+## Writing Data
+
+Use `wsi.write()` to send data. If the socket isn't ready, call `wsi.wantWrite()` first:
+
+```js
+{
+  name: 'raw',
+  onRawRx(wsi, data, len) {
+    const response = processData(data);
+    if (!wsi.write(response)) {
+      wsi.wantWrite();  // queue for later
+    }
+  },
+  onRawWriteable(wsi) {
+    // Called after wantWrite() when socket is ready
+    wsi.write(queuedData);
+  }
+}
+```
+
+For simpler code, you can use a promise-based wrapper to wait for
+the socket to become writeable:
+
+```js
+await new Promise(r => wsi.wantWrite(r));
+wsi.write(data);
+```
+
+## Mixed HTTP and Raw
+
+You can accept both HTTP and raw connections on the same port using `LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG`:
+
+```js
+import { createServer, LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws';
+
+createServer({
+  port: 8080,
+  options: LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG,
+  listenAcceptRole: 'raw-skt',
+  listenAcceptProtocol: 'raw-handler',
+  protocols: [
+    { name: 'http', onHttp(wsi, uri) { /* handle HTTP */ } },
+    { name: 'raw-handler', onRawAccept(wsi) { /* handle raw */ } }
+  ]
+});
+```
+
+Connections that don't look like HTTP are routed to the raw protocol. HTTP-looking connections are routed to the HTTP protocol.
+
+## Further Reading
+
+- [Protocol Objects](protocols.md) — Understanding protocol definitions
+- [Callbacks](callbacks.md) — Complete callback reference
+- [Event Loop](event-loop.md) — Integration with libwebsockets' event loop

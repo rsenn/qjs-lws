@@ -125,17 +125,3 @@ single-element array `[n]` tracking the running offset that
 
 `onClientConnectionError(wsi, message, errno)` fires for TCP / TLS
 / HTTP-handshake failures *before* the WebSocket is established.
-
-## Promise / EventTarget wrapper
-
-`lib/websocket.js` exposes a thin WHATWG-WebSocket facade built on
-top of these callbacks:
-
-```js
-import { WebSocket } from './lib/websocket.js';
-
-const ws = new WebSocket('wss://echo.websocket.events/', 'chat');
-ws.addEventListener('open',    () => ws.send('hi'));
-ws.addEventListener('message', e => console.log(e.data));
-ws.addEventListener('close',   () => console.log('closed'));
-```

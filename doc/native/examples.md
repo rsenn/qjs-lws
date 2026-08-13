@@ -67,7 +67,6 @@ ctx.clientConnect('wss://echo.websocket.events/');
 
 ```js
 import { createServer, LWSMPRO_FILE } from 'lws';
-import extraMimetypes from './lib/lws/mimetypes.js';
 
 createServer({
   port: 8080,
@@ -77,7 +76,6 @@ createServer({
     origin:     './public',
     def:        'index.html',
     originProtocol: LWSMPRO_FILE,
-    extraMimetypes,
   }],
   protocols: [{ name: 'http' }],
 });

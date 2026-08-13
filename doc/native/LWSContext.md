@@ -47,8 +47,8 @@ context is created with `port = CONTEXT_PORT_NO_LISTEN` (no listener
 | `vhListenSockfd`     | `vh_listen_sockfd`   | Pre-allocated listen fd |
 | `defaultLoglevel`    | `default_loglevel`   | Per-context log level |
 | `options`            | `options`            | OR-mask of `LWS_SERVER_OPTION_*` constants |
-| `listenAcceptRole`   | `listen_accept_role` | Role applied when `FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG` is set (e.g. `'raw-skt'`) |
-| `listenAcceptProtocol` | `listen_accept_protocol` | Protocol name applied with the role |
+| `listenAcceptRole`   | `listen_accept_role` | Role applied when `FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG` or `ADOPT_APPLY_LISTEN_ACCEPT_CONFIG` is set (e.g. `'raw-skt'`) |
+| `listenAcceptProtocol` | `listen_accept_protocol` | Protocol name applied with the role. Can be anywhere in the `protocols` array. |
 | `asyncDnsServers`    | `async_dns_servers`  | Array of DNS server strings (built with `LWS_WITH_SYS_ASYNC_DNS`) |
 
 ### TLS properties

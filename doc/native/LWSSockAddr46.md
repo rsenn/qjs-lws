@@ -54,5 +54,4 @@ Arguments are parsed positionally:
 - `LWSContext.asyncDnsServerAdd(addr)` / `asyncDnsServerRemove(addr)`
   take any value convertible via the constructor.
 - `wsi.peer.host`, `wsi.peer.port`, `wsi.local.host`,
-  `wsi.local.port` are how `tcpsocket.js` / `tcpsocketstream.js` expose
-  remote/local endpoints to user code.
+  `wsi.local.port` expose remote/local endpoints to user code.

@@ -94,7 +94,6 @@ output to `stderr` itself.
 
 ## When to use `cancelService()`
 
-- After an HTTP fetch finishes — `lib/fetch.js` calls
-  `ctx.cancelService()` on `onClientHttpDropProtocol` so the script
-  can exit cleanly.
+- After an HTTP fetch finishes — call `ctx.cancelService()` in your
+  `onClientHttpDropProtocol` callback so the script can exit cleanly.
 - When tearing down a long-lived server in response to a signal.

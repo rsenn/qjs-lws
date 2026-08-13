@@ -118,8 +118,6 @@ Wraps `lws_http_client_read()`. Reads incoming HTTP body bytes into
 the provided `ArrayBuffer`. Returns the number of bytes consumed, or
 `undefined` on error (-1).
 
-Pattern (see `fetch.js`):
-
 ```js
 onReceiveClientHttp(wsi) {
   const ab = new ArrayBuffer(0xff0 * 16);

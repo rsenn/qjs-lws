@@ -91,8 +91,6 @@ mounts: [{
 }],
 ```
 
-(`lib/lws/mimetypes.js` exports a ready-made table.)
-
 ## Common mount patterns
 
 ### Static files
