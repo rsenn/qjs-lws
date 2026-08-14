@@ -172,11 +172,18 @@ The goal is to maximize compatibility with scripts written for WHATWG standards,
    - Cost: ~30 lines, enables graceful shutdown patterns
    - Tests: 10 tests in test-server-lifecycle.js all pass
 
-5. **WebSocket Handler Extensions** (lib/serve.js WebSocketHandler)
-   - Add `ping(ws, data)` and `pong(ws, data)` handlers (Bun)
-   - Add `idleTimeout` option (Bun)
-   - Add `maxPayloadLength` option (Bun)
+5. **WebSocket Handler Extensions** (lib/serve.js WebSocketHandler) ✅ DONE
+   - ✅ `ping(ws, data)` and `pong(ws, data)` handlers (Bun) - wired to event listeners
+   - ✅ `idleTimeout` option (Bun) - accepted (pending native lws timeout support)
+   - ✅ `maxPayloadLength` option (Bun) - accepted (pending native lws config support)
+   - ✅ `perMessageDeflate` option (Bun) - accepted (pending native lws compression support)
+   - ✅ `backpressureLimit` option (Bun) - accepted (pending native lws backpressure support)
+   - ✅ `closeOnBackpressureLimit` option (Bun) - accepted (pending native lws backpressure support)
+   - ✅ `sendPings` option (Bun) - accepted (pending native lws ping config support)
+   - ✅ `publishToSelf` option (Bun) - accepted (pending TopicRegistry changes)
+   - ✅ `drain(ws)` handler (Bun) - accepted (pending native lws backpressure events)
    - Cost: ~40 lines, enables production WebSocket servers
+   - Tests: 10 tests in test-websocket-handler-options.js all pass
 
 ### Medium-Impact Additions (Requires Native Support)
 
@@ -240,12 +247,12 @@ socket.bind(8080);
 
 ### Implementation Priority
 
-**Phase 1** (High compatibility gain, no native changes):
+**Phase 1** (High compatibility gain, no native changes) ✅ **COMPLETE**:
 1. ✅ WebSocket static methods (WebSocket.connect, WebSocket.isWebSocket)
 2. ✅ TCPSocket socket options (setNoDelay, setKeepAlive, setTimeout) - stubs added
 3. ✅ UDPSocket socket options (setBroadcast, setTTL, setMulticastTTL, setMulticastLoopback, addMembership, dropMembership, setMulticastInterface, addSourceSpecificMembership, dropSourceSpecificMembership) - stubs added
 4. ✅ Server lifecycle (stop() promise, id, pendingRequests, pendingWebSockets, url, development)
-5. WebSocket handler extensions (ping/pong, idleTimeout, maxPayloadLength)
+5. ✅ WebSocket handler extensions (ping/pong, idleTimeout, maxPayloadLength, perMessageDeflate, backpressureLimit, closeOnBackpressureLimit, sendPings, publishToSelf, drain)
 
 **Phase 2** (Medium compatibility gain, requires native support):
 6. TCPSocket drain handler
