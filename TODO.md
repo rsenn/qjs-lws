@@ -124,13 +124,11 @@ in the relevant spec.
   - All 8 unit tests pass
 
 ### Remaining Fetch API Issues
-- ❌ **fetch()** doesn't accept Request objects as first argument
-- ❌ **fetch()** throws ConnectionError instead of TypeError for network errors
-- ❌ **fetch()** AbortSignal handling incomplete (wrong error type, overwrites handler, no pre-check)
+- ✅ **fetch()** accepts Request objects as first argument (FIXED)
+- ✅ **fetch()** throws TypeError instead of ConnectionError for network errors (FIXED)
+- ✅ **fetch()** AbortSignal handling complete (FIXED)
 
 ### Remaining Spec Violations (see BUGS file)
-- WebSocket missing `url` property
-- Server missing `url` property
 - Server methods partially implemented (11 stubs added, need lws context integration)
 - WebSocketHandler options partially implemented (10 stubs added, ping/pong wired)
 - UDPSocket methods partially implemented (10 stubs added, need lws multicast/socket option support)
