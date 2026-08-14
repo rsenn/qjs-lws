@@ -239,7 +239,7 @@ socket.bind(8080);
 **Phase 1** (High compatibility gain, no native changes):
 1. ✅ WebSocket static methods (WebSocket.connect, WebSocket.isWebSocket)
 2. ✅ TCPSocket socket options (setNoDelay, setKeepAlive, setTimeout) - stubs added
-3. UDPSocket socket options (setBroadcast, setTTL, setMulticastTTL, setMulticastLoopback)
+3. ✅ UDPSocket socket options (setBroadcast, setTTL, setMulticastTTL, setMulticastLoopback, addMembership, dropMembership, setMulticastInterface, addSourceSpecificMembership, dropSourceSpecificMembership) - stubs added
 4. Server lifecycle (stop() promise, id, pendingRequests)
 5. WebSocket handler extensions (ping/pong, idleTimeout, maxPayloadLength)
 
