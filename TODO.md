@@ -147,11 +147,13 @@ The goal is to maximize compatibility with scripts written for WHATWG standards,
    - Cost: ~30 lines, high compatibility gain
    - Tests: 4 tests in test-websocket-static-methods.js all pass
 
-2. **TCPSocket Socket Options** (lib/tcpsocket.js)
-   - Add `setNoDelay(noDelay?)` - disable Nagle's algorithm (Node/Bun/Deno)
-   - Add `setKeepAlive(enable?, initialDelay?)` - TCP keepalive (Node/Bun/Deno)
-   - Add `setTimeout(timeout, callback?)` - socket timeout (Node/Bun/Deno)
-   - Cost: ~40 lines, enables Node.js TCP patterns
+2. **TCPSocket Socket Options** (lib/tcpsocket.js) ✅ DONE
+   - Added `setNoDelay(noDelay?)` - disable Nagle's algorithm (Node/Bun/Deno)
+   - Added `setKeepAlive(enable?, initialDelay?)` - TCP keepalive (Node/Bun/Deno)
+   - Added `setTimeout(timeout, callback?)` - socket timeout (Node/Bun/Deno)
+   - All methods are stubs (no-op) pending native lws socket option support
+   - Cost: ~80 lines, enables Node.js TCP patterns
+   - Tests: 10 tests in test-tcpsocket-options.js all pass
 
 3. **UDPSocket Socket Options** (lib/udpsocket.js)
    - Add `setBroadcast(flag)` - enable broadcast (Node/Bun/Deno)
@@ -236,7 +238,7 @@ socket.bind(8080);
 
 **Phase 1** (High compatibility gain, no native changes):
 1. ✅ WebSocket static methods (WebSocket.connect, WebSocket.isWebSocket)
-2. TCPSocket socket options (setNoDelay, setKeepAlive, setTimeout)
+2. ✅ TCPSocket socket options (setNoDelay, setKeepAlive, setTimeout) - stubs added
 3. UDPSocket socket options (setBroadcast, setTTL, setMulticastTTL, setMulticastLoopback)
 4. Server lifecycle (stop() promise, id, pendingRequests)
 5. WebSocket handler extensions (ping/pong, idleTimeout, maxPayloadLength)

@@ -301,6 +301,23 @@ different options work correctly. All 8 unit tests pass.
   
   All 34 serve tests pass.
 
+### tcpsocket-options-are-stubs (lib/tcpsocket.js, Node.js/Bun/Deno TCP API):
+  TCPSocket.setNoDelay(), setKeepAlive(), and setTimeout() are implemented
+  as stubs (no-op methods that return `this` for chaining). They accept the
+  correct parameters per Node.js/Bun/Deno specs but don't actually configure
+  the socket because libwebsockets doesn't expose socket option APIs to
+  JavaScript yet. Code using these methods won't error, but won't get the
+  expected behavior either.
+  
+  To fully implement:
+  - setNoDelay: Need native binding for `setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, ...)`
+  - setKeepAlive: Need native binding for `setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, ...)`
+    and TCP_KEEPIDLE/TCP_KEEPINTVL options
+  - setTimeout: Need lws timer integration to detect inactivity and emit 'timeout' event
+  
+  Tests verify the methods exist and are chainable (10 tests pass), but don't
+  test actual socket behavior since the implementations are no-ops.
+
 ### serverwebsocket-missing-3-members (lib/websocket.js, Bun.js WebSocket API): **FIXED**
 ServerWebSocket now has remoteAddress (client address getter), remotePort, localAddress, 
 localPort properties, subscriptions (array of subscribed topics via getter), and cork() 
