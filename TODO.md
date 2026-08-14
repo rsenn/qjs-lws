@@ -141,10 +141,11 @@ The goal is to maximize compatibility with scripts written for WHATWG standards,
 
 ### High-Impact, Low-Cost Additions
 
-1. **WebSocket Static Methods** (lib/websocket.js)
-   - Add `WebSocket.connect(url, protocols?)` - returns Promise<WebSocket> (Bun-style)
-   - Add `WebSocket.isWebSocket(obj)` - type guard (Deno-style)
-   - Cost: ~20 lines, high compatibility gain
+1. **WebSocket Static Methods** (lib/websocket.js) ✅ DONE
+   - Added `WebSocket.connect(url, protocols?)` - returns Promise<WebSocket> (Bun-style)
+   - Added `WebSocket.isWebSocket(obj)` - type guard (Deno-style)
+   - Cost: ~30 lines, high compatibility gain
+   - Tests: 4 tests in test-websocket-static-methods.js all pass
 
 2. **TCPSocket Socket Options** (lib/tcpsocket.js)
    - Add `setNoDelay(noDelay?)` - disable Nagle's algorithm (Node/Bun/Deno)
@@ -234,7 +235,7 @@ socket.bind(8080);
 ### Implementation Priority
 
 **Phase 1** (High compatibility gain, no native changes):
-1. WebSocket static methods
+1. ✅ WebSocket static methods (WebSocket.connect, WebSocket.isWebSocket)
 2. TCPSocket socket options (setNoDelay, setKeepAlive, setTimeout)
 3. UDPSocket socket options (setBroadcast, setTTL, setMulticastTTL, setMulticastLoopback)
 4. Server lifecycle (stop() promise, id, pendingRequests)
