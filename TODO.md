@@ -162,11 +162,15 @@ The goal is to maximize compatibility with scripts written for WHATWG standards,
    - Add `setMulticastLoopback(flag)` - multicast loopback (Node/Bun/Deno)
    - Cost: ~50 lines, enables multicast/broadcast patterns
 
-4. **Server Lifecycle** (lib/serve.js)
-   - Add `server.stop()` returning Promise (Bun/Deno)
-   - Add `server.id` property (Bun)
-   - Add `server.pendingRequests` counter (Bun)
+4. **Server Lifecycle** (lib/serve.js) ✅ DONE
+   - ✅ `server.stop()` returning Promise (Bun/Deno)
+   - ✅ `server.id` property (Bun)
+   - ✅ `server.pendingRequests` counter (Bun)
+   - ✅ `server.pendingWebSockets` counter (Bun)
+   - ✅ `server.url` property (URL object)
+   - ✅ `server.development` property (boolean)
    - Cost: ~30 lines, enables graceful shutdown patterns
+   - Tests: 10 tests in test-server-lifecycle.js all pass
 
 5. **WebSocket Handler Extensions** (lib/serve.js WebSocketHandler)
    - Add `ping(ws, data)` and `pong(ws, data)` handlers (Bun)
@@ -240,7 +244,7 @@ socket.bind(8080);
 1. ✅ WebSocket static methods (WebSocket.connect, WebSocket.isWebSocket)
 2. ✅ TCPSocket socket options (setNoDelay, setKeepAlive, setTimeout) - stubs added
 3. ✅ UDPSocket socket options (setBroadcast, setTTL, setMulticastTTL, setMulticastLoopback, addMembership, dropMembership, setMulticastInterface, addSourceSpecificMembership, dropSourceSpecificMembership) - stubs added
-4. Server lifecycle (stop() promise, id, pendingRequests)
+4. ✅ Server lifecycle (stop() promise, id, pendingRequests, pendingWebSockets, url, development)
 5. WebSocket handler extensions (ping/pong, idleTimeout, maxPayloadLength)
 
 **Phase 2** (Medium compatibility gain, requires native support):
