@@ -1,5 +1,6 @@
 import { tests, eq, assert } from './tinytest.js';
 import { UDPSocket } from '../../lib/udpsocket.js';
+import { toString } from 'lws.so';
 
 // Integration test for UDPSocket.send() with Bun.js signature
 // This test requires actual network I/O, so it's slower but verifies real behavior
@@ -62,7 +63,7 @@ await tests({
     });
 
     assert(received !== null, 'server should have received message');
-    eq('hello from bun.js', new TextDecoder().decode(received), 'message content should match');
+    eq('hello from bun.js', toString(received), 'message content should match');
     assert(serverPeer !== null, 'server should have received peer info');
 
     client.close();
@@ -123,7 +124,7 @@ await tests({
     });
 
     assert(received !== null, 'server should have received message');
-    eq('hello from peer', new TextDecoder().decode(received), 'message content should match');
+    eq('hello from peer', toString(received), 'message content should match');
 
     client.close();
     server.close();
