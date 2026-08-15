@@ -532,6 +532,14 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
 #ifdef LWS_WITH_SYS_ASYNC_DNS
   value = js_get_property(ctx, obj, "async_dns_servers");
   ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);
+
+  if(ci->async_dns_servers && ci->async_dns_servers[0]) {
+    for(int i = 0; ci->async_dns_servers[i]; ++i) {
+      fprintf(stderr, "async_dns_servers[%i]: %s\n", i, ci->async_dns_servers[i]);
+    }
+  } else {
+    fprintf(stderr, "async_dns_servers: empty\n");
+  }
 #endif
 
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
@@ -584,8 +592,7 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   value = JS_GetPropertyStr(ctx, obj, "options");
   ci->options = to_integerfree(ctx, value);
 
-  if(ci->options & (LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG |
-                    LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG)) {
+  if(ci->options & (LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG | LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG)) {
     str_property(&ci->listen_accept_role, ctx, obj, "listen_accept_role");
     str_property(&ci->listen_accept_protocol, ctx, obj, "listen_accept_protocol");
   }
