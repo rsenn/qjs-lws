@@ -89,6 +89,9 @@ if(RESOLV_CONF AND EXISTS "${RESOLV_CONF}")
   add_definitions(-DRESOLV_CONF=\"${RESOLV_CONF}\")
 endif(RESOLV_CONF AND EXISTS "${RESOLV_CONF}")
 
+if(TERMUX)
+  add_definitions(-DTERMUX)
+endif(TERMUX)
 
 if(NOT BUILD_LIBWEBSOCKETS)
   include(FindZLIB)

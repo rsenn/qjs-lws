@@ -1,0 +1,41 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 984907e0a..fd3c52408 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1248,6 +1248,10 @@ if (MINGW)
+ 	add_definitions(-DWINVER=0x0601 -D_WIN32_WINNT=0x0601)
+ endif()
+ 
++if (TERMUX)
++  add_definitions(-DTERMUX_PREFIX=\"/data/data/com.termux/files/usr\")
++endif()
++
+ if (HDR_PRIVATE)
+ 	source_group("Headers Private"  FILES ${HDR_PRIVATE})
+ endif()
+diff --git a/lib/plat/unix/unix-resolv.c b/lib/plat/unix/unix-resolv.c
+index 49a240107..4664c300a 100644
+--- a/lib/plat/unix/unix-resolv.c
++++ b/lib/plat/unix/unix-resolv.c
+@@ -25,6 +25,12 @@
+ #include "private-lib-core.h"
+ #include "private-lib-async-dns.h"
+ 
++#ifndef TERMUX_PREFIX
++#define PREFIX ""
++#else
++#define PREFIX TERMUX_PREFIX
++#endif
++
+ int
+ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
+ 			     lws_sockaddr46 *sa46)
+@@ -35,7 +41,7 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
+ 	ssize_t n;
+ 
+ 	r = (char *)context->pt[0].serv_buf;
+-	fd = open("/etc/resolv.conf", LWS_O_RDONLY);
++	fd = open(PREFIX "/etc/resolv.conf", LWS_O_RDONLY);
+ 	if (fd < 0)
+ 		return -1;
+ 
