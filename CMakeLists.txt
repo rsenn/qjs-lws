@@ -73,6 +73,23 @@ if(USE_CURL AND NOT BUILD_CURL)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindCURL.cmake)
 endif(USE_CURL AND NOT BUILD_CURL)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSystemPrefix.cmake)
+
+find_system_prefix()
+  
+if("${SYSTEM_PREFIX}" MATCHES "termux")
+  set(TERMUX TRUE CACHE BOOL "Compiling under termux")
+else("${SYSTEM_PREFIX}" MATCHES "termux")
+  set(TERMUX FALSE CACHE BOOL "Compiling under termux")
+endif("${SYSTEM_PREFIX}" MATCHES "termux")
+
+find_resolv_conf("${SYSTEM_PREFIX}/etc/resolv.conf" "/etc/resolv.conf")
+
+if(RESOLV_CONF AND EXISTS "${RESOLV_CONF}")
+  add_definitions(-DRESOLV_CONF=\"${RESOLV_CONF}\")
+endif(RESOLV_CONF AND EXISTS "${RESOLV_CONF}")
+
+
 if(NOT BUILD_LIBWEBSOCKETS)
   include(FindZLIB)
 endif(NOT BUILD_LIBWEBSOCKETS)
