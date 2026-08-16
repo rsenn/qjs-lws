@@ -7,12 +7,12 @@
 #include "lws.h"
 #include "js-utils.h"
 
+#ifdef LWSJS_PRECOMPILED
 struct bytecode {
   const uint8_t* code;
   uint32_t size;
 };
 
-#ifdef LWSJS_PRECOMPILED
 #define const static const
 #include "precompiled.c"
 #undef const
@@ -22,6 +22,89 @@ static struct bytecode lwsjs_precompiled[] = {
 #include "precompiled.h"
 #undef X
 };
+
+#define X(name, index) static JSValue lwsjs_##name##_value = {JS_TAG_UNDEFINED, 0};
+#include "precompiled.h"
+#undef X
+
+static int lwsjs_precompiled_status = 0;
+
+static JSValue
+lwsjs_precompiled_ready(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+#define X(name, index) lwsjs_##name##_value = JS_DupValue(ctx, argc > index ? argv[index] : JS_UNDEFINED);
+#include "precompiled.h"
+#undef X
+  return JS_UNDEFINED;
+}
+
+static int
+lwsjs_load_precompiled(JSContext* ctx) {
+  if(lwsjs_precompiled_status)
+    return lwsjs_precompiled_status > 0 ? 0 : -1;
+
+  JSValue global = JS_GetGlobalObject(ctx);
+  JS_SetPropertyStr(ctx, global, "__lwsPrecompiledReady", JS_NewCFunction(ctx, lwsjs_precompiled_ready, "__lwsPrecompiledReady", 2));
+  JS_FreeValue(ctx, global);
+
+  JSValue entry = JS_UNDEFINED;
+
+  for(size_t i = 0; i < countof(lwsjs_precompiled); i++) {
+    JSValue mod = JS_ReadObject(ctx, lwsjs_precompiled[i].code, lwsjs_precompiled[i].size, JS_READ_OBJ_BYTECODE);
+
+    if(JS_IsException(mod)) {
+      lwsjs_precompiled_status = -1;
+      return -1;
+    }
+
+    if(i + 1 == countof(lwsjs_precompiled))
+      entry = mod;
+  }
+
+  if(JS_ResolveModule(ctx, entry) < 0) {
+    JS_FreeValue(ctx, entry);
+    lwsjs_precompiled_status = -1;
+    return -1;
+  }
+
+  JSValue ret = JS_EvalFunction(ctx, entry);
+
+  if(JS_IsException(ret)) {
+    JS_FreeValue(ctx, ret);
+    lwsjs_precompiled_status = -1;
+    return -1;
+  }
+
+  JS_FreeValue(ctx, ret);
+  lwsjs_precompiled_status = 1;
+  return 0;
+}
+
+static JSValue
+lwsjs_fetch_trampoline(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+  if(lwsjs_load_precompiled(ctx) < 0)
+    return JS_EXCEPTION;
+
+  return JS_Call(ctx, lwsjs_fetch_value, JS_UNDEFINED, argc, argv);
+}
+
+static JSValue
+lwsjs_websocketstream_trampoline(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst* argv) {
+  if(lwsjs_load_precompiled(ctx) < 0)
+    return JS_EXCEPTION;
+
+  return JS_CallConstructor(ctx, lwsjs_websocketstream_value, argc, argv);
+}
+
+static JSValue
+lwsjs_websocketstream_protocol_trampoline(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+  if(lwsjs_load_precompiled(ctx) < 0)
+    return JS_EXCEPTION;
+
+  JSValue protocol_fn = JS_GetPropertyStr(ctx, lwsjs_websocketstream_value, "protocol");
+  JSValue ret = JS_Call(ctx, protocol_fn, lwsjs_websocketstream_value, argc, argv);
+  JS_FreeValue(ctx, protocol_fn);
+  return ret;
+}
 #endif
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
@@ -47,18 +130,18 @@ static const char* lwsjs_log_levels[] = {
 };
 
 static const char* const lwsjs_log_colours[] = {
-    "\033[38;5;88m",  /* LLL_ERR */
-    "\033[38;5;166m", /* LLL_WARN */
-    "\033[38;5;208m", /* LLL_NOTICE */
-    "\033[38;5;214m", /* LLL_INFO */
-    "\033[38;5;220m", /* LLL_DEBUG */
-    "\033[38;5;226m", /* LLL_PARSER */
-    "\033[38;5;154m", /* LLL_HEADER */
-    "\033[38;5;40m",  /* LLL_EXT */
-    "\033[38;5;36m",  /* LLL_CLIENT */
-    "\033[38;5;74m",  /* LLL_LATENCY */
-    "\033[38;5;69m",  /* LLL_USER */
-    "\033[38;5;135m", /* LLL_THREAD */
+    "\033[48;5;88m",  /* LLL_ERR */
+    "\033[48;5;166m", /* LLL_WARN */
+    "\033[48;5;208m", /* LLL_NOTICE */
+    "\033[48;5;214m", /* LLL_INFO */
+    "\033[48;5;220m", /* LLL_DEBUG */
+    "\033[48;5;226m", /* LLL_PARSER */
+    "\033[48;5;154m", /* LLL_HEADER */
+    "\033[48;5;40m",  /* LLL_EXT */
+    "\033[48;5;36m",  /* LLL_CLIENT */
+    "\033[48;5;74m",  /* LLL_LATENCY */
+    "\033[48;5;69m",  /* LLL_USER */
+    "\033[48;5;135m", /* LLL_THREAD */
 };
 
 size_t
@@ -894,19 +977,57 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CONSTANT(LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS),
     JS_CONSTANT(LCCSCF_CACHE_COOKIES),
 
-      JS_CONSTANT(LWS_ADNS_RECORD_A),
-  JS_CONSTANT(LWS_ADNS_RECORD_CNAME),
-  JS_CONSTANT(LWS_ADNS_RECORD_SOA),
-  JS_CONSTANT(LWS_ADNS_RECORD_MX),
-  JS_CONSTANT(LWS_ADNS_RECORD_TXT),
-  JS_CONSTANT(LWS_ADNS_RECORD_AAAA),
-  JS_CONSTANT(LWS_ADNS_RECORD_DS),
-  JS_CONSTANT(LWS_ADNS_RECORD_RRSIG),
-  JS_CONSTANT(LWS_ADNS_RECORD_NSEC),
-  JS_CONSTANT(LWS_ADNS_RECORD_DNSKEY),
-  JS_CONSTANT(LWS_ADNS_RECORD_NSEC3),
-  JS_CONSTANT(LWS_ADNS_RECORD_HTTPS),
+    JS_CONSTANT(LWS_ADNS_RECORD_A),
+    JS_CONSTANT(LWS_ADNS_RECORD_CNAME),
+    JS_CONSTANT(LWS_ADNS_RECORD_SOA),
+    JS_CONSTANT(LWS_ADNS_RECORD_MX),
+    JS_CONSTANT(LWS_ADNS_RECORD_TXT),
+    JS_CONSTANT(LWS_ADNS_RECORD_AAAA),
+    JS_CONSTANT(LWS_ADNS_RECORD_DS),
+    JS_CONSTANT(LWS_ADNS_RECORD_RRSIG),
+    JS_CONSTANT(LWS_ADNS_RECORD_NSEC),
+    JS_CONSTANT(LWS_ADNS_RECORD_DNSKEY),
+    JS_CONSTANT(LWS_ADNS_RECORD_NSEC3),
+    JS_CONSTANT(LWS_ADNS_RECORD_HTTPS),
+
 };
+
+static void
+lwsjs_log_clean(const char* line, DynBuf* dbuf, DynBuf* func) {
+  int i = 0;
+
+  while(line[i]) {
+    if((i == 0 || line[i - 1] == ' ') && (line[i] == '_' || line[i] == 'l' || line[i] == 'r')) {
+      int j = 0;
+      for(; line[i + j] == '_'; ++j)
+        ;
+
+      if(line[i] == '_' || !strncmp(&line[i + j], "lws", 3) || !strncmp(&line[i + j], "rops", 4)) {
+        int k = i + j + 3;
+
+        while(line[k] && line[k] != ':' && line[k] != ' ')
+          ++k;
+
+        if(func) {
+          dbuf_put(func, &line[i], k - i);
+          dbuf_putc(func, '\0');
+        }
+
+        if(line[k] == ':')
+          ++k;
+
+        while(line[k] == ' ')
+          ++k;
+
+        i = k;
+        continue;
+      }
+    }
+
+    dbuf_putc(dbuf, line[i]);
+    ++i;
+  }
+}
 
 static void
 lwsjs_callback_log(int level, const char* line) {
@@ -924,6 +1045,13 @@ lwsjs_callback_log(int level, const char* line) {
   if(level >= (int)countof(lwsjs_log_levels))
     fprintf(stderr, "level overflow: %i\n", level);
 
+  DynBuf dbuf, func;
+  dbuf_init(&dbuf);
+  dbuf_init(&func);
+  lwsjs_log_clean(line, &dbuf, &func);
+  dbuf_putc(&dbuf, '\0');
+  line = (const char*)dbuf.buf;
+
   if(lwsjs_log_ctx) {
     size_t len = strlen(line);
 
@@ -937,127 +1065,30 @@ lwsjs_callback_log(int level, const char* line) {
     JSValueConst args[] = {
         JS_NewUint32(ctx, level),
         JS_NewStringLen(ctx, line, len),
+        func.size ? JS_NewString(ctx, func.buf) : JS_UNDEFINED,
     };
-    JSValue ret = JS_Call(ctx, lwsjs_log_fn, JS_NULL, 2, args);
+    JSValue ret = JS_Call(ctx, lwsjs_log_fn, JS_NULL, 3, args);
     JS_FreeValue(ctx, args[1]);
     JS_FreeValue(ctx, args[0]);
     JS_FreeValue(ctx, ret);
   } else {
-    fprintf(stderr, "<%s> %s%s\x1b[0m", lwsjs_log_levels[level], lwsjs_log_colours[level], line);
+    char lev[9];
+    size_t len = strlen(lwsjs_log_levels[level]);
+    int i;
+    for(i = 0; i < (sizeof(lev) - len) / 2; i++)
+      lev[i] = ' ';
+    i += snprintf(&lev[i], sizeof(lev) - i, "%s", lwsjs_log_levels[level]);
+    while(i < sizeof(lev))
+      lev[i++] = ' ';
+    lev[sizeof(lev) - 1] = '\0';
+
+    fprintf(stderr, "\r\x1b[30m%s%s\x1b[0m %s", lwsjs_log_colours[level], lev, line);
     fflush(stderr);
   }
+
+  dbuf_free(&dbuf);
+  dbuf_free(&func);
 }
-
-#ifdef LWSJS_PRECOMPILED
-
-/* Lazily evaluates the embedded precompiled.js bytecode (lib/fetch.js +
-   lib/websocketstream.js, bundled transitively) and captures its `fetch`/
-   `WebSocketStream` values.
-
-   This can NOT run synchronously from inside lwsjs_init(): that function
-   *is* the 'lws' C module's own JS_MODULE_STATUS_EVALUATING body, and the
-   bundled code itself does `import ... from 'lws'` - resolving that while
-   'lws' is still mid-evaluation re-enters JS_ResolveModule on a module
-   that isn't in any of its recognized "already handled" states, which
-   silently re-runs lwsjs_init from scratch (confirmed via a standalone
-   repro: hundreds of levels of re-entrant recursion, ending in corrupted
-   export values, not even a clean crash). Deferring the eval to the first
-   actual call of the trampolines below sidesteps this entirely, since a
-   module's exports can only ever be *called* after that module has
-   finished evaluating - by then 'lws' is JS_MODULE_STATUS_EVALUATED, which
-   the resolver already treats as a terminal, reusable state. */
-#define X(name, index) static JSValue lwsjs_##name##_value = {JS_TAG_UNDEFINED, 0};
-#include "precompiled.h"
-#undef X
-
-static int lwsjs_precompiled_status = 0; /* 0 = not loaded, 1 = loaded, -1 = failed */
-
-/* Called by the embedded precompiled.js bytecode once it has imported
-   fetch/WebSocketStream, handing the real values back to us. Avoids
-   needing JS_GetModuleNamespace(), which this quickjs build doesn't
-   expose publicly. */
-static JSValue
-lwsjs_precompiled_ready(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-#define X(name, index) lwsjs_##name##_value = JS_DupValue(ctx, argc > index ? argv[index] : JS_UNDEFINED);
-#include "precompiled.h"
-#undef X
-  return JS_UNDEFINED;
-}
-
-static int
-lwsjs_load_precompiled(JSContext* ctx) {
-  if(lwsjs_precompiled_status)
-    return lwsjs_precompiled_status > 0 ? 0 : -1;
-
-  JSValue global = JS_GetGlobalObject(ctx);
-  JS_SetPropertyStr(ctx, global, "__lwsPrecompiledReady", JS_NewCFunction(ctx, lwsjs_precompiled_ready, "__lwsPrecompiledReady", 2));
-  JS_FreeValue(ctx, global);
-
-  JSValue entry = JS_UNDEFINED;
-
-  /* Every blob but the last is a transitive local dependency (fetch.js,
-     websocketstream.js, and everything *they* import) - JS_ReadObject()
-     alone registers each by its embedded module name so the entry's
-     JS_ResolveModule() below finds them without touching the filesystem.
-     Only the last (precompiled.js itself) gets resolved and run. */
-  for(size_t i = 0; i < countof(lwsjs_precompiled); i++) {
-    JSValue mod = JS_ReadObject(ctx, lwsjs_precompiled[i].code, lwsjs_precompiled[i].size, JS_READ_OBJ_BYTECODE);
-
-    if(JS_IsException(mod)) {
-      lwsjs_precompiled_status = -1;
-      return -1;
-    }
-
-    if(i + 1 == countof(lwsjs_precompiled))
-      entry = mod;
-  }
-
-  if(JS_ResolveModule(ctx, entry) < 0) {
-    JS_FreeValue(ctx, entry);
-    lwsjs_precompiled_status = -1;
-    return -1;
-  }
-
-  JSValue ret = JS_EvalFunction(ctx, entry);
-
-  if(JS_IsException(ret)) {
-    JS_FreeValue(ctx, ret);
-    lwsjs_precompiled_status = -1;
-    return -1;
-  }
-
-  JS_FreeValue(ctx, ret);
-  lwsjs_precompiled_status = 1;
-  return 0;
-}
-
-static JSValue
-lwsjs_fetch_trampoline(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  if(lwsjs_load_precompiled(ctx) < 0)
-    return JS_EXCEPTION;
-
-  return JS_Call(ctx, lwsjs_fetch_value, JS_UNDEFINED, argc, argv);
-}
-
-static JSValue
-lwsjs_websocketstream_trampoline(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst* argv) {
-  if(lwsjs_load_precompiled(ctx) < 0)
-    return JS_EXCEPTION;
-
-  return JS_CallConstructor(ctx, lwsjs_websocketstream_value, argc, argv);
-}
-
-static JSValue
-lwsjs_websocketstream_protocol_trampoline(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
-  if(lwsjs_load_precompiled(ctx) < 0)
-    return JS_EXCEPTION;
-
-  JSValue protocol_fn = JS_GetPropertyStr(ctx, lwsjs_websocketstream_value, "protocol");
-  JSValue ret = JS_Call(ctx, protocol_fn, lwsjs_websocketstream_value, argc, argv);
-  JS_FreeValue(ctx, protocol_fn);
-  return ret;
-}
-#endif
 
 int
 lwsjs_init(JSContext* ctx, JSModuleDef* m) {

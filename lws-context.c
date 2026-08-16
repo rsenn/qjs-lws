@@ -960,7 +960,6 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       retry_bo_free(JS_GetRuntime(ctx), bo);
       break;
     }
-}
 
 #if defined(LWS_WITH_UDP) && defined(LWS_WITH_NETWORK)
     case METHOD_RESOLVE: {
