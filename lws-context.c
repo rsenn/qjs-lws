@@ -533,6 +533,7 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   value = js_get_property(ctx, obj, "async_dns_servers");
   ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);
 
+#ifdef DEBUG_OUTPUT
   if(ci->async_dns_servers && ci->async_dns_servers[0]) {
     for(int i = 0; ci->async_dns_servers[i]; ++i) {
       fprintf(stderr, "async_dns_servers[%i]: %s\n", i, ci->async_dns_servers[i]);
@@ -540,6 +541,7 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   } else {
     fprintf(stderr, "async_dns_servers: empty\n");
   }
+#endif
 #endif
 
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
@@ -958,6 +960,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
       retry_bo_free(JS_GetRuntime(ctx), bo);
       break;
     }
+}
 
 #if defined(LWS_WITH_UDP) && defined(LWS_WITH_NETWORK)
     case METHOD_RESOLVE: {
@@ -1206,10 +1209,10 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("getRandom", 1, lwsjs_context_methods, METHOD_GETRANDOM),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, METHOD_ASYNCDNSSERVER_ADD),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, METHOD_ASYNCDNSSERVER_REMOVE),
-    JS_CFUNC_MAGIC_DEF("retryDelay", 2, lwsjs_context_methods, METHOD_RETRYDELAY),
 #if defined(LWS_WITH_UDP) && defined(LWS_WITH_NETWORK)
     JS_CFUNC_MAGIC_DEF("resolve", 1, lwsjs_context_methods, METHOD_RESOLVE),
 #endif
+    JS_CFUNC_MAGIC_DEF("retryDelay", 2, lwsjs_context_methods, METHOD_RETRYDELAY),
     JS_CFUNC_MAGIC_DEF("schedule", 2, lwsjs_context_methods, METHOD_SCHEDULE),
     JS_CFUNC_MAGIC_DEF("wsiFromFd", 1, lwsjs_context_methods, METHOD_WSIFROMFD),
 #ifdef LWS_WITH_UDP
