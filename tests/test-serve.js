@@ -22,19 +22,12 @@ import { TCPSocket } from '../lib/tcpsocket.js';
 import { TCPSocketStream } from '../lib/tcpsocketstream.js';
 import { URL } from '../lib/lws/url.js';
 import { generateSelfSignedCert } from '../lib/lws/tls.js';
+import { tests, assert, assertStrictEquals as eq } from './unittests/tinytest.js';
 import { toString, logLevel, LLL_ERR, LLL_USER, LWSMPRO_CALLBACK } from 'lws.so';
 import { TextDecoder } from 'textcode';
 import * as std from 'std';
 
 logLevel(LLL_ERR | LLL_USER);
-
-function assert(cond, message) {
-  if(!cond) throw new Error('assertion failed: ' + message);
-}
-
-function eq(expected, actual, label) {
-  if(expected !== actual) throw new Error(`expected ${label ? label + ' ' : ''}${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-}
 
 const dec = new TextDecoder();
 const asText = value => (typeof value === 'string' ? value : dec.decode(value));
@@ -450,18 +443,21 @@ const TESTS = {
     const reader = readable.getReader();
 
     const { value: greeting } = await reader.read();
-    eq('hello', asText(greeting), 'open() greeting');
+    assert(asText(greeting) === 'hello', `open() greeting: expected "hello", got ${JSON.stringify(asText(greeting))}`);
 
     await writer.write('ping');
     const { value: echoed } = await reader.read();
-    eq('echo:ping', asText(echoed), 'message() echo');
+    assert(asText(echoed) === 'echo:ping', `message() echo: expected "echo:ping", got ${JSON.stringify(asText(echoed))}`);
 
     client.close({ closeCode: 1000, reason: 'bye' });
     await closed;
 
-    eq(JSON.stringify(['open', 'message:ping', 'close']), JSON.stringify(events), 'open/message/close fired once each, in order');
+    assert(
+      JSON.stringify(events) === JSON.stringify(['open', 'message:ping', 'close']),
+      `open/message/close fired once each, in order: got ${JSON.stringify(events)}`,
+    );
     assert(closeInfo, 'expected close() to have fired');
-    eq(1000, closeInfo.code, 'close() code');
+    assert(closeInfo.code === 1000, `close() code: expected 1000, got ${closeInfo.code}`);
     assert(closeInfo.greeted, 'expected ws.data set in open() to still be visible in close()');
 
     server.stop();
@@ -773,30 +769,9 @@ const TESTS = {
   },
 };
 
-async function main() {
-  let passed = 0,
-    failed = 0;
+await tests(TESTS);
 
-  for(const [name, fn] of Object.entries(TESTS)) {
-    try {
-      await fn();
-      passed++;
-      console.log('PASS -', name);
-    } catch(e) {
-      failed++;
-      console.log('FAIL -', name);
-      console.log('     ', e?.message ?? e);
-      if(e?.stack) console.log(e.stack);
-    }
-  }
-
-  console.log(`\n${passed}/${passed + failed} passed`);
-  return failed;
-}
-
-main()
-  .then(failed => std.exit(failed ? 1 : 0))
-  .catch(e => {
-    console.log('TEST RUNNER CRASHED:', e, e?.stack);
-    std.exit(1);
-  });
+// The raw-TCP tests' TCPSocket/TCPSocketStream shared contexts would
+// otherwise keep the process alive - same reasoning as tests/unittests/
+// test-client.js.
+std.exit(0);

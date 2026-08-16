@@ -385,3 +385,23 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     lws.parseUri("http://example.com/path")
 
+- fetch-crawl-recv-http-spin (tests/test-fetch.js:171): running the
+  HTTP/1.1-plain runCombo() case hangs indefinitely, pegging one CPU core,
+  instead of completing its 7-page/asset crawl. Confirmed on the
+  unmodified file (pre-dates the tinytest.js conversion done in this
+  session - reproduces identically before and after). Symptom: after the
+  first page fetches normally, the log fills with thousands of repeated
+  "[wsicli|0|GET/h1/gniltag/127.0.0.1]: RECEIVE_CLIENT_HTTP (swallowed N
+  dupes)" lines (native log dedup counting), interspersed with occasional
+  "EVENT_WAIT_CANCELLED" - looks like the client wsi's event loop keeps
+  re-delivering RECEIVE_CLIENT_HTTP without ever reaching
+  COMPLETED_CLIENT_HTTP for a later request in the crawl. Root cause not
+  isolated - could be native (lws-socket.c's pollfd_handler/event wait
+  loop) or in lib/fetch.js's/lib/lws/protocols.js's HttpClientProtocol
+  read-loop bookkeeping; not chased further here since it wasn't the
+  requested change.
+
+    qjsm tests/test-fetch.js   # hangs partway through the HTTP/1.1-plain
+                               # combination; Ctrl-C or `timeout` needed
+
+

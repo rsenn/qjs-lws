@@ -25,13 +25,10 @@ import { TCPSocket } from '../lib/tcpsocket.js';
 import { TCPSocketStream } from '../lib/tcpsocketstream.js';
 import { generateSelfSignedCert } from '../lib/lws/tls.js';
 import { SubprocessStream } from '../lib/lws/subprocess-stream.js';
+import { tests, assert } from './unittests/tinytest.js';
 import { toString } from 'lws.so';
 import { mkdir, sleepAsync, kill, SIGTERM, open, O_WRONLY } from 'os';
 import * as std from 'std';
-
-function assert(cond, message) {
-  if(!cond) throw new Error('assertion failed: ' + message);
-}
 
 function writeFile(path, arrayBuffer) {
   const f = std.open(path, 'w');
@@ -56,76 +53,63 @@ async function connectWithRetry(options, { timeoutMs = 5000, intervalMs = 100 } 
   }
 }
 
-/** Plain TCP: a TCPSocket echo server, a TCPSocketStream client. */
-async function testPlainTcp(port) {
-  console.log(`\n=== plain TCP (port ${port}) ===`);
+await tests({
+  /** Plain TCP: a TCPSocket echo server, a TCPSocketStream client. */
+  async 'plain TCP'() {
+    const port = 28930;
 
-  const server = new TCPSocket();
-  server.bind('127.0.0.1', port);
-  server.addEventListener('accept', ev => {
-    ev.socket.addEventListener('message', e => ev.socket.send(e.data));
-  });
-  server.listen();
+    const server = new TCPSocket();
+    server.bind('127.0.0.1', port);
+    server.addEventListener('accept', ev => {
+      ev.socket.addEventListener('message', e => ev.socket.send(e.data));
+    });
+    server.listen();
 
-  const { tss, readable, writable, remoteAddress, remotePort } = await connectWithRetry({ host: '127.0.0.1', port });
-  const writer = writable.getWriter();
-  const reader = readable.getReader();
-
-  await writer.write('hello-tcp');
-  const { value } = await reader.read();
-  const text = toString(value);
-
-  assert(text === 'hello-tcp', `expected echo of 'hello-tcp', got ${JSON.stringify(text)}`);
-  assert(remoteAddress === '127.0.0.1', `expected remoteAddress 127.0.0.1, got ${remoteAddress}`);
-  assert(remotePort === port, `expected remotePort ${port}, got ${remotePort}`);
-
-  tss.close();
-  console.log('plain TCP: OK');
-}
-
-/** TCP+TLS: openssl s_server -rev as the fixture, TCPSocketStream as the client under test. */
-async function testTcpTls(port) {
-  console.log(`\n=== TCP+TLS (port ${port}) ===`);
-
-  const dir = '/tmp/test-client-tls-fixture';
-  mkdir(dir);
-
-  const { cert, key } = generateSelfSignedCert({ commonName: 'localhost' });
-  writeFile(`${dir}/cert.pem`, cert);
-  writeFile(`${dir}/key.pem`, key);
-
-  const devNull = open('/dev/null', O_WRONLY);
-  const proc = SubprocessStream(['openssl', 's_server', '-accept', String(port), '-cert', `${dir}/cert.pem`, '-key', `${dir}/key.pem`, '-rev', '-quiet'], { stdout: devNull, stderr: devNull });
-
-  try {
-    const { tss, readable, writable } = await connectWithRetry({ host: '127.0.0.1', port, tls: { rejectUnauthorized: false } });
+    const { tss, readable, writable, remoteAddress, remotePort } = await connectWithRetry({ host: '127.0.0.1', port });
     const writer = writable.getWriter();
     const reader = readable.getReader();
 
-    await writer.write('hello-tls\n');
+    await writer.write('hello-tcp');
     const { value } = await reader.read();
     const text = toString(value);
 
-    assert(text === 'slt-olleh\n', `expected '-rev'-reversed echo 'slt-olleh\\n', got ${JSON.stringify(text)}`);
+    assert(text === 'hello-tcp', `expected echo of 'hello-tcp', got ${JSON.stringify(text)}`);
+    assert(remoteAddress === '127.0.0.1', `expected remoteAddress 127.0.0.1, got ${remoteAddress}`);
+    assert(remotePort === port, `expected remotePort ${port}, got ${remotePort}`);
 
     tss.close();
-    console.log('TCP+TLS: OK');
-  } finally {
-    kill(proc.pid, SIGTERM);
-    await proc.exited;
-  }
-}
+  },
 
-async function main() {
-  await testPlainTcp(28930);
-  await testTcpTls(28931);
+  /** TCP+TLS: openssl s_server -rev as the fixture, TCPSocketStream as the client under test. */
+  async 'TCP+TLS'() {
+    const port = 28931;
+    const dir = '/tmp/test-client-tls-fixture';
+    mkdir(dir);
 
-  console.log('\nALL CLIENT ROLE TESTS PASSED');
-}
+    const { cert, key } = generateSelfSignedCert({ commonName: 'localhost' });
+    writeFile(`${dir}/cert.pem`, cert);
+    writeFile(`${dir}/key.pem`, key);
 
-main()
-  .catch(e => {
-    console.log('TEST FAILED:', e, e?.stack);
-    std.exit(1);
-  })
-  .then(() => std.exit(0)); // the TCPSocket/TCPSocketStream shared contexts would otherwise keep the process alive
+    const devNull = open('/dev/null', O_WRONLY);
+    const proc = SubprocessStream(['openssl', 's_server', '-accept', String(port), '-cert', `${dir}/cert.pem`, '-key', `${dir}/key.pem`, '-rev', '-quiet'], { stdout: devNull, stderr: devNull });
+
+    try {
+      const { tss, readable, writable } = await connectWithRetry({ host: '127.0.0.1', port, tls: { rejectUnauthorized: false } });
+      const writer = writable.getWriter();
+      const reader = readable.getReader();
+
+      await writer.write('hello-tls\n');
+      const { value } = await reader.read();
+      const text = toString(value);
+
+      assert(text === 'slt-olleh\n', `expected '-rev'-reversed echo 'slt-olleh\\n', got ${JSON.stringify(text)}`);
+
+      tss.close();
+    } finally {
+      kill(proc.pid, SIGTERM);
+      await proc.exited;
+    }
+  },
+});
+
+std.exit(0); // the TCPSocket/TCPSocketStream shared contexts would otherwise keep the process alive

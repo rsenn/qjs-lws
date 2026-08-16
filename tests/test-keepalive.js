@@ -48,11 +48,8 @@
 import { LWSContext, createServer, LCCSCF_PIPELINE, LWS_WRITE_HTTP_FINAL, LWSMPRO_CALLBACK, toString, toArrayBuffer } from 'lws.so';
 import createContext from '../lib/lws/context.js';
 import { httpClient } from '../lib/lws/protocols.js';
+import { tests, assert } from './unittests/tinytest.js';
 import * as std from 'std';
-
-function assert(cond, message) {
-  if(!cond) throw new Error(`assertion failed: ${message}`);
-}
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -114,12 +111,13 @@ function startServer() {
  * Runs `requestOnce()` once against a fresh connection, then again after
  * IDLE_GAP_MS, and reports whether the second (idle-reused) request
  * completed or hung - printing progress as it goes so a run's output
- * tells the whole story on its own.
+ * tells the whole story on its own. Throws (via `assert`/`withTimeout`) if
+ * either request fails or hangs - the caller is expected to be a tinytest
+ * case, which reports that as a FAILED test.
  *
  * @param {string} label - printed as this probe's section heading
  * @param {() => Promise<{status: number, body: string}>} requestOnce
  * @param {() => void} destroy - tears down whatever `requestOnce` used
- * @returns {Promise<boolean>} true if both requests succeeded
  */
 async function probeIdleReuse(label, requestOnce, destroy) {
   console.log(`\n=== ${label} ===`);
@@ -135,10 +133,6 @@ async function probeIdleReuse(label, requestOnce, destroy) {
     const second = await withTimeout(requestOnce(), HANG_TIMEOUT_MS, `second request never settled within ${HANG_TIMEOUT_MS}ms - HANGS, same failure mode as the ollama-repl report`);
     assert(second.status === 200 && second.body === 'pong', `unexpected second response: ${JSON.stringify(second)}`);
     console.log('second request (idle-reused pipelined connection): OK - no hang reproduced');
-    return true;
-  } catch(e) {
-    console.log(`FAILED - ${e.message}`);
-    return false;
   } finally {
     destroy();
   }
@@ -159,6 +153,12 @@ async function probeIdleReuse(label, requestOnce, destroy) {
  * this probe only ever has one request outstanding at a time.
  */
 let pending = null;
+
+// Tracked outside the tests() call below so printSummary() can still
+// compare both probes' outcomes once tinytest has reported each one
+// individually.
+let plainOk = false,
+  adapterOk = false;
 
 function requestViaPlainApi(ctx) {
   return new Promise((resolve, reject) => {
@@ -231,11 +231,12 @@ function makePlainApiProtocol() {
 async function testPlainApi() {
   const ctx = new LWSContext({ protocols: [makePlainApiProtocol()] });
 
-  return probeIdleReuse(
+  await probeIdleReuse(
     'plain lws.so API',
     () => requestViaPlainApi(ctx),
     () => ctx.destroy(),
   );
+  plainOk = true;
 }
 
 /**
@@ -259,7 +260,8 @@ async function testHttpClientAdapter() {
     return { status: resp.status, body: await resp.text() };
   }
 
-  return probeIdleReuse('httpClient() (lib/lws/protocols.js)', requestOnce, () => ctx.destroy());
+  await probeIdleReuse('httpClient() (lib/lws/protocols.js)', requestOnce, () => ctx.destroy());
+  adapterOk = true;
 }
 
 function printSummary(plainOk, adapterOk) {
@@ -283,25 +285,23 @@ function printSummary(plainOk, adapterOk) {
   }
 }
 
-async function main() {
-  const server = startServer();
+const server = startServer();
 
-  let plainOk, adapterOk;
-  try {
-    plainOk = await testPlainApi();
-    adapterOk = await testHttpClientAdapter();
-  } finally {
-    server.destroy();
-  }
-
-  printSummary(plainOk, adapterOk);
-
-  if(!plainOk || !adapterOk) std.exit(1);
+try {
+  await tests({
+    'plain lws.so API: idle-reused pipelined connection'() {
+      return testPlainApi();
+    },
+    'httpClient() adapter (lib/lws/protocols.js): idle-reused pipelined connection'() {
+      return testHttpClientAdapter();
+    },
+  });
+} finally {
+  server.destroy();
 }
 
-main()
-  .catch(e => {
-    console.log('TEST FAILED:', e, e?.stack);
-    std.exit(1);
-  })
-  .then(() => std.exit(0));
+printSummary(plainOk, adapterOk);
+
+// the LWSContext/server instances used above would otherwise keep the
+// process alive - see tests/unittests/test-fetch.js for the same pattern.
+std.exit(0);

@@ -1,6 +1,7 @@
 import { tests, eq, assert } from './tinytest.js';
 import { UDPSocket } from '../../lib/udpsocket.js';
 import { toString } from 'lws.so';
+import * as std from 'std';
 
 // Integration test for UDPSocket.send() with Bun.js signature
 // This test requires actual network I/O, so it's slower but verifies real behavior
@@ -130,3 +131,11 @@ await tests({
     server.close();
   },
 });
+
+// UDPSocket keeps a lazily-created LWSContext singleton alive for the life
+// of the process (shared across instances by design) - both sockets above
+// bind() (server mode), which permanently disables that context's
+// auto-destroy (ContextRefCounter#markServer(), lib/lws/context.js), so
+// the event loop would otherwise never drain on its own. Same pattern as
+// tests/unittests/test-tcpsocket.js.
+std.exit(0);

@@ -18,49 +18,23 @@ import { generateSelfSignedCert } from '../lib/lws/tls.js';
 import { http } from '../lib/lws/protocols.js';
 import { MultipartFormData, File } from '../lib/lws/multipart.js';
 import { ReadableStream } from '../lib/lws/streams.js';
+import { URL } from '../lib/lws/url.js';
+import { tests, assert } from './unittests/tinytest.js';
 import { toString, toArrayBuffer, logLevel, LWSMPRO_FILE, LWSMPRO_CALLBACK, LLL_USER, LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE } from 'lws.so';
 import { mkdir } from 'os';
 import * as std from 'std';
 
 logLevel(LLL_USER);
 
-/*
- * Minimal http(s)-only URL resolution
- * Only what the crawl below actually needs: recognizing an absolute
- * http(s) URL, resolving a root/relative path against a base, and
- * extracting an origin for same-host comparison.
- */
-const ABSOLUTE_SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
-
+/* Resolves `link` against `base`, rejecting anything but http(s). */
 function resolveUrl(link, base) {
-  const m = ABSOLUTE_SCHEME_RE.exec(link);
-
-  if(m) {
-    if(!/^https?:\/\//i.test(link)) throw new Error(`unsupported scheme: ${m[1]}`);
-    return link;
-  }
-
-  const baseMatch = /^(https?:\/\/[^/]+)(\/[^?#]*)?/i.exec(base);
-  if(!baseMatch) throw new Error(`invalid base URL: ${base}`);
-
-  const origin = baseMatch[1];
-
-  if(link.startsWith('//')) return origin.slice(0, origin.indexOf('://')) + ':' + link;
-  if(link.startsWith('/')) return origin + link;
-
-  const basePath = baseMatch[2] || '/';
-  const dir = basePath.slice(0, basePath.lastIndexOf('/') + 1) || '/';
-  return origin + dir + link;
+  const u = new URL(link, base);
+  if(u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error(`unsupported scheme: ${u.protocol}`);
+  return u.href;
 }
 
 function originOf(url) {
-  const m = /^(https?:\/\/[^/]+)/i.exec(url);
-  if(!m) throw new Error(`invalid URL: ${url}`);
-  return m[1];
-}
-
-function assert(cond, message) {
-  if(!cond) throw new Error('assertion failed: ' + message);
+  return new URL(url).origin;
 }
 
 const ROOT = '/tmp/test-fetch-fixture';
@@ -279,29 +253,36 @@ async function testMultipartPost() {
   }
 }
 
-async function main() {
-  writeFixture();
+writeFixture();
 
-  // Generated once, reused for both TLS combinations below - the server
-  // presents it, the client trusts that exact cert as its CA (a
-  // self-signed cert verifies fine against itself as a degenerate,
-  // one-node trust chain) rather than disabling verification.
-  const { cert, key } = generateSelfSignedCert({ commonName: 'localhost', altNames: ['localhost', '127.0.0.1'] });
-  const tls = { server: { cert, key }, client: { ca: cert } };
+// Generated once, reused for both TLS combinations below - the server
+// presents it, the client trusts that exact cert as its CA (a
+// self-signed cert verifies fine against itself as a degenerate,
+// one-node trust chain) rather than disabling verification.
+const { cert, key } = generateSelfSignedCert({ commonName: 'localhost', altNames: ['localhost', '127.0.0.1'] });
+const tls = { server: { cert, key }, client: { ca: cert } };
 
-  await runCombo('HTTP/1.1, plain', 8919, { h2: false, tls: null });
-  await runCombo('HTTP/1.1, TLS', 8920, { h2: false, tls });
-  await runCombo('H2, plain', 8921, { h2: true, tls: null });
-  await runCombo('H2, TLS', 8922, { h2: true, tls });
+await tests({
+  'HTTP/1.1, plain'() {
+    return runCombo('HTTP/1.1, plain', 8919, { h2: false, tls: null });
+  },
 
-  await testMultipartPost();
+  'HTTP/1.1, TLS'() {
+    return runCombo('HTTP/1.1, TLS', 8920, { h2: false, tls });
+  },
 
-  console.log('\nALL 4 COMBINATIONS PASSED');
-}
+  'H2, plain'() {
+    return runCombo('H2, plain', 8921, { h2: true, tls: null });
+  },
 
-main()
-  .catch(e => {
-    console.log('TEST FAILED:', e, e?.stack);
-    std.exit(1);
-  })
-  .then(() => std.exit(0)); // the fixture server + shared fetch() context would otherwise keep the process alive
+  'H2, TLS'() {
+    return runCombo('H2, TLS', 8922, { h2: true, tls });
+  },
+
+  'multipart POST (file + form field)': testMultipartPost,
+});
+
+// fetch() keeps a lazily-created LWSContext singleton alive for the life
+// of the process (shared across calls by design) - nothing above ever
+// destroys it, so the event loop would otherwise never drain on its own.
+std.exit(0);
