@@ -23,8 +23,8 @@
 #include "lws-protocol.h"
 
 static void callback_patch_system_vhost(struct lws_context*);
-static void service_tick_schedule(LWSContext*, int);
-static void service_tick_cancel(LWSContext*);
+
+void service_tick_schedule(LWSContext* lws, int delay_ms);
 
 /*
  * Base interval (ms) for the periodic forced-service tick below. The
@@ -62,7 +62,7 @@ service_tick(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
   return JS_UNDEFINED;
 }
 
-static void
+void
 service_tick_schedule(LWSContext* lws, int delay_ms) {
   JSValue glob = JS_GetGlobalObject(lws->js);
   JSValue os = JS_GetPropertyStr(lws->js, glob, "os");
@@ -85,7 +85,7 @@ service_tick_schedule(LWSContext* lws, int delay_ms) {
   JS_FreeValue(lws->js, fn);
 }
 
-static void
+void
 service_tick_cancel(LWSContext* lws) {
   if(JS_IsUndefined(lws->service_timer_id) || !lws->js)
     return;
@@ -803,6 +803,9 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
   lws->ctx = lws_create_context(&lws->info);
 
   callback_patch_system_vhost(lws->ctx);
+
+  if(lws->ctx)
+    lwsjs_register_pipe_fds(lws);
 
   if(lws->ctx)
     service_tick_schedule(lws, SERVICE_TICK_MS);

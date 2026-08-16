@@ -12,6 +12,10 @@
 #include "lws-epoll.h"
 #endif
 
+/* libwebsockets/lib/core-net/vhost.c - not part of any public lws header,
+   see lwsjs_register_pipe_fds()'s doc comment below for why it's needed */
+int lws_context_get_pipe_fd(struct lws_context*, int tsi);
+
 #define LWS_PLUGIN_STATIC
 
 #ifdef PLUGIN_PROTOCOL_DEADDROP
@@ -554,6 +558,56 @@ lwsjs_callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* u
   }
 
   return -1;
+}
+
+/*
+ * lws_create_context() creates its per-thread "cancel service" event pipe
+ * (context->pt[tsi].pipe_wsi, libwebsockets/lib/core-net/vhost.c's
+ * __lws_create_event_pipes()) before any vhost exists, and that wsi is
+ * deliberately left with vhost == protocol == NULL. lws's own
+ * __insert_wsi_socket_into_fds() (libwebsockets/lib/core-net/pollfd.c)
+ * only invokes the external-poll ADD_POLL_FD callback when wsi->a.vhost is
+ * non-NULL, so this pipe's fd is added to lws's internal pt->fds[] but
+ * lwsjs_callback_pollfd()/iohandler_set() above never learns about it -
+ * this project's event loop never polls it. Any thread that wakes the
+ * service loop from outside via lws_cancel_service() (e.g. the
+ * LWS_WITH_ASYNC_QUEUE background worker threads used to offload blocking
+ * LWSMPRO_FILE reads, libwebsockets/lib/core-net/service.c's
+ * lws_async_worker_worker()) writes to that pipe expecting it to wake the
+ * service loop - but nothing is listening, so the wakeup is silently lost
+ * and the wsi waiting on that job hangs forever (BUGS:
+ * fetch-client-http-body-never-delivered). Fix: manually register the
+ * pipe fd with the same iohandler/pollfd_handler machinery ADD_POLL_FD
+ * would have used, right after context (and so vhost) creation.
+ */
+void
+lwsjs_register_pipe_fds(LWSContext* lws) {
+  int n, fd, count = lws_get_count_threads(lws->ctx);
+
+  for(n = 0; n < count; n++) {
+    if((fd = lws_context_get_pipe_fd(lws->ctx, n)) < 0)
+      continue;
+
+#ifdef USE_EPOLL
+    lws_epoll_ctl(lws, fd, POLLIN);
+#else
+    {
+      LWSPollfdClosure* pc;
+
+      if(!(pc = malloc(sizeof(LWSPollfdClosure))))
+        continue;
+
+      pc->fd = fd;
+      pc->events = POLLIN;
+      pc->write = FALSE;
+      pc->lws = lws->ctx;
+
+      JSValue fn = js_function_cclosure(lws->js, pollfd_handler, 0, 0, pc, free);
+      iohandler_set(lws, fd, fn, FALSE);
+      JS_FreeValue(lws->js, fn);
+    }
+#endif
+  }
 }
 
 int

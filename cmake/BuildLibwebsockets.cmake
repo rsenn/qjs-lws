@@ -250,6 +250,7 @@ macro(build_libwebsockets)
   endif()]]
 
   string(REGEX REPLACE "[ \t\n]" "\n\t" ARGS "${LIBWEBSOCKETS_ARGS}")
+  string(REGEX REPLACE ";-D" "\n\t-D" ARGS "${ARGS}")
   message("libwebsockets configuration arguments:\n\t${ARGS}")
   string(REGEX REPLACE "[ ]" ";" LIBWEBSOCKETS_ARGS "${LIBWEBSOCKETS_ARGS}")
 

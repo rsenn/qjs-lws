@@ -8,7 +8,6 @@
 #include <sys/socket.h>
 
 #include "libwebsockets/lib/core/private-lib-core.h"
-// #include "libwebsockets/lib/roles/private-lib-roles.h"
 
 JSClassID lwsjs_socket_class_id;
 static JSValue lwsjs_socket_proto, lwsjs_socket_ctor;
@@ -276,8 +275,6 @@ socket_alloc(JSContext* ctx) {
   if(!(sock = js_mallocz(ctx, sizeof(LWSSocket))))
     return 0;
 
-  /*if(socket_list.next == 0) init_list_head(&socket_list);*/
-
   assert(socket_list.next);
   assert(socket_list.prev);
 
@@ -348,9 +345,13 @@ socket_get(struct lws* wsi) {
 static LWSSocket*
 socket_get_by_id(int id) {
   struct list_head* n;
-  LWSSocket* sock;
 
-  list_for_each(n, &socket_list) if((sock = list_entry(n, LWSSocket, link)) && sock->id == id) return sock;
+  list_for_each(n, &socket_list) {
+    LWSSocket* sock = list_entry(n, LWSSocket, link);
+
+    if(sock->id == id)
+      return sock;
+  }
 
   return 0;
 }
