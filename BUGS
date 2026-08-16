@@ -85,7 +85,8 @@
     // stderr anyway, then "caught: boom" - the catch worked fine, the
     // warning is just wrong
 
-- serve-upgrade-hangs-in-fuller-scenario (lib/serve.js, server.upgrade() / makeUpgradeHook()): server.upgrade() works in every focused test tried - a raw createServer()+WsProtocol+upgrade-hook repro, a raw createServer()+WebSocket.protocol()+upgrade-hook repro, and a minimal serve({fetch, websocket}) test with a single /ws endpoint and ws.data all connected and exchanged messages correctly - but a fuller end-to-end test (multiple endpoints, a preceding plain fetch() request, an assert-heavy client harness) left the WS client hanging with no open/error/close event ever firing, no native LLL_USER log line for the attempt at all, and no clear repro reduced yet before this was set aside to finish the rest of the task. Something about the fuller scenario's exact shape triggers it; isolated pieces of that same scenario (plain fetch before connecting, URL parsing in the fetch handler, the connect()-via-Promise client helper) were each individually ruled out as the sole cause without finding what combination actually does it. Needs a fresh, patient bisection of the original failing test before server.upgrade() can be trusted beyond the single-endpoint case.
+- serve-upgrade-hangs-in-fuller-scenario (lib/serve.js, server.upgrade() / makeUpgradeHook()): 
+  server.upgrade() works in every focused test tried - a raw createServer()+WsProtocol+upgrade-hook repro, a raw createServer()+WebSocket.protocol()+upgrade-hook repro, and a minimal serve({fetch, websocket}) test with a single /ws endpoint and ws.data all connected and exchanged messages correctly - but a fuller end-to-end test (multiple endpoints, a preceding plain fetch() request, an assert-heavy client harness) left the WS client hanging with no open/error/close event ever firing, no native LLL_USER log line for the attempt at all, and no clear repro reduced yet before this was set aside to finish the rest of the task. Something about the fuller scenario's exact shape triggers it; isolated pieces of that same scenario (plain fetch before connecting, URL parsing in the fetch handler, the connect()-via-Promise client helper) were each individually ruled out as the sole cause without finding what combination actually does it. Needs a fresh, patient bisection of the original failing test before server.upgrade() can be trusted beyond the single-endpoint case.
 
     not minimally reduced yet - see the description above for what was and wasn't ruled out; start from a serve({fetch, websocket}) with two distinct upgrade-accepting URL branches and a preceding plain fetch() call, then bisect down
 
@@ -385,43 +386,67 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     lws.parseUri("http://example.com/path")
 
-- fetch-crawl-fails-on-first-http1.1-request (lib/lws/protocols.js:366,
-  HttpClientProtocol#onReceiveClientHttp; tests/test-fetch.js): running
-  tests/test-fetch.js's HTTP/1.1-plain runCombo() case fails ("dropped")
-  on its very first request, and the other three combos each fail after
-  their first successful request when the connection is reused
-  (keepAlive) for a second one - so the crawl never completes any combo.
+- fetch-client-http-body-never-delivered (libwebsockets/lib/roles/h1/
+  ops-h1.c, rops_handle_POLLIN_h1's client branch ~line 718; contrast
+  libwebsockets/lib/core-net/service.c's lws_service_adjust_timeout()
+  dll_buflist_owner check): when an HTTP/1.1 client response's headers
+  and body both arrive in the same read (routine over loopback, or any
+  time the whole response is small enough for one packet), the body
+  never gets delivered to the client at all - fetch()'s Promise resolves
+  fine (status/headers arrived, LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP
+  fires normally) but `resp.body`/`.text()` then hangs forever with the
+  connection sitting open and *zero* CPU usage (confirmed via `ps`) -
+  LWS_CALLBACK_RECEIVE_CLIENT_HTTP simply never fires again. Minimal
+  repro (no crawl, no keep-alive, one request against a 3-line fixture
+  server): status 200 logs, then nothing - not even
+  CLOSED_HTTP/CLIENT_HTTP_DROP_PROTOCOL - forever.
 
-  This replaces the fetch-crawl-recv-http-spin entry that used to be
-  here: that bug (onReceiveClientHttp silently swallowing
-  wsi.httpClientRead()'s failure instead of returning -1 to tell lws to
-  close the wsi, leaving it stuck re-delivering RECEIVE_CLIENT_HTTP
-  forever and pegging a CPU core - see that investigation for the full
-  root-cause writeup) is fixed: onReceiveClientHttp now returns -1
-  when wsi.httpClientRead() reports failure, so lws closes the wsi
-  immediately instead of spinning.
+  This replaces the fetch-crawl-fails-on-first-http1.1-request entry
+  that used to be here, which in turn replaced
+  fetch-crawl-recv-http-spin - both earlier investigations of the same
+  underlying gap, now narrowed to this. (The recv-http-spin fix itself -
+  making HttpClientProtocol#onReceiveClientHttp, lib/lws/protocols.js,
+  return -1 when wsi.httpClientRead() fails instead of silently
+  swallowing it - is real and still correct: it stops the 100%-CPU spin
+  that used to happen when a read genuinely errors after being told
+  there's data. It's just not what's happening in *this* repro -
+  wsi.httpClientRead() is never even called again, because
+  RECEIVE_CLIENT_HTTP never re-fires.)
 
-  What's left unsolved is *why* wsi.httpClientRead()
-  (lws_http_client_read(), libwebsockets/lib/roles/http/client/
-  client-http.c) reports a read failure at all here: on this fixture (a
-  tiny static file served over loopback, connection closed by the server
-  right after responding), the underlying lws_buflist_aware_read() hits
-  a socket read error/EOF before the client ever gets to read the
-  response body - even though the TLS/H2 combos show it clearly CAN
-  succeed once (their first request completes and returns real content;
-  it's the *second*, reused-connection request that then fails the same
-  way). Something about draining a small response that arrives in one
-  packet, or about reusing a wsi for a second pipelined request, leaves
-  lws_http_client_read() with nothing to read when it should have the
-  buffered body available - not chased further; would need
-  libwebsockets-level investigation (probably around ops-h1.c's
-  rops_handle_POLLIN_h1 / the buflist it hands off to
-  lws_http_client_read()) beyond this session's scope.
+  Working theory, from reading (not yet instrumenting) client-http.c/
+  ops-h1.c/service.c: when the header parser (lws_parse(),
+  libwebsockets/lib/roles/http/parsers.c) finishes mid-buffer because
+  body bytes trail the headers in the same read, client-http.c's header-
+  parsing loop (~line 416-475) correctly computes the leftover byte
+  count and hands it to lws_buflist_aware_finished_consuming()
+  (core-net/service.c), which does stash it onto wsi->buflist and adds
+  the wsi to pt->dll_buflist_owner - so lws_service_adjust_timeout()'s
+  "wsi with buflist material pending" check (service.c ~449-463) should
+  see it and force another service round. What's unclear is whether
+  that forced round actually reaches ops-h1.c's client body-delivery
+  branch (~718: `if ((pollfd->revents & LWS_POLLIN) &&
+  wsi->hdr_parsing_completed ...)`), since that branch's condition is
+  gated on `pollfd->revents & LWS_POLLIN` - a real poll() event - not on
+  "has buflisted material", so a synthetic/forced-service call (no new
+  socket activity, nothing for poll() to report) may just never satisfy
+  that check, leaving the stashed body bytes sitting in the buflist
+  forever with nothing that ever asks for them. Not confirmed with
+  instrumentation and not fixed - would need tracing an actual forced-
+  service call's pollfd.revents through lws_service_tsi() to verify,
+  and any fix would be inside vendored libwebsockets, not this project's
+  own binding code.
 
-    qjsm tests/test-fetch.js   # every combo now fails fast (no hang) -
-                               # "Error: dropped" from
-                               # onClientHttpDropProtocol, or a
-                               # CLIENT_CONNECTION_ERROR on a reused
-                               # connection's second request
+    import { fetch } from 'lib/fetch.js';
+    import createContext from 'lib/lws/context.js';
+    import { LWSMPRO_FILE } from 'lws.so';
+    import { mkdir } from 'os';
+    import * as std from 'std';
+    mkdir('/tmp/f'); std.open('/tmp/f/index.html', 'w+').puts('hello'); // + .close()
+    const ctx = createContext({ port: 18919, vhostName: 'localhost',
+      mounts: [{ mountpoint: '/', origin: '/tmp/f', def: 'index.html', originProtocol: LWSMPRO_FILE }],
+      protocols: [{ name: 'http' }] });
+    const resp = await fetch('http://127.0.0.1:18919/index.html');
+    console.log('status', resp.status);   // prints fine
+    console.log(await resp.text());       // hangs forever, 0% CPU
 
 
