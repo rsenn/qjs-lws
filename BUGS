@@ -385,21 +385,51 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     lws.parseUri("http://example.com/path")
 
-- fetch-crawl-recv-http-spin (tests/test-fetch.js:171): running the
+- fetch-crawl-recv-http-spin (lib/lws/protocols.js:366,
+  HttpClientProtocol#onReceiveClientHttp): running tests/test-fetch.js's
   HTTP/1.1-plain runCombo() case hangs indefinitely, pegging one CPU core,
   instead of completing its 7-page/asset crawl. Confirmed on the
-  unmodified file (pre-dates the tinytest.js conversion done in this
-  session - reproduces identically before and after). Symptom: after the
-  first page fetches normally, the log fills with thousands of repeated
-  "[wsicli|0|GET/h1/gniltag/127.0.0.1]: RECEIVE_CLIENT_HTTP (swallowed N
-  dupes)" lines (native log dedup counting), interspersed with occasional
-  "EVENT_WAIT_CANCELLED" - looks like the client wsi's event loop keeps
-  re-delivering RECEIVE_CLIENT_HTTP without ever reaching
-  COMPLETED_CLIENT_HTTP for a later request in the crawl. Root cause not
-  isolated - could be native (lws-socket.c's pollfd_handler/event wait
-  loop) or in lib/fetch.js's/lib/lws/protocols.js's HttpClientProtocol
-  read-loop bookkeeping; not chased further here since it wasn't the
-  requested change.
+  unmodified file too (reproduces identically before and after the
+  tinytest.js conversion done in this session, so it's not a regression
+  from that).
+
+  Root cause, isolated via temporary instrumentation (native fprintf()s
+  in lwsjs_callback_protocol()/lwsjs_socket_http_client_read(),
+  lws-protocol.c/lws-socket.c, not kept): on this fixture (a tiny static
+  file served over loopback, connection closed by the server right after
+  responding - confirmed via the server-side CLOSED_HTTP log landing
+  before the client's first RECEIVE_CLIENT_HTTP), the very first
+  LWS_CALLBACK_RECEIVE_CLIENT_HTTP callback's lws_http_client_read() call
+  (libwebsockets/lib/roles/http/client/client-http.c) already returns -1
+  (its documented "failed, close the connection" signal - see the
+  function's own comment and every libwebsockets example's
+  "if (lws_http_client_read(...) < 0) return -1;" pattern) with 0 bytes
+  read, because the underlying lws_buflist_aware_read() hits a socket
+  read error/EOF (the peer already closed). onReceiveClientHttp
+  (lib/lws/protocols.js) calls wsi.httpClientRead(buf) but never checks
+  its return value, and the callback itself never returns anything (its
+  arrow-function body has no explicit return, so lwsjs_callback_protocol
+  sees `ret = to_int32free(ctx, undefined)` = 0) - so lws is never told
+  the read failed and never closes the wsi. Whatever internal lws state
+  the failed read left behind (POLLIN was already disabled for this wsi
+  by ops-h1.c's rops_handle_POLLIN_h1 before RECEIVE_CLIENT_HTTP first
+  fired, same mechanism documented in deferred-close-hangs-on-established-
+  client-http above) never gets resolved either way, so
+  lws-protocol.c:76's forced-service loop
+  (`while(lws_service_adjust_timeout(...)==0) lws_service_tsi(...);`)
+  keeps re-delivering RECEIVE_CLIENT_HTTP forever, identically, hence the
+  "(swallowed N dupes)" log spam.
+
+  Not fixed: making onReceiveClientHttp propagate a -1 return whenever
+  wsi.httpClientRead(buf) reports failure would stop the CPU spin (lws
+  would close the wsi immediately, same as its own examples do), but
+  would turn this specific fixture case into a fast connection error
+  instead of a successful response - the deeper question of why the
+  response body isn't available to read at all here (a timing/buflist
+  interaction specific to a same-process loopback response small enough
+  to arrive in one packet, possibly related to the same
+  rops_handle_POLLIN_h1 mechanism) is unresolved and would need
+  libwebsockets-level investigation beyond this session's scope.
 
     qjsm tests/test-fetch.js   # hangs partway through the HTTP/1.1-plain
                                # combination; Ctrl-C or `timeout` needed
