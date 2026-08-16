@@ -108,7 +108,6 @@ lwsjs_websocketstream_protocol_trampoline(JSContext* ctx, JSValueConst this_val,
 #endif
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
-
 static JSContext* lwsjs_log_ctx = 0;
 static JSValue lwsjs_log_fn = {JS_TAG_UNDEFINED, 0};
 
