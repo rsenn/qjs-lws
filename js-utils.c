@@ -8,11 +8,9 @@
 
 JSValue
 js_function_prototype(JSContext* ctx) {
-  JSValue ret, fn = JS_NewCFunction(ctx, 0, "", 0);
-  ret = JS_GetPrototype(ctx, fn);
-
+  JSValue fn = JS_NewCFunction(ctx, 0, "", 0);
+  JSValue ret = JS_GetPrototype(ctx, fn);
   JS_FreeValue(ctx, fn);
-
   return ret;
 }
 
@@ -73,7 +71,6 @@ js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
 
 BOOL
 js_has_property2(JSContext* ctx, JSValueConst obj, const char* name) {
-
   if(!js_has_property(ctx, obj, name)) {
     char buf[strlen(name) + 1];
 

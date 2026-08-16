@@ -131,7 +131,7 @@ retry_bo_from_retryobj(JSContext* ctx, JSValueConst retry_obj) {
 
       if(count > 0 && (table = js_mallocz(ctx, sizeof(uint32_t) * count)))
         for(uint32_t i = 0; i < count; i++)
-          table[i] = to_integerfree(ctx, JS_GetPropertyUint32(ctx, table_val, i));
+          table[i] = to_int32free(ctx, JS_GetPropertyUint32(ctx, table_val, i));
     }
 
     JS_FreeValue(ctx, table_val);
@@ -143,10 +143,10 @@ retry_bo_from_retryobj(JSContext* ctx, JSValueConst retry_obj) {
         /* Default conceal_count to the whole table (don't report failure
            to the app until every entry's been tried once) unless given
            explicitly. */
-        bo->conceal_count = (uint16_t)(js_has_property(ctx, retry_obj, "conceal_count") ? to_integerfree(ctx, js_get_property(ctx, retry_obj, "conceal_count")) : count);
-        bo->secs_since_valid_ping = (uint16_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "secs_since_valid_ping"));
-        bo->secs_since_valid_hangup = (uint16_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "secs_since_valid_hangup"));
-        bo->jitter_percent = (uint8_t)to_integerfree(ctx, js_get_property(ctx, retry_obj, "jitter_percent"));
+        bo->conceal_count = (uint16_t)(js_has_property(ctx, retry_obj, "conceal_count") ? to_int32free(ctx, js_get_property(ctx, retry_obj, "conceal_count")) : count);
+        bo->secs_since_valid_ping = (uint16_t)to_int32free(ctx, js_get_property(ctx, retry_obj, "secs_since_valid_ping"));
+        bo->secs_since_valid_hangup = (uint16_t)to_int32free(ctx, js_get_property(ctx, retry_obj, "secs_since_valid_hangup"));
+        bo->jitter_percent = (uint8_t)to_int32free(ctx, js_get_property(ctx, retry_obj, "jitter_percent"));
       } else {
         js_free(ctx, table);
       }
@@ -337,7 +337,7 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_
   str_property(&ci->address, ctx, obj, "address");
 
   if(js_has_property(ctx, obj, "port"))
-    ci->port = to_integerfree(ctx, js_get_property(ctx, obj, "port"));
+    ci->port = to_int32free(ctx, js_get_property(ctx, obj, "port"));
 
   tls_connect_info_fromobj(ctx, obj, ci);
 
@@ -349,13 +349,13 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_
   str_property(&ci->iface, ctx, obj, "iface");
 
   if(js_has_property(ctx, obj, "local_port"))
-    ci->local_port = to_integerfree(ctx, js_get_property(ctx, obj, "local_port"));
+    ci->local_port = to_int32free(ctx, js_get_property(ctx, obj, "local_port"));
 
   str_property(&ci->local_protocol_name, ctx, obj, "local_protocol_name");
   str_property(&ci->alpn, ctx, obj, "alpn");
 
   if(js_has_property(ctx, obj, "keep_warm_secs"))
-    ci->keep_warm_secs = to_integerfree(ctx, js_get_property(ctx, obj, "keep_warm_secs"));
+    ci->keep_warm_secs = to_int32free(ctx, js_get_property(ctx, obj, "keep_warm_secs"));
 
   str_property(&ci->auth_username, ctx, obj, "auth_username");
   str_property(&ci->auth_password, ctx, obj, "auth_password");
@@ -370,13 +370,14 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_
 
 static void
 client_connect_info_from_uri(JSContext* ctx, char* uri, struct lws_client_connect_info* info) {
-  const char *protocol, *host, *path;
-  int port;
-  int r = lws_parse_uri(uri, &protocol, &host, &port, &path);
+  lws_parse_uri_t* parsed = lws_parse_uri_create(uri);
 
-  if(protocol) {
-    BOOL ssl = !strcmp(protocol, "https") || !strcmp(protocol, "wss");
-    BOOL http = !strncmp(protocol, "http", 4);
+  if(!parsed)
+    return;
+
+  if(parsed->scheme) {
+    BOOL ssl = !strcmp(parsed->scheme, "https") || !strcmp(parsed->scheme, "wss");
+    BOOL http = !strncmp(parsed->scheme, "http", 4);
 
     if(http)
       str_replace(ctx, &info->method, js_strdup(ctx, "GET"));
@@ -387,13 +388,15 @@ client_connect_info_from_uri(JSContext* ctx, char* uri, struct lws_client_connec
       info->ssl_connection &= ~(LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE);
   }
 
-  if(host)
-    str_replace(ctx, &info->host, js_strdup(ctx, host));
+  if(parsed->host)
+    str_replace(ctx, &info->host, js_strdup(ctx, parsed->host));
 
-  info->port = port;
+  info->port = parsed->port;
 
-  if(path)
-    str_replace(ctx, &info->path, js_strdup(ctx, path));
+  if(parsed->path)
+    str_replace(ctx, &info->path, js_strdup(ctx, parsed->path));
+
+  lws_parse_uri_destroy(&parsed);
 }
 
 static char*
@@ -513,13 +516,13 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   str_property(&ci->error_document_404, ctx, obj, "error_document_404");
 
   value = JS_GetPropertyStr(ctx, obj, "port");
-  ci->port = to_integerfree(ctx, value);
+  ci->port = to_int32free(ctx, value);
 
   value = js_get_property(ctx, obj, "http_proxy_port");
-  ci->http_proxy_port = to_integerfree(ctx, value);
+  ci->http_proxy_port = to_int32free(ctx, value);
 
   value = js_get_property(ctx, obj, "keepalive_timeout");
-  ci->keepalive_timeout = to_integerfree(ctx, value);
+  ci->keepalive_timeout = to_uint32free(ctx, value);
 #endif
 
   /* How long (seconds) a client connection may sit waiting - for the TLS
@@ -527,7 +530,7 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
      with e.g. "Timed out waiting server reply" (see wsi-timeout.c). Left
      unset (0), lws_create_context() keeps its own default (15s) */
   value = js_get_property(ctx, obj, "timeout_secs");
-  ci->timeout_secs = to_integerfree(ctx, value);
+  ci->timeout_secs = to_uint32free(ctx, value);
 
 #ifdef LWS_WITH_SYS_ASYNC_DNS
   value = js_get_property(ctx, obj, "async_dns_servers");
@@ -556,13 +559,13 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
     str_property(&ci->http_nsc_filepath, ctx, value, "path");
 
     if(js_has_property(ctx, value, "max_footprint"))
-      ci->http_nsc_heap_max_footprint = to_integerfree(ctx, js_get_property(ctx, value, "max_footprint"));
+      ci->http_nsc_heap_max_footprint = to_uint32free(ctx, js_get_property(ctx, value, "max_footprint"));
 
     if(js_has_property(ctx, value, "max_items"))
-      ci->http_nsc_heap_max_items = to_integerfree(ctx, js_get_property(ctx, value, "max_items"));
+      ci->http_nsc_heap_max_items = to_uint32free(ctx, js_get_property(ctx, value, "max_items"));
 
     if(js_has_property(ctx, value, "max_payload"))
-      ci->http_nsc_heap_max_payload = to_integerfree(ctx, js_get_property(ctx, value, "max_payload"));
+      ci->http_nsc_heap_max_payload = to_uint32free(ctx, js_get_property(ctx, value, "max_payload"));
   }
 
   JS_FreeValue(ctx, value);
@@ -582,17 +585,17 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   str_property(&ci->socks_proxy_address, ctx, obj, "socks_proxy_address");
 
   value = js_get_property(ctx, obj, "socks_proxy_port");
-  ci->socks_proxy_port = to_integerfree(ctx, value);
+  ci->socks_proxy_port = to_int32free(ctx, value);
 #endif
 
   value = js_get_property(ctx, obj, "default_loglevel");
-  ci->default_loglevel = to_integerfree(ctx, value);
+  ci->default_loglevel = to_int32free(ctx, value);
 
   value = js_get_property(ctx, obj, "vh_listen_sockfd");
-  ci->vh_listen_sockfd = to_integerfree(ctx, value);
+  ci->vh_listen_sockfd = to_int32free(ctx, value);
 
   value = JS_GetPropertyStr(ctx, obj, "options");
-  ci->options = to_integerfree(ctx, value);
+  ci->options = to_int64free(ctx, value);
 
   if(ci->options & (LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG | LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG)) {
     str_property(&ci->listen_accept_role, ctx, obj, "listen_accept_role");
@@ -1061,7 +1064,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         str_property((const char**)&vhost_name, ctx, opts, "vhost");
 
         if(js_has_property(ctx, opts, "port"))
-          port = to_integerfree(ctx, js_get_property(ctx, opts, "port"));
+          port = to_int32free(ctx, js_get_property(ctx, opts, "port"));
 
         bind = to_boolfree(ctx, js_get_property(ctx, opts, "bind"));
         broadcast = to_boolfree(ctx, js_get_property(ctx, opts, "broadcast"));

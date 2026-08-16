@@ -14,11 +14,6 @@
     .name = prop_name, .prop_flags = flags, .def_type = JS_DEF_CGETSET_MAGIC, .magic = magic_num, .u = {.getset = {.get = {.getter_magic = fgetter}, .set = {.setter_magic = fsetter}} } \
   }
 
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define CLAMP(a, min, max) MIN(MAX((a), (min)), (max))
-#define WRAP(n, len) ((n) < 0 ? (n) + (len) : (n))
-
 typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
 
 JSValue js_function_prototype(JSContext*);
@@ -37,35 +32,6 @@ size_t get_offset_length(JSContext*, int, JSValueConst[], size_t, size_t*);
 void* get_buffer(JSContext*, int, JSValueConst[], size_t*);
 JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*opaque_finalize)(void*));
 JSValue js_invoke_deferred(JSContext*, JSValueConst obj, const char* method_name, int argc, JSValueConst argv[]);
-
-static inline JSValue
-ptr_obj(JSContext* ctx, void* obj) {
-  return obj ? JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj)) : JS_NULL;
-}
-
-#if __SIZEOF_POINTER__ == 8
-static inline void*
-to_ptr(JSContext* ctx, JSValueConst val) {
-  int64_t i = -1;
-  JS_ToInt64(ctx, &i, val);
-  return (void*)i;
-}
-
-#define to_integer(ctx, val) to_int64(ctx, val)
-#define to_integerfree(ctx, val) to_int64free(ctx, val)
-#elif __SIZEOF_POINTER__ == 4
-static inline void*
-to_ptr(JSContext* ctx, JSValueConst val) {
-  int32_t i = -1;
-  JS_ToInt32(ctx, &i, val);
-  return (void*)i;
-}
-
-#define to_integer(ctx, val) to_int32(ctx, val)
-#define to_integerfree(ctx, val) to_int32free(ctx, val)
-#else
-#error __SIZEOF_POINTER__ is not 8 or 4
-#endif
 
 static inline BOOL
 is_nullish(JSValueConst val) {
@@ -205,6 +171,11 @@ static inline void
 str_property(const char** pptr, JSContext* ctx, JSValueConst obj, const char* name) {
   if(js_has_property2(ctx, obj, name))
     str_replace(ctx, pptr, to_stringfree(ctx, js_get_property(ctx, obj, name)));
+}
+
+static inline JSValue
+ptr_obj(JSContext* ctx, void* obj) {
+  return obj ? JS_DupValue(ctx, JS_MKPTR(JS_TAG_OBJECT, obj)) : JS_NULL;
 }
 
 static inline void*

@@ -282,7 +282,7 @@ lwsjs_html_process_args(JSContext* ctx, struct lws_process_html_args* pha, int a
   pha->final = pha->chunked = 0;
 
   if(argc > 1) {
-    pha->len = to_integerfree(ctx, JS_IsObject(argv[1]) ? JS_GetPropertyUint32(ctx, argv[1], 0) : JS_DupValue(ctx, argv[1]));
+    pha->len = to_int32free(ctx, JS_IsObject(argv[1]) ? JS_GetPropertyUint32(ctx, argv[1], 0) : JS_DupValue(ctx, argv[1]));
     ++ret;
   }
 
@@ -423,15 +423,26 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       char* uri;
 
       if((uri = to_string(ctx, argv[0]))) {
-        const char *protocol, *host, *path;
-        int r, port;
+        lws_parse_uri_t* lpu;
 
-        if(!(r = lws_parse_uri(uri, &protocol, &host, &port, &path))) {
+        if((lpu = lws_parse_uri_create(uri))) {
           ret = JS_NewObjectProto(ctx, JS_NULL);
-          JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, protocol));
-          JS_SetPropertyStr(ctx, ret, "host", JS_NewString(ctx, host));
-          JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, port));
-          JS_SetPropertyStr(ctx, ret, "path", JS_NewString(ctx, path));
+
+          if(lpu->scheme && lpu->scheme[0])
+            JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, lpu->scheme));
+
+          if(lpu->host && lpu->host[0])
+            JS_SetPropertyStr(ctx, ret, "host", JS_NewString(ctx, lpu->host));
+
+          if(lpu->port)
+            JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, lpu->port));
+
+          if(lpu->path)
+            JS_SetPropertyStr(ctx, ret, "path", JS_NewString(ctx, lpu->path));
+
+          // if(lpu->unix_skt) JS_SetPropertyStr(ctx, ret, "unix", JS_TRUE);
+
+          lws_parse_uri_destroy(&lpu);
         }
 
         js_free(ctx, (char*)uri);

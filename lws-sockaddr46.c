@@ -12,12 +12,12 @@ lwsjs_sockaddr46_constructor(JSContext* ctx, JSValueConst new_target, int argc, 
   lws_sockaddr46 sa = {0};
   int i = 0;
 
-  if(argc > i && JS_IsNumber(argv[i])) {
+  if(i < argc && JS_IsNumber(argv[i])) {
     sa.sa4.sin_family = to_uint32(ctx, argv[i]);
     i++;
   }
 
-  if(argc > i) {
+  if(i < argc) {
     uint8_t* buf;
     size_t len;
     char* str;
@@ -36,14 +36,47 @@ lwsjs_sockaddr46_constructor(JSContext* ctx, JSValueConst new_target, int argc, 
         i++;
       }
     } else if((str = to_string(ctx, argv[i]))) {
-      if(lws_sa46_parse_numeric_address(str, &sa) == 0)
-        i++;
+      if(str[0] == '[') {
+        const char* p;
+
+        if((p = strchr(str + 1, ']'))) {
+          char* s = js_strndup(ctx, str + 1, p - (str + 1));
+
+          if(lws_sa46_parse_numeric_address(s, &sa) == 0) {
+            ++p;
+
+            if(*++p)
+              sa.sa6.sin6_port = htons(atoi(p));
+
+            i++;
+          }
+
+          js_free(ctx, s);
+        } else {
+          return JS_ThrowSyntaxError(ctx, "missing ending ]");
+        }
+
+      } else {
+        const char* p = strchr(str, '.') ? strchr(str, ':') : 0;
+
+        char* s = p ? js_strndup(ctx, str, p - str) : js_strdup(ctx, str);
+
+        if(lws_sa46_parse_numeric_address(s, &sa) == 0) {
+          i++;
+
+          if(p)
+            if(*++p)
+              sa.sa4.sin_port = htons(atoi(p));
+        }
+
+        js_free(ctx, s);
+      }
 
       js_free(ctx, str);
     }
   }
 
-  if(argc > i && JS_IsNumber(argv[i])) {
+  if(i < argc) {
     sa.sa4.sin_port = htons(to_uint32(ctx, argv[i]));
     i++;
   }
@@ -145,6 +178,7 @@ enum {
   PROP_PORT,
   PROP_ADDRESS,
   PROP_HOST,
+  PROP_IS_IPV4_MAPPED,
 };
 
 static JSValue
@@ -179,12 +213,13 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
           ret = JS_NewArrayBufferCopy(ctx, (uint8_t*)&sa->sa4.sin_addr, sizeof(sa->sa4.sin_addr));
           break;
         }
+
         case AF_INET6: {
           ret = JS_NewArrayBufferCopy(ctx, (uint8_t*)&sa->sa6.sin6_addr, sizeof(sa->sa6.sin6_addr));
           break;
         }
-        default: break;
       }
+
       break;
     }
 
@@ -193,6 +228,11 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
       int r = lws_sa46_write_numeric_address(sa, buf, sizeof(buf));
 
       ret = JS_NewStringLen(ctx, buf, r);
+      break;
+    }
+
+    case PROP_IS_IPV4_MAPPED: {
+      ret = JS_NewBool(ctx, lws_sa46_is_ipv4_mapped(sa));
       break;
     }
   }
@@ -225,13 +265,15 @@ lwsjs_sockaddr46_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, 
       uint8_t* p;
       size_t len;
 
-      if((p = JS_GetArrayBuffer(ctx, &len, value))) {
+      if((p = get_buffer(ctx, 1, &value, &len))) {
         if(len == sizeof(sa->sa4.sin_addr)) {
           sa->sa4.sin_family = AF_INET;
           memcpy(&sa->sa4.sin_addr, p, len);
         } else if(len == sizeof(sa->sa6.sin6_addr)) {
           sa->sa6.sin6_family = AF_INET6;
           memcpy(&sa->sa6.sin6_addr, p, len);
+        } else {
+          ret = JS_ThrowTypeError(ctx, "address must be a buffer of length 4 or 16");
         }
       }
 
@@ -255,7 +297,8 @@ lwsjs_sockaddr46_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, 
             sa->sa6.sin6_family = AF_INET6;
             memcpy(&sa->sa6.sin6_addr, &tmp.sa6.sin6_addr, sizeof(sa->sa6.sin6_addr));
           }
-        }
+        } else
+          ret = JS_ThrowTypeError(ctx, "can't parse host: '%s'", str);
 
         js_free(ctx, str);
       }
@@ -276,10 +319,10 @@ static const JSCFunctionListEntry lws_sockaddr46_proto_funcs[] = {
     JS_CGETSET_MAGIC_FLAGS_DEF("port", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_PORT, 0),
     JS_CGETSET_MAGIC_DEF("address", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_ADDRESS),
     JS_CGETSET_MAGIC_FLAGS_DEF("host", lwsjs_sockaddr46_get, lwsjs_sockaddr46_set, PROP_HOST, JS_PROP_ENUMERABLE),
+    JS_CGETSET_MAGIC_FLAGS_DEF("isIpv4Mapped", lwsjs_sockaddr46_get, 0, PROP_IS_IPV4_MAPPED, JS_PROP_ENUMERABLE),
     JS_CFUNC_MAGIC_DEF("toString", 0, lwsjs_sockaddr46_methods, METHOD_TO_STRING),
     JS_CFUNC_MAGIC_DEF("compare", 1, lwsjs_sockaddr46_methods, METHOD_COMPARE),
     JS_CFUNC_MAGIC_DEF("onNet", 2, lwsjs_sockaddr46_methods, METHOD_ON_NET),
-
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "LWSSockAddr46", JS_PROP_CONFIGURABLE),
 };
 

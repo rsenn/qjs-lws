@@ -6,6 +6,7 @@
 #include "js-utils.h"
 #include "iohandler.h"
 #include <assert.h>
+#include <stdlib.h>
 
 #ifdef USE_EPOLL
 #include "lws-epoll.h"
@@ -44,16 +45,22 @@
 #include "libwebsockets/plugins/protocol_lws_raw_test/protocol_lws_raw_test.c"
 #endif
 
+typedef struct {
+  int fd, events;
+  BOOL write;
+  struct lws_context* lws;
+} LWSPollfdClosure;
+
 static JSValue
-pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, JSValueConst data[]) {
-  struct lws_context* lws = to_ptr(ctx, data[3]);
+pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, void* opaque) {
+  LWSPollfdClosure* pc = opaque;
   struct lws_pollfd pf = {
-      .fd = to_int32(ctx, data[0]),
-      .events = to_int32(ctx, data[1]),
-      .revents = JS_ToBool(ctx, data[2]) ? POLLOUT : POLLIN,
+      .fd = pc->fd,
+      .events = pc->events,
+      .revents = pc->write ? POLLOUT : POLLIN,
   };
 
-  lws_service_fd(lws, &pf);
+  lws_service_fd(pc->lws, &pf);
 
   /*
    * A serviced wsi may still have buffered data left to parse (e.g. a
@@ -66,8 +73,8 @@ pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* ar
    * poll() event that will never come - see lws_service_adjust_timeout()
    * in lws-service.h.
    */
-  while(lws_service_adjust_timeout(lws, 1, 0) == 0)
-    lws_service_tsi(lws, -1, 0);
+  while(lws_service_adjust_timeout(pc->lws, 1, 0) == 0)
+    lws_service_tsi(pc->lws, -1, 0);
 
   return JS_UNDEFINED;
 }
@@ -311,13 +318,13 @@ lwsjs_protocol_from(JSContext* ctx, JSValueConst obj, struct lws_protocols* pro)
   pro->per_session_data_size = sizeof(JSValue);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 2) : js_get_property(ctx, obj, "rx_buffer_size");
-  pro->rx_buffer_size = to_integerfree(ctx, value);
+  pro->rx_buffer_size = to_uint32free(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 3) : JS_GetPropertyStr(ctx, obj, "id");
-  pro->id = to_integerfree(ctx, value);
+  pro->id = to_uint32free(ctx, value);
 
   value = is_array ? JS_GetPropertyUint32(ctx, obj, 4) : js_get_property(ctx, obj, "tx_packet_size");
-  pro->tx_packet_size = to_integerfree(ctx, value);
+  pro->tx_packet_size = to_uint32free(ctx, value);
 
   return 0;
 }
@@ -521,13 +528,17 @@ lwsjs_callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* u
       lws_epoll_ctl(lws, x->fd, x->events);
 #else
       BOOL write = !!(x->events & POLLOUT);
-      JSValueConst data[] = {
-          JS_NewInt32(ctx, x->fd),
-          JS_NewInt32(ctx, x->events),
-          JS_NewBool(ctx, write),
-          JS_NewInt64(ctx, (intptr_t)lws_get_context(wsi)),
-      };
-      JSValue fn = JS_NewCFunctionData(ctx, pollfd_handler, 0, 0, countof(data), data);
+      LWSPollfdClosure* pc;
+
+      if(!(pc = malloc(sizeof(LWSPollfdClosure))))
+        return -1;
+
+      pc->fd = x->fd;
+      pc->events = x->events;
+      pc->write = write;
+      pc->lws = lws_get_context(wsi);
+
+      JSValue fn = js_function_cclosure(ctx, pollfd_handler, 0, 0, pc, free);
 
       if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
         iohandler_set(lws, x->fd, JS_NULL, !write);

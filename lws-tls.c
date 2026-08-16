@@ -108,7 +108,7 @@ tls_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_con
   JSValue value;
 
   if(js_has_property(ctx, obj, "ssl_connection"))
-    ci->ssl_connection |= to_integerfree(ctx, js_get_property(ctx, obj, "ssl_connection"));
+    ci->ssl_connection |= to_int32free(ctx, js_get_property(ctx, obj, "ssl_connection"));
 
   if(js_has_property(ctx, obj, "ssl")) {
     value = js_get_property(ctx, obj, "ssl");

@@ -21,12 +21,18 @@
 #define DEBUG_WSI(wsi, fmt, x...)
 #endif
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define CLAMP(a, min, max) MIN(MAX((a), (min)), (max))
+#define WRAP(n, len) ((n) < 0 ? (n) + (len) : (n))
+
 #define VISIBLE __attribute__((visibility("default")))
 
 #define JS_ATOM_MAX_INT ((1u << 31) - 1)
 
 size_t camelize(char*, size_t, const char*);
 size_t decamelize(char*, size_t, const char*);
+
 int lwsjs_html_process_args(JSContext*, struct lws_process_html_args*, int, JSValueConst[]);
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
 void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);

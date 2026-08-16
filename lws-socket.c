@@ -730,9 +730,9 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
   for(int i = 0; i < argc; ++i) {
     if(code == -1 && JS_IsNumber(argv[i])) {
-      code = to_integer(ctx, argv[i]);
+      code = to_int32(ctx, argv[i]);
     } else if(len == -1 && JS_IsNumber(argv[i])) {
-      len = to_integer(ctx, argv[i]);
+      len = to_int64(ctx, argv[i]);
     } else if(!ptr && (ptr = JS_GetArrayBuffer(ctx, &tmp_len, argv[i]))) {
       len = len == -1 ? (int64_t)tmp_len : len;
     } else if(!ptr && JS_IsString(argv[i]) && (ptr = (uint8_t*)JS_ToCStringLen(ctx, &tmp_len, argv[i]))) {

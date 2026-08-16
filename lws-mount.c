@@ -61,13 +61,13 @@ lwsjs_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
     m->interpret = lwsjs_vhost_options_fromfree(ctx, value);
 
     value = js_get_property(ctx, obj, "cgi_timeout");
-    m->cgi_timeout = to_integerfree(ctx, value);
+    m->cgi_timeout = to_int32free(ctx, value);
 
     value = js_get_property(ctx, obj, "cache_max_age");
-    m->cache_max_age = to_integerfree(ctx, value);
+    m->cache_max_age = to_int32free(ctx, value);
 
     value = js_get_property(ctx, obj, "auth_mask");
-    m->auth_mask = to_integerfree(ctx, value);
+    m->auth_mask = to_uint32free(ctx, value);
 
     value = js_get_property(ctx, obj, "cache_reusable");
     m->cache_reusable = to_boolfree(ctx, value);
@@ -82,7 +82,7 @@ lwsjs_mount_from(JSContext* ctx, JSValueConst obj, const char* name) {
     m->cache_no = to_boolfree(ctx, value);*/
 
     value = js_get_property(ctx, obj, "origin_protocol");
-    m->origin_protocol = to_integerfree(ctx, value);
+    m->origin_protocol = to_uint32free(ctx, value);
 
     value = js_get_property(ctx, obj, "basic_auth_login_file");
     m->basic_auth_login_file = to_stringfree(ctx, value);
