@@ -1,0 +1,20 @@
+diff --git a/lib/core-net/vhost.c b/lib/core-net/vhost.c
+index 55693c9bd..ec4cd393c 100644
+--- a/lib/core-net/vhost.c
++++ b/lib/core-net/vhost.c
+@@ -1390,6 +1390,15 @@ bail:
+ 	return 1;
+ }
+ 
++int
++lws_context_get_pipe_fd(struct lws_context *context, int tsi)
++{
++	if (tsi < 0 || tsi >= context->count_threads || !context->pt[tsi].pipe_wsi)
++		return -1;
++
++	return context->pt[tsi].pipe_wsi->desc.sockfd;
++}
++
+ void
+ lws_destroy_event_pipe(struct lws *wsi)
+ {
