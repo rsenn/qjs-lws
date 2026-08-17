@@ -251,11 +251,10 @@ conventions:
        validFrom/validTo) or `null` if not TLS / no peer cert — a
        simplified analog of Node's `tlsSocket.getPeerCertificate()`.
      - `wsi.tlsSessionReused` — readonly boolean getter.
-   - High-level: none yet — reachable via the existing `.wsi` escape hatch
-     (`ServerRequest#wsi`, `TCPSocket.lws()`, `WebSocket.lws()`), same as
-     `wsi.peer`/`wsi.local` today. Promoting it onto `TCPSocket`/
-     `WebSocket`/`ServerRequest` is left for a later pass once there's a
-     concrete mTLS consumer driving the shape.
+   - High-level: ✅ `TCPSocket#peerCertificate`/`#tlsSessionReused` and
+     `WebSocket#peerCertificate`/`#tlsSessionReused` (`lib/tcpsocket.js`,
+     `lib/websocket.js`). `ServerRequest` doesn't get its own copies — use
+     `request.wsi.peerCertificate` via the existing `.wsi` escape hatch.
 
 ### Compatibility Patterns to Support
 

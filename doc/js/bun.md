@@ -212,11 +212,11 @@ a `ServerWebSocket` feature.
   `socket.writableNeedDrain` equivalent (`wsi.sendPipeChoked`) - true if a
   `send()`/`write()` right now would buffer instead of going out
   immediately.
-- TLS peer certificate info (`wsi.peerCertificate`, `wsi.tlsSessionReused`,
-  see `doc/native/LWSSocket.md`) isn't promoted onto `Server`/`WebSocket`/
-  `ServerRequest` yet - reach it via the existing wsi escape hatch
-  (`ServerRequest#wsi`, `WebSocket.lws(ws)`) until a concrete mTLS use case
-  settles the right high-level shape.
+- TLS peer certificate info: `TCPSocket#peerCertificate`/`#tlsSessionReused`
+  and `WebSocket#peerCertificate`/`#tlsSessionReused` (Node's
+  `tlsSocket.getPeerCertificate()`/`.isSessionReused()` equivalents, see
+  `doc/native/LWSSocket.md`). `ServerRequest` doesn't get its own copies -
+  use `request.wsi.peerCertificate` via the existing `.wsi` escape hatch.
 
 ## TLS
 

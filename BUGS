@@ -391,15 +391,16 @@ send() calls until the callback completes. All 8 unit tests pass.
   lws-client.h). wsi.peerCertificate returns
   `{ subjectCN, issuerCN, validFrom, validTo, verified }` (validFrom/validTo
   as Date objects) or `null` if not TLS / no peer cert presented - a
-  simplified analog of Node's tlsSocket.getPeerCertificate(). Not yet
-  promoted onto TCPSocket/WebSocket/ServerRequest - reachable via the
-  existing `.wsi` escape hatch for now. Confirmed via a plain (non-TLS) ws
-  connection: peerCertificate is null, tlsSessionReused is false, no crash.
+  simplified analog of Node's tlsSocket.getPeerCertificate(). Promoted onto
+  TCPSocket#peerCertificate/#tlsSessionReused and
+  WebSocket#peerCertificate/#tlsSessionReused (lib/tcpsocket.js,
+  lib/websocket.js) - ServerRequest doesn't get its own copies, use
+  `request.wsi.peerCertificate` there. Confirmed via plain (non-TLS) ws/tcp
+  connections: peerCertificate is null, tlsSessionReused is false, no crash.
 
     import { WebSocket } from './lib/websocket.js';
     // inside a wss:// server's websocket.open(ws) handler:
-    const wsi = WebSocket.lws(ws);
-    console.log(wsi.peerCertificate, wsi.tlsSessionReused);
+    console.log(ws.peerCertificate, ws.tlsSessionReused);
 
 ---
 
