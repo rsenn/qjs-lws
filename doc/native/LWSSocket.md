@@ -112,6 +112,20 @@ value is forced to `-1`, which is libwebsockets' own signal to close
 the wsi once the callback returns. Calling `close()` from outside a
 dispatch (the common case — e.g. from a timer) closes immediately.
 
+### `setTimeout(seconds)`
+
+Wraps `lws_set_timeout()`. Marks the wsi to be force-closed by
+libwebsockets itself after `seconds` of no activity (reason
+`PENDING_TIMEOUT_USER_OK`) — this is a **hard, auto-closing** timeout,
+unlike a JS-level `setTimeout()` which only emits an event. Pass `0`
+(or any value `<= 0`) to cancel a pending timeout (`NO_PENDING_TIMEOUT`).
+
+```js
+onEstablished(wsi) {
+  wsi.setTimeout(30);   // force-close if idle for 30s
+}
+```
+
 ### `httpClientRead(buf [, offset])`
 
 Wraps `lws_http_client_read()`. Reads incoming HTTP body bytes into
@@ -183,6 +197,9 @@ Throws `RangeError` when the buffer is too small.
 | `pipelineLeader` | The wsi this one is queued behind (`lws_get_txn_queue_leader()`), or `undefined` if not queued |
 | `isPipelineLeader` | Boolean — `lws_wsi_is_txn_queue_leader()`, whether other client wsi may be queued behind this one |
 | `pipelineQueueDepth` | Number of client wsi currently queued behind this one (`lws_get_txn_queue_depth()`) |
+| `sendPipeChoked` | Boolean — `lws_send_pipe_choked()`, whether a write right now would buffer instead of going out immediately |
+| `tlsSessionReused` | Boolean — `lws_tls_session_is_reused()` |
+| `peerCertificate` | `{ subjectCN, issuerCN, validFrom, validTo, verified }` (Dates for `validFrom`/`validTo`) from `lws_tls_peer_cert_info()`, or `null` if not TLS / no peer cert was presented |
 
 The toStringTag is `LWSSocket`.
 

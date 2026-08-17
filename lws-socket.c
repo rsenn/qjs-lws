@@ -843,6 +843,27 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 }
 
 static JSValue
+lwsjs_socket_set_timeout(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  LWSSocket* s;
+  int32_t secs;
+
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
+    return JS_EXCEPTION;
+
+  if(!s->wsi)
+    return JS_UNDEFINED;
+
+  secs = argc > 0 ? to_int32(ctx, argv[0]) : 0;
+
+  /* PENDING_TIMEOUT_USER_OK is lws's generic "app-defined timeout, no
+     specific internal meaning" reason - secs <= 0 cancels any pending
+     timeout the same way lws itself does internally (NO_PENDING_TIMEOUT). */
+  lws_set_timeout(s->wsi, secs > 0 ? PENDING_TIMEOUT_USER_OK : NO_PENDING_TIMEOUT, secs);
+
+  return JS_UNDEFINED;
+}
+
+static JSValue
 lwsjs_socket_close(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   LWSSocket* s;
   uint32_t reason = 1000;
@@ -1137,6 +1158,9 @@ enum {
   PROP_PIPELINE_LEADER,
   PROP_IS_PIPELINE_LEADER,
   PROP_PIPELINE_QUEUE_DEPTH,
+  PROP_SEND_PIPE_CHOKED,
+  PROP_PEER_CERTIFICATE,
+  PROP_TLS_SESSION_REUSED,
 #ifdef LWS_WITH_CONMON
   PROP_CONMON,
 #endif
@@ -1159,6 +1183,49 @@ lwsjs_socket_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, int 
       break;
     }
   }
+
+  return ret;
+}
+
+/* Scratch buffer sizing for lws_tls_peer_cert_info() - same oversized-buffer
+   trick as lws-tls.c's X509_INFO_BUF_SIZE (see its own comment for why the
+   `len` argument has to be computed this way). */
+#define WSI_CERT_INFO_BUF_SIZE 8192
+
+static BOOL
+wsi_cert_info(struct lws* wsi, enum lws_tls_cert_info type, uint8_t* buf) {
+  union lws_tls_cert_info_results* r = (union lws_tls_cert_info_results*)buf;
+
+  return lws_tls_peer_cert_info(wsi, type, r, WSI_CERT_INFO_BUF_SIZE - sizeof(*r) + sizeof(r->ns.name)) == 0;
+}
+
+static JSValue
+wsi_cert_info_string(struct lws* wsi, JSContext* ctx, enum lws_tls_cert_info type) {
+  uint8_t buf[WSI_CERT_INFO_BUF_SIZE];
+  union lws_tls_cert_info_results* r = (union lws_tls_cert_info_results*)buf;
+
+  if(!wsi_cert_info(wsi, type, buf))
+    return JS_UNDEFINED;
+
+  return JS_NewStringLen(ctx, r->ns.name, (size_t)r->ns.len);
+}
+
+static JSValue
+wsi_cert_info_date(struct lws* wsi, JSContext* ctx, enum lws_tls_cert_info type) {
+  uint8_t buf[WSI_CERT_INFO_BUF_SIZE];
+  union lws_tls_cert_info_results* r = (union lws_tls_cert_info_results*)buf;
+  JSValue global, ctor, ret, arg;
+
+  if(!wsi_cert_info(wsi, type, buf))
+    return JS_UNDEFINED;
+
+  global = JS_GetGlobalObject(ctx);
+  ctor = JS_GetPropertyStr(ctx, global, "Date");
+  JS_FreeValue(ctx, global);
+
+  arg = JS_NewFloat64(ctx, (double)r->time * 1000.0);
+  ret = JS_CallConstructor(ctx, ctor, 1, &arg);
+  JS_FreeValue(ctx, ctor);
 
   return ret;
 }
@@ -1437,6 +1504,36 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       break;
     }
 
+    case PROP_SEND_PIPE_CHOKED: {
+      ret = JS_NewBool(ctx, lws_send_pipe_choked(s->wsi));
+      break;
+    }
+
+    case PROP_TLS_SESSION_REUSED: {
+      ret = JS_NewBool(ctx, lws_tls_session_is_reused(s->wsi));
+      break;
+    }
+
+    case PROP_PEER_CERTIFICATE: {
+      uint8_t buf[WSI_CERT_INFO_BUF_SIZE];
+      union lws_tls_cert_info_results* r = (union lws_tls_cert_info_results*)buf;
+
+      if(!lws_is_ssl(s->wsi) || !wsi_cert_info(s->wsi, LWS_TLS_CERT_INFO_VERIFIED, buf)) {
+        ret = JS_NULL;
+        break;
+      }
+
+      ret = JS_NewObjectProto(ctx, JS_NULL);
+
+      JS_SetPropertyStr(ctx, ret, "verified", JS_NewBool(ctx, r->verified));
+      JS_SetPropertyStr(ctx, ret, "subjectCN", wsi_cert_info_string(s->wsi, ctx, LWS_TLS_CERT_INFO_COMMON_NAME));
+      JS_SetPropertyStr(ctx, ret, "issuerCN", wsi_cert_info_string(s->wsi, ctx, LWS_TLS_CERT_INFO_ISSUER_NAME));
+      JS_SetPropertyStr(ctx, ret, "validFrom", wsi_cert_info_date(s->wsi, ctx, LWS_TLS_CERT_INFO_VALIDITY_FROM));
+      JS_SetPropertyStr(ctx, ret, "validTo", wsi_cert_info_date(s->wsi, ctx, LWS_TLS_CERT_INFO_VALIDITY_TO));
+
+      break;
+    }
+
     case PROP_DISPATCHING: {
       ret = JS_NewBool(ctx, s->dispatching);
       break;
@@ -1472,6 +1569,7 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_DEF("httpClientRead", 1, lwsjs_socket_http_client_read),
     JS_CFUNC_DEF("addHeader", 4, lwsjs_socket_add_header),
     JS_CFUNC_DEF("clientHttpMultipart", 4, lwsjs_socket_client_http_multipart),
+    JS_CFUNC_DEF("setTimeout", 1, lwsjs_socket_set_timeout),
     JS_CGETSET_MAGIC_FLAGS_DEF("id", lwsjs_socket_get, 0, PROP_ID, 0),
     JS_CGETSET_MAGIC_FLAGS_DEF("tag", lwsjs_socket_get, 0, PROP_TAG, JS_PROP_CONFIGURABLE),
     JS_CGETSET_MAGIC_DEF("vhost", lwsjs_socket_get, 0, PROP_VHOST),
@@ -1501,6 +1599,9 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("pipelineLeader", lwsjs_socket_get, 0, PROP_PIPELINE_LEADER),
     JS_CGETSET_MAGIC_DEF("isPipelineLeader", lwsjs_socket_get, 0, PROP_IS_PIPELINE_LEADER),
     JS_CGETSET_MAGIC_DEF("pipelineQueueDepth", lwsjs_socket_get, 0, PROP_PIPELINE_QUEUE_DEPTH),
+    JS_CGETSET_MAGIC_DEF("sendPipeChoked", lwsjs_socket_get, 0, PROP_SEND_PIPE_CHOKED),
+    JS_CGETSET_MAGIC_DEF("tlsSessionReused", lwsjs_socket_get, 0, PROP_TLS_SESSION_REUSED),
+    JS_CGETSET_MAGIC_DEF("peerCertificate", lwsjs_socket_get, 0, PROP_PEER_CERTIFICATE),
 #ifdef LWS_WITH_CONMON
     JS_CGETSET_MAGIC_DEF("conmon", lwsjs_socket_get, 0, PROP_CONMON),
 #endif

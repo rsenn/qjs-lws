@@ -195,6 +195,29 @@ underneath). A plain `Class`/`WebSocketStream`-shaped `websocket` option
 doesn't get these methods, matching how Bun's own pub/sub is specifically
 a `ServerWebSocket` feature.
 
+## Idle timeout, backpressure, TLS peer info
+
+- `server.timeout(seconds)` - server-wide idle timeout, matching Bun's
+  semantics: applied (and re-armed on every request/WS message) via the
+  native `wsi.setTimeout()` binding (`lws_set_timeout()`,
+  `doc/native/LWSSocket.md`), which force-closes an idle connection - `0`
+  disables it.
+- `websocket.idleTimeout` - same mechanism, per-WS-handler; takes
+  precedence over `server.timeout()` when both are set on the same
+  connection.
+- `websocket.drain(ws)` - now actually fires: `ws.send()` arms a one-shot
+  native "write queue fully flushed" callback whenever it leaves data
+  buffered, which dispatches the `'drain'` event.
+- `WebSocket#writableNeedDrain` / `TCPSocket#writableNeedDrain` - Node's
+  `socket.writableNeedDrain` equivalent (`wsi.sendPipeChoked`) - true if a
+  `send()`/`write()` right now would buffer instead of going out
+  immediately.
+- TLS peer certificate info (`wsi.peerCertificate`, `wsi.tlsSessionReused`,
+  see `doc/native/LWSSocket.md`) isn't promoted onto `Server`/`WebSocket`/
+  `ServerRequest` yet - reach it via the existing wsi escape hatch
+  (`ServerRequest#wsi`, `WebSocket.lws(ws)`) until a concrete mTLS use case
+  settles the right high-level shape.
+
 ## TLS
 
 `serve({ tls: {cert, key} })` constructs an SSL-capable vhost, matching

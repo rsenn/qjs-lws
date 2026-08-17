@@ -276,7 +276,11 @@ different options work correctly. All 8 unit tests pass.
   - requestIP(request) - now returns the peer IP via a WeakMap<Request, ip> populated in
     toRequest()/requestFromWsi() (lib/serve.js), since the WHATWG Request handed to user
     code doesn't itself carry the originating wsi ✅
-  - timeout(seconds) - no-op stub (needs lws context integration)
+  - timeout(seconds) - now backed by the native wsi.setTimeout() binding (lws_set_timeout(),
+    lws-socket.c), re-armed via the new internal _applyTimeout() on every request and every
+    WS message so it means "idle for N seconds", not "N seconds since connect" - lws force-
+    closes the connection itself at expiry. Confirmed end-to-end: a WS client left idle after
+    server.timeout(1) is closed by the server ~1s later ✅
   - closeIdleConnections() - stub returning 0 (needs lws context integration)
   - reload(options) - no-op stub (complex implementation needed)
   - fetch(request) - stub returning 501 (needs routing through handlers)
@@ -288,25 +292,33 @@ different options work correctly. All 8 unit tests pass.
   Promise, id is unique string, pendingRequests/pendingWebSockets are numbers,
   url is URL object, development is boolean.
 
-  Next steps: wire up request/websocket tracking, and implement timeout()/
+  Next steps: wire up request/websocket tracking, and implement
   closeIdleConnections()/reload()/fetch() with actual lws context integration.
 
 ### websockethandler-missing-10-options (lib/serve.js, Bun.js WebSocket API): **PARTIALLY FIXED**
   Added support for all 10 missing WebSocket handler options:
-  - drain() - accepted but not wired (our WebSocket doesn't expose backpressure events yet)
+  - drain() - now wired: WebSocket#send() (lib/websocket.js) arms a one-shot native
+    wsi.wantWrite() callback whenever a send() leaves bufferedAmount > 0, which fires a
+    'drain' event once the write queue is fully flushed; serve.js wires websocket.drain to it ✅
   - ping() - wired to 'ping' event listener
   - pong() - wired to 'pong' event listener
   - perMessageDeflate - accepted but not implemented (needs lws compression support)
   - maxPayloadLength - accepted but not implemented (needs lws configuration)
-  - idleTimeout - accepted but not implemented (needs lws timeout configuration)
+  - idleTimeout - now backed by the native wsi.setTimeout() binding (lws_set_timeout()),
+    re-armed on every WS message; takes precedence over server.timeout() when both are set ✅
   - backpressureLimit - accepted but not implemented (needs lws backpressure support)
   - closeOnBackpressureLimit - accepted but not implemented (needs lws backpressure support)
   - sendPings - accepted but not implemented (needs lws ping configuration)
   - publishToSelf - accepted but not implemented (needs TopicRegistry changes)
-  
-  All options are now accepted without errors, but only ping/pong handlers are fully functional.
-  The rest require underlying lws library support or additional implementation work.
-  
+
+  ping/pong/drain/idleTimeout handlers are now fully functional; the rest still require
+  underlying lws library support (compression, backpressure limits, ping config) or
+  TopicRegistry changes (publishToSelf) not yet done.
+
+  New: WebSocket#writableNeedDrain and TCPSocket#writableNeedDrain (Node's
+  socket.writableNeedDrain equivalent), backed by the new wsi.sendPipeChoked getter
+  (lws_send_pipe_choked(), lws-socket.c).
+
   All 34 serve tests pass.
 
 ### tcpsocket-options-are-stubs (lib/tcpsocket.js, Node.js/Bun/Deno TCP API): **PARTIALLY FIXED**
@@ -371,6 +383,23 @@ send() calls until the callback completes. All 8 unit tests pass.
     
     // ServerResponse (Express-style) still has these methods:
     app.get('/', (req, res) => res.cookie('session', 'abc123').end('ok'));
+
+### wsi-peer-tls-info-unbound (lws-socket.c): **FIXED**
+  wsi.peerCertificate and wsi.tlsSessionReused are new readonly getters,
+  wrapping the previously-unbound lws_tls_peer_cert_info()/
+  lws_tls_session_is_reused() (libwebsockets/include/libwebsockets/lws-x509.h,
+  lws-client.h). wsi.peerCertificate returns
+  `{ subjectCN, issuerCN, validFrom, validTo, verified }` (validFrom/validTo
+  as Date objects) or `null` if not TLS / no peer cert presented - a
+  simplified analog of Node's tlsSocket.getPeerCertificate(). Not yet
+  promoted onto TCPSocket/WebSocket/ServerRequest - reachable via the
+  existing `.wsi` escape hatch for now. Confirmed via a plain (non-TLS) ws
+  connection: peerCertificate is null, tlsSessionReused is false, no crash.
+
+    import { WebSocket } from './lib/websocket.js';
+    // inside a wss:// server's websocket.open(ws) handler:
+    const wsi = WebSocket.lws(ws);
+    console.log(wsi.peerCertificate, wsi.tlsSessionReused);
 
 ---
 
