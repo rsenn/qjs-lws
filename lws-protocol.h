@@ -16,6 +16,7 @@ int lwsjs_callback_dummy(struct lws*, enum lws_callback_reasons, void*, void*, s
 int lwsjs_callback_js(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
 int lwsjs_callback_pollfd(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
 void lwsjs_register_pipe_fds(LWSContext*);
+void lwsjs_unregister_pipe_fds(LWSContext*);
 int lwsjs_callback_protocol(struct lws*, enum lws_callback_reasons, void*, void*, size_t);
 
 #endif

@@ -687,6 +687,9 @@ context_free(JSRuntime* rt, LWSContext* lws) {
 #endif
 
   if(lws->js) {
+    if(lws->ctx)
+      lwsjs_unregister_pipe_fds(lws);
+
     service_tick_cancel(lws);
     timers_cleanup(lws);
     JS_FreeContext(lws->js);
@@ -854,6 +857,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
   switch(magic) {
     case METHOD_DESTROY: {
       if(lws->ctx) {
+        lwsjs_unregister_pipe_fds(lws);
         service_tick_cancel(lws);
         timers_cleanup(lws);
         lws_context_destroy(lws->ctx);

@@ -610,6 +610,30 @@ lwsjs_register_pipe_fds(LWSContext* lws) {
   }
 }
 
+/*
+ * Counterpart to lwsjs_register_pipe_fds(): the pipe wsi's DEL_POLL_FD
+ * never fires either (same vhost==NULL gate), so without this the JS-side
+ * read handler registered above outlives the pipe fd it was registered
+ * for - leaving the event loop waiting forever on a stale/closed fd after
+ * the context is destroyed. Must be called while lws->js and lws->ctx are
+ * both still valid, before either is torn down.
+ */
+void
+lwsjs_unregister_pipe_fds(LWSContext* lws) {
+  int n, fd, count = lws_get_count_threads(lws->ctx);
+
+  for(n = 0; n < count; n++) {
+    if((fd = lws_context_get_pipe_fd(lws->ctx, n)) < 0)
+      continue;
+
+#ifdef USE_EPOLL
+    lws_epoll_del(lws, fd);
+#else
+    iohandler_set(lws, fd, JS_NULL, FALSE);
+#endif
+  }
+}
+
 int
 lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in, size_t len) {
   if(is_loadcerts_reason(reason))
