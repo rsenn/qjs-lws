@@ -271,8 +271,11 @@ different options work correctly. All 8 unit tests pass.
   - pendingWebSockets (getter) - returns count of active WebSocket connections (tracking not yet wired)
   - stop() - now returns Promise that resolves after ctx.destroy() completes (Bun/Deno compatibility) ✅
   - ref()/unref() - no-op stubs (lws contexts already manage process lifecycle)
-  - subscriberCount(topic) - stub returning 0 (needs TopicRegistry integration)
-  - requestIP(request) - stub returning null (needs wsi access)
+  - subscriberCount(topic) - now wired to the WebSocket TopicRegistry (lib/websocket.js) via
+    the protocol descriptor's subscriberCount(topic), threaded through Server's constructor ✅
+  - requestIP(request) - now returns the peer IP via a WeakMap<Request, ip> populated in
+    toRequest()/requestFromWsi() (lib/serve.js), since the WHATWG Request handed to user
+    code doesn't itself carry the originating wsi ✅
   - timeout(seconds) - no-op stub (needs lws context integration)
   - closeIdleConnections() - stub returning 0 (needs lws context integration)
   - reload(options) - no-op stub (complex implementation needed)
@@ -285,8 +288,8 @@ different options work correctly. All 8 unit tests pass.
   Promise, id is unique string, pendingRequests/pendingWebSockets are numbers,
   url is URL object, development is boolean.
 
-  Next steps: wire up request/websocket tracking, implement subscriberCount,
-  requestIP, and closeIdleConnections with actual lws context integration.
+  Next steps: wire up request/websocket tracking, and implement timeout()/
+  closeIdleConnections()/reload()/fetch() with actual lws context integration.
 
 ### websockethandler-missing-10-options (lib/serve.js, Bun.js WebSocket API): **PARTIALLY FIXED**
   Added support for all 10 missing WebSocket handler options:
@@ -306,22 +309,20 @@ different options work correctly. All 8 unit tests pass.
   
   All 34 serve tests pass.
 
-### tcpsocket-options-are-stubs (lib/tcpsocket.js, Node.js/Bun/Deno TCP API):
-  TCPSocket.setNoDelay(), setKeepAlive(), and setTimeout() are implemented
-  as stubs (no-op methods that return `this` for chaining). They accept the
-  correct parameters per Node.js/Bun/Deno specs but don't actually configure
-  the socket because libwebsockets doesn't expose socket option APIs to
-  JavaScript yet. Code using these methods won't error, but won't get the
-  expected behavior either.
-  
-  To fully implement:
-  - setNoDelay: Need native binding for `setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, ...)`
-  - setKeepAlive: Need native binding for `setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, ...)`
-    and TCP_KEEPIDLE/TCP_KEEPINTVL options
-  - setTimeout: Need lws timer integration to detect inactivity and emit 'timeout' event
-  
-  Tests verify the methods exist and are chainable (10 tests pass), but don't
-  test actual socket behavior since the implementations are no-ops.
+### tcpsocket-options-are-stubs (lib/tcpsocket.js, Node.js/Bun/Deno TCP API): **PARTIALLY FIXED**
+  TCPSocket.setNoDelay() and setKeepAlive() are still stubs (no-op methods
+  that return `this` for chaining) - they accept the correct parameters per
+  Node.js/Bun/Deno specs but don't actually configure the socket, since that
+  needs a native `setsockopt()` binding this project doesn't have yet:
+  - setNoDelay: needs `setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, ...)`
+  - setKeepAlive: needs `setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, ...)` and
+    TCP_KEEPIDLE/TCP_KEEPINTVL
+
+  setTimeout() is now fully implemented in JS (no native change needed):
+  tracks an inactivity timer armed on construction and reset on `send()`/
+  `write()` and on incoming `'message'` activity, firing a `'timeout'` event
+  (and the optional callback) after the given number of milliseconds of
+  inactivity; `0` disables it. All 10 tests in test-tcpsocket-options.js pass.
 
 ### serverwebsocket-missing-3-members (lib/websocket.js, Bun.js WebSocket API): **FIXED**
 ServerWebSocket now has remoteAddress (client address getter), remotePort, localAddress, 
@@ -374,16 +375,4 @@ send() calls until the callback completes. All 8 unit tests pass.
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
-
-- parseuri-uses-deprecated-lws-parse-uri (lws.c:444): the lwsjs_functions
-  "parseUri"-style binding still calls the deprecated, destructive
-  lws_parse_uri() (writes '\0' bytes into its input string and drops the
-  leading '/' of the path) instead of lws_parse_uri_create()/
-  lws_parse_uri_destroy(), the same migration just done for
-  client_connect_info_from_uri() in lws-context.c. Confirmed by the
-  -Wdeprecated-declarations warning at build time; not fixed here since
-  it wasn't part of the requested change.
-
-    lws.parseUri("http://example.com/path")
-
 
