@@ -212,6 +212,8 @@ a `ServerWebSocket` feature.
   `socket.writableNeedDrain` equivalent (`wsi.sendPipeChoked`) - true if a
   `send()`/`write()` right now would buffer instead of going out
   immediately.
+- `WebSocket#bufferedAmount` - WHATWG/Bun/Deno standard property, bytes
+  still queued to be sent (`wsi.bufferedAmount`).
 - TLS peer certificate info: `TCPSocket#peerCertificate`/`#tlsSessionReused`
   and `WebSocket#peerCertificate`/`#tlsSessionReused` (Node's
   `tlsSocket.getPeerCertificate()`/`.isSessionReused()` equivalents, see

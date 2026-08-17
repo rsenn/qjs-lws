@@ -194,11 +194,9 @@ The goal is to maximize compatibility with scripts written for WHATWG standards,
      project's TCPSocket API surface calls for one yet (Bun's `Socket` handler has no
      `drain` callback of its own)
 
-7. **WebSocket bufferedAmount** (lib/websocket.js)
-   - Native side already exists (`wsi.bufferedAmount`, used internally by `send()`'s
-     drain-arming logic) - just needs promoting to a public `WebSocket#bufferedAmount`
-     getter (WHATWG/Bun/Deno)
-   - Cost: ~5 lines JS, no native changes needed
+7. **WebSocket bufferedAmount** ✅ DONE (lib/websocket.js)
+   - ✅ `WebSocket#bufferedAmount` getter (WHATWG/Bun/Deno), backed by the already-existing
+     `wsi.bufferedAmount`
 
 8. **UDPSocket Multicast** (lib/udpsocket.js)
    - Add `addMembership(multicastAddress, interfaceAddress?)` (Node/Bun/Deno)
@@ -309,7 +307,7 @@ socket.bind(8080);
 
 **Phase 2** (Medium compatibility gain, requires native support):
 6. ✅ TCPSocket/WebSocket drain handler (writableNeedDrain + WebSocket 'drain' event)
-7. WebSocket bufferedAmount (native side done, public getter not yet promoted)
+7. ✅ WebSocket bufferedAmount
 8. UDPSocket multicast (addMembership, dropMembership)
 
 **Phase 3** (Low priority, niche use cases):
