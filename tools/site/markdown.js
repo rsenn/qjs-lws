@@ -39,6 +39,21 @@ export function slugify(text) {
 
 function inline(text, ctx) {
   const slots = [];
+  let html = scan(text, ctx, slots);
+
+  // restore slots last, once: a link slot can itself contain code slots
+  for (let i = 0; i < 8 && html.indexOf(NUL) >= 0; i++)
+    html = html.replace(RE_SLOT, (m, n) => slots[+n]);
+
+  return html;
+}
+
+/**
+ * One inline pass. `slots` is threaded through rather than allocated per call:
+ * a link label is re-scanned recursively and may still carry placeholders
+ * punched by an enclosing pass, which a fresh table would resolve to undefined.
+ */
+function scan(text, ctx, slots) {
   const put = html => NUL + (slots.push(html) - 1) + NUL;
 
   // 1. code spans, before anything else gets a chance to look inside them
@@ -54,7 +69,7 @@ function inline(text, ctx) {
       const url = ctx.link ? ctx.link(href) : href;
       const t = title ? ' title="' + escAttr(title) + '"' : '';
       const ext = /^[a-z][a-z0-9+.-]*:/i.test(url) ? ' target="_blank" rel="noopener"' : '';
-      return put('<a href="' + escAttr(url) + '"' + t + ext + '>' + inline(label, ctx) + '</a>');
+      return put('<a href="' + escAttr(url) + '"' + t + ext + '>' + scan(label, ctx, slots) + '</a>');
     });
 
   // 4. bare URLs
@@ -64,10 +79,6 @@ function inline(text, ctx) {
   // 5. emphasis ('_' is intentionally not a delimiter - see file header)
   text = text.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/(^|[^*\w])\*(?=[^\s*])([^*]*?[^\s*])\*(?!\*)/g, '$1<em>$2</em>');
-
-  // 6. restore slots (a link slot can itself contain code slots)
-  for (let i = 0; i < 8 && text.indexOf(NUL) >= 0; i++)
-    text = text.replace(RE_SLOT, (m, n) => slots[+n]);
 
   return text;
 }
