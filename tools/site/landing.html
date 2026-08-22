@@ -1,0 +1,247 @@
+<main>
+
+<section class="hero">
+  <div>
+    <span class="eyebrow">QuickJS × libwebsockets</span>
+    <h1>Network servers that fit where Node.js doesn't.</h1>
+    <p class="lede">
+      qjs-lws binds <a href="https://libwebsockets.org/" target="_blank" rel="noopener">libwebsockets</a>
+      into <a href="https://bellard.org/quickjs/" target="_blank" rel="noopener">QuickJS</a>: HTTP/1.1 and HTTP/2,
+      WebSocket, raw TCP and UDP, TLS — driven by QuickJS's own event loop, with a
+      JavaScript layer that looks like the web platform you already know.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="getting-started.html">Get started</a>
+      <a class="btn" href="docs/index.html">Read the docs</a>
+      <a class="btn" href="{{GITHUB}}" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+
+  <x-code lang="js">
+import { serve, Response } from './lib/serve.js';
+
+serve({
+  port: 8080,
+
+  websocket: {
+    open(ws)          { ws.subscribe('chat'); },
+    message(ws, data) { ws.publish('chat', data); },
+  },
+
+  fetch(req, server) {
+    const { pathname } = new URL(req.url);
+
+    if(pathname === '/ws' && server.upgrade(req))
+      return;
+
+    return new Response('hello from qjs-lws');
+  },
+});
+  </x-code>
+</section>
+
+<section class="section">
+  <h2>Why it exists</h2>
+  <p class="sub">
+    A production-grade C networking stack and a very small interpreter, joined so that
+    neither one has to pretend to be the other.
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <span class="ico">◇</span>
+      <h3>No service loop</h3>
+      <p>
+        The binding hooks libwebsockets' pollfd callbacks straight into
+        <code>os.setReadHandler</code>/<code>setWriteHandler</code>. No
+        <code>lws_service()</code> spun from JS, no polling tax — your script's normal event
+        loop drives the stack. An optional <code>epoll(7)</code> backend collapses it to a
+        single fd.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">◈</span>
+      <h3>Every role, one context</h3>
+      <p>
+        HTTP client and server, WebSocket client and server, raw TCP and UDP, static-file
+        mounts, redirects, and TLS with peer-certificate introspection — all from one
+        <code>LWSContext</code>, on one port if you want it that way.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">◉</span>
+      <h3>APIs you already know</h3>
+      <p>
+        <code>fetch()</code>, <code>WebSocket</code>, <code>URL</code>/<code>URLSearchParams</code>,
+        <code>Headers</code>/<code>Request</code>/<code>Response</code>/<code>FormData</code>,
+        WHATWG Streams, <code>AbortController</code>, <code>TCPSocket</code>. Written from the
+        specs, not approximated.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">▤</span>
+      <h3>Bun-shaped <code>serve()</code></h3>
+      <p>
+        <code>serve({ fetch, websocket })</code> with <code>server.upgrade()</code>, WebSocket
+        pub/sub topics, chunked streaming and backpressure — close enough to Bun that most
+        handlers port across unchanged.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">⇉</span>
+      <h3>Routing and middleware</h3>
+      <p>
+        An Express-compatible <code>app</code>/<code>Router</code> layer when you want one:
+        path params, method dispatch, sub-routers, sessions, multipart bodies, MIME types.
+        Optional — the primitives underneath stay reachable.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">◐</span>
+      <h3>Drop to C-level control</h3>
+      <p>
+        The wrappers are a convenience, never a wall. Every callback reason libwebsockets
+        emits is reachable as an <code>onEventName</code> handler, with the raw
+        <code>wsi</code> in hand.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Built for the small end</h2>
+  <p class="sub">
+    Where a Node or Bun runtime is the largest thing on the device, and the job is one
+    well-defined piece of networking.
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Embedded &amp; appliance firmware</h3>
+      <p>
+        A scriptable control plane on hardware with a flash budget: config UI, telemetry
+        push over WebSocket, firmware upload through the native multipart parser.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Small utility servers</h3>
+      <p>
+        Health endpoints, webhook receivers, metrics scrapers, LAN dashboards — the
+        services that never justified a <code>node_modules</code> tree.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Gateways &amp; proxies</h3>
+      <p>
+        Terminate TLS, translate protocols, bridge WebSocket to raw TCP. Mixed HTTP and raw
+        listeners on one vhost make protocol-sniffing front doors straightforward.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Two altitudes, same stack</h2>
+  <div class="split">
+    <div>
+      <h3>Native — you hold the wsi</h3>
+      <p>Protocol handlers map one-to-one onto <code>struct lws_protocols</code>.</p>
+      <x-code lang="js">
+import { createServer, LWSMPRO_NO_MOUNT } from 'lws';
+
+createServer({
+  port: 8080,
+  vhostName: 'localhost',
+  mounts: [{
+    mountpoint: '/chat',
+    protocol: 'chat',
+    originProtocol: LWSMPRO_NO_MOUNT,
+  }],
+  protocols: [{
+    name: 'chat',
+    onEstablished(wsi)   { console.log('open', wsi.peer?.host); },
+    onReceive(wsi, data) { wsi.write(data); },
+    onClosed(wsi)        { console.log('close'); },
+  }],
+});
+      </x-code>
+    </div>
+
+    <div>
+      <h3>Web-shaped — you hold a Request</h3>
+      <p>The same connection, wrapped in the APIs a browser would hand you.</p>
+      <x-code lang="js">
+import { fetch } from './lib/fetch.js';
+
+const res = await fetch('https://example.com/api', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ hello: 'world' }),
+});
+
+console.log(res.status, res.headers.get('content-type'));
+console.log(await res.json());
+      </x-code>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Get it running</h2>
+  <p class="sub">CMake builds the module and, if you let it, the vendored libwebsockets too.</p>
+
+  <x-code lang="sh">
+git clone --recursive {{GITHUB}}.git
+cd qjs-lws
+mkdir build &amp;&amp; cd build
+cmake -DDEBUG_OUTPUT=OFF -DDO_TESTS=ON ..
+make -j
+
+# lws.so lands in build/; point QuickJS at it
+qjs -I ./build ../tests/unittests/test-lwscontext.js
+  </x-code>
+
+  <ul class="checks">
+    <li><strong>Dependencies:</strong> a C compiler, CMake ≥ 3.5, a QuickJS install, and libwebsockets (vendored by default).</li>
+    <li><strong>Platforms:</strong> Linux and macOS natively; Windows via MinGW.</li>
+    <li><strong>Licence:</strong> MIT.</li>
+  </ul>
+
+  <p style="margin-top:2rem">
+    <a class="btn primary" href="getting-started.html">Getting started →</a>
+    <a class="btn" href="docs/building.html">Full build options</a>
+  </p>
+</section>
+
+<section class="section">
+  <h2>Where it stands</h2>
+  <div class="split">
+    <div>
+      <p class="note">
+        <strong>Honest status:</strong> qjs-lws is in daily use and the native API is stable,
+        but it hasn't cut a versioned release yet — track
+        <a href="changelog.html">the changelog</a> and pin a commit. The web-platform layer is
+        a deliberate subset: no CORS, cache, or service-worker semantics, because this runs
+        server-side. Known gaps are written down rather than papered over — see the
+        <a href="docs/api-compatibility.html">API compatibility report</a> and the
+        <a href="{{GITHUB}}/blob/main/BUGS">BUGS</a> file.
+      </p>
+    </div>
+    <div>
+      <h3>Worth a look next</h3>
+      <ul class="checks">
+        <li><a href="docs/js/bun.html">Bun-compatible <code>serve()</code></a> — upgrades, pub/sub, streaming</li>
+        <li><a href="docs/native/event-loop.html">Event-loop integration</a> — how the pollfd hook works</li>
+        <li><a href="docs/native/examples.html">Twelve worked examples</a> — one per role</li>
+        <li><a href="{{GITHUB}}/tree/main/examples">examples/</a> — a crawler, a DNS server, proxies, a WebSocket chat</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>

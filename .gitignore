@@ -131,3 +131,6 @@ inspector-debug.log
 !localhost.crt
 !localhost.key
 !ca.crt
+
+# generated GitHub Pages site (tools/site/build.js)
+_site/
