@@ -2,6 +2,8 @@
 
 [libwebsockets](https://libwebsockets.org/) bindings for QuickJS.
 
+Documentation site: [rsenn.github.io/qjs-lws](https://rsenn.github.io/qjs-lws/)
+
 Build instructions: [`doc/building.md`](doc/building.md).
 Full API reference: [`doc/`](doc/README.md).
 

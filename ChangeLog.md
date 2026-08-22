@@ -8,6 +8,12 @@ under `Unreleased` until that changes.
 
 ### Added
 
+- Documentation site under `tools/site/`, built by `qjsm
+  tools/site/build.js` and published from the orphan `gh-pages` branch:
+  a landing page plus every `doc/**` page rendered to HTML, with no
+  toolchain beyond qjsm (the markdown renderer and syntax highlighter
+  live in `tools/site/`). See [tools/site/README.md](tools/site/README.md).
+
 - `lib/lws/url.js`: a conforming subset of the WHATWG URL Standard —
   `URL` and `URLSearchParams`, implemented from the spec's basic URL
   parser state machine (special schemes, relative resolution,
