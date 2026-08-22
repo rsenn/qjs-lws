@@ -120,7 +120,7 @@ set <code>cert.error = 0</code> — see <code>X509_STORE_CTX_set_error()</code>'
 <code>SSL_CTX_set_verify(3)</code>.</p>
 <h3 id="x509certificate"><a class="anchor" href="#x509certificate" aria-hidden="true">#</a><code>X509Certificate</code></h3>
 <p>Wraps OpenSSL's <code>X509*</code>, modeled closely on Node's
-<a href="https://nodejs.org/api/crypto.html#class-x509certificate" target="_blank" rel="noopener">undefined</a>.
+<a href="https://nodejs.org/api/crypto.html#class-x509certificate" target="_blank" rel="noopener"><code>crypto.X509Certificate</code></a>.
 Implemented in <code>lws-tls.c</code>. Constructible directly, not just from the
 verification hook:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">X509Certificate</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;

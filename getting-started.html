@@ -26,8 +26,8 @@
 <article><h1 id="qjs-lws"><a class="anchor" href="#qjs-lws" aria-hidden="true">#</a>qjs-lws</h1>
 <p><a href="https://libwebsockets.org/" target="_blank" rel="noopener">libwebsockets</a> bindings for QuickJS.</p>
 <p>Documentation site: <a href="https://rsenn.github.io/qjs-lws/" target="_blank" rel="noopener">rsenn.github.io/qjs-lws</a></p>
-<p>Build instructions: <a href="docs/building.html">undefined</a>.
-Full API reference: <a href="docs/index.html">undefined</a>.</p>
+<p>Build instructions: <a href="docs/building.html"><code>doc/building.md</code></a>.
+Full API reference: <a href="docs/index.html"><code>doc/</code></a>.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">LWSContext</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;</code></pre></div>
 <h2 id="lwscontext"><a class="anchor" href="#lwscontext" aria-hidden="true">#</a><code>LWSContext</code></h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">ctx</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">LWSContext</span>(<span class="t-id">info</span>);</code></pre></div>
@@ -38,8 +38,8 @@ under a name that reads better at a server call site:</p>
 
 <span class="t-kw">const</span> <span class="t-id">ctx</span> <span class="t-op">=</span> <span class="t-fn">createServer</span>(<span class="t-id">info</span>);</code></pre></div>
 <p><code>info</code> mirrors <code>struct lws_context_creation_info</code>. Recognised keys
-(see <a href="docs/native/LWSContext.html">undefined</a> for the full list):</p>
-<div class="tablewrap"><table><thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>port</code></td><td>number</td><td>TCP port to listen on (omit for a client-only context)</td></tr><tr><td><code>vhostName</code></td><td>string</td><td>Virtual host name</td></tr><tr><td><code>iface</code></td><td>string</td><td>Interface to bind</td></tr><tr><td><code>options</code></td><td>number</td><td>OR-mask of <code>LWS_SERVER_OPTION_*</code></td></tr><tr><td><code>mounts</code></td><td>array</td><td>HTTP mount points — see <a href="docs/native/mounts.html">undefined</a></td></tr><tr><td><code>protocols</code></td><td>array</td><td>Protocol handler objects (below)</td></tr><tr><td><code>listenAcceptRole</code></td><td>string</td><td>Role applied with <code>LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG</code></td></tr><tr><td><code>listenAcceptProtocol</code></td><td>string</td><td>Protocol applied with the role</td></tr><tr><td><code>serverSslCert</code> / <code>serverSslPrivateKey</code> / <code>serverSslCa</code></td><td>string | ArrayBuffer</td><td>TLS material — see <a href="docs/native/tls.html">undefined</a></td></tr></tbody></table></div>
+(see <a href="docs/native/LWSContext.html"><code>doc/native/LWSContext.md</code></a> for the full list):</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>port</code></td><td>number</td><td>TCP port to listen on (omit for a client-only context)</td></tr><tr><td><code>vhostName</code></td><td>string</td><td>Virtual host name</td></tr><tr><td><code>iface</code></td><td>string</td><td>Interface to bind</td></tr><tr><td><code>options</code></td><td>number</td><td>OR-mask of <code>LWS_SERVER_OPTION_*</code></td></tr><tr><td><code>mounts</code></td><td>array</td><td>HTTP mount points — see <a href="docs/native/mounts.html"><code>doc/native/mounts.md</code></a></td></tr><tr><td><code>protocols</code></td><td>array</td><td>Protocol handler objects (below)</td></tr><tr><td><code>listenAcceptRole</code></td><td>string</td><td>Role applied with <code>LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG</code></td></tr><tr><td><code>listenAcceptProtocol</code></td><td>string</td><td>Protocol applied with the role</td></tr><tr><td><code>serverSslCert</code> / <code>serverSslPrivateKey</code> / <code>serverSslCa</code></td><td>string | ArrayBuffer</td><td>TLS material — see <a href="docs/native/tls.html"><code>doc/native/tls.md</code></a></td></tr></tbody></table></div>
 <p>Property names accept both <code>camelCase</code> and <code>snake_case</code>.</p>
 <h3 id="protocol-handler"><a class="anchor" href="#protocol-handler" aria-hidden="true">#</a>Protocol handler</h3>
 <p>Each entry of <code>protocols</code> maps to one <code>struct lws_protocols</code>. You
@@ -57,7 +57,7 @@ can implement either a single generic <code>callback</code> or named
   <span class="t-fn">callback</span>(<span class="t-id">wsi</span>, <span class="t-id">reason</span>, ...<span class="t-prop">args</span>) { <span class="t-kw">return</span> <span class="t-num">0</span>; },
 }</code></pre></div>
 <ul>
-<li><code>wsi</code> is an <code>LWSSocket</code> — see <a href="docs/native/LWSSocket.html">undefined</a>.</li>
+<li><code>wsi</code> is an <code>LWSSocket</code> — see <a href="docs/native/LWSSocket.html"><code>doc/native/LWSSocket.md</code></a>.</li>
 <li>The handler's <code>this</code> is a per-connection plain object the binding
 allocates automatically (libwebsockets <code>user</code> data); use it to
 carry connection-local state.</li>
@@ -70,7 +70,7 @@ conversion is exposed at runtime as <code>getCallbackName(n)</code> and
 </ul>
 <p>Common reason constants (exported on the module — <code>import {…} from 'lws'</code>):</p>
 <div class="tablewrap"><table><thead><tr><th>Constant</th><th>Value</th><th>When</th></tr></thead><tbody><tr><td><code>LWS_CALLBACK_ESTABLISHED</code></td><td>0</td><td>New WS connection established (server side)</td></tr><tr><td><code>LWS_CALLBACK_CLIENT_ESTABLISHED</code></td><td>3</td><td>Outbound WS connection established</td></tr><tr><td><code>LWS_CALLBACK_CLOSED</code></td><td>4</td><td>Connection closed</td></tr><tr><td><code>LWS_CALLBACK_RECEIVE</code></td><td>6</td><td>Server: WS data received</td></tr><tr><td><code>LWS_CALLBACK_CLIENT_RECEIVE</code></td><td>8</td><td>Client: WS data received</td></tr><tr><td><code>LWS_CALLBACK_SERVER_WRITEABLE</code></td><td>11</td><td>Server: connection is writeable</td></tr><tr><td><code>LWS_CALLBACK_HTTP</code></td><td>12</td><td>HTTP request arrived (server)</td></tr></tbody></table></div>
-<p>The full table is in <a href="docs/native/callbacks.html">undefined</a>.</p>
+<p>The full table is in <a href="docs/native/callbacks.html"><code>doc/native/callbacks.md</code></a>.</p>
 <h2 id="minimal-websocket-server"><a class="anchor" href="#minimal-websocket-server" aria-hidden="true">#</a>Minimal WebSocket server</h2>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWSMPRO_NO_MOUNT</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
 
@@ -131,11 +131,11 @@ conversion is exposed at runtime as <code>getCallbackName(n)</code> and
 the libwebsockets pollfd callbacks and registers fds via
 QuickJS's own <code>os.setReadHandler</code> / <code>os.setWriteHandler</code>. The
 script stays alive while any fd is registered. See
-<a href="docs/native/event-loop.html">undefined</a>.</li>
+<a href="docs/native/event-loop.html"><code>doc/native/event-loop.md</code></a>.</li>
 <li>Convenience wrappers (<code>fetch</code>, <code>serve</code>, <code>WebSocket</code>, <code>TCPSocket</code>,
 <code>TCPSocketStream</code>, <code>URL</code>/<code>URLSearchParams</code>) live under
-<a href="https://github.com/rsenn/qjs-lws/tree/main/lib" target="_blank" rel="noopener">undefined</a> and are documented in
-<a href="docs/js/helpers.html">undefined</a>.</li>
+<a href="https://github.com/rsenn/qjs-lws/tree/main/lib" target="_blank" rel="noopener"><code>lib/</code></a> and are documented in
+<a href="docs/js/helpers.html"><code>doc/js/helpers.md</code></a>.</li>
 <li><code>lib/lws/url.js</code> is a from-spec implementation of the WHATWG URL
 Standard's basic URL parser — special schemes, relative-URL
 resolution, IPv4/IPv6 hosts, <code>file:</code>/opaque-path URLs, and a
@@ -148,7 +148,7 @@ header-injection attempts (embedded CR/LF/NUL in values), body
 reading (<code>text()</code>/<code>json()</code>/<code>arrayBuffer()</code>) is UTF-8-correct for
 both string and binary bodies, and <code>Response.redirected</code> reflects
 whether <code>fetch()</code> actually followed a redirect.</li>
-<li>More end-to-end examples in <a href="docs/native/examples.html">undefined</a>.</li>
+<li>More end-to-end examples in <a href="docs/native/examples.html"><code>doc/native/examples.md</code></a>.</li>
 </ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/README.md">Edit this page on GitHub →</a></p>
 </main>

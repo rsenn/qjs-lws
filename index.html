@@ -72,8 +72,8 @@
       <span class="ico">◇</span>
       <h3>No service loop</h3>
       <p>
-        The binding hooks libwebsockets' pollfd callbacks straight into
-        <code>os.setReadHandler</code>/<code>setWriteHandler</code>. No
+        The binding hooks libwebsockets' pollfd callbacks straight into QuickJS's own
+        <code>os.setReadHandler</code> and <code>os.setWriteHandler</code>. No
         <code>lws_service()</code> spun from JS, no polling tax — your script's normal event
         loop drives the stack. An optional <code>epoll(7)</code> backend collapses it to a
         single fd.
@@ -95,7 +95,7 @@
       <h3>APIs you already know</h3>
       <p>
         <code>fetch()</code>, <code>WebSocket</code>, <code>URL</code>/<code>URLSearchParams</code>,
-        <code>Headers</code>/<code>Request</code>/<code>Response</code>/<code>FormData</code>,
+        <code>Headers</code>, <code>Request</code>, <code>Response</code>, <code>FormData</code>,
         WHATWG Streams, <code>AbortController</code>, <code>TCPSocket</code>. Written from the
         specs, not approximated.
       </p>
