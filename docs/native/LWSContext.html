@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LWSContext — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html" class="here">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="lwscontext"><a class="anchor" href="#lwscontext" aria-hidden="true">#</a><code>LWSContext</code></h1>
+<p>A wrapper around <code>struct lws_context</code>. The context owns the default
+vhost, the listener (if any), the protocol callback table, and any
+mounts. Implemented in <code>lws-context.c</code>.</p>
+<h2 id="construction"><a class="anchor" href="#construction" aria-hidden="true">#</a>Construction</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">ctx</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">LWSContext</span>(<span class="t-id">info</span>);</code></pre></div>
+<p><code>createServer(info)</code> (exported from <code>'lws'</code>) is a thin alias for the
+same constructor call — <code>JS_CallConstructor</code> on <code>LWSContext</code> under
+the hood — meant for call sites where <code>info.port</code> is set, i.e. the
+context will listen. It's purely a naming convenience; the two are
+otherwise identical, and either is fine for a client-only context
+too.</p>
+<p><code>info</code> is a plain object mapped to <code>struct lws_context_creation_info</code>.
+<strong>Properties whose JS name is <code>camelCase</code> are also accepted in their
+underscore form</strong> (e.g. <code>vhostName</code> or <code>vhost_name</code>), thanks to the
+<code>camelize</code> lookup in <code>js-utils.c</code>.</p>
+<p>Whenever a property is not provided <strong>and <code>port</code> is missing</strong>, the
+context is created with <code>port = CONTEXT_PORT_NO_LISTEN</code> (no listener
+— suitable for pure clients).</p>
+<h3 id="common-properties"><a class="anchor" href="#common-properties" aria-hidden="true">#</a>Common properties</h3>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>C field</th><th>Description</th></tr></thead><tbody><tr><td><code>port</code></td><td><code>port</code></td><td>TCP port to listen on (<code>CONTEXT_PORT_NO_LISTEN</code> to disable)</td></tr><tr><td><code>iface</code></td><td><code>iface</code></td><td>Interface address or name to bind</td></tr><tr><td><code>vhostName</code> / <code>vhost_name</code></td><td><code>vhost_name</code></td><td>Default vhost name</td></tr><tr><td><code>protocols</code></td><td><code>protocols</code></td><td>Array of protocol handler objects, see <a href="protocols.html">protocols.md</a></td></tr><tr><td><code>mounts</code></td><td><code>mounts</code></td><td>HTTP mount points (array or <code>{ '/path': mount }</code> object)</td></tr><tr><td><code>headers</code></td><td><code>headers</code></td><td><code>lws_protocol_vhost_options</code> — default response headers</td></tr><tr><td><code>pvo</code></td><td><code>pvo</code></td><td>Per-vhost options</td></tr><tr><td><code>rejectServiceKeywords</code></td><td><code>reject_service_keywords</code></td><td>List of keywords to reject</td></tr><tr><td><code>httpProxyAddress</code></td><td><code>http_proxy_address</code></td><td>HTTP proxy host</td></tr><tr><td><code>httpProxyPort</code></td><td><code>http_proxy_port</code></td><td>HTTP proxy port</td></tr><tr><td><code>keepaliveTimeout</code></td><td><code>keepalive_timeout</code></td><td>TCP keepalive seconds</td></tr><tr><td><code>logFilepath</code></td><td><code>log_filepath</code></td><td>Server log file</td></tr><tr><td><code>serverString</code></td><td><code>server_string</code></td><td><code>Server:</code> header</td></tr><tr><td><code>errorDocument404</code></td><td><code>error_document_404</code></td><td>URL for 404 errors</td></tr><tr><td><code>vhListenSockfd</code></td><td><code>vh_listen_sockfd</code></td><td>Pre-allocated listen fd</td></tr><tr><td><code>defaultLoglevel</code></td><td><code>default_loglevel</code></td><td>Per-context log level</td></tr><tr><td><code>options</code></td><td><code>options</code></td><td>OR-mask of <code>LWS_SERVER_OPTION_*</code> constants</td></tr><tr><td><code>listenAcceptRole</code></td><td><code>listen_accept_role</code></td><td>Role applied when <code>FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG</code> or <code>ADOPT_APPLY_LISTEN_ACCEPT_CONFIG</code> is set (e.g. <code>'raw-skt'</code>)</td></tr><tr><td><code>listenAcceptProtocol</code></td><td><code>listen_accept_protocol</code></td><td>Protocol name applied with the role. Can be anywhere in the <code>protocols</code> array.</td></tr><tr><td><code>asyncDnsServers</code></td><td><code>async_dns_servers</code></td><td>Array of DNS server strings (built with <code>LWS_WITH_SYS_ASYNC_DNS</code>)</td></tr></tbody></table></div>
+<h3 id="tls-properties"><a class="anchor" href="#tls-properties" aria-hidden="true">#</a>TLS properties</h3>
+<p>Built only when libwebsockets is compiled with <code>LWS_WITH_TLS</code>. Each
+of <code>serverSsl*</code> / <code>clientSsl*</code> may be <strong>either</strong> a file path string
+(<code>*_filepath</code>) <strong>or</strong> an <code>ArrayBuffer</code> containing the certificate or
+key material (<code>*_mem</code> / <code>*_mem_len</code> set accordingly). The
+<code>str_or_buf_property()</code> helper picks the right field automatically:</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>C field(s)</th></tr></thead><tbody><tr><td><code>sslPrivateKeyPassword</code></td><td><code>ssl_private_key_password</code></td></tr><tr><td><code>serverSslCert</code></td><td><code>ssl_cert_filepath</code> <em>or</em> <code>server_ssl_cert_mem</code></td></tr><tr><td><code>serverSslPrivateKey</code></td><td><code>ssl_private_key_filepath</code> <em>or</em> <code>server_ssl_private_key_mem</code></td></tr><tr><td><code>serverSslCa</code></td><td><code>ssl_ca_filepath</code> <em>or</em> <code>server_ssl_ca_mem</code></td></tr><tr><td><code>sslCipherList</code></td><td><code>ssl_cipher_list</code></td></tr><tr><td><code>tls13PlusCipherList</code> / <code>tls1_3_plus_cipher_list</code></td><td><code>tls1_3_plus_cipher_list</code></td></tr><tr><td><code>clientSslPrivateKeyPassword</code></td><td><code>client_ssl_private_key_password</code></td></tr><tr><td><code>clientSslCert</code></td><td><code>client_ssl_cert_filepath</code> <em>or</em> <code>client_ssl_cert_mem</code></td></tr><tr><td><code>clientSslPrivateKey</code></td><td><code>client_ssl_private_key_filepath</code> <em>or</em> <code>client_ssl_key_mem</code></td></tr><tr><td><code>clientSslCa</code></td><td><code>client_ssl_ca_filepath</code> <em>or</em> <code>client_ssl_ca_mem</code></td></tr><tr><td><code>clientSslCipherList</code></td><td><code>client_ssl_cipher_list</code></td></tr><tr><td><code>clientTls13PlusCipherList</code></td><td><code>client_tls_1_3_plus_cipher_list</code></td></tr></tbody></table></div>
+<h3 id="socks5"><a class="anchor" href="#socks5" aria-hidden="true">#</a>SOCKS5</h3>
+<p>Built only with <code>LWS_WITH_SOCKS5</code>:</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>C field</th></tr></thead><tbody><tr><td><code>socksProxyAddress</code></td><td><code>socks_proxy_address</code></td></tr><tr><td><code>socksProxyPort</code></td><td><code>socks_proxy_port</code></td></tr></tbody></table></div>
+<h3 id="websocket-extensions"><a class="anchor" href="#websocket-extensions" aria-hidden="true">#</a>WebSocket extensions</h3>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>C field</th><th>Description</th></tr></thead><tbody><tr><td><code>permessageDeflate</code></td><td><code>extensions</code></td><td>Boolean. When true (and the build has <code>LWS_ROLE_WS</code>), installs the <code>permessage-deflate</code> extension with the parameters <code>client_no_context_takeover; client_max_window_bits</code>. <strong>Off by default</strong> — decompression-chunk boundaries don't line up with WS message/frame boundaries (<code>lws_is_final_fragment()</code> tracks the former), so a large message sent with compression on can arrive as several separate <code>onReceive</code>/<code>onClientReceive</code> calls that JS has no reliable way to tell belong together. Only opt in if you don't depend on message/fragment boundaries, or you handle reassembly yourself.</td></tr></tbody></table></div>
+<h2 id="instance-methods"><a class="anchor" href="#instance-methods" aria-hidden="true">#</a>Instance methods</h2>
+<div class="tablewrap"><table><thead><tr><th>Method</th><th>Notes</th></tr></thead><tbody><tr><td><code>destroy()</code></td><td>Calls <code>lws_context_destroy()</code>; sets internal pointer to NULL. Returns <code>true</code>.</td></tr><tr><td><code>getVhostByName(name)</code></td><td>Returns the matching <code>LWSVhost</code> or <code>undefined</code>.</td></tr><tr><td><code>adoptSocket(fd)</code></td><td>Adopts an existing OS socket; returns <code>LWSSocket</code>. Throws if <code>fd</code> is already adopted.</td></tr><tr><td><code>adoptSocketReadbuf(fd, buf)</code></td><td>Same as above but with pre-buffered read data.</td></tr><tr><td><code>cancelService()</code></td><td><code>lws_cancel_service()</code> and cleans up io handlers.</td></tr><tr><td><code>clientConnect(uriOrInfo [, info])</code></td><td>Initiates an outbound client connection. See below.</td></tr><tr><td><code>getRandom(buf)</code></td><td>Fills the ArrayBuffer with libwebsockets random bytes.</td></tr><tr><td><code>asyncDnsServerAdd(addr)</code></td><td><code>LWSSockAddr46</code>-style; returns int.</td></tr><tr><td><code>asyncDnsServerRemove(addr)</code></td><td>Removes a previously added DNS server.</td></tr><tr><td><code>wsiFromFd(fd)</code></td><td>Looks up the <code>LWSSocket</code> for an OS fd, or <code>undefined</code>.</td></tr><tr><td><code>createUdp(options)</code></td><td>Creates (and, unless <code>bind</code> is set, connects) a UDP socket via <code>lws_create_adopt_udp()</code>. Built only with <code>LWS_WITH_UDP</code>. See below.</td></tr></tbody></table></div>
+<h3 id="clientconnect"><a class="anchor" href="#clientconnect" aria-hidden="true">#</a><code>clientConnect</code></h3>
+<p>Two call styles:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-str">'https://example.com/path'</span>);
+<span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-str">'wss://example.com/ws'</span>, { <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'chat'</span> });
+<span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>({
+  <span class="t-id">address</span><span class="t-op">:</span> <span class="t-str">'example.com'</span>,
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">443</span>,
+  <span class="t-id">path</span><span class="t-op">:</span> <span class="t-str">'/foo'</span>,
+  <span class="t-id">ssl</span><span class="t-op">:</span> <span class="t-atom">true</span>,
+  <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'http'</span>,
+});</code></pre></div>
+<p>Recognised properties on the info object:</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>C field</th></tr></thead><tbody><tr><td><code>context</code></td><td><code>context</code> (auto-filled with <code>this.ctx</code>)</td></tr><tr><td><code>address</code></td><td><code>address</code></td></tr><tr><td><code>port</code></td><td><code>port</code></td></tr><tr><td><code>sslConnection</code> / <code>ssl_connection</code></td><td><code>ssl_connection</code> (OR'd)</td></tr><tr><td><code>ssl</code></td><td>shortcut: <code>true</code> → standard insecure SSL flags; number → OR'd into <code>ssl_connection</code></td></tr><tr><td><code>path</code></td><td><code>path</code></td></tr><tr><td><code>host</code></td><td><code>host</code></td></tr><tr><td><code>origin</code></td><td><code>origin</code></td></tr><tr><td><code>protocol</code></td><td><code>protocol</code> (wire WebSocket subprotocol, or "http"/"raw"/...)</td></tr><tr><td><code>method</code></td><td><code>method</code> (e.g. <code>'GET'</code>, <code>'POST'</code>, <code>'RAW'</code>)</td></tr><tr><td><code>iface</code></td><td><code>iface</code></td></tr><tr><td><code>localPort</code> / <code>local_port</code></td><td><code>local_port</code></td></tr><tr><td><code>localProtocolName</code> / <code>local_protocol_name</code></td><td><code>local_protocol_name</code> (which JS protocol callback to invoke)</td></tr><tr><td><code>alpn</code></td><td><code>alpn</code> (e.g. <code>'h2,http/1.1'</code>)</td></tr><tr><td><code>keepWarmSecs</code> / <code>keep_warm_secs</code></td><td><code>keep_warm_secs</code></td></tr><tr><td><code>authUsername</code> / <code>auth_username</code></td><td><code>auth_username</code></td></tr><tr><td><code>authPassword</code> / <code>auth_password</code></td><td><code>auth_password</code></td></tr></tbody></table></div>
+<p>When a URI string is passed, the scheme decides:
+<code>http*</code> → <code>method = 'GET'</code>; <code>https</code>/<code>wss</code> → <code>ssl_connection</code> is set
+to a permissive default (`USE_SSL | ALLOW_SELFSIGNED | ALLOW_EXPIRED
+| SKIP_SERVER_CERT_HOSTNAME_CHECK | ALLOW_INSECURE`).</p>
+<p>Returns the freshly created <code>LWSSocket</code>. Even on failure the socket
+object exists; you observe failures via the protocol's
+<code>onClientConnectionError</code> callback.</p>
+<h3 id="createudp"><a class="anchor" href="#createudp" aria-hidden="true">#</a><code>createUdp</code></h3>
+<p>UDP is connectionless, so both "bind a listening socket that
+receives datagrams from any peer" and "create a socket pre-connected
+to one fixed remote peer" go through this single entry point,
+distinguished by whether <code>address</code> is given / <code>bind</code> is set:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">listener</span> <span class="t-op">=</span> <span class="t-id">ctx</span>.<span class="t-fn">createUdp</span>({ <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'udp-echo'</span>, <span class="t-id">bind</span><span class="t-op">:</span> <span class="t-atom">true</span>, <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">9002</span> });
+<span class="t-kw">const</span> <span class="t-id">client</span> <span class="t-op">=</span> <span class="t-id">ctx</span>.<span class="t-fn">createUdp</span>({ <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'udp-echo'</span>, <span class="t-id">address</span><span class="t-op">:</span> <span class="t-str">'127.0.0.1'</span>, <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">9002</span> });</code></pre></div>
+<p>Recognised properties on the options object:</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>C field / meaning</th></tr></thead><tbody><tr><td><code>protocol</code></td><td>Name of a protocol on the vhost (<strong>required</strong>)</td></tr><tr><td><code>address</code></td><td>Remote address to pre-connect to; omitted (or <code>bind: true</code>) binds a listener on any interface instead</td></tr><tr><td><code>port</code></td><td>UDP port</td></tr><tr><td><code>iface</code></td><td>Interface address or name to bind</td></tr><tr><td><code>vhost</code></td><td>Vhost name to look the protocol up on (defaults to the context's default vhost)</td></tr><tr><td><code>bind</code></td><td>Boolean — force <code>LWS_CAUDP_BIND</code> even when <code>address</code> is given</td></tr><tr><td><code>broadcast</code></td><td>Boolean — sets <code>LWS_CAUDP_BROADCAST</code></td></tr><tr><td><code>parentWsi</code> / <code>parent_wsi</code></td><td>An existing <code>LWSSocket</code> to link the new UDP wsi under (<code>lws_create_adopt_udp()</code>'s <code>parent_wsi</code> argument)</td></tr></tbody></table></div>
+<p>A single UDP wsi, unlike TCP, never gets one child wsi per peer —
+see <code>onRawRx</code>'s extra <code>LWSSockAddr46</code> argument
+(<a href="callbacks.html">callbacks.md</a>) for how a listener tells its many
+peers apart, and <code>wsi.write(data, sockaddr)</code> (see
+<a href="LWSSocket.html">LWSSocket.md</a>) for targeting a reply back at one of
+them.</p>
+<p>Throws <code>TypeError</code> if <code>protocol</code> is missing, <code>InternalError</code> if the
+named vhost doesn't exist or <code>lws_create_adopt_udp()</code> fails.</p>
+<h2 id="instance-accessors-read-only"><a class="anchor" href="#instance-accessors-read-only" aria-hidden="true">#</a>Instance accessors (read-only)</h2>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Returns</th></tr></thead><tbody><tr><td><code>hostname</code></td><td>Canonical hostname (<code>lws_canonical_hostname</code>)</td></tr><tr><td><code>deprecated</code></td><td>Boolean — context replaced by a newer one</td></tr><tr><td><code>euid</code></td><td>Effective uid</td></tr><tr><td><code>egid</code></td><td>Effective gid</td></tr><tr><td><code>protocols</code></td><td>Array of protocol descriptor objects (see <a href="protocols.html">protocols.md</a>)</td></tr></tbody></table></div>
+<p>The <code>info</code> property is also set during construction — it's the
+original options object, <strong>kept alive</strong> for the lifetime of the
+context (<code>JS_PROP_CONFIGURABLE</code>).</p>
+<h2 id="lifecycle"><a class="anchor" href="#lifecycle" aria-hidden="true">#</a>Lifecycle</h2>
+<ul>
+<li>The context is finalised when the JS object is garbage collected,
+which triggers <code>lws_context_destroy()</code> automatically.</li>
+<li><code>destroy()</code> is safe to call early; subsequent method calls throw
+<code>InternalError("LWSContext internal lws_context has been destroyed")</code>.</li>
+<li>The constructor may <strong>trigger callbacks before returning</strong>, because
+<code>lws_create_context()</code> is the last step performed.</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/LWSContext.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#construction">Construction</a></li><li class="lvl3"><a href="#common-properties">Common properties</a></li><li class="lvl3"><a href="#tls-properties">TLS properties</a></li><li class="lvl3"><a href="#socks5">SOCKS5</a></li><li class="lvl3"><a href="#websocket-extensions">WebSocket extensions</a></li><li class="lvl2"><a href="#instance-methods">Instance methods</a></li><li class="lvl3"><a href="#clientconnect">clientConnect</a></li><li class="lvl3"><a href="#createudp">createUdp</a></li><li class="lvl2"><a href="#instance-accessors-read-only">Instance accessors (read-only)</a></li><li class="lvl2"><a href="#lifecycle">Lifecycle</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

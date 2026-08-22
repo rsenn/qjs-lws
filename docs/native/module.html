@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module exports — import … from 'lws' — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html" class="here">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="module-exports--import--from-lws"><a class="anchor" href="#module-exports--import--from-lws" aria-hidden="true">#</a>Module exports — <code>import … from 'lws'</code></h1>
+<p>All exports live on the C module <code>lws</code> (built as <code>lws.so</code>). The module
+exports four classes and a large set of helper functions and integer
+constants.</p>
+<h2 id="classes"><a class="anchor" href="#classes" aria-hidden="true">#</a>Classes</h2>
+<div class="tablewrap"><table><thead><tr><th>Name</th><th>Purpose</th><th>Doc</th></tr></thead><tbody><tr><td><code>LWSContext</code></td><td>libwebsockets context: owns vhosts, mounts, protocols</td><td><a href="LWSContext.html">LWSContext.md</a></td></tr><tr><td><code>LWSVhost</code></td><td>Additional virtual host attached to an <code>LWSContext</code></td><td><a href="LWSVhost.html">LWSVhost.md</a></td></tr><tr><td><code>LWSSocket</code></td><td>Per-connection <code>wsi</code> (websocket instance)</td><td><a href="LWSSocket.html">LWSSocket.md</a></td></tr><tr><td><code>LWSSPA</code></td><td>Multipart POST / urlencoded form parser</td><td><a href="LWSSPA.html">LWSSPA.md</a></td></tr><tr><td><code>LWSSockAddr46</code></td><td>Tagged <code>sockaddr_in</code> / <code>sockaddr_in6</code> ArrayBuffer</td><td><a href="LWSSockAddr46.html">LWSSockAddr46.md</a></td></tr></tbody></table></div>
+<h2 id="top-level-functions"><a class="anchor" href="#top-level-functions" aria-hidden="true">#</a>Top-level functions</h2>
+<p>Defined in <code>lws.c</code> (<code>lws_funcs[]</code>) unless noted otherwise:</p>
+<h3 id="context-construction"><a class="anchor" href="#context-construction" aria-hidden="true">#</a>Context construction</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">createServer</span>(<span class="t-id">info</span>)   <span class="t-cm">// === new LWSContext(info)</span></code></pre></div>
+<p>Defined in <code>lws-context.c</code> (<code>lwsjs_create_server</code>) — a thin alias
+(<code>JS_CallConstructor</code> on <code>LWSContext</code>) meant for call sites where
+<code>info.port</code> is set, so the code reads as creating a server rather
+than a bare context. Functionally identical to <code>new LWSContext(info)</code>;
+see <a href="LWSContext.html#construction">LWSContext.md</a>.</p>
+<h3 id="callback-name--number-conversion"><a class="anchor" href="#callback-name--number-conversion" aria-hidden="true">#</a>Callback name / number conversion</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">getCallbackName</span>(<span class="t-id">reason</span>)    <span class="t-cm">// → string ("Established", "ClientReceive", …)</span>
+<span class="t-fn">getCallbackNumber</span>(<span class="t-id">name</span>)    <span class="t-cm">// → integer  (camelCase → enum)</span></code></pre></div>
+<p><code>getCallbackName</code> returns the PascalCased symbol (<code>CLIENT_RECEIVE</code> →
+<code>ClientReceive</code>). <code>getCallbackNumber</code> accepts the same form (or
+camelCase) and decamelizes it back to the underscore-separated
+name before looking it up.</p>
+<h3 id="http-token-name"><a class="anchor" href="#http-token-name" aria-hidden="true">#</a>HTTP token name</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">getTokenName</span>(<span class="t-type">WSI_TOKEN_HOST</span>)     <span class="t-cm">// → "Host"</span></code></pre></div>
+<p>Returns the literal HTTP header name for a <code>WSI_TOKEN_*</code> index (the
+trailing <code>": "</code> is stripped).</p>
+<h3 id="log-levels"><a class="anchor" href="#log-levels" aria-hidden="true">#</a>Log levels</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">getLogLevelName</span>(<span class="t-type">LLL_USER</span>)        <span class="t-cm">// → "USER"</span>
+<span class="t-fn">getLogLevelColour</span>(<span class="t-type">LLL_USER</span>)      <span class="t-cm">// → ANSI escape</span>
+<span class="t-fn">visible</span>(<span class="t-type">LLL_INFO</span>)                <span class="t-cm">// → boolean (level currently visible)</span>
+<span class="t-fn">log</span>([<span class="t-id">level</span>], [<span class="t-id">wsiOrCtx</span>], <span class="t-id">msg</span> <span class="t-op">|</span> <span class="t-type">ArrayBuffer</span>)
+<span class="t-fn">logLevel</span>(<span class="t-id">mask</span>, [<span class="t-fn">callback</span>(<span class="t-id">level</span>, <span class="t-id">line</span>)])</code></pre></div>
+<p><code>logLevel</code> with one numeric arg sets the active mask
+(<code>lws_set_log_level</code>). With a second function argument it installs a
+JS log callback; the function is called for every libwebsockets log
+line with <code>(level, msg)</code>. Without the callback, libwebsockets writes
+ANSI-colourised log lines to <code>stderr</code>.</p>
+<p><code>log()</code> writes a user-level log message. If passed an <code>LWSSocket</code>,
+the line is prefixed with the wsi tag; if passed an <code>LWSContext</code>
+the message is associated with that context. With an ArrayBuffer
+argument the buffer is hex-dumped.</p>
+<h3 id="uri--connection-info"><a class="anchor" href="#uri--connection-info" aria-hidden="true">#</a>URI / connection info</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">parseUri</span>(<span class="t-id">uri</span>)              <span class="t-cm">// parses into struct lws_client_connect_info (internal)</span></code></pre></div>
+<h3 id="buffer--string-helpers"><a class="anchor" href="#buffer--string-helpers" aria-hidden="true">#</a>Buffer / string helpers</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">toString</span>(<span class="t-id">arraybuffer</span> [, <span class="t-id">offset</span> [, <span class="t-id">length</span>]])     <span class="t-cm">// → JS string</span>
+<span class="t-fn">toArrayBuffer</span>(<span class="t-id">stringOrBuf</span> [, <span class="t-id">offset</span> [, <span class="t-id">length</span>]]) <span class="t-cm">// → ArrayBuffer</span>
+<span class="t-fn">toPointer</span>(<span class="t-id">arraybuffer</span>)                          <span class="t-cm">// → "0x…" string of the buffer's address</span>
+<span class="t-fn">write</span>(<span class="t-id">srcStringOrBuf</span>, <span class="t-id">dstArrayBuffer</span> [, <span class="t-id">offset</span>]) <span class="t-cm">// memcpy-into-buffer helper</span>
+                                                 <span class="t-cm">// returns bytes written;</span>
+                                                 <span class="t-cm">// if `offset` is an array [n],</span>
+                                                 <span class="t-cm">// n is incremented by bytes written</span></code></pre></div>
+<h3 id="address--interface-helpers"><a class="anchor" href="#address--interface-helpers" aria-hidden="true">#</a>Address / interface helpers</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">parseMac</span>(<span class="t-id">str</span> [, <span class="t-id">dstArrayBuffer</span>])      <span class="t-cm">// → ArrayBuffer(6) or int (chars consumed)</span>
+<span class="t-fn">parseNumericAddress</span>(<span class="t-id">str</span> [, <span class="t-id">dstArrayBuffer</span>])
+                                       <span class="t-cm">// → ArrayBuffer(4 | 16) or int</span>
+<span class="t-fn">writeNumericAddress</span>(<span class="t-id">buf</span> [, <span class="t-id">len</span>])      <span class="t-cm">// → "1.2.3.4" or "[::1]"</span>
+<span class="t-fn">interfaceToSa</span>(<span class="t-id">ipv6</span>, <span class="t-id">name</span> [, <span class="t-id">dstBuf</span>])  <span class="t-cm">// → ArrayBuffer with sockaddr or int</span></code></pre></div>
+<p><code>parseMac</code> parses <code>"aa:bb:cc:dd:ee:ff"</code>. <code>parseNumericAddress</code> parses
+both IPv4 and IPv6 — the result length tells you which.
+<code>interfaceToSa</code> resolves a system interface (e.g. <code>"eth0"</code>) into a
+sockaddr.</p>
+<h2 id="constants"><a class="anchor" href="#constants" aria-hidden="true">#</a>Constants</h2>
+<p>All <code>LWS_*</code>, <code>LCCSCF_*</code>, <code>LWSMPRO_*</code>, <code>WSI_TOKEN_*</code>, <code>LWSHUMETH_*</code>,
+and <code>LLL_*</code> macros from <code>libwebsockets.h</code> are exported as integer
+constants. See <a href="constants.html">constants.md</a> for the catalogue.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/module.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#classes">Classes</a></li><li class="lvl2"><a href="#top-level-functions">Top-level functions</a></li><li class="lvl3"><a href="#context-construction">Context construction</a></li><li class="lvl3"><a href="#callback-name--number-conversion">Callback name / number conversion</a></li><li class="lvl3"><a href="#http-token-name">HTTP token name</a></li><li class="lvl3"><a href="#log-levels">Log levels</a></li><li class="lvl3"><a href="#uri--connection-info">URI / connection info</a></li><li class="lvl3"><a href="#buffer--string-helpers">Buffer / string helpers</a></li><li class="lvl3"><a href="#address--interface-helpers">Address / interface helpers</a></li><li class="lvl2"><a href="#constants">Constants</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

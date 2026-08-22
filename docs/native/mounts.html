@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTTP mounts — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html" class="here">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="http-mounts"><a class="anchor" href="#http-mounts" aria-hidden="true">#</a>HTTP mounts</h1>
+<p>A mount maps a URL prefix on a vhost to a backend: a directory of
+static files, a JS protocol callback, a redirect, or a CGI script.
+Mounts are passed via the <code>mounts</code> property of <code>LWSContext</code>'s or
+<code>LWSVhost</code>'s info object. Implemented in <code>lws-mount.c</code>
+(<code>lwsjs_mount_from</code>, <code>lwsjs_mounts_from</code>).</p>
+<h2 id="shape"><a class="anchor" href="#shape" aria-hidden="true">#</a>Shape</h2>
+<p><code>mounts</code> can be one of:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-cm">// Array of mount objects.</span>
+<span class="t-id">mounts</span><span class="t-op">:</span> [
+  { <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/static'</span>, <span class="t-id">origin</span><span class="t-op">:</span> <span class="t-str">'./public'</span>, <span class="t-id">def</span><span class="t-op">:</span> <span class="t-str">'index.html'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_FILE</span> },
+  { <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/api'</span>,    <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'http'</span>,                       <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_CALLBACK</span> },
+]
+
+<span class="t-cm">// An object keyed by mountpoint.</span>
+<span class="t-id">mounts</span><span class="t-op">:</span> {
+  <span class="t-str">'/static'</span><span class="t-op">:</span> { <span class="t-id">origin</span><span class="t-op">:</span> <span class="t-str">'./public'</span>, <span class="t-id">def</span><span class="t-op">:</span> <span class="t-str">'index.html'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_FILE</span> },
+  <span class="t-str">'/api'</span><span class="t-op">:</span>    { <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'http'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_CALLBACK</span> },
+}
+
+<span class="t-cm">// Short tuple form.</span>
+<span class="t-id">mounts</span><span class="t-op">:</span> [
+  [<span class="t-str">'/static'</span>, <span class="t-str">'./public'</span>, <span class="t-str">'index.html'</span>, <span class="t-str">'http'</span>, <span class="t-atom">null</span> <span class="t-cm">/* basic_auth_login_file */</span>],
+]</code></pre></div>
+<h2 id="mount-object-properties"><a class="anchor" href="#mount-object-properties" aria-hidden="true">#</a>Mount object properties</h2>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>C field</th><th>Notes</th></tr></thead><tbody><tr><td><code>mountpoint</code></td><td><code>mountpoint</code></td><td>URL prefix to match (e.g. <code>'/'</code>, <code>'/ws'</code>)</td></tr><tr><td><code>origin</code></td><td><code>origin</code></td><td>Filesystem path, hostname, or URL depending on <code>originProtocol</code></td></tr><tr><td><code>def</code></td><td><code>def</code></td><td>Default file when the URL ends with <code>/</code></td></tr><tr><td><code>protocol</code></td><td><code>protocol</code></td><td>Protocol name to bind for <code>LWSMPRO_CALLBACK</code> / <code>LWSMPRO_NO_MOUNT</code></td></tr><tr><td><code>cgienv</code></td><td><code>cgienv</code></td><td>Array/object of <code>{name, value}</code> for CGI environment</td></tr><tr><td><code>extraMimetypes</code> / <code>extra_mimetypes</code></td><td><code>extra_mimetypes</code></td><td>Extra extension→mimetype map (see below)</td></tr><tr><td><code>interpret</code></td><td><code>interpret</code></td><td>Extension→CGI interpreter map</td></tr><tr><td><code>cgiTimeout</code> / <code>cgi_timeout</code></td><td><code>cgi_timeout</code></td><td>CGI timeout seconds</td></tr><tr><td><code>cacheMaxAge</code> / <code>cache_max_age</code></td><td><code>cache_max_age</code></td><td>Cache-Control max-age</td></tr><tr><td><code>authMask</code> / <code>auth_mask</code></td><td><code>auth_mask</code></td><td>Auth bitmask</td></tr><tr><td><code>cacheReusable</code> / <code>cache_reusable</code></td><td><code>cache_reusable</code></td><td>bool</td></tr><tr><td><code>cacheRevalidate</code> / <code>cache_revalidate</code></td><td><code>cache_revalidate</code></td><td>bool</td></tr><tr><td><code>cacheIntermediaries</code> / <code>cache_intermediaries</code></td><td><code>cache_intermediaries</code></td><td>bool</td></tr><tr><td><code>originProtocol</code> / <code>origin_protocol</code></td><td><code>origin_protocol</code></td><td>One of <code>LWSMPRO_*</code></td></tr><tr><td><code>basicAuthLoginFile</code> / <code>basic_auth_login_file</code></td><td><code>basic_auth_login_file</code></td><td>htpasswd-style file</td></tr></tbody></table></div>
+<p><code>origin_protocol</code> values:</p>
+<div class="tablewrap"><table><thead><tr><th>Constant</th><th>Meaning</th></tr></thead><tbody><tr><td><code>LWSMPRO_HTTP</code></td><td>Proxy to another HTTP host (origin = <code>host[/path]</code>)</td></tr><tr><td><code>LWSMPRO_HTTPS</code></td><td>Same, over TLS</td></tr><tr><td><code>LWSMPRO_FILE</code></td><td>Serve files from a local directory (<code>origin</code> = path)</td></tr><tr><td><code>LWSMPRO_CGI</code></td><td>Run as CGI</td></tr><tr><td><code>LWSMPRO_REDIR_HTTP</code></td><td>301/302 redirect to an http URL</td></tr><tr><td><code>LWSMPRO_REDIR_HTTPS</code></td><td>Same, https</td></tr><tr><td><code>LWSMPRO_CALLBACK</code></td><td>Dispatch to a protocol's HTTP callbacks</td></tr><tr><td><code>LWSMPRO_NO_MOUNT</code></td><td>Reserve the prefix without serving (e.g. websocket-only)</td></tr></tbody></table></div>
+<h2 id="vhost-options-chains"><a class="anchor" href="#vhost-options-chains" aria-hidden="true">#</a>Vhost-options chains</h2>
+<p><code>cgienv</code>, <code>extraMimetypes</code>, <code>interpret</code>, <code>headers</code>, <code>pvo</code>, and
+<code>rejectServiceKeywords</code> are all <code>struct lws_protocol_vhost_options</code>
+chains. Inputs accepted (see <code>lwsjs_vhost_options_from</code> /
+<code>lwsjs_vhost_option_from</code> in <code>lws-vhost.c</code>):</p>
+<ul>
+<li>An array of <code>{ name, value, options?, next? }</code> objects.</li>
+<li>A single object — used as the head of the chain.</li>
+<li>A tuple <code>[name, value, options]</code>.</li>
+</ul>
+<p>The <code>name</code>/<code>value</code> strings are duplicated into a private chain and
+freed on context destroy.</p>
+<p>Example <code>extraMimetypes</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">mounts</span><span class="t-op">:</span> [{
+  <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/'</span>,
+  <span class="t-id">origin</span><span class="t-op">:</span> <span class="t-str">'.'</span>,
+  <span class="t-id">def</span><span class="t-op">:</span> <span class="t-str">'README.md'</span>,
+  <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_FILE</span>,
+  <span class="t-id">extraMimetypes</span><span class="t-op">:</span> [
+    { <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'.md'</span>,  <span class="t-id">value</span><span class="t-op">:</span> <span class="t-str">'text/markdown'</span> },
+    { <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'.wasm'</span>, <span class="t-id">value</span><span class="t-op">:</span> <span class="t-str">'application/wasm'</span> },
+  ],
+}],</code></pre></div>
+<h2 id="common-mount-patterns"><a class="anchor" href="#common-mount-patterns" aria-hidden="true">#</a>Common mount patterns</h2>
+<h3 id="static-files"><a class="anchor" href="#static-files" aria-hidden="true">#</a>Static files</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{ <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/'</span>, <span class="t-id">origin</span><span class="t-op">:</span> <span class="t-str">'./public'</span>, <span class="t-id">def</span><span class="t-op">:</span> <span class="t-str">'index.html'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_FILE</span> }</code></pre></div>
+<h3 id="reverse-proxy"><a class="anchor" href="#reverse-proxy" aria-hidden="true">#</a>Reverse proxy</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{ <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/warmcat'</span>, <span class="t-id">origin</span><span class="t-op">:</span> <span class="t-str">'warmcat.com/'</span>, <span class="t-id">def</span><span class="t-op">:</span> <span class="t-str">'index.html'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_HTTP</span> }</code></pre></div>
+<h3 id="dispatch-to-a-js-protocol"><a class="anchor" href="#dispatch-to-a-js-protocol" aria-hidden="true">#</a>Dispatch to a JS protocol</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{ <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/api'</span>, <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'http'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_CALLBACK</span> }</code></pre></div>
+<p>Inside protocol <code>'http'</code>, <code>onHttp(wsi, uri)</code> is invoked for any URL
+beginning with <code>/api</code>.</p>
+<h3 id="websocket-endpoint-no-http-serving"><a class="anchor" href="#websocket-endpoint-no-http-serving" aria-hidden="true">#</a>WebSocket endpoint (no HTTP serving)</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{ <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/ws'</span>, <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'ws'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_NO_MOUNT</span> }</code></pre></div>
+<p>Combine with a protocol <code>'ws'</code> that implements <code>onEstablished</code>,
+<code>onReceive</code>, etc.</p>
+<h3 id="redirect"><a class="anchor" href="#redirect" aria-hidden="true">#</a>Redirect</h3>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{ <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/old'</span>, <span class="t-id">origin</span><span class="t-op">:</span> <span class="t-str">'newsite.example/x'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_REDIR_HTTPS</span> }</code></pre></div></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/mounts.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#shape">Shape</a></li><li class="lvl2"><a href="#mount-object-properties">Mount object properties</a></li><li class="lvl2"><a href="#vhost-options-chains">Vhost-options chains</a></li><li class="lvl2"><a href="#common-mount-patterns">Common mount patterns</a></li><li class="lvl3"><a href="#static-files">Static files</a></li><li class="lvl3"><a href="#reverse-proxy">Reverse proxy</a></li><li class="lvl3"><a href="#dispatch-to-a-js-protocol">Dispatch to a JS protocol</a></li><li class="lvl3"><a href="#websocket-endpoint-no-http-serving">WebSocket endpoint (no HTTP serving)</a></li><li class="lvl3"><a href="#redirect">Redirect</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

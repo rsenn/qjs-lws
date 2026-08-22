@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bun-compatible API (lib/serve.js, lib/lws/response.js, lib/lws/request.js, lib/websocket.js) — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="../native/module.html">Module exports</a></li><li><a href="../native/LWSContext.html">LWSContext</a></li><li><a href="../native/LWSVhost.html">LWSVhost</a></li><li><a href="../native/LWSSocket.html">LWSSocket</a></li><li><a href="../native/LWSSPA.html">LWSSPA</a></li><li><a href="../native/LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="../native/protocols.html">Protocol handlers</a></li><li><a href="../native/callbacks.html">Callback reference</a></li><li><a href="../native/mounts.html">Mounts</a></li><li><a href="../native/tls.html">TLS</a></li><li><a href="../native/event-loop.html">Event loop</a></li><li><a href="../native/constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="../native/ws-server.html">WebSocket server</a></li><li><a href="../native/ws-client.html">WebSocket client</a></li><li><a href="../native/http-server.html">HTTP server</a></li><li><a href="../native/http-client.html">HTTP client</a></li><li><a href="../native/raw-tcp.html">Raw TCP</a></li><li><a href="../native/examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="helpers.html">lib/ helpers</a></li><li><a href="bun.html" class="here">Bun-compatible serve()</a></li><li><a href="middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="bun-compatible-api-libservejs-liblwsresponsejs-liblwsrequestjs-libwebsocketjs"><a class="anchor" href="#bun-compatible-api-libservejs-liblwsresponsejs-liblwsrequestjs-libwebsocketjs" aria-hidden="true">#</a>Bun-compatible API (<code>lib/serve.js</code>, <code>lib/lws/response.js</code>, <code>lib/lws/request.js</code>, <code>lib/websocket.js</code>)</h1>
+<p><code>serve()</code> (<code>lib/serve.js</code>) is a deliberately <a href="https://bun.com/docs/api/http" target="_blank" rel="noopener">Bun.serve()</a>-shaped
+HTTP(+WS+raw) server, built on <code>createContext()</code>/<code>lib/lws/protocols.js</code>'s
+<code>http()</code> adapter. The goal: the same application code that calls
+<code>Bun.serve({...})</code> should run against qjs-lws with a single import-line
+switch (<code>import { serve } from 'bun'</code> -&gt; `import { serve } from
+'qjs-lws/lib/serve.js'`), as far as lws's underlying primitives allow.</p>
+<p>This file lists exactly what matches Bun's real API/semantics, what's
+close-but-not-identical, and what's a known, documented constraint of
+lws's model rather than an oversight. When something can't be made to
+behave exactly like Bun, that's called out explicitly here rather than
+silently shipping a different API under the same name.</p>
+<h2 id="serveoptions-fetch"><a class="anchor" href="#serveoptions-fetch" aria-hidden="true">#</a><code>serve(options[, fetch])</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">serve</span>, <span class="t-type">Response</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/serve.js'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">server</span> <span class="t-op">=</span> <span class="t-fn">serve</span>({ <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span> }, <span class="t-id">req</span> <span class="t-op">=&gt;</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'hello'</span>));</code></pre></div>
+<p>Matches Bun:</p>
+<ul>
+<li><code>port</code>, <code>hostname</code>/<code>host</code>, <code>tls</code> (<code>{cert, key}</code> - constructs an
+SSL-capable vhost; <strong>see "TLS" below, a real vhost-construction bug
+exists right now</strong>).</li>
+<li><code>fetch(request, server)</code> - called once per HTTP request, `(request: Request)
+=&gt; Response | Promise&lt;Response&gt;<code>. The second argument is the </code>Server`
+this <code>serve()</code> call returns (see <code>server.upgrade()</code>/<code>server.publish()</code>
+below).</li>
+<li><code>routes</code> - <code>{ '/path/:id': handler | Response | {GET, POST, ...} }</code>,
+tried before <code>fetch</code>, <code>req.params</code> populated from <code>:name</code> segments,
+method dispatch with an automatic 405 (<code>allow</code> header) and <code>HEAD</code> -&gt;
+<code>GET</code> fallback, matching Bun.</li>
+<li>Returned <code>Server</code> has <code>.stop()</code>, <code>.port</code>, <code>.hostname</code>.</li>
+<li>A response with no <code>content-length</code> header streams as
+<code>Transfer-Encoding: chunked</code> as the body is produced, not buffered
+first to compute a length - same as Bun. Set <code>content-length</code> yourself
+if you already know it and want it declared instead (streamed as-is,
+unchanged).</li>
+</ul>
+<p>Not from Bun, additive (documented in <code>serve()</code>'s own doc comment,
+<code>lib/serve.js</code>):</p>
+<ul>
+<li>No callback at all -&gt; <code>serve()</code> returns an async-iterable instead
+(<code>for await(const x of serve({port}))</code>) - a lower-level escape hatch,
+not part of Bun's API.</li>
+<li><code>options.raw</code> - non-HTTP-looking raw TCP connections on the same port.</li>
+<li><code>options.mounts</code>/<code>options.protocols</code> - drop to lws's own mount/protocol
+config directly when the high-level API isn't enough.</li>
+<li><code>options.{headers,html,access,auth}</code> - rarer server-side lws callbacks
+(<code>ADD_HEADERS</code>/<code>PROCESS_HTML</code>/<code>CHECK_ACCESS_RIGHTS</code>/
+<code>VERIFY_BASIC_AUTHORIZATION</code>) with no Bun equivalent.</li>
+</ul>
+<h2 id="requestresponseheaders-liblwsrequestjs-liblwsresponsejs-liblwsheadersjs"><a class="anchor" href="#requestresponseheaders-liblwsrequestjs-liblwsresponsejs-liblwsheadersjs" aria-hidden="true">#</a><code>Request</code>/<code>Response</code>/<code>Headers</code> (<code>lib/lws/request.js</code>, <code>lib/lws/response.js</code>, <code>lib/lws/headers.js</code>)</h2>
+<p>Standard WHATWG <code>fetch()</code> shapes (same classes <code>fetch()</code>, <code>lib/fetch.js</code>,
+uses on the client side) - <code>new Request(url, {method, headers, body})</code>,
+<code>new Response(body, {status, headers})</code>, <code>.text()</code>/<code>.json()</code>/
+<code>.arrayBuffer()</code>/<code>.formData()</code>, <code>Response.json()</code>/<code>.redirect()</code>. <code>Response</code>
+also carries a couple of Express-style conveniences Bun doesn't have
+(<code>.status(code)</code>/<code>.cookie()</code>/<code>.clearCookie()</code>, chainable) - additive, not a
+conflict, since <code>status</code> used as a <em>property</em> (not called) is a WHATWG
+<code>Response</code> method here, not a number; use <code>.statusCode</code> for the number if
+you're not calling <code>.status(...)</code> as a setter.</p>
+<h2 id="serverupgraderequest-options---dynamic-per-request-ws-upgrade"><a class="anchor" href="#serverupgraderequest-options---dynamic-per-request-ws-upgrade" aria-hidden="true">#</a><code>server.upgrade(request, options)</code> - dynamic per-request WS upgrade</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">serve</span>({
+  <span class="t-id">websocket</span><span class="t-op">:</span> {
+    <span class="t-fn">open</span>(<span class="t-id">ws</span>)            { <span class="t-id">ws</span>.<span class="t-fn">subscribe</span>(<span class="t-str">'room:'</span> <span class="t-op">+</span> <span class="t-id">ws</span>.<span class="t-prop">data</span>.<span class="t-prop">room</span>); },
+    <span class="t-fn">message</span>(<span class="t-id">ws</span>, <span class="t-id">data</span>)   { <span class="t-id">ws</span>.<span class="t-fn">publish</span>(<span class="t-str">'room:'</span> <span class="t-op">+</span> <span class="t-id">ws</span>.<span class="t-prop">data</span>.<span class="t-prop">room</span>, <span class="t-id">data</span>); },
+    <span class="t-fn">close</span>(<span class="t-id">ws</span>)            {},
+  },
+  <span class="t-fn">fetch</span>(<span class="t-id">req</span>, <span class="t-id">server</span>) {
+    <span class="t-kw">const</span> <span class="t-id">url</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">URL</span>(<span class="t-id">req</span>.<span class="t-prop">url</span>);
+
+    <span class="t-kw">if</span>(<span class="t-id">url</span>.<span class="t-prop">pathname</span> <span class="t-op">===</span> <span class="t-str">'/ws'</span>)     <span class="t-kw">return</span> <span class="t-id">server</span>.<span class="t-fn">upgrade</span>(<span class="t-id">req</span>, { <span class="t-id">data</span><span class="t-op">:</span> { <span class="t-id">room</span><span class="t-op">:</span> <span class="t-str">'lobby'</span> } }) <span class="t-op">?</span> <span class="t-atom">undefined</span> <span class="t-op">:</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'upgrade failed'</span>, { <span class="t-id">status</span><span class="t-op">:</span> <span class="t-num">500</span> });
+    <span class="t-kw">if</span>(<span class="t-id">url</span>.<span class="t-prop">pathname</span> <span class="t-op">===</span> <span class="t-str">'/serial'</span>) <span class="t-kw">return</span> <span class="t-id">server</span>.<span class="t-fn">upgrade</span>(<span class="t-id">req</span>, { <span class="t-id">data</span><span class="t-op">:</span> { <span class="t-id">room</span><span class="t-op">:</span> <span class="t-str">'serial'</span> } }) <span class="t-op">?</span> <span class="t-atom">undefined</span> <span class="t-op">:</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'upgrade failed'</span>, { <span class="t-id">status</span><span class="t-op">:</span> <span class="t-num">500</span> });
+
+    <span class="t-kw">return</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'plain http'</span>);
+  },
+});</code></pre></div>
+<p>Matches Bun: <code>fetch</code> decides, per request (URL/headers/auth/whatever),
+whether to promote <em>this</em> connection to a WebSocket, instead of a single
+fixed mountpoint chosen up front. <code>server.upgrade()</code> returns <code>true</code>/<code>false</code>
+matching Bun exactly; <code>options.data</code> becomes <code>ws.data</code>, readable in
+<code>open</code>/<code>message</code>/<code>close</code>, same as Bun. There's still only <strong>one</strong> shared
+<code>open</code>/<code>message</code>/<code>close</code> handler set (configured once, at the top of
+<code>serve()</code>'s own options) - exactly like Bun, which also has no
+per-endpoint handlers, only per-connection <code>ws.data</code> to differentiate
+behavior (as in the example above).</p>
+<p><strong>Requires</strong> <code>websocket</code> to be configured in Bun's evented shape
+(<code>{open, message, close}</code>) - <code>.upgrade()</code> is a no-op returning <code>false</code>
+with a plain <code>Class</code>/mountpoint-only <code>websocket</code> option, or with no
+<code>fetch</code> handler (iterator-mode <code>serve()</code>) at all.</p>
+<p><strong>Must be called synchronously</strong> - before <code>fetch</code>'s first <code>await</code> if it's
+<code>async</code> - matching Bun's own contract. This one isn't optional cosmetics
+here: it's how <code>.upgrade()</code> is actually implemented (see "How it works"
+below), and it's a hard requirement of the underlying native callback.</p>
+<h3 id="how-it-works-and-its-real-constraints"><a class="anchor" href="#how-it-works-and-its-real-constraints" aria-hidden="true">#</a>How it works (and its real constraints)</h3>
+<p>lws never fires <code>LWS_CALLBACK_HTTP</code> (<code>fetch</code> normally) for a genuine
+upgrade request at all - confirmed directly against lws's own
+<code>lib/roles/http/server/server.c</code>: an <code>Upgrade</code> header routes straight to
+<code>LWS_CALLBACK_HTTP_CONFIRM_UPGRADE</code>, then lws's own native WS handshake,
+entirely bypassing the normal HTTP-request dispatch. <code>server.upgrade()</code>
+is built by treating <em>that</em> callback as the "call <code>fetch</code>, see if it
+upgraded" dispatch point instead - synthesizing a <code>Request</code> from the
+still-unestablished connection's already-parsed headers/URL/method, and
+checking - strictly synchronously - whether <code>fetch</code>'s call made
+<code>server.upgrade()</code> accept.</p>
+<p>This has two real, load-bearing consequences, not just implementation
+trivia:</p>
+<ol>
+<li><p><strong>A <code>fetch</code> that rejects an upgrade</strong> (didn't call <code>.upgrade()</code>) has to
+answer back through the same synchronous native callback. Only a
+plain, already-in-memory <code>Response</code> returned <em>synchronously</em> (not a
+<code>Promise</code>, not a streamed body) can be sent as that reply - lws's
+contract for a confirm-upgrade rejection requires the response already
+fully written by the time the callback returns, and there is no way to
+defer that from JS. An <code>async fetch</code> (or a streamed rejection body)
+can't satisfy this, so that case hangs up the connection outright
+instead of risking a malformed response. In practice this covers the
+overwhelmingly common case (`return new Response('Unauthorized',
+{status: 401})`) fine; it's a real gap for anything fancier.</p></li>
+<li><p><strong>Which protocol an accepted upgrade actually binds to</strong> is resolved by
+lws purely by matching the client's <code>Sec-WebSocket-Protocol</code> header
+against registered protocol <em>names</em> (or the vhost's first/default
+protocol if that header is absent) - confirmed empirically to be
+completely independent of mount/URL. <code>server.upgrade()</code> accepting the
+request doesn't override this. The ordinary <code>new WebSocket(url)</code> case
+(no <code>Sec-WebSocket-Protocol</code> header sent) is unaffected; a client that
+explicitly passes custom <code>protocols</code> to <code>new WebSocket(url, protocols)</code>
+naming something this vhost never registered will fail the native
+handshake regardless of what <code>fetch</code> decided.</p></li>
+</ol>
+<p><strong>Status:</strong> implemented and confirmed working in every focused test
+(a single WS endpoint, <code>ws.data</code> round-tripping correctly, a plain HTTP
+request handled alongside it) - but a fuller multi-endpoint integration
+test hit an unresolved hang, not yet root-caused. See `BUGS:
+serve-upgrade-hangs-in-fuller-scenario<code>in this project's</code>BUGS` file
+before relying on more than one <code>.upgrade()</code>-accepting endpoint per
+server.</p>
+<h2 id="ws-pubsub---wssubscribeunsubscribepublish-serverpublish"><a class="anchor" href="#ws-pubsub---wssubscribeunsubscribepublish-serverpublish" aria-hidden="true">#</a>WS pub/sub - <code>ws.subscribe()</code>/<code>.unsubscribe()</code>/<code>.publish()</code>, <code>server.publish()</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">serve</span>({
+  <span class="t-id">websocket</span><span class="t-op">:</span> {
+    <span class="t-fn">open</span>(<span class="t-id">ws</span>)          { <span class="t-id">ws</span>.<span class="t-fn">subscribe</span>(<span class="t-str">'chat'</span>); },
+    <span class="t-fn">message</span>(<span class="t-id">ws</span>, <span class="t-id">data</span>) { <span class="t-id">ws</span>.<span class="t-fn">publish</span>(<span class="t-str">'chat'</span>, <span class="t-id">data</span>); }, <span class="t-cm">// -&gt; everyone in 'chat' except ws itself</span>
+    <span class="t-fn">close</span>(<span class="t-id">ws</span>)         {}, <span class="t-cm">// subscriptions are dropped automatically</span>
+  },
+  <span class="t-fn">fetch</span>(<span class="t-id">req</span>, <span class="t-id">server</span>) {
+    <span class="t-id">server</span>.<span class="t-fn">publish</span>(<span class="t-str">'chat'</span>, <span class="t-str">'a message from outside any connection'</span>); <span class="t-cm">// -&gt; everyone in 'chat', nobody excluded</span>
+    <span class="t-kw">return</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'ok'</span>);
+  },
+});</code></pre></div>
+<p>Matches Bun's signatures and exclusion semantics exactly:</p>
+<ul>
+<li><code>ws.subscribe(topic)</code> / <code>ws.unsubscribe(topic)</code> / <code>ws.isSubscribed(topic)</code></li>
+<li><code>ws.publish(topic, message)</code> - broadcasts to <code>topic</code>'s subscribers,
+<strong>excluding</strong> the calling socket (matches Bun)</li>
+<li><code>server.publish(topic, message)</code> - same, but excludes nobody</li>
+</ul>
+<p>A server-wide <code>topic -&gt; Set&lt;WebSocket&gt;</code> registry (<code>TopicRegistry</code>,
+<code>lib/websocket.js</code>) backs this - the app doesn't track its own list of
+live sockets, and a closed socket's subscriptions are dropped
+automatically.</p>
+<p><strong>Return value note:</strong> all three return the total bytes handed to
+<code>wsi.write()</code> across every recipient - "bytes attempted", not a
+confirmed-delivered count, since lws doesn't expose a per-write
+backpressure/delivery result to JS the way Bun's (uWebSockets-backed)
+exact accounting does. Close enough for "did this reach anyone" (<code>0</code>
+means no subscribers), not for precise flow-control decisions.</p>
+<p>Only available on the evented <code>WebSocket</code> class (<code>lib/websocket.js</code>) -
+i.e. <code>websocket: {open, message, close}</code> (Bun's own shape) or a
+<code>server.upgrade()</code>-accepted connection (which uses the same class
+underneath). A plain <code>Class</code>/<code>WebSocketStream</code>-shaped <code>websocket</code> option
+doesn't get these methods, matching how Bun's own pub/sub is specifically
+a <code>ServerWebSocket</code> feature.</p>
+<h2 id="idle-timeout-backpressure-tls-peer-info"><a class="anchor" href="#idle-timeout-backpressure-tls-peer-info" aria-hidden="true">#</a>Idle timeout, backpressure, TLS peer info</h2>
+<ul>
+<li><code>server.timeout(seconds)</code> - server-wide idle timeout, matching Bun's
+semantics: applied (and re-armed on every request/WS message) via the
+native <code>wsi.setTimeout()</code> binding (<code>lws_set_timeout()</code>,
+<code>doc/native/LWSSocket.md</code>), which force-closes an idle connection - <code>0</code>
+disables it.</li>
+<li><code>websocket.idleTimeout</code> - same mechanism, per-WS-handler; takes
+precedence over <code>server.timeout()</code> when both are set on the same
+connection.</li>
+<li><code>websocket.drain(ws)</code> - now actually fires: <code>ws.send()</code> arms a one-shot
+native "write queue fully flushed" callback whenever it leaves data
+buffered, which dispatches the <code>'drain'</code> event.</li>
+<li><code>WebSocket#writableNeedDrain</code> / <code>TCPSocket#writableNeedDrain</code> - Node's
+<code>socket.writableNeedDrain</code> equivalent (<code>wsi.sendPipeChoked</code>) - true if a
+<code>send()</code>/<code>write()</code> right now would buffer instead of going out
+immediately.</li>
+<li><code>WebSocket#bufferedAmount</code> - WHATWG/Bun/Deno standard property, bytes
+still queued to be sent (<code>wsi.bufferedAmount</code>).</li>
+<li>TLS peer certificate info: <code>TCPSocket#peerCertificate</code>/<code>#tlsSessionReused</code>
+and <code>WebSocket#peerCertificate</code>/<code>#tlsSessionReused</code> (Node's
+<code>tlsSocket.getPeerCertificate()</code>/<code>.isSessionReused()</code> equivalents, see
+<code>doc/native/LWSSocket.md</code>). <code>ServerRequest</code> doesn't get its own copies -
+use <code>request.wsi.peerCertificate</code> via the existing <code>.wsi</code> escape hatch.</li>
+</ul>
+<h2 id="tls"><a class="anchor" href="#tls" aria-hidden="true">#</a>TLS</h2>
+<p><code>serve({ tls: {cert, key} })</code> constructs an SSL-capable vhost, matching
+Bun's <code>tls</code> option shape (<code>lib/lws/tls.js</code>'s <code>tlsContextOptions()</code>).
+<strong>Currently segfaults during vhost construction</strong> - see `BUGS:
+serve-tls-option-segfaults<code>in this project's</code>BUGS` file. Not
+root-caused; found while verifying the streaming-response fix, out of
+scope to fix as part of that work.</p>
+<h2 id="known-gaps-not-covered-by-this-file"><a class="anchor" href="#known-gaps-not-covered-by-this-file" aria-hidden="true">#</a>Known gaps not covered by this file</h2>
+<p>See <code>TODO.md</code> item 2.3/2.4 in this project (<code>serve()</code>'s section) for
+smaller, longer-standing gaps against Bun: no bound-port reporting when
+<code>port: 0</code> is requested, no <code>Bun.serve({static: {...}})</code>-equivalent static
+file convenience (drop to <code>options.mounts</code> by hand for now), and
+<code>HttpClientProtocol.connect()</code> (the client side, <code>fetch()</code>) always
+buffers the whole request body up front rather than streaming an
+unknown-length one.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/js/bun.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#serveoptions-fetch">serve(options[, fetch])</a></li><li class="lvl2"><a href="#requestresponseheaders-liblwsrequestjs-liblwsresponsejs-liblwsheadersjs">Request/Response/Headers (lib/lws/request.js, lib/lws/response.js, lib/lws/headers.js)</a></li><li class="lvl2"><a href="#serverupgraderequest-options---dynamic-per-request-ws-upgrade">server.upgrade(request, options) - dynamic per-request WS upgrade</a></li><li class="lvl3"><a href="#how-it-works-and-its-real-constraints">How it works (and its real constraints)</a></li><li class="lvl2"><a href="#ws-pubsub---wssubscribeunsubscribepublish-serverpublish">WS pub/sub - ws.subscribe()/.unsubscribe()/.publish(), server.publish()</a></li><li class="lvl2"><a href="#idle-timeout-backpressure-tls-peer-info">Idle timeout, backpressure, TLS peer info</a></li><li class="lvl2"><a href="#tls">TLS</a></li><li class="lvl2"><a href="#known-gaps-not-covered-by-this-file">Known gaps not covered by this file</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

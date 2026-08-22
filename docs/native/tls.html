@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TLS / SSL configuration — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html" class="here">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="tls--ssl-configuration"><a class="anchor" href="#tls--ssl-configuration" aria-hidden="true">#</a>TLS / SSL configuration</h1>
+<p>qjs-lws inherits libwebsockets's TLS stack. Server and client roles
+share the same <code>LWSContext</code> info object. Option parsing is
+implemented in <code>lws-tls.c</code> (<code>tls_creation_info_fromobj</code>,
+<code>tls_connect_info_fromobj</code>), called from <code>lws-context.c</code>.</p>
+<h2 id="server-certificates"><a class="anchor" href="#server-certificates" aria-hidden="true">#</a>Server certificates</h2>
+<p>Each cert / key / CA can be supplied either as a <strong>file path
+string</strong> or as an <strong>ArrayBuffer</strong> holding the PEM (or DER) bytes.
+The <code>str_or_buf_property()</code> helper in <code>js-utils.c</code> picks the right
+field — file path or <code>*_mem</code> + <code>*_mem_len</code>.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT</span>, <span class="t-type">LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">443</span>,
+  <span class="t-id">options</span><span class="t-op">:</span> <span class="t-type">LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT</span> <span class="t-op">|</span>
+           <span class="t-type">LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX</span>,
+  <span class="t-id">serverSslCert</span><span class="t-op">:</span>       <span class="t-str">'localhost.crt'</span>,
+  <span class="t-id">serverSslPrivateKey</span><span class="t-op">:</span> <span class="t-str">'localhost.key'</span>,
+  <span class="t-id">serverSslCa</span><span class="t-op">:</span>         <span class="t-str">'ca.crt'</span>,
+  <span class="t-id">sslPrivateKeyPassword</span><span class="t-op">:</span> <span class="t-str">'pass'</span>,
+  <span class="t-id">sslCipherList</span><span class="t-op">:</span> <span class="t-str">'HIGH:!aNULL:!MD5'</span>,
+  <span class="t-id">tls13PlusCipherList</span><span class="t-op">:</span> <span class="t-str">'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256'</span>,
+  <span class="t-id">protocols</span><span class="t-op">:</span> [<span class="t-cm">/* ... */</span>],
+});</code></pre></div>
+<p>In-memory form:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">readFileSync</span> } <span class="t-kw">from</span> <span class="t-str">'fs'</span>;
+<span class="t-kw">import</span> { <span class="t-id">createServer</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">serverSslCert</span><span class="t-op">:</span> <span class="t-fn">readFileSync</span>(<span class="t-str">'localhost.crt'</span>),       <span class="t-cm">// ArrayBuffer</span>
+  <span class="t-id">serverSslPrivateKey</span><span class="t-op">:</span> <span class="t-fn">readFileSync</span>(<span class="t-str">'localhost.key'</span>), <span class="t-cm">// ArrayBuffer</span>
+});</code></pre></div>
+<h2 id="client-certificates"><a class="anchor" href="#client-certificates" aria-hidden="true">#</a>Client certificates</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">new</span> <span class="t-fn">LWSContext</span>({
+  <span class="t-id">clientSslCa</span><span class="t-op">:</span>                <span class="t-str">'ca.crt'</span>,
+  <span class="t-id">clientSslCert</span><span class="t-op">:</span>              <span class="t-str">'client.crt'</span>,
+  <span class="t-id">clientSslPrivateKey</span><span class="t-op">:</span>        <span class="t-str">'client.key'</span>,
+  <span class="t-id">clientSslPrivateKeyPassword</span><span class="t-op">:</span> <span class="t-str">'pw'</span>,
+  <span class="t-id">clientSslCipherList</span><span class="t-op">:</span>        <span class="t-str">'HIGH:!aNULL'</span>,
+  <span class="t-id">clientTls13PlusCipherList</span><span class="t-op">:</span>  <span class="t-str">'TLS_AES_256_GCM_SHA384'</span>,
+});</code></pre></div>
+<p>Same dual-mode (file path or ArrayBuffer).</p>
+<h2 id="server-options"><a class="anchor" href="#server-options" aria-hidden="true">#</a>Server options</h2>
+<p>Common <code>options</code> flags for TLS server contexts (OR them together):</p>
+<div class="tablewrap"><table><thead><tr><th>Constant</th><th>Purpose</th></tr></thead><tbody><tr><td><code>LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT</code></td><td>Initialise OpenSSL — needed once</td></tr><tr><td><code>LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX</code></td><td>Create a per-vhost SSL context</td></tr><tr><td><code>LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT</code></td><td>Mutual TLS — require client cert</td></tr><tr><td><code>LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED</code></td><td>Disable peer-cert verification</td></tr><tr><td><code>LWS_SERVER_OPTION_IGNORE_MISSING_CERT</code></td><td>Don't fail vhost creation when cert files missing</td></tr><tr><td><code>LWS_SERVER_OPTION_SSL_ECDH</code></td><td>Enable ECDH</td></tr><tr><td><code>LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS</code></td><td>301 plaintext to TLS</td></tr><tr><td><code>LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT</code></td><td>Accept plaintext on a TLS port</td></tr><tr><td><code>LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER</code></td><td>Same idea for vhost listener</td></tr><tr><td><code>LWS_SERVER_OPTION_STS</code></td><td>Send HSTS header</td></tr><tr><td><code>LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE</code></td><td>Hardened default headers</td></tr></tbody></table></div>
+<h2 id="client-connection-flags-ssl_connection"><a class="anchor" href="#client-connection-flags-ssl_connection" aria-hidden="true">#</a>Client connection flags (<code>ssl_connection</code>)</h2>
+<p>Used per outbound <code>ctx.clientConnect()</code> via the <code>sslConnection</code>
+or <code>ssl</code> info property. All <code>LCCSCF_*</code> constants are exported:</p>
+<div class="tablewrap"><table><thead><tr><th>Constant</th><th>Meaning</th></tr></thead><tbody><tr><td><code>LCCSCF_USE_SSL</code></td><td>Initiate TLS</td></tr><tr><td><code>LCCSCF_ALLOW_SELFSIGNED</code></td><td>Accept self-signed peer certs</td></tr><tr><td><code>LCCSCF_ALLOW_EXPIRED</code></td><td>Accept expired certs</td></tr><tr><td><code>LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK</code></td><td>Skip CN/SAN check</td></tr><tr><td><code>LCCSCF_ALLOW_INSECURE</code></td><td>Accept other TLS failures</td></tr><tr><td><code>LCCSCF_H2_PRIOR_KNOWLEDGE</code></td><td>Send HTTP/2 prior-knowledge upgrade</td></tr><tr><td><code>LCCSCF_HTTP_MULTIPART_MIME</code></td><td><code>multipart/form-data</code> POST</td></tr><tr><td><code>LCCSCF_HTTP_X_WWW_FORM_URLENCODED</code></td><td><code>application/x-www-form-urlencoded</code> POST</td></tr><tr><td><code>LCCSCF_HTTP_NO_FOLLOW_REDIRECT</code></td><td>Don't follow 3xx</td></tr><tr><td><code>LCCSCF_HTTP_NO_CACHE_CONTROL</code></td><td>Skip cache-control hints</td></tr><tr><td><code>LCCSCF_CACHE_COOKIES</code></td><td>Persist <code>Set-Cookie</code></td></tr><tr><td><code>LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS</code></td><td>Allow https→http redirect</td></tr><tr><td><code>LCCSCF_IP_LOW_LATENCY</code> / <code>_HIGH_THROUGHPUT</code> / <code>_HIGH_RELIABILITY</code> / <code>_LOW_COST</code></td><td>DSCP hint</td></tr></tbody></table></div>
+<p>Quick form: supplying <code>ssl: true</code> in <code>clientConnect()</code> is shorthand
+for `LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE
+| LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK`
+(see <code>client_connect_info_fromobj</code>).</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-str">'https://self-signed.example/'</span>, {
+  <span class="t-id">ssl</span><span class="t-op">:</span> <span class="t-atom">true</span>,                            <span class="t-cm">// permissive</span>
+  <span class="t-cm">// or:</span>
+  <span class="t-cm">// sslConnection: LCCSCF_USE_SSL,    // strict</span>
+});</code></pre></div>
+<h2 id="generating-a-self-signed-certificate"><a class="anchor" href="#generating-a-self-signed-certificate" aria-hidden="true">#</a>Generating a self-signed certificate</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">generateSelfSignedCert</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-kw">const</span> { <span class="t-id">cert</span>, <span class="t-id">key</span> } <span class="t-op">=</span> <span class="t-fn">generateSelfSignedCert</span>({
+  <span class="t-id">commonName</span><span class="t-op">:</span> <span class="t-str">'localhost'</span>,        <span class="t-cm">// default: 'localhost'</span>
+  <span class="t-id">altNames</span><span class="t-op">:</span> [<span class="t-str">'localhost'</span>, <span class="t-str">'127.0.0.1'</span>], <span class="t-cm">// optional; falls back to commonName</span>
+  <span class="t-id">days</span><span class="t-op">:</span> <span class="t-num">825</span>,                      <span class="t-cm">// default: 825</span>
+  <span class="t-id">keyBits</span><span class="t-op">:</span> <span class="t-num">2048</span>,                  <span class="t-cm">// default: 2048</span>
+});
+<span class="t-cm">// cert, key: PEM-encoded ArrayBuffer, pass straight to serverSslCert / serverSslPrivateKey</span></code></pre></div>
+<p>Plain OpenSSL API use (RSA + SHA-256), not an lws facility. Only
+built against the OpenSSL TLS backend; on other backends it throws
+`InternalError("generateSelfSignedCert: not supported by this
+build's TLS backend")`.</p>
+<h2 id="verification-hook"><a class="anchor" href="#verification-hook" aria-hidden="true">#</a>Verification hook</h2>
+<p>You can override the certificate check with a JS callback:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'http'</span>,
+  <span class="t-fn">onOpensslPerformServerCertVerification</span>(<span class="t-id">wsi</span>, <span class="t-id">cert</span>, <span class="t-id">tlsSocket</span>, <span class="t-id">preverifyOk</span>) {
+    <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">cert</span>.<span class="t-prop">subject</span>, <span class="t-id">cert</span>.<span class="t-prop">fingerprint256</span>, <span class="t-id">preverifyOk</span>);
+
+    <span class="t-kw">if</span>(<span class="t-op">!</span><span class="t-id">preverifyOk</span> <span class="t-op">&amp;&amp;</span> <span class="t-id">cert</span>.<span class="t-fn">checkHost</span>(<span class="t-str">'example.com'</span>))
+      <span class="t-id">cert</span>.<span class="t-prop">error</span> <span class="t-op">=</span> <span class="t-num">0</span>;       <span class="t-cm">// X509_V_OK - overrule an otherwise-failing check</span>
+
+    <span class="t-kw">return</span> <span class="t-num">0</span>;                <span class="t-cm">// 0 accepts, non-zero rejects</span>
+  },
+}</code></pre></div>
+<p>Two reasons fire this shape of callback:</p>
+<div class="tablewrap"><table><thead><tr><th>Constant</th><th>Handler</th><th>Fires when</th></tr></thead><tbody><tr><td><code>LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION</code></td><td><code>onOpensslPerformServerCertVerification</code></td><td>A client verifies the server's certificate. <code>wsi</code> is set.</td></tr><tr><td><code>LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION</code></td><td><code>onOpensslPerformClientCertVerification</code></td><td>A server (with <code>LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT</code>) verifies a client's certificate. <strong><code>wsi</code> is <code>null</code> per libwebsockets</strong> for this reason, and this binding currently resolves the JS callback to invoke <em>through</em> the wsi — so in practice this handler is not reachable yet; the connection falls back to OpenSSL's own verification result.</td></tr></tbody></table></div>
+<p><code>cert</code> is an <code>X509Certificate</code> and <code>tlsSocket</code> a <code>TLSSocket</code> — both
+described below. <code>preverifyOk</code> is OpenSSL's own verification result
+(<code>0</code> or <code>1</code>) going into the callback; returning <code>0</code> from the handler
+accepts the certificate regardless (matching lws' own "return 0 to
+mean the cert is OK" convention), but to actually <em>overrule</em> an
+OpenSSL-detected error (rather than merely ignoring it) you must also
+set <code>cert.error = 0</code> — see <code>X509_STORE_CTX_set_error()</code>'s role in
+<code>SSL_CTX_set_verify(3)</code>.</p>
+<h3 id="x509certificate"><a class="anchor" href="#x509certificate" aria-hidden="true">#</a><code>X509Certificate</code></h3>
+<p>Wraps OpenSSL's <code>X509*</code>, modeled closely on Node's
+<a href="https://nodejs.org/api/crypto.html#class-x509certificate" target="_blank" rel="noopener">undefined</a>.
+Implemented in <code>lws-tls.c</code>. Constructible directly, not just from the
+verification hook:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">X509Certificate</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">cert</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">X509Certificate</span>(<span class="t-id">pemStringOrDerArrayBuffer</span>);</code></pre></div>
+<p>Every wrapped certificate is reference-counted (<code>X509_up_ref()</code>) and
+freed by its finalizer, so — unlike the raw <code>X509_STORE_CTX*</code>/<code>SSL*</code>
+libwebsockets hands the verification callback — an <code>X509Certificate</code>
+is safe to keep around past the callback that produced it.</p>
+<h4 id="properties"><a class="anchor" href="#properties" aria-hidden="true">#</a>Properties</h4>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>ca</code></td><td>boolean</td><td><code>X509_check_ca()</code> — whether this is a CA certificate</td></tr><tr><td><code>fingerprint</code></td><td>string</td><td>SHA-1 digest, colon-separated hex</td></tr><tr><td><code>fingerprint256</code></td><td>string</td><td>SHA-256 digest</td></tr><tr><td><code>fingerprint512</code></td><td>string</td><td>SHA-512 digest</td></tr><tr><td><code>infoAccess</code></td><td>string | undefined</td><td>Authority Information Access extension, as text</td></tr><tr><td><code>issuer</code></td><td>string</td><td>Issuer distinguished name (<code>CN=..\nO=..\n...</code>)</td></tr><tr><td><code>issuerCertificate</code></td><td><code>X509Certificate</code> | undefined</td><td>Only resolved for a self-signed certificate (points at itself); this binding doesn't carry the full verified chain the way Node's TLS layer does</td></tr><tr><td><code>keyUsage</code></td><td>string[] | undefined</td><td>Key Usage extension bits, e.g. <code>['digitalSignature', 'keyEncipherment']</code></td></tr><tr><td><code>publicKey</code></td><td><code>ArrayBuffer</code></td><td>SPKI DER — <strong>deviation</strong>: Node returns a <code>KeyObject</code>, which this binding has no equivalent of</td></tr><tr><td><code>raw</code></td><td><code>ArrayBuffer</code></td><td>DER-encoded certificate</td></tr><tr><td><code>serialNumber</code></td><td>string</td><td>Hex serial number</td></tr><tr><td><code>subject</code></td><td>string</td><td>Subject distinguished name</td></tr><tr><td><code>subjectAltName</code></td><td>string | undefined</td><td>Subject Alternative Name extension, as text</td></tr><tr><td><code>validFrom</code> / <code>validTo</code></td><td>string</td><td>Validity period, OpenSSL text format</td></tr><tr><td><code>validFromDate</code> / <code>validToDate</code></td><td><code>Date</code></td><td>Same, as <code>Date</code> objects</td></tr><tr><td><code>error</code></td><td>number</td><td><strong>Not part of Node's API.</strong> Get/set the enclosing <code>X509_STORE_CTX</code>'s verification error (<code>X509_STORE_CTX_get/set_error()</code>) — only meaningful (and settable) on a certificate handed to the verification hook above; <code>undefined</code>/no-op otherwise</td></tr><tr><td><code>errorDepth</code></td><td>number</td><td>Same caveat — <code>X509_STORE_CTX_get_error_depth()</code></td></tr></tbody></table></div>
+<h4 id="methods"><a class="anchor" href="#methods" aria-hidden="true">#</a>Methods</h4>
+<div class="tablewrap"><table><thead><tr><th>Method</th><th>Description</th></tr></thead><tbody><tr><td><code>checkHost(name [, options])</code></td><td><code>X509_check_host()</code>. Returns the matched name (string) or <code>undefined</code>. <code>options</code>: <code>{ subject: 'default'|'always'|'never', wildcards, partialWildcards, multiLabelWildcards, singleLabelSubdomains }</code> (all booleans except <code>subject</code>)</td></tr><tr><td><code>checkEmail(email [, options])</code></td><td><code>X509_check_email()</code>. <code>options</code>: <code>{ subject }</code></td></tr><tr><td><code>checkIP(ip)</code></td><td><code>X509_check_ip_asc()</code>. Returns <code>ip</code> on match, else <code>undefined</code></td></tr><tr><td><code>checkIssued(otherCert)</code></td><td><code>X509_check_issued(this, otherCert)</code> — is <code>this</code> the issuer of <code>otherCert</code>?</td></tr><tr><td><code>checkPrivateKey(key)</code></td><td><code>X509_check_private_key()</code>. <strong>Deviation</strong>: <code>key</code> is a PEM string or DER <code>ArrayBuffer</code>, not a <code>KeyObject</code></td></tr><tr><td><code>verify(key)</code></td><td><code>X509_verify()</code> — verify the certificate's signature with a public key. Same PEM/DER deviation as above</td></tr><tr><td><code>toString()</code></td><td>PEM-encoded certificate</td></tr><tr><td><code>toJSON()</code></td><td>Same as <code>toString()</code> (matches Node — there's no standard JSON encoding for X.509)</td></tr><tr><td><code>toLegacyObject()</code></td><td><code>{ subject, issuer, subjectaltname, infoAccess, valid_from, valid_to, fingerprint, fingerprint256, fingerprint512, serialNumber, raw }</code> — a reduced form of Node's legacy <code>tls.getPeerCertificate()</code>-style object (no <code>modulus</code>/<code>bits</code>/<code>exponent</code>)</td></tr></tbody></table></div>
+<h3 id="tlssocket"><a class="anchor" href="#tlssocket" aria-hidden="true">#</a><code>TLSSocket</code></h3>
+<p>A minimal, non-owning wrapper around the <code>SSL*</code> libwebsockets hands
+to the verification hook — unlike <code>X509Certificate</code> it is <strong>not</strong>
+safe to retain past that callback. Implemented in <code>lws-tls.c</code>.</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code>servername</code></td><td><code>SSL_get_servername()</code> — the SNI hostname the peer requested, or <code>null</code></td></tr></tbody></table></div></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/tls.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#server-certificates">Server certificates</a></li><li class="lvl2"><a href="#client-certificates">Client certificates</a></li><li class="lvl2"><a href="#server-options">Server options</a></li><li class="lvl2"><a href="#client-connection-flags-ssl_connection">Client connection flags (ssl_connection)</a></li><li class="lvl2"><a href="#generating-a-self-signed-certificate">Generating a self-signed certificate</a></li><li class="lvl2"><a href="#verification-hook">Verification hook</a></li><li class="lvl3"><a href="#x509certificate">X509Certificate</a></li><li class="lvl3"><a href="#tlssocket">TLSSocket</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

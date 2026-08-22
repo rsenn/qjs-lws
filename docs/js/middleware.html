@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Middleware (lib/lws/app.js) — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="../native/module.html">Module exports</a></li><li><a href="../native/LWSContext.html">LWSContext</a></li><li><a href="../native/LWSVhost.html">LWSVhost</a></li><li><a href="../native/LWSSocket.html">LWSSocket</a></li><li><a href="../native/LWSSPA.html">LWSSPA</a></li><li><a href="../native/LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="../native/protocols.html">Protocol handlers</a></li><li><a href="../native/callbacks.html">Callback reference</a></li><li><a href="../native/mounts.html">Mounts</a></li><li><a href="../native/tls.html">TLS</a></li><li><a href="../native/event-loop.html">Event loop</a></li><li><a href="../native/constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="../native/ws-server.html">WebSocket server</a></li><li><a href="../native/ws-client.html">WebSocket client</a></li><li><a href="../native/http-server.html">HTTP server</a></li><li><a href="../native/http-client.html">HTTP client</a></li><li><a href="../native/raw-tcp.html">Raw TCP</a></li><li><a href="../native/examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="helpers.html">lib/ helpers</a></li><li><a href="bun.html">Bun-compatible serve()</a></li><li><a href="middleware.html" class="here">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="middleware-liblwsappjs"><a class="anchor" href="#middleware-liblwsappjs" aria-hidden="true">#</a>Middleware (<code>lib/lws/app.js</code>)</h1>
+<p>An express-style <code>(req, res, next)</code> chain on top of qjs-lws. Pure JS —
+no C-side changes needed.</p>
+<h2 id="hello-world"><a class="anchor" href="#hello-world" aria-hidden="true">#</a>Hello world</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">App</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/lws/app.js'</span>;
+<span class="t-kw">import</span> { <span class="t-id">json</span>, <span class="t-id">urlencoded</span>, <span class="t-id">cors</span>, <span class="t-id">logger</span>, <span class="t-id">secure</span>, <span class="t-id">cookies</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/lws/middleware.js'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">app</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">App</span>();
+
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-fn">logger</span>());
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-fn">secure</span>());
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-fn">cors</span>({ <span class="t-id">origin</span><span class="t-op">:</span> <span class="t-str">'*'</span> }));
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-fn">json</span>({ <span class="t-id">limit</span><span class="t-op">:</span> <span class="t-num">1</span> <span class="t-op">&lt;&lt;</span> <span class="t-num">16</span> }));
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-fn">urlencoded</span>());
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-fn">cookies</span>());
+
+<span class="t-id">app</span>.<span class="t-kw">get</span>(<span class="t-str">'/'</span>,                  (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> <span class="t-id">res</span>.<span class="t-fn">send</span>(<span class="t-str">'hello'</span>));
+<span class="t-id">app</span>.<span class="t-kw">get</span>(<span class="t-str">'/users/:id'</span>,         (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> <span class="t-id">res</span>.<span class="t-fn">json</span>({ <span class="t-id">id</span><span class="t-op">:</span> <span class="t-id">req</span>.<span class="t-prop">params</span>.<span class="t-prop">id</span> }));
+<span class="t-id">app</span>.<span class="t-fn">post</span>(<span class="t-str">'/echo'</span>,             (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> <span class="t-id">res</span>.<span class="t-fn">json</span>({ <span class="t-id">you_sent</span><span class="t-op">:</span> <span class="t-id">req</span>.<span class="t-prop">body</span> }));
+<span class="t-id">app</span>.<span class="t-kw">get</span>(<span class="t-str">'/admin/*'</span>,  <span class="t-id">requireAuth</span>, (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> <span class="t-id">res</span>.<span class="t-fn">send</span>(<span class="t-str">'admin only'</span>));
+
+<span class="t-cm">// Sub-router (the API surface is the same — Router is just an App).</span>
+<span class="t-kw">import</span> { <span class="t-type">Router</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/lws/app.js'</span>;
+<span class="t-kw">const</span> <span class="t-id">api</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Router</span>();
+<span class="t-id">api</span>.<span class="t-kw">get</span>(<span class="t-str">'/health'</span>, (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> <span class="t-id">res</span>.<span class="t-fn">json</span>({ <span class="t-id">ok</span><span class="t-op">:</span> <span class="t-atom">true</span> }));
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-str">'/api'</span>, <span class="t-id">api</span>);
+
+<span class="t-cm">// Default 404 if no route matched — the chain emits it for you.</span>
+<span class="t-id">app</span>.<span class="t-fn">use</span>((<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> <span class="t-id">res</span>.<span class="t-fn">status</span>(<span class="t-num">404</span>).<span class="t-fn">type</span>(<span class="t-str">'text/plain'</span>).<span class="t-fn">end</span>(<span class="t-str">'Not Found'</span>));
+
+<span class="t-cm">// Centralised error handler (4-arg signature).</span>
+<span class="t-id">app</span>.<span class="t-fn">use</span>((<span class="t-id">err</span>, <span class="t-id">req</span>, <span class="t-id">res</span>, <span class="t-id">next</span>) <span class="t-op">=&gt;</span> {
+  <span class="t-id">console</span>.<span class="t-fn">error</span>(<span class="t-id">err</span>);
+  <span class="t-id">res</span>.<span class="t-fn">status</span>(<span class="t-num">500</span>).<span class="t-fn">json</span>({ <span class="t-id">error</span><span class="t-op">:</span> <span class="t-id">err</span>.<span class="t-prop">message</span> });
+});
+
+<span class="t-id">app</span>.<span class="t-fn">listen</span>({ <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>, <span class="t-id">vhostName</span><span class="t-op">:</span> <span class="t-str">'localhost'</span> });</code></pre></div>
+<h2 id="how-a-handler-runs"><a class="anchor" href="#how-a-handler-runs" aria-hidden="true">#</a>How a handler runs</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">(<span class="t-id">req</span>, <span class="t-id">res</span>, <span class="t-id">next</span>) <span class="t-op">=&gt;</span> {              <span class="t-cm">// normal middleware</span>
+  <span class="t-id">req</span>.<span class="t-prop">requestId</span> <span class="t-op">=</span> <span class="t-fn">uuid</span>();
+  <span class="t-kw">await</span> <span class="t-fn">next</span>();                     <span class="t-cm">// continue down the chain</span>
+  <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'after'</span>, <span class="t-id">res</span>.<span class="t-prop">statusCode</span>);
+}</code></pre></div>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">(<span class="t-id">err</span>, <span class="t-id">req</span>, <span class="t-id">res</span>, <span class="t-id">next</span>) <span class="t-op">=&gt;</span> {         <span class="t-cm">// error middleware (4 args)</span>
+  <span class="t-cm">// err is thrown / propagated from a prior handler</span>
+}</code></pre></div>
+<ul>
+<li>Throwing inside a handler is equivalent to <code>next(err)</code>.</li>
+<li>A handler that responds (<code>res.json(...)</code>, <code>res.send(...)</code>, <code>res.end()</code>)
+and doesn't call <code>next()</code> ends the chain.</li>
+<li>A handler that does nothing falls through to the next layer.</li>
+<li>If the stack drains without a response, the chain emits a 404.</li>
+<li>If the stack drains with an unhandled error, the chain emits a 500.</li>
+</ul>
+<h2 id="the-request-object"><a class="anchor" href="#the-request-object" aria-hidden="true">#</a>The request object</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">req</span>.<span class="t-prop">method</span>        <span class="t-cm">// 'GET' | 'POST' | …</span>
+<span class="t-id">req</span>.<span class="t-prop">url</span>           <span class="t-cm">// original URL with query string</span>
+<span class="t-id">req</span>.<span class="t-prop">originalUrl</span>   <span class="t-cm">// never modified by sub-routers (req.path is)</span>
+<span class="t-id">req</span>.<span class="t-prop">path</span>          <span class="t-cm">// /users/42                 — modified inside Router mounts</span>
+<span class="t-id">req</span>.<span class="t-prop">params</span>        <span class="t-cm">// { id: '42' }              — populated by the matcher</span>
+<span class="t-id">req</span>.<span class="t-prop">query</span>         <span class="t-cm">// { q: 'hello', limit: 5 }  — parsed lazily on first access</span>
+<span class="t-id">req</span>.<span class="t-prop">headers</span>       <span class="t-cm">// { 'content-type': ..., ... } — lowercased</span>
+<span class="t-id">req</span>.<span class="t-prop">cookies</span>       <span class="t-cm">// { sid: 'abc' }            — parsed lazily on first access</span>
+<span class="t-id">req</span>.<span class="t-prop">body</span>          <span class="t-cm">// populated by json() / urlencoded() / raw() / text()</span>
+<span class="t-id">req</span>.<span class="t-prop">rawBody</span>       <span class="t-cm">// populated when readBody() has been awaited</span>
+<span class="t-id">req</span>.<span class="t-prop">wsi</span>           <span class="t-cm">// raw LWSSocket — escape hatch</span></code></pre></div>
+<p>Body helpers (await one of these from your own middleware):</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">await</span> <span class="t-id">req</span>.<span class="t-fn">readText</span>(<span class="t-id">limit</span><span class="t-op">?</span>);   <span class="t-cm">// → string</span>
+<span class="t-kw">await</span> <span class="t-id">req</span>.<span class="t-fn">readJson</span>(<span class="t-id">limit</span><span class="t-op">?</span>);   <span class="t-cm">// → parsed JSON</span>
+<span class="t-kw">await</span> <span class="t-id">req</span>.<span class="t-fn">readBody</span>(<span class="t-id">limit</span><span class="t-op">?</span>);   <span class="t-cm">// → ArrayBuffer</span></code></pre></div>
+<p>All three reject with a Payload-Too-Large error once the accumulated
+chunks exceed <code>limit</code> (default 1 MiB).</p>
+<h2 id="the-response-object"><a class="anchor" href="#the-response-object" aria-hidden="true">#</a>The response object</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">res</span>.<span class="t-fn">status</span>(<span class="t-id">code</span>)                  <span class="t-cm">// chainable</span>
+<span class="t-id">res</span>.<span class="t-prop">statusCode</span>                    <span class="t-cm">// number — set, read whenever</span>
+<span class="t-id">res</span>.<span class="t-kw">set</span>(<span class="t-id">name</span>, <span class="t-id">value</span>)              <span class="t-cm">// chainable</span>
+<span class="t-id">res</span>.<span class="t-fn">append</span>(<span class="t-id">name</span>, <span class="t-id">value</span>)           <span class="t-cm">// chainable (for Set-Cookie etc.)</span>
+<span class="t-id">res</span>.<span class="t-fn">removeHeader</span>(<span class="t-id">name</span>)
+<span class="t-id">res</span>.<span class="t-fn">getHeader</span>(<span class="t-id">name</span>)
+<span class="t-id">res</span>.<span class="t-fn">type</span>(<span class="t-id">mimeType</span>)                <span class="t-cm">// shortcut for set('content-type', …)</span>
+
+<span class="t-id">res</span>.<span class="t-fn">cookie</span>(<span class="t-id">name</span>, <span class="t-id">value</span>, <span class="t-id">opts</span><span class="t-op">?</span>)    <span class="t-cm">// Set-Cookie with maxAge / domain / path /</span>
+                                   <span class="t-cm">//   expires / httpOnly / secure / sameSite</span>
+<span class="t-id">res</span>.<span class="t-fn">clearCookie</span>(<span class="t-id">name</span>, <span class="t-id">opts</span><span class="t-op">?</span>)
+
+<span class="t-id">res</span>.<span class="t-fn">redirect</span>(<span class="t-id">url</span>)                 <span class="t-cm">// 302</span>
+<span class="t-id">res</span>.<span class="t-fn">redirect</span>(<span class="t-num">301</span>, <span class="t-id">url</span>)            <span class="t-cm">// explicit status</span>
+
+<span class="t-id">res</span>.<span class="t-fn">json</span>(<span class="t-id">value</span>)                   <span class="t-cm">// JSON.stringify + content-type</span>
+<span class="t-id">res</span>.<span class="t-fn">send</span>(<span class="t-id">body</span>)                    <span class="t-cm">// auto content-type for strings/buffers/objects</span>
+<span class="t-id">res</span>.<span class="t-fn">write</span>(<span class="t-id">chunk</span>)                  <span class="t-cm">// streaming — flushes headers on first call</span>
+<span class="t-id">res</span>.<span class="t-fn">end</span>(<span class="t-id">lastChunk</span><span class="t-op">?</span>)               <span class="t-cm">// finalise</span>
+
+<span class="t-id">res</span>.<span class="t-prop">headersSent</span>                   <span class="t-cm">// true once res.write / res.end / res.send fired</span>
+<span class="t-id">res</span>.<span class="t-prop">sent</span>                          <span class="t-cm">// true once res.end / res.send completed</span>
+<span class="t-id">res</span>.<span class="t-prop">headers</span>                       <span class="t-cm">// the Headers instance — passes through to wsi.respond</span></code></pre></div>
+<p>Headers and status are <strong>buffered until the first flush</strong>. You can
+chain <code>.set()</code> / <code>.cookie()</code> calls freely up to <code>res.end()</code>. After that,
+mutating headers throws.</p>
+<h2 id="built-in-middleware"><a class="anchor" href="#built-in-middleware" aria-hidden="true">#</a>Built-in middleware</h2>
+<div class="tablewrap"><table><thead><tr><th>Factory</th><th>Purpose</th></tr></thead><tbody><tr><td><code>json({ limit, type, strict })</code></td><td>Parse JSON body into <code>req.body</code></td></tr><tr><td><code>urlencoded({ limit, type })</code></td><td>Parse <code>application/x-www-form-urlencoded</code></td></tr><tr><td><code>raw({ limit, type })</code></td><td>Buffer body as <code>ArrayBuffer</code></td></tr><tr><td><code>text({ limit, type })</code></td><td>Buffer body as text</td></tr><tr><td><code>cookies()</code></td><td>No-op compat shim; <code>req.cookies</code> is lazy already</td></tr><tr><td><code>cors({ origin, methods, allowedHeaders, exposedHeaders, credentials, maxAge })</code></td><td>CORS preflight + headers</td></tr><tr><td><code>logger('tiny' | 'common' | fn)</code></td><td>Request log line per response</td></tr><tr><td><code>secure({ …overrides })</code></td><td>Helmet-style baseline of security headers</td></tr></tbody></table></div>
+<p>For multipart bodies use <code>LWSSPA</code> directly inside your handler — see
+<a href="../native/LWSSPA.html">undefined</a>. Doing it here would mean shipping a second
+parser that competes with the C one.</p>
+<h2 id="mounting-sub-routers"><a class="anchor" href="#mounting-sub-routers" aria-hidden="true">#</a>Mounting sub-routers</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">api</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">Router</span>();
+<span class="t-id">api</span>.<span class="t-kw">get</span>(<span class="t-str">'/users'</span>, <span class="t-id">listUsers</span>);
+<span class="t-id">api</span>.<span class="t-fn">post</span>(<span class="t-str">'/users'</span>, <span class="t-id">createUser</span>);
+
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-str">'/v1/api'</span>, <span class="t-id">api</span>);     <span class="t-cm">// /v1/api/users etc.</span></code></pre></div>
+<p>The mount prefix is stripped from <code>req.path</code> inside the router and
+restored on the way out, so nested matchers see relative paths.</p>
+<h2 id="sessions-liblwssessionjs"><a class="anchor" href="#sessions-liblwssessionjs" aria-hidden="true">#</a>Sessions (<code>lib/lws/session.js</code>)</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">session</span>, <span class="t-type">MemoryStore</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/lws/session.js'</span>;
+
+<span class="t-id">app</span>.<span class="t-fn">use</span>(<span class="t-fn">session</span>({
+  <span class="t-id">store</span><span class="t-op">:</span>   <span class="t-kw">new</span> <span class="t-fn">MemoryStore</span>(),
+  <span class="t-id">name</span><span class="t-op">:</span>    <span class="t-str">'sid'</span>,
+  <span class="t-id">cookie</span><span class="t-op">:</span>  { <span class="t-id">maxAge</span><span class="t-op">:</span> <span class="t-num">86_400_000</span>, <span class="t-id">httpOnly</span><span class="t-op">:</span> <span class="t-atom">true</span>, <span class="t-id">sameSite</span><span class="t-op">:</span> <span class="t-str">'Lax'</span>, <span class="t-id">path</span><span class="t-op">:</span> <span class="t-str">'/'</span> },
+  <span class="t-id">resave</span><span class="t-op">:</span>           <span class="t-atom">false</span>,
+  <span class="t-id">saveUninitialized</span><span class="t-op">:</span> <span class="t-atom">false</span>,
+  <span class="t-id">rolling</span><span class="t-op">:</span>          <span class="t-atom">true</span>,
+}));
+
+<span class="t-id">app</span>.<span class="t-fn">post</span>(<span class="t-str">'/login'</span>,  (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> { <span class="t-id">req</span>.<span class="t-prop">session</span>.<span class="t-prop">user</span> <span class="t-op">=</span> { <span class="t-id">id</span><span class="t-op">:</span> <span class="t-num">1</span> }; <span class="t-id">res</span>.<span class="t-fn">json</span>({ <span class="t-id">ok</span><span class="t-op">:</span> <span class="t-atom">true</span> }); });
+<span class="t-id">app</span>.<span class="t-kw">get</span> (<span class="t-str">'/me'</span>,     (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> <span class="t-id">req</span>.<span class="t-prop">session</span>.<span class="t-prop">user</span> <span class="t-op">?</span> <span class="t-id">res</span>.<span class="t-fn">json</span>(<span class="t-id">req</span>.<span class="t-prop">session</span>.<span class="t-prop">user</span>) <span class="t-op">:</span> <span class="t-id">res</span>.<span class="t-fn">status</span>(<span class="t-num">401</span>).<span class="t-fn">end</span>());
+<span class="t-id">app</span>.<span class="t-fn">post</span>(<span class="t-str">'/logout'</span>, <span class="t-kw">async</span> (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> { <span class="t-kw">await</span> <span class="t-id">req</span>.<span class="t-prop">session</span>.<span class="t-fn">destroy</span>(); <span class="t-id">res</span>.<span class="t-fn">json</span>({ <span class="t-id">ok</span><span class="t-op">:</span> <span class="t-atom">true</span> }); });</code></pre></div>
+<p>The <code>req.session</code> API is a plain object with non-enumerable helper
+methods attached:</p>
+<div class="tablewrap"><table><thead><tr><th>Member</th><th>Description</th></tr></thead><tbody><tr><td><code>req.session.&lt;key&gt;</code></td><td>Read/write user data. Stored under the session ID.</td></tr><tr><td><code>req.sessionID</code></td><td>Current session ID (read-only)</td></tr><tr><td><code>req.session.save()</code></td><td>Force a save even if nothing was touched</td></tr><tr><td><code>req.session.touch()</code></td><td>Extend store TTL without rewriting the value</td></tr><tr><td><code>req.session.destroy()</code></td><td>Remove from store + emit a <code>Set-Cookie</code> that clears the cookie</td></tr><tr><td><code>req.session.regenerate()</code></td><td>New SID, data preserved — use after login to defeat session-fixation</td></tr></tbody></table></div>
+<h3 id="pluggable-store"><a class="anchor" href="#pluggable-store" aria-hidden="true">#</a>Pluggable store</h3>
+<p>Implement four methods to drop in Redis / SQLite / LMDB:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">class</span> <span class="t-type">MyStore</span> {
+  <span class="t-kw">async</span> <span class="t-kw">get</span>(<span class="t-id">sid</span>)              { <span class="t-cm">/* return data or null */</span> }
+  <span class="t-kw">async</span> <span class="t-kw">set</span>(<span class="t-id">sid</span>, <span class="t-id">data</span>, <span class="t-id">ttlMs</span>) { <span class="t-cm">/* upsert */</span> }
+  <span class="t-kw">async</span> <span class="t-fn">destroy</span>(<span class="t-id">sid</span>)          { <span class="t-cm">/* remove */</span> }
+  <span class="t-kw">async</span> <span class="t-fn">touch</span>(<span class="t-id">sid</span>, <span class="t-id">ttlMs</span>)     { <span class="t-cm">/* extend expiry; no-op acceptable */</span> }
+}</code></pre></div>
+<p><code>MemoryStore</code> ships in the same module: lazy expiration on <code>get()</code> and
+a <code>sweep()</code> for periodic GC.</p>
+<h3 id="crypto-grade-random-ids"><a class="anchor" href="#crypto-grade-random-ids" aria-hidden="true">#</a>Crypto-grade random IDs</h3>
+<p>The default <code>genId</code> calls <code>LWSContext.getRandom()</code> (libwebsockets's
+CSPRNG) — that's reachable because <code>App.listen()</code> records the context
+on <code>app.context</code> and <code>req.app = app</code> is set on every request. If you
+dispatch by hand without going through <code>listen</code>, pass <code>genId</code> yourself
+or attach an <code>app.context = { getRandom(buf) {…} }</code> shim. Without
+either, the middleware falls back to <code>Math.random()</code> and prints a
+one-time stderr warning.</p>
+<h3 id="rolling-cookies--regenerate"><a class="anchor" href="#rolling-cookies--regenerate" aria-hidden="true">#</a>Rolling cookies + <code>regenerate</code></h3>
+<p>When <code>rolling: true</code> (default), every request refreshes the cookie's
+<code>Max-Age</code> so the session stays alive while the user is active.
+<code>regenerate()</code> also writes a fresh <code>Set-Cookie</code>, so a <code>POST /rotate</code>
+response carries <strong>two</strong> <code>Set-Cookie</code> lines — the rolling refresh of
+the old SID and the new one. HTTP says last-write-wins; every browser
+implementation keeps the second.</p>
+<h2 id="whats-not-here-yet"><a class="anchor" href="#whats-not-here-yet" aria-hidden="true">#</a>What's NOT here (yet)</h2>
+<ul>
+<li><strong>Compression</strong>: requires either streaming gzip in JS (slow) or a
+C-side wrapper over libwebsockets's deflate. Open question.</li>
+<li><strong>Rate limiting</strong>: pure JS, ~20 lines, no library decision needed.</li>
+<li><strong>CSRF</strong>: pure JS now that sessions exist; default-deny strategy on
+state-changing methods, token in <code>req.session._csrf</code>.</li>
+</ul>
+<h2 id="architecture-notes"><a class="anchor" href="#architecture-notes" aria-hidden="true">#</a>Architecture notes</h2>
+<ul>
+<li><code>LWSContext</code> is created inside <code>App.listen()</code> with a single mount
+routing <code>/</code> to a hidden <code>__app</code> protocol whose <code>onHttp</code>,
+<code>onHttpBody</code>, <code>onHttpBodyCompletion</code> callbacks pipe each request into
+the chain. Pass <code>protocols: [...]</code> / <code>mounts: [...]</code> to <code>listen</code> to
+add WebSocket protocols or static-file mounts beside the app.</li>
+<li>Each request gets a fresh <code>ServerRequest</code> / <code>ServerResponse</code> pair.
+Per-connection state lives on the wsi's <code>this</code> from C-side as usual;
+per-request state goes on the <code>req</code> object.</li>
+<li>The body stream is buffered into memory. For huge uploads use
+<code>LWSSPA</code> (multipart) or read incrementally via your own
+<code>onHttpBody</code> in a co-mounted protocol.</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/js/middleware.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#hello-world">Hello world</a></li><li class="lvl2"><a href="#how-a-handler-runs">How a handler runs</a></li><li class="lvl2"><a href="#the-request-object">The request object</a></li><li class="lvl2"><a href="#the-response-object">The response object</a></li><li class="lvl2"><a href="#built-in-middleware">Built-in middleware</a></li><li class="lvl2"><a href="#mounting-sub-routers">Mounting sub-routers</a></li><li class="lvl2"><a href="#sessions-liblwssessionjs">Sessions (lib/lws/session.js)</a></li><li class="lvl3"><a href="#pluggable-store">Pluggable store</a></li><li class="lvl3"><a href="#crypto-grade-random-ids">Crypto-grade random IDs</a></li><li class="lvl3"><a href="#rolling-cookies--regenerate">Rolling cookies + regenerate</a></li><li class="lvl2"><a href="#whats-not-here-yet">What's NOT here (yet)</a></li><li class="lvl2"><a href="#architecture-notes">Architecture notes</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

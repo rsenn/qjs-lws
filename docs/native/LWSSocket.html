@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LWSSocket — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html" class="here">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="lwssocket"><a class="anchor" href="#lwssocket" aria-hidden="true">#</a><code>LWSSocket</code></h1>
+<p>A wrapper around <code>struct lws *</code> (a libwebsockets connection, "wsi").
+Implemented in <code>lws-socket.c</code>. Sockets are not constructed from JS —
+they are created internally for each connection and passed as the
+first argument to protocol callbacks.</p>
+<p>The <code>LWSSocket</code> constructor itself only carries the static helpers
+<code>LWSSocket.list()</code> and <code>LWSSocket.get(id)</code>.</p>
+<h2 id="static-helpers"><a class="anchor" href="#static-helpers" aria-hidden="true">#</a>Static helpers</h2>
+<div class="tablewrap"><table><thead><tr><th>Method</th><th>Returns</th></tr></thead><tbody><tr><td><code>LWSSocket.list()</code></td><td>Array of every live <code>LWSSocket</code></td></tr><tr><td><code>LWSSocket.get(id)</code></td><td>The socket whose <code>id</code> matches (see <code>id</code> property), or <code>null</code></td></tr></tbody></table></div>
+<h2 id="instance-methods"><a class="anchor" href="#instance-methods" aria-hidden="true">#</a>Instance methods</h2>
+<h3 id="wantwritecallback"><a class="anchor" href="#wantwritecallback" aria-hidden="true">#</a><code>wantWrite([callback])</code></h3>
+<p>Calls <code>lws_callback_on_writable()</code>. When the connection is next
+writeable, libwebsockets fires <code>LWS_CALLBACK_*_WRITEABLE</code>. If a
+function <code>callback</code> is supplied, it replaces any pending writeable
+handler and is called once with <code>(wsi)</code>; its return value is used as
+the callback return (return <code>-1</code> to close).</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">await</span> <span class="t-kw">new</span> <span class="t-fn">Promise</span>(<span class="t-id">r</span> <span class="t-op">=&gt;</span> <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>(<span class="t-id">r</span>));   <span class="t-cm">// common pattern</span>
+<span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">buf</span>);</code></pre></div>
+<p>If <code>wantWrite</code> is called repeatedly without a callback, only the
+first registers a pending request — duplicate calls are ignored
+(the C code guards with <code>s-&gt;want_write</code>).</p>
+<h3 id="writedata--len_or_protocol--protocol--sockaddr"><a class="anchor" href="#writedata--len_or_protocol--protocol--sockaddr" aria-hidden="true">#</a><code>write(data [, len_or_protocol [, protocol]] [, sockaddr])</code></h3>
+<p><code>data</code> is a string or <code>ArrayBuffer</code>. The write protocol defaults to:</p>
+<ul>
+<li><code>LWS_WRITE_TEXT</code> for a WebSocket if <code>data</code> is a string,</li>
+<li><code>LWS_WRITE_BINARY</code> for a WebSocket if <code>data</code> is binary,</li>
+<li><code>LWS_WRITE_HTTP</code> otherwise (HTTP and raw/UDP roles).</li>
+</ul>
+<p>Argument forms:</p>
+<div class="tablewrap"><table><thead><tr><th>Call</th><th>Behaviour</th></tr></thead><tbody><tr><td><code>wsi.write(data)</code></td><td>Whole buffer, default protocol</td></tr><tr><td><code>wsi.write(data, proto)</code></td><td>Whole buffer with explicit <code>LWS_WRITE_*</code></td></tr><tr><td><code>wsi.write(data, len, proto)</code></td><td>First <code>len</code> bytes only with explicit protocol</td></tr><tr><td><code>wsi.write(data, sockaddr)</code></td><td>Whole buffer, default protocol, sent to <code>sockaddr</code> (<code>LWSSockAddr46</code>) — UDP only</td></tr><tr><td><code>wsi.write(data, len, proto, sockaddr)</code></td><td>All of the above combined</td></tr></tbody></table></div>
+<p><code>sockaddr</code> may be given anywhere after <code>data</code>, in addition to
+<code>len</code>/<code>proto</code> (order between <code>len</code>/<code>proto</code> and <code>sockaddr</code> doesn't
+matter). It's only meaningful for a UDP wsi (see
+<a href="LWSContext.html#createudp">LWSContext.md</a>) — for a listener bound with
+<code>bind: true</code>, it picks which peer the datagram goes to; for a wsi
+pre-connected to one peer it's unnecessary.</p>
+<p>For WebSocket roles the binding automatically prepends the
+<code>LWS_PRE</code> padding bytes — you don't need to reserve them yourself.</p>
+<p>If the protocol is <code>LWS_WRITE_HTTP_FINAL</code> and the underlying write
+succeeded, <code>lws_http_transaction_completed()</code> is called and the
+socket is marked <code>completed</code> (the next return from the JS callback
+forces close).</p>
+<p>The function throws `InternalError("I/O error: partially buffered
+lws_write()")<code>if</code>lws_partial_buffered()` is non-zero.</p>
+<p>Returns the number of bytes written.</p>
+<h3 id="respondcode--length--body--headers"><a class="anchor" href="#respondcode--length--body--headers" aria-hidden="true">#</a><code>respond(code [, length], [, body], [, headers])</code></h3>
+<p>HTTP response helper using <code>lws_add_http_common_headers</code> +
+<code>lws_add_http_header_by_name</code> + <code>lws_finalize_write_http_header</code>.
+Arguments are scanned positionally by type:</p>
+<ul>
+<li>The first numeric argument is the HTTP status code.</li>
+<li>A second numeric argument is the Content-Length (otherwise the
+binding passes <code>LWS_ILLEGAL_HTTP_CONTENT_LEN</code> so libwebsockets
+emits <code>Transfer-Encoding: chunked</code> or omits the header).</li>
+<li>A string or <code>ArrayBuffer</code> argument is the body — its length is
+used as content length if not yet set.</li>
+<li>A plain object's keys are added as headers via
+<code>lws_add_http_header_by_name</code>.</li>
+</ul>
+<p>Returns the total number of bytes written (headers + optional body).</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">wsi</span>.<span class="t-fn">respond</span>(<span class="t-num">200</span>, { <span class="t-str">'content-type'</span><span class="t-op">:</span> <span class="t-str">'text/html'</span> });        <span class="t-cm">// headers only</span>
+<span class="t-id">wsi</span>.<span class="t-fn">respond</span>(<span class="t-num">404</span>, <span class="t-num">13</span>, <span class="t-str">'Not found.\r\n'</span>);                   <span class="t-cm">// with body</span>
+<span class="t-id">wsi</span>.<span class="t-fn">respond</span>(<span class="t-num">200</span>, <span class="t-id">body</span>, {                                  <span class="t-cm">// body &amp; headers</span>
+  <span class="t-str">'content-type'</span><span class="t-op">:</span> <span class="t-str">'application/json'</span>,
+});</code></pre></div>
+<h3 id="closecode--reason"><a class="anchor" href="#closecode--reason" aria-hidden="true">#</a><code>close([code [, reason]])</code></h3>
+<p>Closes the connection. <code>code</code> defaults to <code>1000</code> (normal closure).
+For WebSocket roles <code>reason</code> (string or <code>ArrayBuffer</code>) is recorded
+with <code>lws_close_reason()</code> before <code>lws_close_free_wsi()</code> runs.</p>
+<p>If called from inside a protocol callback for this same wsi (i.e.
+<code>wsi.dispatching</code> is <code>true</code> — libwebsockets itself may still be using
+the wsi right after some callbacks return, e.g. <code>onRawAdopt</code>/
+<code>onRawConnected</code>), the actual <code>lws_close_free_wsi()</code> call is deferred:
+the socket is marked closed and the in-progress callback's return
+value is forced to <code>-1</code>, which is libwebsockets' own signal to close
+the wsi once the callback returns. Calling <code>close()</code> from outside a
+dispatch (the common case — e.g. from a timer) closes immediately.</p>
+<h3 id="settimeoutseconds"><a class="anchor" href="#settimeoutseconds" aria-hidden="true">#</a><code>setTimeout(seconds)</code></h3>
+<p>Wraps <code>lws_set_timeout()</code>. Marks the wsi to be force-closed by
+libwebsockets itself after <code>seconds</code> of no activity (reason
+<code>PENDING_TIMEOUT_USER_OK</code>) — this is a <strong>hard, auto-closing</strong> timeout,
+unlike a JS-level <code>setTimeout()</code> which only emits an event. Pass <code>0</code>
+(or any value <code>&lt;= 0</code>) to cancel a pending timeout (<code>NO_PENDING_TIMEOUT</code>).</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>) {
+  <span class="t-id">wsi</span>.<span class="t-fn">setTimeout</span>(<span class="t-num">30</span>);   <span class="t-cm">// force-close if idle for 30s</span>
+}</code></pre></div>
+<h3 id="httpclientreadbuf--offset"><a class="anchor" href="#httpclientreadbuf--offset" aria-hidden="true">#</a><code>httpClientRead(buf [, offset])</code></h3>
+<p>Wraps <code>lws_http_client_read()</code>. Reads incoming HTTP body bytes into
+the provided <code>ArrayBuffer</code>. Returns the number of bytes consumed, or
+<code>undefined</code> on error (-1).</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">onReceiveClientHttp</span>(<span class="t-id">wsi</span>) {
+  <span class="t-kw">const</span> <span class="t-id">ab</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">ArrayBuffer</span>(<span class="t-num">0xff0</span> <span class="t-op">*</span> <span class="t-num">16</span>);
+  <span class="t-kw">if</span>(<span class="t-id">wsi</span>.<span class="t-fn">httpClientRead</span>(<span class="t-id">ab</span>))
+    <span class="t-kw">this</span>.<span class="t-fn">onReceiveClientHttpRead</span>(<span class="t-id">wsi</span>, <span class="t-id">ab</span>);
+}</code></pre></div>
+<h3 id="addheadername--tokenindex-value-buf-len_array"><a class="anchor" href="#addheadername--tokenindex-value-buf-len_array" aria-hidden="true">#</a><code>addHeader(name | tokenIndex, value, buf, [len_array])</code></h3>
+<p>Adds an outgoing HTTP header into a working <code>ArrayBuffer</code>. The
+fourth argument is an array <code>[n]</code> whose <code>[0]</code> element tracks the
+current write offset; the binding updates it in place. Used from
+<code>onClientAppendHandshakeHeader</code> / <code>onAddHeaders</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">onAddHeaders</span>(<span class="t-id">wsi</span>, <span class="t-id">buf</span>, <span class="t-id">len</span>) {
+  <span class="t-id">wsi</span>.<span class="t-fn">addHeader</span>(<span class="t-str">'test'</span>, <span class="t-str">'blah'</span>, <span class="t-id">buf</span>, <span class="t-id">len</span>);    <span class="t-cm">// len is [0] → updated</span>
+}</code></pre></div>
+<p>If <code>name</code> is a number it is treated as a <code>WSI_TOKEN_*</code> constant and
+<code>lws_add_http_header_by_token</code> is used; otherwise the value is
+inserted by literal name.</p>
+<h3 id="clienthttpmultipartname-filename-contenttype-buf--len_array"><a class="anchor" href="#clienthttpmultipartname-filename-contenttype-buf--len_array" aria-hidden="true">#</a><code>clientHttpMultipart(name, filename, contentType, buf [, len_array])</code></h3>
+<p>Wraps <code>lws_client_http_multipart()</code>. Writes the multipart boundary
+and part header into <code>buf</code> starting at <code>len_array[0]</code> and updates
+<code>len_array[0]</code> in place. Pass <code>null</code> for <code>name</code>/<code>filename</code>/
+<code>contentType</code> to emit the trailing closing boundary.</p>
+<p>Throws <code>RangeError</code> when the buffer is too small.</p>
+<h2 id="instance-accessors"><a class="anchor" href="#instance-accessors" aria-hidden="true">#</a>Instance accessors</h2>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Returns</th></tr></thead><tbody><tr><td><code>id</code></td><td>Numeric per-process id assigned by qjs-lws</td></tr><tr><td><code>tag</code></td><td>Libwebsockets debug tag (<code>lws_wsi_tag()</code>)</td></tr><tr><td><code>vhost</code></td><td><code>LWSVhost</code> for this connection</td></tr><tr><td><code>context</code></td><td><code>LWSContext</code> for this connection</td></tr><tr><td><code>headers</code></td><td>Object of received HTTP headers (lowercased keys), populated lazily after <code>HTTP</code> / <code>CLIENT_FILTER_PRE_ESTABLISH</code></td></tr><tr><td><code>tls</code></td><td>Boolean — whether the connection is over SSL</td></tr><tr><td><code>peer</code></td><td><code>LWSSockAddr46</code> of <code>getpeername()</code> or <code>null</code></td></tr><tr><td><code>local</code></td><td><code>LWSSockAddr46</code> of <code>getsockname()</code> or <code>null</code></td></tr><tr><td><code>fd</code></td><td>Underlying OS file descriptor</td></tr><tr><td><code>parent</code></td><td>Parent wsi (mux / proxied) — <code>LWSSocket</code> or <code>undefined</code></td></tr><tr><td><code>child</code></td><td>Child wsi</td></tr><tr><td><code>network</code></td><td>Underlying network wsi (<code>lws_get_network_wsi</code>)</td></tr><tr><td><code>peerWriteAllowance</code></td><td><code>lws_get_peer_write_allowance()</code></td></tr><tr><td><code>protocol</code></td><td>Protocol name the wsi is bound to</td></tr><tr><td><code>method</code></td><td>HTTP method as string (<code>'GET'</code>, <code>'POST'</code>, …) once known</td></tr><tr><td><code>uri</code></td><td>Request URI string once known</td></tr><tr><td><code>client</code></td><td>Boolean — <code>true</code> for outbound (client) connections</td></tr><tr><td><code>response</code></td><td>HTTP response code (set in <code>onEstablishedClientHttp</code>)</td></tr><tr><td><code>extensions</code></td><td>Array of extension names registered on the context</td></tr><tr><td><code>h2</code></td><td>Boolean — <code>lws_wsi_is_h2()</code></td></tr><tr><td><code>redirectedToGet</code></td><td><code>true</code> if a client redirect downgraded POST to GET</td></tr><tr><td><code>bodyPending</code></td><td>Get/set; setter calls <code>lws_client_http_body_pending(n)</code> — used to drive client POST body writes</td></tr><tr><td><code>dispatching</code></td><td><code>true</code> while a protocol callback is currently being dispatched for this wsi (re-entrancy guard — see <code>close()</code>'s notes on why closing from inside the same callback is deferred)</td></tr><tr><td><code>dispatchReason</code></td><td>The <code>LWS_CALLBACK_*</code> reason currently being dispatched, or <code>-1</code> when not dispatching</td></tr><tr><td><code>pipelineLeader</code></td><td>The wsi this one is queued behind (<code>lws_get_txn_queue_leader()</code>), or <code>undefined</code> if not queued</td></tr><tr><td><code>isPipelineLeader</code></td><td>Boolean — <code>lws_wsi_is_txn_queue_leader()</code>, whether other client wsi may be queued behind this one</td></tr><tr><td><code>pipelineQueueDepth</code></td><td>Number of client wsi currently queued behind this one (<code>lws_get_txn_queue_depth()</code>)</td></tr><tr><td><code>sendPipeChoked</code></td><td>Boolean — <code>lws_send_pipe_choked()</code>, whether a write right now would buffer instead of going out immediately</td></tr><tr><td><code>tlsSessionReused</code></td><td>Boolean — <code>lws_tls_session_is_reused()</code></td></tr><tr><td><code>peerCertificate</code></td><td><code>{ subjectCN, issuerCN, validFrom, validTo, verified }</code> (Dates for <code>validFrom</code>/<code>validTo</code>) from <code>lws_tls_peer_cert_info()</code>, or <code>null</code> if not TLS / no peer cert was presented</td></tr></tbody></table></div>
+<p>The toStringTag is <code>LWSSocket</code>.</p>
+<h3 id="pipelining--keep-alive-introspection"><a class="anchor" href="#pipelining--keep-alive-introspection" aria-hidden="true">#</a>Pipelining / keep-alive introspection</h3>
+<p>When a client connection is made with <code>LCCSCF_PIPELINE</code> set in
+<code>sslConnection</code>, libwebsockets transparently queues (h1) or muxes
+(h2) additional connections to the same endpoint onto an existing
+one instead of opening a new network connection — see
+<a href="http-client.html#connection-pipelining--keep-alive">http-client.md</a>.
+<code>pipelineLeader</code>, <code>isPipelineLeader</code> and <code>pipelineQueueDepth</code> expose
+that state, which libwebsockets otherwise keeps private to `struct
+lws`:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">a</span> <span class="t-op">=</span> <span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-id">url</span>, { <span class="t-id">sslConnection</span><span class="t-op">:</span> <span class="t-type">LCCSCF_PIPELINE</span> });
+<span class="t-kw">const</span> <span class="t-id">b</span> <span class="t-op">=</span> <span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-id">url</span>, { <span class="t-id">sslConnection</span><span class="t-op">:</span> <span class="t-type">LCCSCF_PIPELINE</span> });
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">b</span>.<span class="t-prop">pipelineLeader</span> <span class="t-op">===</span> <span class="t-id">a</span>);   <span class="t-cm">// true once b queued behind a</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">a</span>.<span class="t-prop">isPipelineLeader</span>);       <span class="t-cm">// true</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">a</span>.<span class="t-prop">pipelineQueueDepth</span>);     <span class="t-cm">// 1</span></code></pre></div>
+<h2 id="lifetime--per-session-data"><a class="anchor" href="#lifetime--per-session-data" aria-hidden="true">#</a>Lifetime / per-session data</h2>
+<p>When a protocol's <code>per_session_data_size</code> is left unspecified, qjs-lws
+sets it to <code>sizeof(JSValue)</code> and uses the slot to hold a per-wsi JS
+object that becomes <code>this</code> inside the protocol callbacks. The
+binding allocates that object on the appropriate <code>*_BIND_PROTOCOL</code> /
+<code>WSI_CREATE</code> reason and frees it on <code>WSI_DESTROY</code> (see
+<code>callback_js</code> in <code>lws-context.c</code>). You can attach connection-local
+state to <code>this</code> from any callback:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'http'</span>,
+  <span class="t-fn">onHttpBindProtocol</span>(<span class="t-id">wsi</span>) { <span class="t-kw">this</span>.<span class="t-prop">start</span> <span class="t-op">=</span> <span class="t-type">Date</span>.<span class="t-fn">now</span>(); },
+  <span class="t-fn">onHttpDropProtocol</span>(<span class="t-id">wsi</span>) { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'took'</span>, <span class="t-type">Date</span>.<span class="t-fn">now</span>() <span class="t-op">-</span> <span class="t-kw">this</span>.<span class="t-prop">start</span>); },
+}</code></pre></div></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/LWSSocket.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#static-helpers">Static helpers</a></li><li class="lvl2"><a href="#instance-methods">Instance methods</a></li><li class="lvl3"><a href="#wantwritecallback">wantWrite([callback])</a></li><li class="lvl3"><a href="#writedata--len_or_protocol--protocol--sockaddr">write(data [, len_or_protocol [, protocol]] [, sockaddr])</a></li><li class="lvl3"><a href="#respondcode--length--body--headers">respond(code [, length], [, body], [, headers])</a></li><li class="lvl3"><a href="#closecode--reason">close([code [, reason]])</a></li><li class="lvl3"><a href="#settimeoutseconds">setTimeout(seconds)</a></li><li class="lvl3"><a href="#httpclientreadbuf--offset">httpClientRead(buf [, offset])</a></li><li class="lvl3"><a href="#addheadername--tokenindex-value-buf-len_array">addHeader(name | tokenIndex, value, buf, [len_array])</a></li><li class="lvl3"><a href="#clienthttpmultipartname-filename-contenttype-buf--len_array">clientHttpMultipart(name, filename, contentType, buf [, len_array])</a></li><li class="lvl2"><a href="#instance-accessors">Instance accessors</a></li><li class="lvl3"><a href="#pipelining--keep-alive-introspection">Pipelining / keep-alive introspection</a></li><li class="lvl2"><a href="#lifetime--per-session-data">Lifetime / per-session data</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

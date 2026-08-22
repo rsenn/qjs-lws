@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Compatibility Assessment — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/index.html">Docs</a>
+    <a href="../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="building.html">Building</a></li><li><a href="index.html">API reference</a></li><li><a href="../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="native/module.html">Module exports</a></li><li><a href="native/LWSContext.html">LWSContext</a></li><li><a href="native/LWSVhost.html">LWSVhost</a></li><li><a href="native/LWSSocket.html">LWSSocket</a></li><li><a href="native/LWSSPA.html">LWSSPA</a></li><li><a href="native/LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="native/protocols.html">Protocol handlers</a></li><li><a href="native/callbacks.html">Callback reference</a></li><li><a href="native/mounts.html">Mounts</a></li><li><a href="native/tls.html">TLS</a></li><li><a href="native/event-loop.html">Event loop</a></li><li><a href="native/constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="native/ws-server.html">WebSocket server</a></li><li><a href="native/ws-client.html">WebSocket client</a></li><li><a href="native/http-server.html">HTTP server</a></li><li><a href="native/http-client.html">HTTP client</a></li><li><a href="native/raw-tcp.html">Raw TCP</a></li><li><a href="native/examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="js/helpers.html">lib/ helpers</a></li><li><a href="js/bun.html">Bun-compatible serve()</a></li><li><a href="js/middleware.html">Middleware & routing</a></li><li><a href="api-compatibility.html" class="here">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="api-compatibility-assessment"><a class="anchor" href="#api-compatibility-assessment" aria-hidden="true">#</a>API Compatibility Assessment</h1>
+<p>This document assesses the compatibility of qjs-lws's JavaScript wrapper libraries (<code>lib/</code> and <code>lib/lws/</code>) against their corresponding web standards and Bun.js APIs.</p>
+<h2 id="executive-summary"><a class="anchor" href="#executive-summary" aria-hidden="true">#</a>Executive Summary</h2>
+<p>The implementation demonstrates <strong>high conformance</strong> to WHATWG standards in most areas, with particularly strong coverage of:</p>
+<ul>
+<li><strong>Streams API</strong>: Complete implementation (ported from web-streams-polyfill)</li>
+<li><strong>URL/URLSearchParams</strong>: Complete</li>
+<li><strong>WebSocket API</strong>: High conformance</li>
+<li><strong>AbortController/AbortSignal</strong>: High conformance</li>
+</ul>
+<p>However, there are <strong>critical incompatibilities</strong> in the Fetch API implementation that will break standard-compliant code:</p>
+<ul>
+<li><strong>Response.status</strong> is a method, not a property (major spec violation)</li>
+<li><strong>Body.formData()</strong> returns a plain object instead of FormData instance</li>
+<li><strong>Headers iteration order</strong> uses insertion order instead of sorted order</li>
+<li><strong>fetch()</strong> doesn't accept Request objects as input</li>
+<li><strong>AbortSignal</strong> handling in fetch() is incomplete</li>
+</ul>
+<p>The Bun.js API compatibility is <strong>partial</strong>, with significant gaps in:</p>
+<ul>
+<li><strong>Server object</strong>: 11 of 15 properties/methods missing</li>
+<li><strong>WebSocket handler options</strong>: 10 of 13 options missing</li>
+<li><strong>UDP socket</strong>: 10 of 12 methods missing</li>
+</ul>
+<hr>
+<h2 id="whatwg-fetch-api"><a class="anchor" href="#whatwg-fetch-api" aria-hidden="true">#</a>WHATWG Fetch API</h2>
+<p><strong>Reference</strong>: <a href="https://fetch.spec.whatwg.org/" target="_blank" rel="noopener">https://fetch.spec.whatwg.org/</a></p>
+<h3 id="headers-liblwsheadersjs"><a class="anchor" href="#headers-liblwsheadersjs" aria-hidden="true">#</a>Headers (<code>lib/lws/headers.js</code>)</h3>
+<p><strong>Conformance</strong>: High (90%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>All core methods: <code>get()</code>, <code>set()</code>, <code>has()</code>, <code>delete()</code>, <code>append()</code></li>
+<li><code>getSetCookie()</code> for Set-Cookie special handling</li>
+<li>Iteration: <code>forEach()</code>, <code>keys()</code>, <code>values()</code>, <code>entries()</code>, <code>[Symbol.iterator]()</code></li>
+<li>Proper name normalization and validation</li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>Iteration order</strong>: Uses insertion order instead of spec-mandated sorted (lexicographic) order</li>
+<li><strong>Guard mode</strong>: Not implemented (spec defines immutable/request/response guards)</li>
+<li><strong>Non-standard extension</strong>: <code>toObject()</code> method (Express-style convenience)</li>
+</ol>
+<p><strong>Reinventing the wheel</strong>: The iteration order deviation is unnecessary and breaks spec-compliant code that depends on sorted header ordering.</p>
+<h3 id="body-mixin-liblwsbodyjs"><a class="anchor" href="#body-mixin-liblwsbodyjs" aria-hidden="true">#</a>Body Mixin (<code>lib/lws/body.js</code>)</h3>
+<p><strong>Conformance</strong>: Medium (75%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>text()</code>, <code>json()</code>, <code>arrayBuffer()</code>, <code>blob()</code> - all return correct types</li>
+<li><code>body</code> property as ReadableStream</li>
+<li><code>bodyUsed</code> flag</li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>CRITICAL: <code>formData()</code> returns wrong type</strong>: Returns plain object instead of FormData instance
+<ul>
+<li>Spec requires: <code>Promise&lt;FormData&gt;</code></li>
+<li>Implementation returns: <code>Promise&lt;Object&gt;</code> (plain object with key-value pairs)</li>
+<li>Impact: <code>instanceof FormData</code> checks fail, FormData methods unavailable</li>
+</ul></li>
+<li><strong>Missing <code>bytes()</code> method</strong>: Spec requires <code>Promise&lt;Uint8Array&gt;</code></li>
+<li><strong>No bodyUsed lock enforcement</strong>: Calling body methods twice doesn't throw TypeError</li>
+<li><strong>No Content-Type inference</strong>: Spec auto-sets Content-Type based on body type (Blob, FormData, etc.)</li>
+</ol>
+<p><strong>Reinventing the wheel</strong>:</p>
+<ul>
+<li>The plain object return from <code>formData()</code> is a significant deviation that breaks FormData-based workflows</li>
+<li>No FormData class exists in the codebase at all</li>
+</ul>
+<h3 id="request-liblwsrequestjs"><a class="anchor" href="#request-liblwsrequestjs" aria-hidden="true">#</a>Request (<code>lib/lws/request.js</code>)</h3>
+<p><strong>Conformance</strong>: Medium (60%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>Core properties: <code>url</code>, <code>method</code>, <code>headers</code>, <code>credentials</code>, <code>mode</code>, <code>signal</code></li>
+<li><code>clone()</code> method</li>
+<li>Body mixin integration</li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>Missing properties</strong>: <code>destination</code>, <code>referrerPolicy</code>, <code>cache</code>, <code>integrity</code>, <code>redirect</code>, <code>keepalive</code>, <code>duplex</code>, <code>priority</code></li>
+<li><strong><code>clone()</code> doesn't check bodyUsed</strong>: Spec requires TypeError if body already consumed</li>
+<li><strong>Non-standard</strong>: Cache-busting <code>_=</code> query parameter for no-store/no-cache</li>
+</ol>
+<h3 id="response-liblwsresponsejs"><a class="anchor" href="#response-liblwsresponsejs" aria-hidden="true">#</a>Response (<code>lib/lws/response.js</code>)</h3>
+<p><strong>Conformance</strong>: Medium (70%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>Static methods: <code>Response.error()</code>, <code>Response.redirect()</code>, <code>Response.json()</code></li>
+<li><code>clone()</code> method</li>
+<li><code>ok</code> getter</li>
+<li>Body mixin integration</li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>CRITICAL: <code>status</code> is a method, not a property</strong>
+<ul>
+<li>Spec requires: <code>readonly attribute unsigned short status</code></li>
+<li>Implementation: <code>status(code)</code> is a chainable setter method, <code>statusCode</code> is the getter</li>
+<li>Impact: <code>response.status === 200</code> compares function to number (always false)</li>
+<li>This is the most serious spec violation in the Fetch implementation</li>
+</ul></li>
+<li><strong>Missing <code>bytes()</code> method</strong>: Spec requires <code>Promise&lt;Uint8Array&gt;</code></li>
+<li><strong><code>clone()</code> doesn't check bodyUsed</strong>: Spec requires TypeError if body already consumed</li>
+<li><strong>Non-standard properties</strong>: <code>statusCode</code> getter (workaround for status-as-method)</li>
+</ol>
+<p><strong>Reinventing the wheel</strong>:</p>
+<ul>
+<li>The <code>status</code> as method design is a fundamental architectural mistake that breaks all standard Response handling code</li>
+<li>Should have been implemented as a property from the start</li>
+</ul>
+<h3 id="fetch-libfetchjs"><a class="anchor" href="#fetch-libfetchjs" aria-hidden="true">#</a>fetch() (<code>lib/fetch.js</code>)</h3>
+<p><strong>Conformance</strong>: Medium (65%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>Basic HTTP/HTTPS requests</li>
+<li>Headers, body, method support</li>
+<li>AbortSignal (partial)</li>
+<li>TLS configuration</li>
+<li>HTTP/2 support</li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>No redirect following</strong>: Spec requires automatic redirect handling with <code>redirect</code> option</li>
+<li><strong>No CORS support</strong>: Spec requires <code>mode</code> option enforcement (same-origin, cors, no-cors)</li>
+<li><strong>No Request input</strong>: Spec allows <code>fetch(request)</code> but implementation only accepts URL strings</li>
+<li><strong>Wrong error type</strong>: Throws <code>ConnectionError</code> instead of spec-mandated <code>TypeError</code> for network errors</li>
+<li><strong>Incomplete AbortSignal</strong>:
+<ul>
+<li>Doesn't throw <code>AbortError</code> (DOMException) on abort</li>
+<li>Overwrites existing <code>signal.onabort</code> handler</li>
+<li>No pre-check if signal already aborted</li>
+</ul></li>
+<li><strong>Missing options</strong>: <code>cache</code>, <code>integrity</code>, <code>referrer</code>, <code>referrerPolicy</code>, <code>keepalive</code>, <code>duplex</code>, <code>priority</code></li>
+</ol>
+<p><strong>Reinventing the wheel</strong>:</p>
+<ul>
+<li>The custom <code>ConnectionError</code> class instead of standard <code>TypeError</code> breaks error handling patterns</li>
+<li>Should use standard web error types</li>
+</ul>
+<hr>
+<h2 id="whatwg-url-api"><a class="anchor" href="#whatwg-url-api" aria-hidden="true">#</a>WHATWG URL API</h2>
+<p><strong>Reference</strong>: <a href="https://url.spec.whatwg.org/" target="_blank" rel="noopener">https://url.spec.whatwg.org/</a></p>
+<h3 id="url-liblwsurljs"><a class="anchor" href="#url-liblwsurljs" aria-hidden="true">#</a>URL (<code>lib/lws/url.js</code>)</h3>
+<p><strong>Conformance</strong>: Very High (95%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>All properties: <code>href</code>, <code>origin</code>, <code>protocol</code>, <code>username</code>, <code>password</code>, <code>host</code>, <code>hostname</code>, <code>port</code>, <code>pathname</code>, <code>search</code>, <code>searchParams</code>, <code>hash</code></li>
+<li>All methods: <code>toString()</code>, <code>toJSON()</code></li>
+<li>Static methods: <code>URL.canParse()</code>, <code>URL.parse()</code></li>
+<li>Full URL parser state machine (not regex-based)</li>
+</ul>
+<p><strong>Known Limitations</strong> (documented):</p>
+<ul>
+<li>No IDNA/Punycode for non-ASCII domains (ASCII domains unaffected)</li>
+<li>Validation errors silently ignored (spec allows this)</li>
+</ul>
+<p><strong>Not Implemented</strong>:</p>
+<ul>
+<li><code>URL.createObjectURL()</code> / <code>URL.revokeObjectURL()</code> - browser-only, not part of core URL spec</li>
+</ul>
+<h3 id="urlsearchparams-liblwsurljs"><a class="anchor" href="#urlsearchparams-liblwsurljs" aria-hidden="true">#</a>URLSearchParams (<code>lib/lws/url.js</code>)</h3>
+<p><strong>Conformance</strong>: Complete (100%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>All constructor forms: string, record, iterable, URLSearchParams, empty</li>
+<li>All methods: <code>append()</code>, <code>delete()</code>, <code>get()</code>, <code>getAll()</code>, <code>has()</code>, <code>set()</code>, <code>sort()</code>, <code>forEach()</code>, <code>keys()</code>, <code>values()</code>, <code>entries()</code>, <code>toString()</code></li>
+<li>All properties: <code>size</code> getter</li>
+<li>Iteration: <code>[Symbol.iterator]()</code></li>
+</ul>
+<p><strong>No incompatibilities detected.</strong></p>
+<hr>
+<h2 id="whatwg-streams-api"><a class="anchor" href="#whatwg-streams-api" aria-hidden="true">#</a>WHATWG Streams API</h2>
+<p><strong>Reference</strong>: <a href="https://streams.spec.whatwg.org/" target="_blank" rel="noopener">https://streams.spec.whatwg.org/</a></p>
+<p><strong>Implementation</strong>: <code>lib/lws/streams.js</code> (ported from web-streams-polyfill)</p>
+<p><strong>Conformance</strong>: Complete (100%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><strong>ReadableStream</strong>: Full implementation including byte streams and BYOB reader</li>
+<li><strong>WritableStream</strong>: Full implementation with default writer</li>
+<li><strong>TransformStream</strong>: Full implementation</li>
+<li><strong>Queuing strategies</strong>: <code>ByteLengthQueuingStrategy</code>, <code>CountQueuingStrategy</code></li>
+<li>All methods: <code>pipeTo()</code>, <code>pipeThrough()</code>, <code>tee()</code>, <code>cancel()</code>, <code>getReader()</code>, <code>getWriter()</code></li>
+<li>All reader/writer types: DefaultReader, BYOBReader, DefaultWriter</li>
+<li>All controller types: DefaultController, ByteStreamController, BYOBRequest</li>
+</ul>
+<p><strong>No incompatibilities detected.</strong></p>
+<hr>
+<h2 id="whatwg-dom-api"><a class="anchor" href="#whatwg-dom-api" aria-hidden="true">#</a>WHATWG DOM API</h2>
+<p><strong>Reference</strong>: <a href="https://dom.spec.whatwg.org/" target="_blank" rel="noopener">https://dom.spec.whatwg.org/</a></p>
+<h3 id="abortcontroller--abortsignal-liblwsabortjs"><a class="anchor" href="#abortcontroller--abortsignal-liblwsabortjs" aria-hidden="true">#</a>AbortController / AbortSignal (<code>lib/lws/abort.js</code>)</h3>
+<p><strong>Conformance</strong>: High (90%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>AbortController: <code>signal</code> property, <code>abort(reason)</code> method</li>
+<li>AbortSignal: <code>aborted</code>, <code>reason</code>, <code>onabort</code>, <code>throwIfAborted()</code></li>
+<li>Static methods: <code>AbortSignal.timeout()</code>, <code>AbortSignal.any()</code>, <code>AbortSignal.abort()</code></li>
+<li>Extends EventTarget</li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>DOMException fallback</strong>: Uses plain <code>Error</code> with <code>name: 'TimeoutError'</code> instead of <code>DOMException</code> when <code>document</code> is undefined (QuickJS runtime limitation)</li>
+<li><strong>Non-standard</strong>: Adds <code>reason</code> to event object (spec only puts it on signal)</li>
+</ol>
+<h3 id="eventtarget-liblwseventsjs"><a class="anchor" href="#eventtarget-liblwseventsjs" aria-hidden="true">#</a>EventTarget (<code>lib/lws/events.js</code>)</h3>
+<p><strong>Conformance</strong>: Minimal (40%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>Core triad: <code>addEventListener()</code>, <code>removeEventListener()</code>, <code>dispatchEvent()</code></li>
+<li><code>on${type}</code> handler dispatch</li>
+<li>Listener ordering (insertion order)</li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>No options parameter</strong>: <code>addEventListener</code> doesn't support <code>capture</code>, <code>once</code>, <code>passive</code>, <code>signal</code> options</li>
+<li><strong>No Event class</strong>: Events are plain objects, not Event instances</li>
+<li><strong>No propagation model</strong>: No bubbling/capturing, no <code>stopPropagation()</code>, <code>stopImmediatePropagation()</code></li>
+<li><strong>No cancelable events</strong>: No <code>preventDefault()</code>, <code>defaultPrevented</code></li>
+<li><strong>Missing event properties</strong>: <code>eventPhase</code>, <code>currentTarget</code>, <code>isTrusted</code>, <code>timeStamp</code>, <code>bubbles</code>, <code>cancelable</code>, <code>composed</code></li>
+<li><strong>No duplicate prevention</strong>: Same listener can be added multiple times</li>
+</ol>
+<p><strong>Reinventing the wheel</strong>:</p>
+<ul>
+<li>The minimal EventTarget is sufficient for internal use (AbortSignal, WebSocket) but not for general DOM-like event handling</li>
+<li>For a server-side runtime, the full DOM event model is likely overkill, but the options parameter (especially <code>once</code> and <code>signal</code>) would be useful</li>
+</ul>
+<hr>
+<h2 id="whatwg-websocket-api"><a class="anchor" href="#whatwg-websocket-api" aria-hidden="true">#</a>WHATWG WebSocket API</h2>
+<p><strong>Reference</strong>: <a href="https://html.spec.whatwg.org/multipage/web-sockets.html" target="_blank" rel="noopener">https://html.spec.whatwg.org/multipage/web-sockets.html</a></p>
+<h3 id="websocket-libwebsocketjs"><a class="anchor" href="#websocket-libwebsocketjs" aria-hidden="true">#</a>WebSocket (<code>lib/websocket.js</code>)</h3>
+<p><strong>Conformance</strong>: High (85%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>Constructor: <code>new WebSocket(url, protocols)</code></li>
+<li>Core methods: <code>send()</code>, <code>close()</code></li>
+<li>Properties: <code>readyState</code>, <code>binaryType</code>, <code>protocol</code>, <code>extensions</code></li>
+<li>Event handlers: <code>onopen</code>, <code>onmessage</code>, <code>onclose</code>, <code>onerror</code></li>
+<li>Constants: <code>CONNECTING</code>, <code>OPEN</code>, <code>CLOSING</code>, <code>CLOSED</code></li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>Missing <code>url</code> property</strong>: Constructor receives URL but doesn't store it</li>
+<li><strong>Missing <code>bufferedAmount</code></strong>: lws doesn't expose write-queue byte counts to JS</li>
+<li><strong>Constructor options incomplete</strong>: Doesn't extract <code>signal</code> (AbortSignal) or <code>headers</code> from options object</li>
+</ol>
+<p><strong>Reinventing the wheel</strong>:</p>
+<ul>
+<li>The missing <code>url</code> property is a simple oversight that should be fixed</li>
+</ul>
+<h3 id="websocketstream-libwebsocketstreamjs"><a class="anchor" href="#websocketstream-libwebsocketstreamjs" aria-hidden="true">#</a>WebSocketStream (<code>lib/websocketstream.js</code>)</h3>
+<p><strong>Conformance</strong>: High (90%)</p>
+<p><strong>Reference</strong>: <a href="https://github.com/whatwg/websockets/blob/main/WebSocketStream.md" target="_blank" rel="noopener">https://github.com/whatwg/websockets/blob/main/WebSocketStream.md</a> (draft spec)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>Constructor: <code>new WebSocketStream(url, options)</code></li>
+<li>Promises: <code>opened</code>, <code>closed</code></li>
+<li>Properties: <code>url</code></li>
+<li>Methods: <code>close({ closeCode, reason })</code></li>
+<li>Options: <code>signal</code>, <code>protocols</code></li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong>No direct <code>closeCode</code>/<code>closeReason</code> properties</strong>: Only available via <code>closed</code> promise (consistent with draft spec)</li>
+</ol>
+<p><strong>No significant incompatibilities.</strong> The implementation closely follows the draft spec.</p>
+<hr>
+<h2 id="bunjs-server-api"><a class="anchor" href="#bunjs-server-api" aria-hidden="true">#</a>Bun.js Server API</h2>
+<p><strong>Reference</strong>: <a href="https://bun.sh/docs/api/http" target="_blank" rel="noopener">https://bun.sh/docs/api/http</a></p>
+<h3 id="server-object-libservejs"><a class="anchor" href="#server-object-libservejs" aria-hidden="true">#</a>Server Object (<code>lib/serve.js</code>)</h3>
+<p><strong>Conformance</strong>: Low (35%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>server.port</code> - actual bound port (uses <code>vhost.listenPort</code>)</li>
+<li><code>server.hostname</code></li>
+<li><code>server.stop(closeActiveConnections?)</code> - partial (ignores argument, no async wait)</li>
+<li><code>server.upgrade(request, options?)</code> - complete</li>
+<li><code>server.publish(topic, message)</code> - complete</li>
+</ul>
+<p><strong>Missing</strong>:</p>
+<ol>
+<li><code>server.url</code> - URL object (e.g., <code>http://localhost:3000</code>)</li>
+<li><code>server.reload(options)</code> - hot-reload handlers without restart</li>
+<li><code>server.ref()</code> / <code>server.unref()</code> - process lifecycle control</li>
+<li><code>server.subscriberCount(topic)</code> - topic subscriber count</li>
+<li><code>server.requestIP(request)</code> - client IP extraction</li>
+<li><code>server.timeout(request, seconds)</code> - per-request idle timeout</li>
+<li><code>server.pendingRequests</code> - in-flight request counter</li>
+<li><code>server.pendingWebSockets</code> - active WebSocket counter</li>
+<li><code>server.closeIdleConnections()</code> - close idle connections</li>
+<li><code>server.development</code> - development mode flag</li>
+<li><code>server.id</code> - server instance identifier</li>
+<li><code>server.fetch(request)</code> - internal request to running server</li>
+</ol>
+<p><strong>Impact</strong>: Many Bun.js server management patterns won't work. Users can't implement graceful shutdown, health checks, or request metrics.</p>
+<h3 id="websockethandler-options"><a class="anchor" href="#websockethandler-options" aria-hidden="true">#</a>WebSocketHandler Options</h3>
+<p><strong>Conformance</strong>: Low (25%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>open(ws)</code>, <code>message(ws, data)</code>, <code>close(ws, code, reason)</code></li>
+</ul>
+<p><strong>Missing</strong>:</p>
+<ol>
+<li><code>drain(ws)</code> - backpressure relief callback</li>
+<li><code>ping(ws, data)</code> - ping frame handler</li>
+<li><code>pong(ws, data)</code> - pong frame handler</li>
+<li><code>perMessageDeflate</code> - compression configuration</li>
+<li><code>maxPayloadLength</code> - message size limit (Bun default 16MB)</li>
+<li><code>idleTimeout</code> - WebSocket idle timeout (Bun default 120s)</li>
+<li><code>backpressureLimit</code> - backpressure threshold (Bun default 16MB)</li>
+<li><code>closeOnBackpressureLimit</code> - auto-close on backpressure</li>
+<li><code>sendPings</code> - automatic ping frames (Bun default true)</li>
+<li><code>publishToSelf</code> - include sender in <code>ws.publish()</code></li>
+</ol>
+<p><strong>Impact</strong>: Can't implement backpressure handling, compression, or WebSocket lifecycle management.</p>
+<h3 id="serverwebsocket"><a class="anchor" href="#serverwebsocket" aria-hidden="true">#</a>ServerWebSocket</h3>
+<p><strong>Conformance</strong>: High (75%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>ws.data</code> - per-socket context</li>
+<li><code>ws.readyState</code> - connection state</li>
+<li><code>ws.send(data)</code>, <code>ws.close(code?, reason?)</code></li>
+<li>Pub/sub: <code>ws.subscribe()</code>, <code>ws.unsubscribe()</code>, <code>ws.publish()</code>, <code>ws.isSubscribed()</code></li>
+</ul>
+<p><strong>Missing</strong>:</p>
+<ol>
+<li><code>ws.remoteAddress</code> - client address getter</li>
+<li><code>ws.subscriptions</code> - array of subscribed topics</li>
+<li><code>ws.cork(callback)</code> - batch writes into one syscall</li>
+</ol>
+<p><strong>Impact</strong>: Can't access client IP from WebSocket handlers or inspect subscription state.</p>
+<h3 id="serve-options"><a class="anchor" href="#serve-options" aria-hidden="true">#</a>serve() Options</h3>
+<p><strong>Conformance</strong>: Medium (60%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>port</code>, <code>hostname</code>, <code>fetch</code>, <code>websocket</code>, <code>tls</code>, <code>routes</code></li>
+</ul>
+<p><strong>Missing</strong>:</p>
+<ol>
+<li><code>error(err)</code> - uncaught error handler</li>
+<li><code>development</code> - development mode flag</li>
+<li><code>unix</code> - UNIX domain socket support</li>
+<li><code>maxRequestBodySize</code> - request size limit</li>
+<li><code>idleTimeout</code> - connection idle timeout (Bun default 10s)</li>
+<li><code>http3</code> - HTTP/3 support (experimental, not applicable to lws)</li>
+</ol>
+<hr>
+<h2 id="bunjs-tcp-api"><a class="anchor" href="#bunjs-tcp-api" aria-hidden="true">#</a>Bun.js TCP API</h2>
+<p><strong>Reference</strong>: <a href="https://bun.sh/docs/api/tcp" target="_blank" rel="noopener">https://bun.sh/docs/api/tcp</a></p>
+<h3 id="tcpsocket-libtcpsocketjs"><a class="anchor" href="#tcpsocket-libtcpsocketjs" aria-hidden="true">#</a>TCPSocket (<code>lib/tcpsocket.js</code>)</h3>
+<p><strong>Conformance</strong>: Medium (65%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>socket.write(data)</code> / <code>socket.send(data)</code></li>
+<li><code>socket.end()</code> / <code>socket.close()</code></li>
+<li><code>socket.data</code> - per-socket context</li>
+<li><code>socket.remoteAddress</code>, <code>socket.localPort</code>, <code>socket.localAddress</code>, <code>socket.remotePort</code></li>
+<li><code>socket.readyState</code></li>
+</ul>
+<p><strong>Missing</strong>:</p>
+<ol>
+<li><code>socket.destroy()</code> - immediate forced close (vs graceful <code>end()</code>)</li>
+<li><code>socket.ref()</code> / <code>socket.unref()</code> - process lifecycle control</li>
+<li><code>socket.cork(callback)</code> - batch writes</li>
+<li><code>socket.timeout(ms)</code> - per-socket idle timeout</li>
+<li><code>socket.connectTimeout</code> - connection timeout</li>
+<li><code>socket.reload(handlers)</code> - hot-reload handlers</li>
+<li><code>socket.flush()</code> - flush write buffer</li>
+</ol>
+<p><strong>Handler Callbacks</strong>:</p>
+<ul>
+<li>Implemented: <code>open</code>, <code>data</code>, <code>close</code>, <code>error</code>, <code>connectError</code> (client only)</li>
+<li>Missing: <code>drain</code>, <code>end</code> (client only), <code>timeout</code> (client only)</li>
+</ul>
+<h3 id="tcp-listener"><a class="anchor" href="#tcp-listener" aria-hidden="true">#</a>TCP Listener</h3>
+<p><strong>Conformance</strong>: Low (40%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>listener.stop(force?)</code> - partial (ignores argument)</li>
+<li><code>listener.ref()</code> / <code>listener.unref()</code> - present but no-op</li>
+</ul>
+<p><strong>Missing</strong>:</p>
+<ol>
+<li><code>listener.port</code> - bound port</li>
+<li><code>listener.hostname</code> - bound hostname</li>
+<li><code>listener.unix</code> - UNIX socket path</li>
+<li><code>listener.reload(options)</code> - hot-reload handlers</li>
+<li><code>listener.data</code> - arbitrary listener data</li>
+</ol>
+<p><strong>Impact</strong>: Can't inspect listener configuration or hot-reload handlers.</p>
+<hr>
+<h2 id="bunjs-udp-api"><a class="anchor" href="#bunjs-udp-api" aria-hidden="true">#</a>Bun.js UDP API</h2>
+<p><strong>Reference</strong>: <a href="https://bun.sh/docs/api/udp" target="_blank" rel="noopener">https://bun.sh/docs/api/udp</a></p>
+<h3 id="udpsocket-libudpsocketjs"><a class="anchor" href="#udpsocket-libudpsocketjs" aria-hidden="true">#</a>UDPSocket (<code>lib/udpsocket.js</code>)</h3>
+<p><strong>Conformance</strong>: Low (20%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>socket.close()</code></li>
+<li><code>socket.remoteAddress</code>, <code>socket.remotePort</code>, <code>socket.localAddress</code>, <code>socket.localPort</code></li>
+</ul>
+<p><strong>Incompatibilities</strong>:</p>
+<ol>
+<li><strong><code>send()</code> signature differs</strong>:
+<ul>
+<li>Bun: <code>socket.send(data, port, address)</code></li>
+<li>Implementation: <code>socket.sendTo(data, peer)</code> where <code>peer</code> is a sockaddr object</li>
+</ul></li>
+<li><strong>Different creation API</strong>:
+<ul>
+<li>Bun: <code>await Bun.udpSocket(options)</code> with <code>connect</code> option</li>
+<li>Implementation: <code>new UDPSocket(options)</code> with constructor args</li>
+</ul></li>
+</ol>
+<p><strong>Missing</strong>:</p>
+<ol>
+<li><code>socket.sendMany(packets)</code> - batch send</li>
+<li><code>socket.setBroadcast(enable)</code> - broadcast mode</li>
+<li><code>socket.setTTL(ttl)</code> - IP TTL</li>
+<li><code>socket.addMembership(address, interface?)</code> - multicast join</li>
+<li><code>socket.dropMembership(address)</code> - multicast leave</li>
+<li><code>socket.setMulticastTTL(ttl)</code> - multicast TTL</li>
+<li><code>socket.setMulticastLoopback(enable)</code> - multicast loopback</li>
+<li><code>socket.setMulticastInterface(address)</code> - multicast interface</li>
+<li><code>socket.addSourceSpecificMembership(source, group)</code> - SSM join</li>
+<li><code>socket.dropSourceSpecificMembership(source, group)</code> - SSM leave</li>
+</ol>
+<p><strong>Handler Callbacks</strong>:</p>
+<ul>
+<li>Implemented: <code>open</code>, <code>close</code>, <code>error</code></li>
+<li>Partial: <code>data</code> (different signature: <code>{ data, size, peer }</code> vs Bun's <code>(socket, buf, port, addr)</code>)</li>
+<li>Missing: <code>drain</code></li>
+</ul>
+<p><strong>Impact</strong>: Can't implement multicast, broadcast, or socket options. The <code>send()</code> signature incompatibility breaks Bun.js UDP code.</p>
+<hr>
+<h2 id="w3c-file-api"><a class="anchor" href="#w3c-file-api" aria-hidden="true">#</a>W3C File API</h2>
+<p><strong>Reference</strong>: <a href="https://www.w3.org/TR/FileAPI/" target="_blank" rel="noopener">https://www.w3.org/TR/FileAPI/</a></p>
+<h3 id="file-liblwsmultipartjs"><a class="anchor" href="#file-liblwsmultipartjs" aria-hidden="true">#</a>File (<code>lib/lws/multipart.js</code>)</h3>
+<p><strong>Conformance</strong>: Medium (60%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>file.name</code> - filename</li>
+<li><code>file.type</code> - MIME type</li>
+<li><code>file.lastModified</code> - modification timestamp</li>
+<li><code>file.stream()</code> - ReadableStream (one-shot, not re-readable)</li>
+<li><code>file.arrayBuffer()</code> - read entire file</li>
+<li><code>file.text()</code> - read as text</li>
+</ul>
+<p><strong>Missing</strong>:</p>
+<ol>
+<li><code>file.size</code> - file size in bytes (deliberately omitted: stream-backed design can't know size without buffering)</li>
+<li><code>file.slice(start?, end?, type?)</code> - create Blob subset (deliberately omitted: stream-backed design can't re-read)</li>
+<li><code>file.bytes()</code> - read as Uint8Array (newer File API addition)</li>
+</ol>
+<p><strong>Design Decision</strong>: The implementation uses a streaming design that reads file data on-demand rather than buffering the entire file. This is more memory-efficient for large uploads but means <code>size</code> and <code>slice()</code> can't be implemented without buffering.</p>
+<p><strong>Impact</strong>: Code that checks file size before processing or uses <code>slice()</code> for chunked uploads won't work.</p>
+<h3 id="multipartformdata"><a class="anchor" href="#multipartformdata" aria-hidden="true">#</a>MultipartFormData</h3>
+<p><strong>Note</strong>: This is a sending-side helper for encoding multipart bodies, not a W3C FormData implementation. It lacks all FormData methods (<code>get()</code>, <code>set()</code>, <code>append()</code>, etc.).</p>
+<hr>
+<h2 id="express-style-router-non-standard"><a class="anchor" href="#express-style-router-non-standard" aria-hidden="true">#</a>Express-style Router (Non-standard)</h2>
+<h3 id="approuter-liblwsappjs"><a class="anchor" href="#approuter-liblwsappjs" aria-hidden="true">#</a>App/Router (<code>lib/lws/app.js</code>)</h3>
+<p><strong>Conformance</strong>: Complete (100%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li>All HTTP methods: <code>use()</code>, <code>get()</code>, <code>post()</code>, <code>put()</code>, <code>delete()</code>, <code>patch()</code>, <code>head()</code>, <code>options()</code>, <code>all()</code></li>
+<li>Path matching: <code>:name</code> parameters, <code>*</code> wildcards</li>
+<li>Sub-router mounting: <code>app.use('/api', router)</code></li>
+<li>Error handling middleware: 4-arg <code>(err, req, res, next)</code> signature</li>
+<li><code>req.params</code>, <code>req.path</code>, <code>req.app</code></li>
+<li><code>next(err)</code> error propagation</li>
+</ul>
+<p><strong>No incompatibilities detected.</strong> This is not a Bun.js API but follows Express conventions correctly.</p>
+<h3 id="middleware-liblwsmiddlewarejs"><a class="anchor" href="#middleware-liblwsmiddlewarejs" aria-hidden="true">#</a>Middleware (<code>lib/lws/middleware.js</code>)</h3>
+<p><strong>Conformance</strong>: Complete (100%)</p>
+<p><strong>Implemented</strong>:</p>
+<ul>
+<li><code>json(opts?)</code> - JSON body parser</li>
+<li><code>urlencoded(opts?)</code> - form body parser</li>
+<li><code>raw(opts?)</code> - raw body parser</li>
+<li><code>text(opts?)</code> - text body parser</li>
+<li><code>cookies()</code> - cookie parser (no-op, cookies already on request)</li>
+<li><code>cors(opts?)</code> - CORS headers</li>
+<li><code>logger(format?)</code> - request logging</li>
+<li><code>secure(opts?)</code> - security headers</li>
+</ul>
+<p>All middleware follows Express conventions with proper async support and error handling.</p>
+<hr>
+<h2 id="recommendations"><a class="anchor" href="#recommendations" aria-hidden="true">#</a>Recommendations</h2>
+<h3 id="critical-fixes-high-priority"><a class="anchor" href="#critical-fixes-high-priority" aria-hidden="true">#</a>Critical Fixes (High Priority)</h3>
+<ol>
+<li><p><strong>Response.status</strong>: Convert from method to property</p>
+<ul>
+<li>Current: <code>response.status(code)</code> / <code>response.statusCode</code></li>
+<li>Required: <code>response.status</code> (readonly property)</li>
+<li>Impact: All standard Response handling code currently broken</li>
+<li>Status: ✓ DONE (August 13, 2026)</li>
+</ul></li>
+<li><p><strong>Body.formData()</strong>: Return FormData instance instead of plain object</p>
+<ul>
+<li>Requires implementing a FormData class</li>
+<li>Current code that uses <code>formData()</code> will need updates</li>
+</ul></li>
+<li><p><strong>fetch() Request input</strong>: Accept Request objects as first argument</p>
+<ul>
+<li>Current: <code>fetch(url, options)</code> only</li>
+<li>Required: <code>fetch(request)</code> or <code>fetch(url, options)</code></li>
+</ul></li>
+<li><p><strong>Headers iteration order</strong>: Sort headers lexicographically</p>
+<ul>
+<li>Current: insertion order</li>
+<li>Required: sorted order per spec</li>
+</ul></li>
+</ol>
+<h3 id="response-vs-serverresponse-untangling-completed"><a class="anchor" href="#response-vs-serverresponse-untangling-completed" aria-hidden="true">#</a>Response vs ServerResponse Untangling (COMPLETED)</h3>
+<p>The <code>Response</code> class (WHATWG Fetch API) and <code>ServerResponse</code> class (Express-style middleware) have been properly separated to preserve both API patterns.</p>
+<p><strong>Status: ✅ COMPLETE</strong> (commit e139858, August 13, 2026)</p>
+<p><strong>The Solution:</strong></p>
+<ul>
+<li><code>Response</code> follows WHATWG: readonly <code>status</code> property, constructor-based, immutable after construction</li>
+<li><code>ServerResponse</code> follows Express: chainable <code>status(code)</code> method, mutable until sent, streaming-oriented</li>
+<li>Client-side Response objects created with status/headers when established (not mutated after)</li>
+<li><code>serve.js</code> bridges them via <code>flush()</code> function that copies Response properties onto ServerResponse</li>
+</ul>
+<p><strong>Implementation:</strong></p>
+<ul>
+<li><code>lib/lws/response.js</code>: Response has readonly getters for status/statusText/headers/url; ServerResponse has chainable methods</li>
+<li><code>lib/lws/protocols.js</code>: Client Response created in <code>onEstablishedClientHttp()</code> with all properties (status, headers, redirected)</li>
+<li><code>lib/lws/app.js</code> and <code>lib/lws/middleware.js</code>: Use <code>res.status(code)</code> chaining (ServerResponse pattern)</li>
+<li><code>lib/serve.js</code>: <code>flush()</code> copies Response properties onto ServerResponse for the bridge pattern</li>
+</ul>
+<p><strong>Key Design Decisions:</strong></p>
+<ul>
+<li>Both classes extend Body (code reuse for headers, body handling)</li>
+<li>Response follows WHATWG spec (immutable, declarative) for fetch() clients and standard web code</li>
+<li>ServerResponse follows Express conventions (mutable, imperative) for middleware compatibility</li>
+<li>Inheritance preserves code reuse while keeping APIs separate</li>
+<li>No breaking changes: existing middleware continues to work with ServerResponse chaining</li>
+</ul>
+<p><strong>Impact:</strong></p>
+<ul>
+<li>✅ Preserves WHATWG compatibility for fetch() clients and standard web code</li>
+<li>✅ Preserves Express compatibility for middleware (cors, helmet, etc.)</li>
+<li>✅ Both APIs remain available for their intended use cases</li>
+<li>✅ All tests pass (middleware, app, fetch, response unit tests)</li>
+</ul>
+<p>See <code>CLAUDE.md</code> for full architectural assessment and historical context.</p>
+<h3 id="high-priority-improvements"><a class="anchor" href="#high-priority-improvements" aria-hidden="true">#</a>High Priority Improvements</h3>
+<ol start="5">
+<li><strong>Add <code>bytes()</code> method</strong> to Body mixin</li>
+<li><strong>Fix fetch() error types</strong>: Use TypeError instead of ConnectionError for network errors</li>
+<li><strong>Complete AbortSignal handling</strong> in fetch(): throw AbortError, check pre-aborted state</li>
+<li><strong>Add WebSocket.url property</strong></li>
+<li><strong>Implement EventTarget options</strong>: at least <code>once</code> and <code>signal</code> parameters</li>
+<li><strong>Add Server.url property</strong> for Bun.js compatibility</li>
+</ol>
+<h3 id="medium-priority"><a class="anchor" href="#medium-priority" aria-hidden="true">#</a>Medium Priority</h3>
+<ol start="11">
+<li><strong>Implement missing Server methods</strong>: <code>subscriberCount()</code>, <code>requestIP()</code>, <code>timeout()</code></li>
+<li><strong>Add WebSocket handler options</strong>: <code>drain</code>, <code>perMessageDeflate</code>, <code>maxPayloadLength</code>, <code>idleTimeout</code></li>
+<li><strong>Add ServerWebSocket properties</strong>: <code>remoteAddress</code>, <code>subscriptions</code></li>
+<li><strong>Implement TCPSocket methods</strong>: <code>destroy()</code>, <code>timeout()</code>, handler callbacks <code>drain</code>/<code>end</code>/<code>timeout</code></li>
+<li><strong>Fix UDPSocket.send() signature</strong> to match Bun.js: <code>send(data, port, address)</code></li>
+</ol>
+<h3 id="low-priority"><a class="anchor" href="#low-priority" aria-hidden="true">#</a>Low Priority</h3>
+<ol start="16">
+<li><strong>Add UDP multicast methods</strong>: <code>setBroadcast()</code>, <code>setTTL()</code>, <code>addMembership()</code>, etc.</li>
+<li><strong>Implement Server lifecycle methods</strong>: <code>reload()</code>, <code>ref()</code>/<code>unref()</code>, <code>closeIdleConnections()</code></li>
+<li><strong>Add File.size property</strong> (requires buffering or lws API support)</li>
+<li><strong>Implement Request missing properties</strong>: <code>destination</code>, <code>referrerPolicy</code>, <code>cache</code>, <code>integrity</code>, etc.</li>
+</ol>
+<hr>
+<h2 id="conclusion"><a class="anchor" href="#conclusion" aria-hidden="true">#</a>Conclusion</h2>
+<p>The qjs-lws implementation provides a solid foundation with excellent conformance to WHATWG standards in core areas (Streams, URL, WebSocket). However, the Fetch API implementation has several critical incompatibilities that will break standard-compliant code, most notably the <code>Response.status</code> method-vs-property issue and the <code>formData()</code> return type.</p>
+<p>The Bun.js API compatibility is partial, with significant gaps in server management, WebSocket configuration, and UDP functionality. While the core <code>serve()</code> API works, many advanced features and management patterns aren't supported.</p>
+<p>The implementation does include some "reinventing the wheel" patterns (custom error types, non-standard extensions) that should be reconsidered in favor of standard web APIs where possible.</p>
+<p><strong>Priority Focus Areas</strong>:</p>
+<ol>
+<li>Fix Response.status (critical spec violation)</li>
+<li>Implement FormData class and fix formData() return type</li>
+<li>Add Request input support to fetch()</li>
+<li>Fix Headers iteration order</li>
+<li>Complete Bun.js Server API surface</li>
+</ol>
+<p>With these fixes, qjs-lws would achieve much higher compatibility with both web standards and Bun.js applications.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/api-compatibility.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#executive-summary">Executive Summary</a></li><li class="lvl2"><a href="#whatwg-fetch-api">WHATWG Fetch API</a></li><li class="lvl3"><a href="#headers-liblwsheadersjs">Headers (lib/lws/headers.js)</a></li><li class="lvl3"><a href="#body-mixin-liblwsbodyjs">Body Mixin (lib/lws/body.js)</a></li><li class="lvl3"><a href="#request-liblwsrequestjs">Request (lib/lws/request.js)</a></li><li class="lvl3"><a href="#response-liblwsresponsejs">Response (lib/lws/response.js)</a></li><li class="lvl3"><a href="#fetch-libfetchjs">fetch() (lib/fetch.js)</a></li><li class="lvl2"><a href="#whatwg-url-api">WHATWG URL API</a></li><li class="lvl3"><a href="#url-liblwsurljs">URL (lib/lws/url.js)</a></li><li class="lvl3"><a href="#urlsearchparams-liblwsurljs">URLSearchParams (lib/lws/url.js)</a></li><li class="lvl2"><a href="#whatwg-streams-api">WHATWG Streams API</a></li><li class="lvl2"><a href="#whatwg-dom-api">WHATWG DOM API</a></li><li class="lvl3"><a href="#abortcontroller--abortsignal-liblwsabortjs">AbortController / AbortSignal (lib/lws/abort.js)</a></li><li class="lvl3"><a href="#eventtarget-liblwseventsjs">EventTarget (lib/lws/events.js)</a></li><li class="lvl2"><a href="#whatwg-websocket-api">WHATWG WebSocket API</a></li><li class="lvl3"><a href="#websocket-libwebsocketjs">WebSocket (lib/websocket.js)</a></li><li class="lvl3"><a href="#websocketstream-libwebsocketstreamjs">WebSocketStream (lib/websocketstream.js)</a></li><li class="lvl2"><a href="#bunjs-server-api">Bun.js Server API</a></li><li class="lvl3"><a href="#server-object-libservejs">Server Object (lib/serve.js)</a></li><li class="lvl3"><a href="#websockethandler-options">WebSocketHandler Options</a></li><li class="lvl3"><a href="#serverwebsocket">ServerWebSocket</a></li><li class="lvl3"><a href="#serve-options">serve() Options</a></li><li class="lvl2"><a href="#bunjs-tcp-api">Bun.js TCP API</a></li><li class="lvl3"><a href="#tcpsocket-libtcpsocketjs">TCPSocket (lib/tcpsocket.js)</a></li><li class="lvl3"><a href="#tcp-listener">TCP Listener</a></li><li class="lvl2"><a href="#bunjs-udp-api">Bun.js UDP API</a></li><li class="lvl3"><a href="#udpsocket-libudpsocketjs">UDPSocket (lib/udpsocket.js)</a></li><li class="lvl2"><a href="#w3c-file-api">W3C File API</a></li><li class="lvl3"><a href="#file-liblwsmultipartjs">File (lib/lws/multipart.js)</a></li><li class="lvl3"><a href="#multipartformdata">MultipartFormData</a></li><li class="lvl2"><a href="#express-style-router-non-standard">Express-style Router (Non-standard)</a></li><li class="lvl3"><a href="#approuter-liblwsappjs">App/Router (lib/lws/app.js)</a></li><li class="lvl3"><a href="#middleware-liblwsmiddlewarejs">Middleware (lib/lws/middleware.js)</a></li><li class="lvl2"><a href="#recommendations">Recommendations</a></li><li class="lvl3"><a href="#critical-fixes-high-priority">Critical Fixes (High Priority)</a></li><li class="lvl3"><a href="#response-vs-serverresponse-untangling-completed">Response vs ServerResponse Untangling (COMPLETED)</a></li><li class="lvl3"><a href="#high-priority-improvements">High Priority Improvements</a></li><li class="lvl3"><a href="#medium-priority">Medium Priority</a></li><li class="lvl3"><a href="#low-priority">Low Priority</a></li><li class="lvl2"><a href="#conclusion">Conclusion</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Changelog — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="getting-started.html">Get started</a>
+    <a href="docs/index.html">Docs</a>
+    <a href="changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="getting-started.html">Getting started</a></li><li><a href="docs/building.html">Building</a></li><li><a href="docs/index.html">API reference</a></li><li><a href="changelog.html" class="here">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="docs/native/module.html">Module exports</a></li><li><a href="docs/native/LWSContext.html">LWSContext</a></li><li><a href="docs/native/LWSVhost.html">LWSVhost</a></li><li><a href="docs/native/LWSSocket.html">LWSSocket</a></li><li><a href="docs/native/LWSSPA.html">LWSSPA</a></li><li><a href="docs/native/LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="docs/native/protocols.html">Protocol handlers</a></li><li><a href="docs/native/callbacks.html">Callback reference</a></li><li><a href="docs/native/mounts.html">Mounts</a></li><li><a href="docs/native/tls.html">TLS</a></li><li><a href="docs/native/event-loop.html">Event loop</a></li><li><a href="docs/native/constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="docs/native/ws-server.html">WebSocket server</a></li><li><a href="docs/native/ws-client.html">WebSocket client</a></li><li><a href="docs/native/http-server.html">HTTP server</a></li><li><a href="docs/native/http-client.html">HTTP client</a></li><li><a href="docs/native/raw-tcp.html">Raw TCP</a></li><li><a href="docs/native/examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="docs/js/helpers.html">lib/ helpers</a></li><li><a href="docs/js/bun.html">Bun-compatible serve()</a></li><li><a href="docs/js/middleware.html">Middleware & routing</a></li><li><a href="docs/api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="changelog"><a class="anchor" href="#changelog" aria-hidden="true">#</a>Changelog</h1>
+<p>Format loosely follows <a href="https://keepachangelog.com/" target="_blank" rel="noopener">Keep a Changelog</a>;
+this project doesn't cut versioned releases yet, so entries accumulate
+under <code>Unreleased</code> until that changes.</p>
+<h2 id="unreleased"><a class="anchor" href="#unreleased" aria-hidden="true">#</a>Unreleased</h2>
+<h3 id="added"><a class="anchor" href="#added" aria-hidden="true">#</a>Added</h3>
+<ul>
+<li><code>lib/lws/url.js</code>: a conforming subset of the WHATWG URL Standard —
+<code>URL</code> and <code>URLSearchParams</code>, implemented from the spec's basic URL
+parser state machine (special schemes, relative resolution,
+IPv4/IPv6 hosts, <code>file:</code>/opaque-path URLs, percent-encoding per
+component). <code>URLSearchParams</code> writes back through to its parent
+<code>URL</code>'s <code>search</code>/<code>href</code>. Known deviation: no IDNA/Punycode (non-ASCII
+domain labels stay as lowercased UTF-8 rather than <code>xn--</code> form).
+See <a href="docs/js/helpers.html#liblwsurljs">doc/js/helpers.md</a>.</li>
+<li><code>Response</code> gained a <code>redirected</code> property (default <code>false</code>,
+preserved by <code>clone()</code>); <code>lib/fetch.js</code> sets it to <code>true</code> when lws
+follows a redirect.</li>
+<li>New <code>USE_EPOLL</code> CMake option (default <code>OFF</code>, Linux-only): routes
+pollfd management through a single <code>epoll(7)</code> instance
+(<code>lws-epoll.c</code>/<code>lws-epoll.h</code>) instead of one <code>os.setReadHandler</code>/
+<code>setWriteHandler</code> registration per fd. Previously these sources
+existed but were unconditionally excluded from the build. See
+<a href="docs/native/event-loop.html#optional-epoll7-backend-use_epoll">doc/native/event-loop.md</a>.</li>
+<li>Traffic logging under <code>LLL_USER</code>: every payload actually handed to
+<code>lws_write()</code> via <code>wsi.write()</code>/<code>wsi.respond()</code> now logs a `TX &lt;n&gt;
+bytes (proto=&lt;p&gt;): &lt;preview&gt;<code> line (</code>lws-socket.c`), and every
+`LWS_CALLBACK_{CLIENT_RECEIVE,CLIENT_RECEIVE_PONG,MQTT_CLIENT_RX,
+RAW_PROXY_CLI_RX,RAW_PROXY_SRV_RX,RAW_RX,RAW_RX_FILE,RECEIVE,
+RECEIVE_CLIENT_HTTP,RECEIVE_CLIENT_HTTP_READ,RECEIVE_PONG}` fires a
+matching <code>RX &lt;reason&gt;: &lt;n&gt; bytes: &lt;preview&gt;</code> line (<code>lws-context.c</code>,
+<code>callback_protocol()</code>). The preview is the first 40 bytes with
+non-printable bytes replaced by <code>.</code> (<code>log_preview()</code>, <code>lws.h</code>) — no
+new logging plumbing, this rides the existing <code>logLevel()</code>
+mechanism, so it's silent unless <code>LLL_USER</code> is enabled (as
+<code>lib/lws/context.js</code>'s default logger already does when <code>DEBUG</code> is
+set) and colorized/filtered the same way any other <code>LLL_USER</code>
+message is.</li>
+</ul>
+<h3 id="fixed"><a class="anchor" href="#fixed" aria-hidden="true">#</a>Fixed</h3>
+<ul>
+<li><p><code>lib/lws/body.js</code>: <code>Body.prototype.text()</code> called
+<code>TextEncoder.encode()</code> instead of <code>TextDecoder.decode()</code>, so
+<code>response.text()</code>/<code>.json()</code> returned garbage instead of the actual
+body for every real <code>fetch()</code> response.</p></li>
+<li><p><code>lib/lws/stream-utils.js</code>: <code>concatArrayBuffer()</code> passed a raw
+<code>ArrayBuffer</code> chunk straight to <code>Uint8Array.prototype.set()</code>, which
+silently copies nothing (a bare <code>ArrayBuffer</code> has no indexed
+properties) — bodies constructed directly from an <code>ArrayBuffer</code>
+(e.g. <code>new Response(arrayBuffer)</code>) decoded to all-zero bytes.</p></li>
+<li><p><code>lib/lws/body.js</code>: the <code>Body</code> constructor only treated <code>undefined</code>
+as "no body", not <code>null</code> — <code>Response.error()</code> and `new
+Response(null)` (the standard no-body idiom, e.g. for 204/304
+responses) always threw <code>TypeError: bad body: object</code>.</p></li>
+<li><p><code>lib/lws/response.js</code>: <code>Response.redirect(url)</code> had no default
+<code>status</code>, so omitting it threw instead of defaulting to 302 per
+spec.</p></li>
+<li><p><code>lib/lws/headers.js</code>: <code>Headers</code> values were never validated —
+<code>normalizeValue()</code> now trims leading/trailing HTTP whitespace and
+throws <code>TypeError</code> on embedded NUL/CR/LF, matching the Fetch spec
+and closing a header-injection gap (an untrusted value containing
+<code>"\r\n"</code> could otherwise smuggle extra headers onto the wire via
+<code>wsi.addHeader</code>).</p></li>
+<li><p><code>LWSSocket</code> gained <code>pipelineLeader</code>, <code>isPipelineLeader</code>, and
+<code>pipelineQueueDepth</code> accessors for introspecting libwebsockets'
+<code>LCCSCF_PIPELINE</code> client connection queueing/muxing (h1 pipelining,
+h2 mux streams) — previously this state was private to <code>struct lws</code>
+and unobservable from JS. See
+<a href="docs/native/LWSSocket.html#pipelining--keep-alive-introspection">doc/native/LWSSocket.md</a>
+and
+<a href="docs/native/http-client.html#connection-pipelining--keep-alive">doc/native/http-client.md</a>.</p></li>
+<li><p>Requires a small patch to the vendored libwebsockets adding the
+underlying <code>lws_get_txn_queue_leader()</code>, <code>lws_wsi_is_txn_queue_leader()</code>,
+and <code>lws_get_txn_queue_depth()</code> C accessors (not present upstream).
+Applied on the <code>libwebsockets</code> submodule's <code>txn-queue-introspection</code>
+branch; see <code>patches/0001-libwebsockets-txn-queue-introspection.patch</code>.</p></li>
+<li><p><code>lib/fetch.js</code> now reuses one <code>LWSContext</code> (and its single <code>'http'</code>
+protocol registration) across calls by default, and sets
+<code>LCCSCF_PIPELINE</code>, so repeated <code>fetch()</code> calls to the same origin queue
+(h1) or mux (h2) onto an existing connection instead of always opening
+a new one — the point being a crawler that does many requests without
+a new TCP connection per request. Per-request state (<code>req</code>/<code>resp</code>/
+<code>resolve</code>/<code>reject</code>/<code>controller</code>) moved from closure variables onto the
+<code>wsi</code> object <code>clientConnect()</code> returns, since many requests now share
+one protocol object and every callback for a connection receives that
+same wrapper. Pass <code>keepAlive: false</code>, or a custom <code>tls</code> option, to get
+the previous one-off-context-per-call behaviour. The exported
+<code>fetch(url, options)</code> signature and <code>Response</code>/<code>Request</code>/<code>Headers</code>
+shapes are unchanged (still WHATWG/W3C-shaped).</p></li>
+<li><p>Added <code>tests/test-fetch.js</code>: a same-host crawler demo. Fetches an HTML
+fixture, RegExp-scans it for <code>&lt;a href&gt;</code>, <code>&lt;img src&gt;</code>, <code>&lt;script src&gt;</code>,
+<code>&lt;link href&gt;</code>, CSS <code>url(...)</code>, and bare <code>http(s)://</code> URLs, queues and
+fetches same-origin links, reports (without fetching) foreign-origin
+ones, and reports how many distinct TCP connections (<code>wsi.network.fd</code>)
+the whole crawl actually used — ideally one. Serves its own tiny fixed
+fixture site via an <code>LWSMPRO_FILE</code> mount so the crawl is deterministic
+and needs no network access.</p></li>
+</ul>
+<p><strong>Not yet verified live</strong>: the <code>qjs-lws</code> C build was mid-edit (unrelated,
+in-progress work) for the whole time this was written, so <code>fetch.js</code>'s
+new connection-reuse path and <code>tests/test-fetch.js</code> have not actually
+been run yet. Re-run <code>tests/test-fetch.js</code> once the build is stable and
+confirm the summary line reports exactly one distinct TCP connection.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/ChangeLog.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#unreleased">Unreleased</a></li><li class="lvl3"><a href="#added">Added</a></li><li class="lvl3"><a href="#fixed">Fixed</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

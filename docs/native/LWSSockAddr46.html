@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LWSSockAddr46 — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html" class="here">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="lwssockaddr46"><a class="anchor" href="#lwssockaddr46" aria-hidden="true">#</a><code>LWSSockAddr46</code></h1>
+<p>A tagged <code>ArrayBuffer</code> of size `sizeof(union { sockaddr_in;
+sockaddr_in6; })` that carries either an IPv4 or IPv6 address.
+Implemented in <code>lws-sockaddr46.c</code>.</p>
+<p>The class itself <strong>inherits from <code>ArrayBuffer</code></strong> — every instance is
+also a regular <code>ArrayBuffer</code>, so it can be passed wherever an
+<code>ArrayBuffer</code> is accepted.</p>
+<h2 id="construction"><a class="anchor" href="#construction" aria-hidden="true">#</a>Construction</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">new</span> <span class="t-fn">LWSSockAddr46</span>();                       <span class="t-cm">// empty</span>
+<span class="t-kw">new</span> <span class="t-fn">LWSSockAddr46</span>(<span class="t-id">family</span>);                 <span class="t-cm">// family only</span>
+<span class="t-kw">new</span> <span class="t-fn">LWSSockAddr46</span>(<span class="t-str">'127.0.0.1'</span>);           <span class="t-cm">// parsed numeric address</span>
+<span class="t-kw">new</span> <span class="t-fn">LWSSockAddr46</span>(<span class="t-str">'::1'</span>, <span class="t-num">80</span>);             <span class="t-cm">// address + port</span>
+<span class="t-kw">new</span> <span class="t-fn">LWSSockAddr46</span>(<span class="t-id">family</span>, <span class="t-id">addressBuf</span>);     <span class="t-cm">// raw bytes (4 = IPv4, 16 = IPv6)</span>
+<span class="t-kw">new</span> <span class="t-fn">LWSSockAddr46</span>(<span class="t-id">family</span>, <span class="t-id">addressBuf</span>, <span class="t-id">port</span>);
+<span class="t-kw">new</span> <span class="t-fn">LWSSockAddr46</span>(<span class="t-id">sockaddrBuf</span>);            <span class="t-cm">// copy of an existing sockaddr_in/6</span></code></pre></div>
+<p>Arguments are parsed positionally:</p>
+<ol>
+<li>If the first argument is a number, it is <code>sa_family</code> (<code>AF_INET</code>
+/ <code>AF_INET6</code>).</li>
+<li>If the next argument is a 4 or 16-byte <code>ArrayBuffer</code>, it's
+copied into <code>sin_addr</code> or <code>sin6_addr</code> respectively.</li>
+<li>If the argument is a string, <code>lws_sa46_parse_numeric_address()</code>
+parses both IPv4 and IPv6 literals.</li>
+<li>A final numeric argument is the port (stored in network byte
+order).</li>
+</ol>
+<h2 id="instance-accessors"><a class="anchor" href="#instance-accessors" aria-hidden="true">#</a>Instance accessors</h2>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code>family</code></td><td><code>AF_INET</code> (2) or <code>AF_INET6</code> (10), read-only</td></tr><tr><td><code>port</code></td><td>host-order port; writable</td></tr><tr><td><code>address</code></td><td>Raw <code>ArrayBuffer</code> of address bytes (4 or 16); writable (assigning a 4-byte buf sets <code>family = AF_INET</code>, a 16-byte buf sets <code>AF_INET6</code>)</td></tr><tr><td><code>host</code></td><td>Numeric-address string; writable</td></tr></tbody></table></div>
+<h2 id="instance-methods"><a class="anchor" href="#instance-methods" aria-hidden="true">#</a>Instance methods</h2>
+<div class="tablewrap"><table><thead><tr><th>Method</th><th>Wraps</th></tr></thead><tbody><tr><td><code>toString()</code></td><td><code>[ipv6]:port</code> or <code>ipv4:port</code> formatted string</td></tr><tr><td><code>compare(other)</code></td><td><code>lws_sa46_compare_ads()</code> — <code>0</code> if equal</td></tr><tr><td><code>onNet(other, mask)</code></td><td><code>lws_sa46_on_net()</code> — true if <code>other</code> is on the same network for <code>mask</code> bits</td></tr></tbody></table></div>
+<h2 id="where-it-appears"><a class="anchor" href="#where-it-appears" aria-hidden="true">#</a>Where it appears</h2>
+<ul>
+<li><code>LWSSocket.peer</code> and <code>LWSSocket.local</code> return <code>LWSSockAddr46</code>.</li>
+<li><code>LWSContext.asyncDnsServerAdd(addr)</code> / <code>asyncDnsServerRemove(addr)</code>
+take any value convertible via the constructor.</li>
+<li><code>wsi.peer.host</code>, <code>wsi.peer.port</code>, <code>wsi.local.host</code>,
+<code>wsi.local.port</code> expose remote/local endpoints to user code.</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/LWSSockAddr46.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#construction">Construction</a></li><li class="lvl2"><a href="#instance-accessors">Instance accessors</a></li><li class="lvl2"><a href="#instance-methods">Instance methods</a></li><li class="lvl2"><a href="#where-it-appears">Where it appears</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

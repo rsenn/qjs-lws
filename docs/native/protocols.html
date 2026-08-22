@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protocol handler objects — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html" class="here">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="protocol-handler-objects"><a class="anchor" href="#protocol-handler-objects" aria-hidden="true">#</a>Protocol handler objects</h1>
+<p>A <em>protocol</em> is the object you list in the <code>protocols</code> array passed
+to <code>LWSContext</code> or <code>LWSVhost</code>. It is the JS analogue of `struct
+lws_protocols`. Mounts and inbound connections are dispatched to a
+protocol by <strong>name</strong>; client connections pick one via
+<code>localProtocolName</code>.</p>
+<h2 id="shape"><a class="anchor" href="#shape" aria-hidden="true">#</a>Shape</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'my-protocol'</span>,
+  <span class="t-id">rx_buffer_size</span><span class="t-op">:</span> <span class="t-num">4096</span>,        <span class="t-cm">// optional</span>
+  <span class="t-id">id</span><span class="t-op">:</span> <span class="t-num">0</span>,                        <span class="t-cm">// optional</span>
+  <span class="t-id">tx_packet_size</span><span class="t-op">:</span> <span class="t-num">0</span>,            <span class="t-cm">// optional</span>
+
+  <span class="t-cm">// Either a fall-back callback…</span>
+  <span class="t-fn">callback</span>(<span class="t-id">wsi</span>, <span class="t-id">reason</span>, ...<span class="t-prop">args</span>) { … },
+
+  <span class="t-cm">// …or named handlers (preferred). Mix freely.</span>
+  <span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>) { … },
+  <span class="t-fn">onReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>, <span class="t-id">len</span>, <span class="t-id">frame</span>) { … },
+  <span class="t-fn">onClosed</span>(<span class="t-id">wsi</span>) { … },
+}</code></pre></div>
+<p>The descriptor can also be supplied as an array (`[name, callback,
+rx_buffer_size, id, tx_packet_size]`).</p>
+<h3 id="per-session-storage"><a class="anchor" href="#per-session-storage" aria-hidden="true">#</a>Per-session storage</h3>
+<p><code>per_session_data_size</code> is fixed by the binding to <code>sizeof(JSValue)</code>.
+The hidden slot holds a per-connection JS object that is bound as
+<code>this</code> inside every callback. You can attach arbitrary properties to
+it without using <code>WeakMap</code>s.</p>
+<h3 id="lookup-of-named-callbacks"><a class="anchor" href="#lookup-of-named-callbacks" aria-hidden="true">#</a>Lookup of named callbacks</h3>
+<p><code>lwsjs_get_lws_callbacks</code> walks every entry in
+<code>lws_callback_names[]</code> (see <code>lws.c</code>) and for each <code>LWS_CALLBACK_*</code>
+that has a name, looks up the corresponding JS property
+<code>onCamelCaseName</code> on the protocol descriptor. If present, that
+function is invoked instead of the generic <code>callback</code>. The naming
+rule is:</p>
+<div class="codeblock"><pre><code>LWS_CALLBACK_HTTP_BIND_PROTOCOL  -&gt;  onHttpBindProtocol
+LWS_CALLBACK_WS_PEER_INITIATED_CLOSE -&gt; onWsPeerInitiatedClose
+LWS_CALLBACK_RECEIVE_CLIENT_HTTP -&gt; onReceiveClientHttp</code></pre></div>
+<p>(first letter capitalised, underscores stripped and next letter
+capitalised.) The same mapping is exposed at runtime through
+<code>getCallbackName(n)</code> and <code>getCallbackNumber(name)</code>.</p>
+<h2 id="callback-contract"><a class="anchor" href="#callback-contract" aria-hidden="true">#</a>Callback contract</h2>
+<p>Every callback receives <code>(wsi, …)</code>. When you provide a named
+handler, the <em>reason</em> is implicit (the handler name encodes it);
+when you provide the generic <code>callback</code>, you also receive the
+integer reason as the second argument.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">callback</span>(<span class="t-id">wsi</span>, <span class="t-id">reason</span>, ...<span class="t-prop">args</span>) { <span class="t-cm">/* args == named-handler tail */</span> }
+<span class="t-fn">onClientReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>, <span class="t-id">size</span>, <span class="t-id">frame</span>) { … }</code></pre></div>
+<p>Return value:</p>
+<ul>
+<li><code>undefined</code>/<code>0</code> → continue normally.</li>
+<li>non-zero → libwebsockets will close the connection. The binding
+invokes <code>lws_wsi_close()</code> with <code>LWS_TO_KILL_ASYNC</code> and also clears
+the registered io handler.</li>
+<li>Throwing an exception is <em>not</em> fatal: the binding prints it via
+<code>js_error_print()</code> and continues with return <code>0</code>.</li>
+</ul>
+<h2 id="argument-tail-per-reason"><a class="anchor" href="#argument-tail-per-reason" aria-hidden="true">#</a>Argument tail per reason</h2>
+<p>See <a href="callbacks.html">callbacks.md</a> for the full table of arguments
+passed to each <code>LWS_CALLBACK_*</code> reason. A short summary:</p>
+<div class="tablewrap"><table><thead><tr><th>Reason</th><th>Tail args</th></tr></thead><tbody><tr><td><code>RECEIVE</code> / <code>CLIENT_RECEIVE</code></td><td><code>(data, len, frame?)</code> — <code>data</code> is a string for text frames, <code>ArrayBuffer</code> for binary; <code>frame</code> is <code>{ multifragment, first, final }</code> only for multi-fragment messages</td></tr><tr><td><code>WS_PEER_INITIATED_CLOSE</code></td><td><code>(code, reasonString)</code></td></tr><tr><td><code>CLIENT_HTTP_REDIRECT</code></td><td><code>(url, status)</code></td></tr><tr><td><code>ESTABLISHED_CLIENT_HTTP</code></td><td><code>(responseCode)</code></td></tr><tr><td><code>ADD_HEADERS</code> / <code>PROCESS_HTML</code></td><td><code>(buf, lenArray)</code> — write into <code>buf</code>, update <code>lenArray[0]</code></td></tr><tr><td><code>CHECK_ACCESS_RIGHTS</code></td><td><code>(uri, authMask)</code> — <code>uri</code> is a read-only <code>ArrayBuffer</code> of the request path, <code>authMask</code> is the mount's <code>authentication_mode</code> bitmask (not a buffer length, despite sharing the same native struct as the two reasons above)</td></tr><tr><td><code>CLIENT_APPEND_HANDSHAKE_HEADER</code></td><td><code>(buf, lenArray)</code> — write headers with <code>wsi.addHeader(...)</code></td></tr><tr><td><code>RAW_RX</code> / <code>MQTT_CLIENT_RX</code></td><td><code>(data, len)</code></td></tr><tr><td><code>CLIENT_CONNECTION_ERROR</code></td><td><code>(message, errno)</code></td></tr><tr><td><code>CONNECTING</code></td><td><code>(int32 hintOrFd)</code></td></tr><tr><td><code>OPENSSL_PERFORM_SERVER_CERT_VERIFICATION</code></td><td><code>(int64 sslPtr, preverifyOk)</code></td></tr><tr><td><code>RAW_CLOSE</code></td><td><code>(errno)</code></td></tr><tr><td><code>HTTP_CONFIRM_UPGRADE</code></td><td><code>(typeString)</code></td></tr><tr><td><code>FILTER_HTTP_CONNECTION</code></td><td><code>(urlString)</code></td></tr><tr><td><code>HTTP</code></td><td><code>(uriString)</code></td></tr></tbody></table></div>
+<p>For any other reason, if libwebsockets supplies <code>in</code>/<code>len</code>, the
+binding passes them as <code>(data, len)</code> — text frames are decoded to
+JS strings, binary frames are passed as <code>ArrayBuffer</code>.</p>
+<h2 id="default-mode-pollfd-handling"><a class="anchor" href="#default-mode-pollfd-handling" aria-hidden="true">#</a>Default mode pollfd handling</h2>
+<p>The binding intercepts:</p>
+<ul>
+<li><code>LWS_CALLBACK_ADD_POLL_FD</code></li>
+<li><code>LWS_CALLBACK_DEL_POLL_FD</code></li>
+<li><code>LWS_CALLBACK_CHANGE_MODE_POLL_FD</code></li>
+<li><code>LWS_CALLBACK_LOCK_POLL</code> / <code>UNLOCK_POLL</code> (no-ops)</li>
+</ul>
+<p>These reasons are <strong>never delivered to user JS</strong> — they drive the
+integration with <code>os.setReadHandler</code>/<code>os.setWriteHandler</code>. See
+<a href="event-loop.html">event-loop.md</a>.</p>
+<h2 id="reasons-handled-implicitly"><a class="anchor" href="#reasons-handled-implicitly" aria-hidden="true">#</a>Reasons handled implicitly</h2>
+<p>Several reasons are massaged before reaching JS:</p>
+<ul>
+<li><code>WSI_CREATE</code> / <code>*_BIND_PROTOCOL</code> allocate the per-session object.</li>
+<li><code>WSI_DESTROY</code> releases per-session state and the JS <code>LWSSocket</code>.</li>
+<li><code>CLIENT_FILTER_PRE_ESTABLISH</code> / <code>ESTABLISHED_CLIENT_HTTP</code> /
+<code>FILTER_HTTP_CONNECTION</code> / <code>HTTP</code> populate <code>wsi.headers</code>,
+<code>wsi.uri</code>, <code>wsi.method</code>.</li>
+<li><code>HTTP_CONFIRM_UPGRADE</code> sets the socket type to WS if the
+upgrade target is <code>"websocket"</code>.</li>
+<li>A <code>CLIENT_RECEIVE</code> for an inbound close frame (opcode 8) is
+rewritten to <code>WS_PEER_INITIATED_CLOSE</code> so you don't have to
+parse the close frame yourself.</li>
+</ul>
+<h2 id="plugin-style-protocols"><a class="anchor" href="#plugin-style-protocols" aria-hidden="true">#</a>Plugin-style protocols</h2>
+<p><code>lws-context.c</code> allocates extra slots in the protocol table for the
+built-in libwebsockets plugins (<code>PLUGIN_PROTOCOL_DEADDROP</code>,
+<code>MIRROR</code>, <code>DUMB_INCREMENT</code>, etc.). They are currently
+<strong>commented out</strong> in the source — only the <code>http-only</code> dummy is
+prepended automatically. To use a plugin you would re-enable the
+matching <code>#ifdef PLUGIN_PROTOCOL_*</code> block at build time.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/protocols.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#shape">Shape</a></li><li class="lvl3"><a href="#per-session-storage">Per-session storage</a></li><li class="lvl3"><a href="#lookup-of-named-callbacks">Lookup of named callbacks</a></li><li class="lvl2"><a href="#callback-contract">Callback contract</a></li><li class="lvl2"><a href="#argument-tail-per-reason">Argument tail per reason</a></li><li class="lvl2"><a href="#default-mode-pollfd-handling">Default mode pollfd handling</a></li><li class="lvl2"><a href="#reasons-handled-implicitly">Reasons handled implicitly</a></li><li class="lvl2"><a href="#plugin-style-protocols">Plugin-style protocols</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raw TCP — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html" class="here">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="raw-tcp"><a class="anchor" href="#raw-tcp" aria-hidden="true">#</a>Raw TCP</h1>
+<p>Raw TCP connections bypass HTTP and WebSocket framing entirely. They're useful for custom protocols, database clients, game servers, or any protocol that isn't HTTP/WS.</p>
+<h2 id="creating-a-raw-listener"><a class="anchor" href="#creating-a-raw-listener" aria-hidden="true">#</a>Creating a Raw Listener</h2>
+<p>To accept raw TCP connections, use <code>listenAcceptRole: 'raw-skt'</code> and specify which protocol should handle them with <code>listenAcceptProtocol</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
+  <span class="t-id">options</span><span class="t-op">:</span> <span class="t-type">LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG</span>,
+  <span class="t-id">listenAcceptRole</span><span class="t-op">:</span> <span class="t-str">'raw-skt'</span>,
+  <span class="t-id">listenAcceptProtocol</span><span class="t-op">:</span> <span class="t-str">'my-raw'</span>,
+  <span class="t-id">protocols</span><span class="t-op">:</span> [
+    { <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'http'</span>, <span class="t-cm">/* ... */</span> },
+    { <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'my-raw'</span>, <span class="t-cm">/* ... */</span> }
+  ]
+});</code></pre></div>
+<p>The protocol named in <code>listenAcceptProtocol</code> can be anywhere in the <code>protocols</code> array — libwebsockets will look it up by name when binding the socket.</p>
+<h2 id="raw-client-connections"><a class="anchor" href="#raw-client-connections" aria-hidden="true">#</a>Raw Client Connections</h2>
+<p>Use <code>clientConnect()</code> with <code>raw: true</code> to initiate outbound raw TCP:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">LWSContext</span>, <span class="t-type">LCCSCF_USE_SSL</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">ctx</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">LWSContext</span>({
+  <span class="t-id">protocols</span><span class="t-op">:</span> [{
+    <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'raw-client'</span>,
+    <span class="t-fn">onClientConnect</span>(<span class="t-id">wsi</span>) {
+      <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-str">'HELLO\n'</span>);
+    },
+    <span class="t-fn">onClientRx</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>, <span class="t-id">len</span>) {
+      <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'received:'</span>, <span class="t-id">data</span>);
+    },
+    <span class="t-fn">onClientClose</span>(<span class="t-id">wsi</span>) {
+      <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'connection closed'</span>);
+    }
+  }]
+});
+
+<span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-str">'example.com'</span>, <span class="t-num">1234</span>, {
+  <span class="t-id">raw</span><span class="t-op">:</span> <span class="t-atom">true</span>,
+  <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'raw-client'</span>
+});</code></pre></div>
+<h2 id="raw-callbacks"><a class="anchor" href="#raw-callbacks" aria-hidden="true">#</a>Raw Callbacks</h2>
+<h3 id="server-side-listener"><a class="anchor" href="#server-side-listener" aria-hidden="true">#</a>Server-side (listener)</h3>
+<ul>
+<li><code>onRawAccept(wsi)</code> — Called when a new connection is accepted</li>
+<li><code>onRawRx(wsi, data, len)</code> — Called when data is received</li>
+<li><code>onRawClose(wsi)</code> — Called when the connection closes</li>
+<li><code>onRawWriteable(wsi)</code> — Called when the socket is ready to write (after <code>wantWrite()</code>)</li>
+</ul>
+<h3 id="client-side"><a class="anchor" href="#client-side" aria-hidden="true">#</a>Client-side</h3>
+<ul>
+<li><code>onClientConnect(wsi)</code> — Called when the connection is established</li>
+<li><code>onClientRx(wsi, data, len)</code> — Called when data is received</li>
+<li><code>onClientClose(wsi)</code> — Called when the connection closes</li>
+<li><code>onClientWriteable(wsi)</code> — Called when the socket is ready to write</li>
+</ul>
+<h2 id="writing-data"><a class="anchor" href="#writing-data" aria-hidden="true">#</a>Writing Data</h2>
+<p>Use <code>wsi.write()</code> to send data. If the socket isn't ready, call <code>wsi.wantWrite()</code> first:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'raw'</span>,
+  <span class="t-fn">onRawRx</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>, <span class="t-id">len</span>) {
+    <span class="t-kw">const</span> <span class="t-id">response</span> <span class="t-op">=</span> <span class="t-fn">processData</span>(<span class="t-id">data</span>);
+    <span class="t-kw">if</span> (<span class="t-op">!</span><span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">response</span>)) {
+      <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>();  <span class="t-cm">// queue for later</span>
+    }
+  },
+  <span class="t-fn">onRawWriteable</span>(<span class="t-id">wsi</span>) {
+    <span class="t-cm">// Called after wantWrite() when socket is ready</span>
+    <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">queuedData</span>);
+  }
+}</code></pre></div>
+<p>For simpler code, you can use a promise-based wrapper to wait for
+the socket to become writeable:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">await</span> <span class="t-kw">new</span> <span class="t-fn">Promise</span>(<span class="t-id">r</span> <span class="t-op">=&gt;</span> <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>(<span class="t-id">r</span>));
+<span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">data</span>);</code></pre></div>
+<h2 id="mixed-http-and-raw"><a class="anchor" href="#mixed-http-and-raw" aria-hidden="true">#</a>Mixed HTTP and Raw</h2>
+<p>You can accept both HTTP and raw connections on the same port using <code>LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
+  <span class="t-id">options</span><span class="t-op">:</span> <span class="t-type">LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG</span>,
+  <span class="t-id">listenAcceptRole</span><span class="t-op">:</span> <span class="t-str">'raw-skt'</span>,
+  <span class="t-id">listenAcceptProtocol</span><span class="t-op">:</span> <span class="t-str">'raw-handler'</span>,
+  <span class="t-id">protocols</span><span class="t-op">:</span> [
+    { <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'http'</span>, <span class="t-fn">onHttp</span>(<span class="t-id">wsi</span>, <span class="t-id">uri</span>) { <span class="t-cm">/* handle HTTP */</span> } },
+    { <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'raw-handler'</span>, <span class="t-fn">onRawAccept</span>(<span class="t-id">wsi</span>) { <span class="t-cm">/* handle raw */</span> } }
+  ]
+});</code></pre></div>
+<p>Connections that don't look like HTTP are routed to the raw protocol. HTTP-looking connections are routed to the HTTP protocol.</p>
+<h2 id="further-reading"><a class="anchor" href="#further-reading" aria-hidden="true">#</a>Further Reading</h2>
+<ul>
+<li><a href="protocols.html">Protocol Objects</a> — Understanding protocol definitions</li>
+<li><a href="callbacks.html">Callbacks</a> — Complete callback reference</li>
+<li><a href="event-loop.html">Event Loop</a> — Integration with libwebsockets' event loop</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/raw-tcp.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#creating-a-raw-listener">Creating a Raw Listener</a></li><li class="lvl2"><a href="#raw-client-connections">Raw Client Connections</a></li><li class="lvl2"><a href="#raw-callbacks">Raw Callbacks</a></li><li class="lvl3"><a href="#server-side-listener">Server-side (listener)</a></li><li class="lvl3"><a href="#client-side">Client-side</a></li><li class="lvl2"><a href="#writing-data">Writing Data</a></li><li class="lvl2"><a href="#mixed-http-and-raw">Mixed HTTP and Raw</a></li><li class="lvl2"><a href="#further-reading">Further Reading</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

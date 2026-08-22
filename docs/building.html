@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building qjs-lws — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../getting-started.html">Get started</a>
+    <a href="../docs/index.html">Docs</a>
+    <a href="../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../getting-started.html">Getting started</a></li><li><a href="building.html" class="here">Building</a></li><li><a href="index.html">API reference</a></li><li><a href="../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="native/module.html">Module exports</a></li><li><a href="native/LWSContext.html">LWSContext</a></li><li><a href="native/LWSVhost.html">LWSVhost</a></li><li><a href="native/LWSSocket.html">LWSSocket</a></li><li><a href="native/LWSSPA.html">LWSSPA</a></li><li><a href="native/LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="native/protocols.html">Protocol handlers</a></li><li><a href="native/callbacks.html">Callback reference</a></li><li><a href="native/mounts.html">Mounts</a></li><li><a href="native/tls.html">TLS</a></li><li><a href="native/event-loop.html">Event loop</a></li><li><a href="native/constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="native/ws-server.html">WebSocket server</a></li><li><a href="native/ws-client.html">WebSocket client</a></li><li><a href="native/http-server.html">HTTP server</a></li><li><a href="native/http-client.html">HTTP client</a></li><li><a href="native/raw-tcp.html">Raw TCP</a></li><li><a href="native/examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="js/helpers.html">lib/ helpers</a></li><li><a href="js/bun.html">Bun-compatible serve()</a></li><li><a href="js/middleware.html">Middleware & routing</a></li><li><a href="api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="building-qjs-lws"><a class="anchor" href="#building-qjs-lws" aria-hidden="true">#</a>Building qjs-lws</h1>
+<p>The module is built with CMake; the result is a QuickJS native module
+<code>lws.so</code> plus its companion JS helpers under <code>lib/</code>.</p>
+<h2 id="required-dependencies"><a class="anchor" href="#required-dependencies" aria-hidden="true">#</a>Required dependencies</h2>
+<ul>
+<li>A C compiler (GCC or Clang). Windows builds use MinGW (see
+<code>x86_64-w64-mingw32.log</code>).</li>
+<li>CMake ≥ 3.5.</li>
+<li>A QuickJS install (<code>quickjs.h</code>, <code>cutils.h</code>, <code>list.h</code>). The build
+uses <code>cmake/FindQuickJS.cmake</code> and <code>cmake/QuickJSModule.cmake</code>.</li>
+<li>libwebsockets (optionally vendored; <code>BUILD_LIBWEBSOCKETS=ON</code> will
+build the submodule under <code>libwebsockets/</code>).</li>
+<li>zlib (only when not using the in-tree libwebsockets).</li>
+</ul>
+<h2 id="configuration-options"><a class="anchor" href="#configuration-options" aria-hidden="true">#</a>Configuration options</h2>
+<p>From <code>CMakeLists.txt</code>:</p>
+<div class="tablewrap"><table><thead><tr><th>Option</th><th>Default</th><th>Purpose</th></tr></thead><tbody><tr><td><code>BUILD_LIBWEBSOCKETS</code></td><td><code>ON</code></td><td>Build the vendored libwebsockets submodule</td></tr><tr><td><code>DO_TESTS</code></td><td><code>ON</code></td><td>Build and install the JS smoke tests</td></tr><tr><td><code>USE_CURL</code></td><td><code>OFF</code></td><td>Use libcurl for <code>fetch()</code></td></tr><tr><td><code>BUILD_CURL</code></td><td><code>OFF</code></td><td>Vendor-build curl when <code>USE_CURL=ON</code></td></tr><tr><td><code>BUILD_MINIMAL_EXAMPLES</code></td><td><code>OFF</code></td><td>Build the libwebsockets minimal examples</td></tr><tr><td><code>DEBUG_OUTPUT</code></td><td><code>OFF</code></td><td>Define <code>DEBUG_OUTPUT</code>; activates the <code>DEBUG()</code> / <code>DEBUG_WSI()</code> macros</td></tr><tr><td><code>USE_EPOLL</code></td><td><code>OFF</code></td><td>Linux-only. Route pollfd management through a single <code>epoll(7)</code> instance (<code>lws-epoll.c</code>) instead of one <code>os.setReadHandler</code>/<code>setWriteHandler</code> registration per fd — see <a href="native/event-loop.html#optional-epoll7-backend-use_epoll">event-loop.md</a></td></tr><tr><td><code>DISABLE_WERROR</code></td><td><code>ON</code></td><td>Don't treat warnings as errors</td></tr></tbody></table></div>
+<h3 id="libwebsockets-plugins"><a class="anchor" href="#libwebsockets-plugins" aria-hidden="true">#</a>libwebsockets plugins</h3>
+<p>A <code>PLUGIN()</code> macro pulls in selected libwebsockets in-tree plugins
+(<code>-DPLUGIN_PROTOCOL_*=1</code>). The compiled-in protocol slot reservation
+in <code>lws-context.c</code> (lines around <code>protocols_fromarray</code>) leaves room
+for them. To enable a plugin you re-enable the matching `#ifdef
+PLUGIN_PROTOCOL_*<code>block in</code>lws-context.c` (currently commented
+out).</p>
+<p>Available macros: <code>DEADDROP</code>, <code>RAW_PROXY</code>, <code>FULLTEXT_DEMO</code>,
+<code>LWS_STATUS</code>, <code>LWS_ACME_CLIENT</code>, <code>LWS_SSHD_DEMO</code>, <code>DUMB_INCREMENT</code>,
+<code>MIRROR</code>, <code>LWS_RAW_SSHD</code>, <code>RAW_TEST</code>.</p>
+<h2 id="standard-build"><a class="anchor" href="#standard-build" aria-hidden="true">#</a>Standard build</h2>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">git</span> <span class="t-id">submodule</span> <span class="t-id">update</span> <span class="t-op">--init</span> <span class="t-op">--recursive</span>
+<span class="t-id">mkdir</span> <span class="t-id">build</span> &amp;&amp; <span class="t-id">cd</span> <span class="t-id">build</span>
+<span class="t-id">cmake</span> <span class="t-op">-DDEBUG_OUTPUT</span>=<span class="t-id">OFF</span> <span class="t-op">-DDO_TESTS</span>=<span class="t-id">ON</span> ..
+<span class="t-id">make</span> <span class="t-op">-j</span></code></pre></div>
+<p>The shared module is written to <code>build/lws.so</code> (or <code>lws.dll</code> /
+<code>lws.dylib</code>).</p>
+<h2 id="loading-the-module"><a class="anchor" href="#loading-the-module" aria-hidden="true">#</a>Loading the module</h2>
+<p>QuickJS resolves <code>import 'lws'</code> to <code>lws.so</code> when the directory is on
+the module search path. The <code>qjs</code> binary supports <code>-I &lt;path&gt;</code> and
+falls back to the script's own directory.</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjs</span> <span class="t-op">-I</span> ./<span class="t-id">build</span>  ./<span class="t-id">tests</span>/<span class="t-id">unittests</span>/<span class="t-id">test-lwscontext.js</span></code></pre></div>
+<h2 id="debugging-tips"><a class="anchor" href="#debugging-tips" aria-hidden="true">#</a>Debugging tips</h2>
+<ul>
+<li><code>-DDEBUG_OUTPUT=ON</code> enables <code>DEBUG()</code>/<code>DEBUG_WSI()</code> macros that
+print every callback invocation prefixed with the wsi id.</li>
+<li><code>logLevel(LLL_USER | LLL_INFO | LLL_DEBUG)</code> shows libwebsockets's
+own logs.</li>
+<li><code>LWSSocket.list()</code> enumerates every live wsi the binding knows
+about — useful for leak hunts.</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/building.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#required-dependencies">Required dependencies</a></li><li class="lvl2"><a href="#configuration-options">Configuration options</a></li><li class="lvl3"><a href="#libwebsockets-plugins">libwebsockets plugins</a></li><li class="lvl2"><a href="#standard-build">Standard build</a></li><li class="lvl2"><a href="#loading-the-module">Loading the module</a></li><li class="lvl2"><a href="#debugging-tips">Debugging tips</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

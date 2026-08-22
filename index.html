@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qjs-lws — libwebsockets bindings for QuickJS</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="landing">
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="getting-started.html">Get started</a>
+    <a href="docs/index.html">Docs</a>
+    <a href="changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<main>
+
+<section class="hero">
+  <div>
+    <span class="eyebrow">QuickJS × libwebsockets</span>
+    <h1>Network servers that fit where Node.js doesn't.</h1>
+    <p class="lede">
+      qjs-lws binds <a href="https://libwebsockets.org/" target="_blank" rel="noopener">libwebsockets</a>
+      into <a href="https://bellard.org/quickjs/" target="_blank" rel="noopener">QuickJS</a>: HTTP/1.1 and HTTP/2,
+      WebSocket, raw TCP and UDP, TLS — driven by QuickJS's own event loop, with a
+      JavaScript layer that looks like the web platform you already know.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="getting-started.html">Get started</a>
+      <a class="btn" href="docs/index.html">Read the docs</a>
+      <a class="btn" href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+
+  <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">serve</span>, <span class="t-type">Response</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/serve.js'</span>;
+
+<span class="t-fn">serve</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
+
+  <span class="t-id">websocket</span><span class="t-op">:</span> {
+    <span class="t-fn">open</span>(<span class="t-id">ws</span>)          { <span class="t-id">ws</span>.<span class="t-fn">subscribe</span>(<span class="t-str">'chat'</span>); },
+    <span class="t-fn">message</span>(<span class="t-id">ws</span>, <span class="t-id">data</span>) { <span class="t-id">ws</span>.<span class="t-fn">publish</span>(<span class="t-str">'chat'</span>, <span class="t-id">data</span>); },
+  },
+
+  <span class="t-fn">fetch</span>(<span class="t-id">req</span>, <span class="t-id">server</span>) {
+    <span class="t-kw">const</span> { <span class="t-id">pathname</span> } <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">URL</span>(<span class="t-id">req</span>.<span class="t-prop">url</span>);
+
+    <span class="t-kw">if</span>(<span class="t-id">pathname</span> <span class="t-op">===</span> <span class="t-str">'/ws'</span> <span class="t-op">&amp;&amp;</span> <span class="t-id">server</span>.<span class="t-fn">upgrade</span>(<span class="t-id">req</span>))
+      <span class="t-kw">return</span>;
+
+    <span class="t-kw">return</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'hello from qjs-lws'</span>);
+  },
+});</code></pre></div>
+</section>
+
+<section class="section">
+  <h2>Why it exists</h2>
+  <p class="sub">
+    A production-grade C networking stack and a very small interpreter, joined so that
+    neither one has to pretend to be the other.
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <span class="ico">◇</span>
+      <h3>No service loop</h3>
+      <p>
+        The binding hooks libwebsockets' pollfd callbacks straight into
+        <code>os.setReadHandler</code>/<code>setWriteHandler</code>. No
+        <code>lws_service()</code> spun from JS, no polling tax — your script's normal event
+        loop drives the stack. An optional <code>epoll(7)</code> backend collapses it to a
+        single fd.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">◈</span>
+      <h3>Every role, one context</h3>
+      <p>
+        HTTP client and server, WebSocket client and server, raw TCP and UDP, static-file
+        mounts, redirects, and TLS with peer-certificate introspection — all from one
+        <code>LWSContext</code>, on one port if you want it that way.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">◉</span>
+      <h3>APIs you already know</h3>
+      <p>
+        <code>fetch()</code>, <code>WebSocket</code>, <code>URL</code>/<code>URLSearchParams</code>,
+        <code>Headers</code>/<code>Request</code>/<code>Response</code>/<code>FormData</code>,
+        WHATWG Streams, <code>AbortController</code>, <code>TCPSocket</code>. Written from the
+        specs, not approximated.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">▤</span>
+      <h3>Bun-shaped <code>serve()</code></h3>
+      <p>
+        <code>serve({ fetch, websocket })</code> with <code>server.upgrade()</code>, WebSocket
+        pub/sub topics, chunked streaming and backpressure — close enough to Bun that most
+        handlers port across unchanged.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">⇉</span>
+      <h3>Routing and middleware</h3>
+      <p>
+        An Express-compatible <code>app</code>/<code>Router</code> layer when you want one:
+        path params, method dispatch, sub-routers, sessions, multipart bodies, MIME types.
+        Optional — the primitives underneath stay reachable.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="ico">◐</span>
+      <h3>Drop to C-level control</h3>
+      <p>
+        The wrappers are a convenience, never a wall. Every callback reason libwebsockets
+        emits is reachable as an <code>onEventName</code> handler, with the raw
+        <code>wsi</code> in hand.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Built for the small end</h2>
+  <p class="sub">
+    Where a Node or Bun runtime is the largest thing on the device, and the job is one
+    well-defined piece of networking.
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Embedded &amp; appliance firmware</h3>
+      <p>
+        A scriptable control plane on hardware with a flash budget: config UI, telemetry
+        push over WebSocket, firmware upload through the native multipart parser.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Small utility servers</h3>
+      <p>
+        Health endpoints, webhook receivers, metrics scrapers, LAN dashboards — the
+        services that never justified a <code>node_modules</code> tree.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Gateways &amp; proxies</h3>
+      <p>
+        Terminate TLS, translate protocols, bridge WebSocket to raw TCP. Mixed HTTP and raw
+        listeners on one vhost make protocol-sniffing front doors straightforward.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Two altitudes, same stack</h2>
+  <div class="split">
+    <div>
+      <h3>Native — you hold the wsi</h3>
+      <p>Protocol handlers map one-to-one onto <code>struct lws_protocols</code>.</p>
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWSMPRO_NO_MOUNT</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
+  <span class="t-id">vhostName</span><span class="t-op">:</span> <span class="t-str">'localhost'</span>,
+  <span class="t-id">mounts</span><span class="t-op">:</span> [{
+    <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/chat'</span>,
+    <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'chat'</span>,
+    <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_NO_MOUNT</span>,
+  }],
+  <span class="t-id">protocols</span><span class="t-op">:</span> [{
+    <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'chat'</span>,
+    <span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>)   { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'open'</span>, <span class="t-id">wsi</span>.<span class="t-prop">peer</span><span class="t-op">?</span>.<span class="t-prop">host</span>); },
+    <span class="t-fn">onReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>) { <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">data</span>); },
+    <span class="t-fn">onClosed</span>(<span class="t-id">wsi</span>)        { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'close'</span>); },
+  }],
+});</code></pre></div>
+    </div>
+
+    <div>
+      <h3>Web-shaped — you hold a Request</h3>
+      <p>The same connection, wrapped in the APIs a browser would hand you.</p>
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">fetch</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/fetch.js'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">res</span> <span class="t-op">=</span> <span class="t-kw">await</span> <span class="t-fn">fetch</span>(<span class="t-str">'https://example.com/api'</span>, {
+  <span class="t-id">method</span><span class="t-op">:</span> <span class="t-str">'POST'</span>,
+  <span class="t-id">headers</span><span class="t-op">:</span> { <span class="t-str">'content-type'</span><span class="t-op">:</span> <span class="t-str">'application/json'</span> },
+  <span class="t-id">body</span><span class="t-op">:</span> <span class="t-type">JSON</span>.<span class="t-fn">stringify</span>({ <span class="t-id">hello</span><span class="t-op">:</span> <span class="t-str">'world'</span> }),
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">res</span>.<span class="t-prop">status</span>, <span class="t-id">res</span>.<span class="t-prop">headers</span>.<span class="t-kw">get</span>(<span class="t-str">'content-type'</span>));
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-kw">await</span> <span class="t-id">res</span>.<span class="t-fn">json</span>());</code></pre></div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Get it running</h2>
+  <p class="sub">CMake builds the module and, if you let it, the vendored libwebsockets too.</p>
+
+  <div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">git</span> <span class="t-id">clone</span> <span class="t-op">--recursive</span> <span class="t-id">https</span>://<span class="t-id">github.com</span>/<span class="t-id">rsenn</span>/<span class="t-id">qjs-lws.git</span>
+<span class="t-id">cd</span> <span class="t-id">qjs-lws</span>
+<span class="t-id">mkdir</span> <span class="t-id">build</span> &amp;&amp; <span class="t-id">cd</span> <span class="t-id">build</span>
+<span class="t-id">cmake</span> <span class="t-op">-DDEBUG_OUTPUT</span>=<span class="t-id">OFF</span> <span class="t-op">-DDO_TESTS</span>=<span class="t-id">ON</span> ..
+<span class="t-id">make</span> <span class="t-op">-j</span>
+
+<span class="t-cm"># lws.so lands in build/; point QuickJS at it</span>
+<span class="t-id">qjs</span> <span class="t-op">-I</span> ./<span class="t-id">build</span> ../<span class="t-id">tests</span>/<span class="t-id">unittests</span>/<span class="t-id">test-lwscontext.js</span></code></pre></div>
+
+  <ul class="checks">
+    <li><strong>Dependencies:</strong> a C compiler, CMake ≥ 3.5, a QuickJS install, and libwebsockets (vendored by default).</li>
+    <li><strong>Platforms:</strong> Linux and macOS natively; Windows via MinGW.</li>
+    <li><strong>Licence:</strong> MIT.</li>
+  </ul>
+
+  <p style="margin-top:2rem">
+    <a class="btn primary" href="getting-started.html">Getting started →</a>
+    <a class="btn" href="docs/building.html">Full build options</a>
+  </p>
+</section>
+
+<section class="section">
+  <h2>Where it stands</h2>
+  <div class="split">
+    <div>
+      <p class="note">
+        <strong>Honest status:</strong> qjs-lws is in daily use and the native API is stable,
+        but it hasn't cut a versioned release yet — track
+        <a href="changelog.html">the changelog</a> and pin a commit. The web-platform layer is
+        a deliberate subset: no CORS, cache, or service-worker semantics, because this runs
+        server-side. Known gaps are written down rather than papered over — see the
+        <a href="docs/api-compatibility.html">API compatibility report</a> and the
+        <a href="https://github.com/rsenn/qjs-lws/blob/main/BUGS">BUGS</a> file.
+      </p>
+    </div>
+    <div>
+      <h3>Worth a look next</h3>
+      <ul class="checks">
+        <li><a href="docs/js/bun.html">Bun-compatible <code>serve()</code></a> — upgrades, pub/sub, streaming</li>
+        <li><a href="docs/native/event-loop.html">Event-loop integration</a> — how the pollfd hook works</li>
+        <li><a href="docs/native/examples.html">Twelve worked examples</a> — one per role</li>
+        <li><a href="https://github.com/rsenn/qjs-lws/tree/main/examples">examples/</a> — a crawler, a DNS server, proxies, a WebSocket chat</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

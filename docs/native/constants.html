@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Constants — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html" class="here">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="constants"><a class="anchor" href="#constants" aria-hidden="true">#</a>Constants</h1>
+<p>All constants below are integers exported on the <code>lws</code> module. They
+mirror the macros of the same name from <code>libwebsockets.h</code>.</p>
+<h2 id="log-levels-lll_"><a class="anchor" href="#log-levels-lll_" aria-hidden="true">#</a>Log levels (<code>LLL_*</code>)</h2>
+<p><code>LLL_ERR</code>, <code>LLL_WARN</code>, <code>LLL_NOTICE</code>, <code>LLL_INFO</code>, <code>LLL_DEBUG</code>,
+<code>LLL_PARSER</code>, <code>LLL_HEADER</code>, <code>LLL_EXT</code>, <code>LLL_CLIENT</code>, <code>LLL_LATENCY</code>,
+<code>LLL_USER</code>, <code>LLL_THREAD</code>, <code>LLL_COUNT</code>.</p>
+<p>Use as a bitmask:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">logLevel</span>(<span class="t-type">LLL_USER</span> <span class="t-op">|</span> <span class="t-type">LLL_ERR</span> <span class="t-op">|</span> <span class="t-type">LLL_WARN</span>);</code></pre></div>
+<h2 id="write-protocols-lws_write_"><a class="anchor" href="#write-protocols-lws_write_" aria-hidden="true">#</a>Write protocols (<code>LWS_WRITE_*</code>)</h2>
+<div class="tablewrap"><table><thead><tr><th>Constant</th><th>Purpose</th></tr></thead><tbody><tr><td><code>LWS_WRITE_TEXT</code></td><td>UTF-8 WebSocket frame</td></tr><tr><td><code>LWS_WRITE_BINARY</code></td><td>Binary WebSocket frame</td></tr><tr><td><code>LWS_WRITE_CONTINUATION</code></td><td>Continuation fragment</td></tr><tr><td><code>LWS_WRITE_HTTP</code></td><td>HTTP body chunk</td></tr><tr><td><code>LWS_WRITE_HTTP_HEADERS</code></td><td>HTTP header block</td></tr><tr><td><code>LWS_WRITE_HTTP_HEADERS_CONTINUATION</code></td><td>Continued header block</td></tr><tr><td><code>LWS_WRITE_HTTP_FINAL</code></td><td>Last HTTP body chunk</td></tr><tr><td><code>LWS_WRITE_PING</code></td><td>Ping control frame</td></tr><tr><td><code>LWS_WRITE_PONG</code></td><td>Pong control frame</td></tr><tr><td><code>LWS_WRITE_BUFLIST</code></td><td>Use the wsi's queued buflist</td></tr><tr><td><code>LWS_WRITE_NO_FIN</code></td><td>Don't set FIN bit</td></tr><tr><td><code>LWS_WRITE_H2_STREAM_END</code></td><td>Close an HTTP/2 stream</td></tr><tr><td><code>LWS_WRITE_CLIENT_IGNORE_XOR_MASK</code></td><td>Skip masking</td></tr><tr><td><code>LWS_WRITE_RAW</code></td><td>Send bytes verbatim</td></tr></tbody></table></div>
+<p>Also <code>LWS_PRE</code> — the number of leading bytes lws reserves for
+framing. The binding handles this for <code>wsi.write()</code> so you do not
+have to allocate <code>LWS_PRE</code> slack manually.</p>
+<h2 id="context-port"><a class="anchor" href="#context-port" aria-hidden="true">#</a>Context port</h2>
+<p><code>CONTEXT_PORT_NO_LISTEN</code> — pass as <code>port</code> for a pure client context.
+The binding defaults to this when <code>port</code> is omitted from the info
+object.</p>
+<h2 id="server-options-lws_server_option_"><a class="anchor" href="#server-options-lws_server_option_" aria-hidden="true">#</a>Server options (<code>LWS_SERVER_OPTION_*</code>)</h2>
+<p>A large catalogue, OR'ed into the <code>options</code> field. Highlights:</p>
+<div class="tablewrap"><table><thead><tr><th>Constant</th><th>Purpose</th></tr></thead><tbody><tr><td><code>LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT</code></td><td>Require mTLS</td></tr><tr><td><code>LWS_SERVER_OPTION_SKIP_SERVER_CANONICAL_NAME</code></td><td>Skip CN check</td></tr><tr><td><code>LWS_SERVER_OPTION_ALLOW_NON_SSL_ON_SSL_PORT</code></td><td>Mixed plaintext/TLS on one port</td></tr><tr><td><code>LWS_SERVER_OPTION_LIBEV</code></td><td>Use libev event loop</td></tr><tr><td><code>LWS_SERVER_OPTION_DISABLE_IPV6</code></td><td>IPv4 only</td></tr><tr><td><code>LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS</code></td><td>Don't load OS CA store</td></tr><tr><td><code>LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED</code></td><td>Don't require peer cert</td></tr><tr><td><code>LWS_SERVER_OPTION_VALIDATE_UTF8</code></td><td>Validate UTF-8 in WS text</td></tr><tr><td><code>LWS_SERVER_OPTION_SSL_ECDH</code></td><td>Enable ECDH</td></tr><tr><td><code>LWS_SERVER_OPTION_LIBUV</code></td><td>Use libuv event loop</td></tr><tr><td><code>LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS</code></td><td>Auto-redirect plain to TLS</td></tr><tr><td><code>LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT</code></td><td>Initialise OpenSSL</td></tr><tr><td><code>LWS_SERVER_OPTION_EXPLICIT_VHOSTS</code></td><td>Don't create default vhost</td></tr><tr><td><code>LWS_SERVER_OPTION_UNIX_SOCK</code></td><td>Listen on a UNIX socket</td></tr><tr><td><code>LWS_SERVER_OPTION_STS</code></td><td>HSTS header</td></tr><tr><td><code>LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY</code></td><td>Set IPV6_V6ONLY</td></tr><tr><td><code>LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE</code></td><td>Value for the above</td></tr><tr><td><code>LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN</code></td><td>libuv: no signal spin</td></tr><tr><td><code>LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN</code></td><td>Raw mode</td></tr><tr><td><code>LWS_SERVER_OPTION_FALLBACK_TO_RAW</code></td><td>Fall back to raw</td></tr><tr><td><code>LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG</code></td><td>Pair with listenAcceptRole/Protocol</td></tr><tr><td><code>LWS_SERVER_OPTION_LIBEVENT</code></td><td>Use libevent</td></tr><tr><td><code>LWS_SERVER_OPTION_ONLY_RAW</code></td><td>Raw-only listener</td></tr><tr><td><code>LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG</code></td><td>Apply listen config on adopt</td></tr><tr><td><code>LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE</code></td><td>SO_REUSEPORT</td></tr><tr><td><code>LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX</code></td><td>Create SSL context per vhost</td></tr><tr><td><code>LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT</code></td><td>Skip PROTOCOL_INIT calls</td></tr><tr><td><code>LWS_SERVER_OPTION_IGNORE_MISSING_CERT</code></td><td>Don't fail on missing cert</td></tr><tr><td><code>LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK</code></td><td>Strict Host header check</td></tr><tr><td><code>LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE</code></td><td>Hardened headers</td></tr><tr><td><code>LWS_SERVER_OPTION_ALLOW_HTTP_ON_HTTPS_LISTENER</code></td><td>Mixed mode</td></tr><tr><td><code>LWS_SERVER_OPTION_FAIL_UPON_UNABLE_TO_BIND</code></td><td>Hard-fail on bind</td></tr><tr><td><code>LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW</code></td><td>Workaround</td></tr><tr><td><code>LWS_SERVER_OPTION_VH_H2_HALF_CLOSED_LONG_POLL</code></td><td>Long-poll over H2</td></tr><tr><td><code>LWS_SERVER_OPTION_GLIB</code></td><td>Use glib loop</td></tr><tr><td><code>LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE</code></td><td>H2 prior knowledge</td></tr><tr><td><code>LWS_SERVER_OPTION_NO_LWS_SYSTEM_STATES</code></td><td>Skip system states</td></tr><tr><td><code>LWS_SERVER_OPTION_SS_PROXY</code></td><td>Secure-streams proxy</td></tr><tr><td><code>LWS_SERVER_OPTION_SDEVENT</code></td><td>Use sdevent loop</td></tr><tr><td><code>LWS_SERVER_OPTION_ULOOP</code></td><td>Use uloop</td></tr><tr><td><code>LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE</code></td><td>No TLS session cache</td></tr><tr><td><code>LWS_ILLEGAL_HTTP_CONTENT_LEN</code></td><td>Sentinel "unknown content-length"</td></tr></tbody></table></div>
+<h2 id="mount-protocol-lwsmpro_"><a class="anchor" href="#mount-protocol-lwsmpro_" aria-hidden="true">#</a>Mount protocol (<code>LWSMPRO_*</code>)</h2>
+<p><code>LWSMPRO_HTTP</code>, <code>LWSMPRO_HTTPS</code>, <code>LWSMPRO_FILE</code>, <code>LWSMPRO_CGI</code>,
+<code>LWSMPRO_REDIR_HTTP</code>, <code>LWSMPRO_REDIR_HTTPS</code>, <code>LWSMPRO_CALLBACK</code>,
+<code>LWSMPRO_NO_MOUNT</code>.</p>
+<p>See <a href="mounts.html">mounts.md</a> for their meaning.</p>
+<h2 id="client-connect-flags-lccscf_"><a class="anchor" href="#client-connect-flags-lccscf_" aria-hidden="true">#</a>Client connect flags (<code>LCCSCF_*</code>)</h2>
+<p><code>USE_SSL</code>, <code>ALLOW_SELFSIGNED</code>, <code>SKIP_SERVER_CERT_HOSTNAME_CHECK</code>,
+<code>ALLOW_EXPIRED</code>, <code>ALLOW_INSECURE</code>, <code>H2_QUIRK_NGHTTP2_END_STREAM</code>,
+<code>H2_QUIRK_OVERFLOWS_TXCR</code>, <code>H2_AUTH_BEARER</code>, <code>H2_HEXIFY_AUTH_TOKEN</code>,
+<code>H2_MANUAL_RXFLOW</code>, <code>HTTP_MULTIPART_MIME</code>,
+<code>HTTP_X_WWW_FORM_URLENCODED</code>, <code>HTTP_NO_FOLLOW_REDIRECT</code>,
+<code>HTTP_NO_CACHE_CONTROL</code>, <code>ALLOW_REUSE_ADDR</code>,
+<code>IPV6_PREFER_PUBLIC_ADDR</code>, <code>PIPELINE</code>, <code>MUXABLE_STREAM</code>,
+<code>H2_PRIOR_KNOWLEDGE</code>, <code>WAKE_SUSPEND__VALIDITY</code>, <code>PRIORITIZE_READS</code>,
+<code>SECSTREAM_CLIENT</code>, <code>SECSTREAM_PROXY_LINK</code>, <code>SECSTREAM_PROXY_ONWARD</code>,
+<code>IP_LOW_LATENCY</code>, <code>IP_HIGH_THROUGHPUT</code>, <code>IP_HIGH_RELIABILITY</code>,
+<code>IP_LOW_COST</code>, <code>CONMON</code>, <code>ACCEPT_TLS_DOWNGRADE_REDIRECTS</code>,
+<code>CACHE_COOKIES</code>.</p>
+<p>See <a href="tls.html">tls.md</a> for usage, and
+<a href="http-client.html#connection-pipelining--keep-alive">http-client.md</a>
+for <code>PIPELINE</code> / <code>MUXABLE_STREAM</code> specifically.</p>
+<h2 id="http-header-tokens-wsi_token_"><a class="anchor" href="#http-header-tokens-wsi_token_" aria-hidden="true">#</a>HTTP header tokens (<code>WSI_TOKEN_*</code>)</h2>
+<p>The full <code>enum lws_token_indexes</code> is exported. Notable groups:</p>
+<ul>
+<li>Method/URI: <code>WSI_TOKEN_GET_URI</code>, <code>WSI_TOKEN_POST_URI</code>,
+<code>WSI_TOKEN_OPTIONS_URI</code> (optional), <code>WSI_TOKEN_PUT_URI</code>,
+<code>WSI_TOKEN_PATCH_URI</code>, <code>WSI_TOKEN_DELETE_URI</code>,
+<code>WSI_TOKEN_HEAD_URI</code>, <code>WSI_TOKEN_CONNECT</code>.</li>
+<li>Common request headers: <code>WSI_TOKEN_HOST</code>, <code>WSI_TOKEN_CONNECTION</code>,
+<code>WSI_TOKEN_UPGRADE</code>, <code>WSI_TOKEN_ORIGIN</code>,
+<code>WSI_TOKEN_HTTP_USER_AGENT</code>, <code>WSI_TOKEN_HTTP_COOKIE</code>,
+<code>WSI_TOKEN_HTTP_ACCEPT</code>, <code>WSI_TOKEN_HTTP_ACCEPT_ENCODING</code>, …</li>
+<li>Response headers: <code>WSI_TOKEN_HTTP_SET_COOKIE</code>,
+<code>WSI_TOKEN_HTTP_LOCATION</code>, <code>WSI_TOKEN_HTTP_CONTENT_TYPE</code>,
+<code>WSI_TOKEN_HTTP_CONTENT_LENGTH</code>, …</li>
+<li>WebSocket-specific (when built with <code>LWS_ROLE_WS</code>):
+<code>WSI_TOKEN_KEY</code>, <code>WSI_TOKEN_VERSION</code>, <code>WSI_TOKEN_PROTOCOL</code>,
+<code>WSI_TOKEN_EXTENSIONS</code>, <code>WSI_TOKEN_ACCEPT</code>.</li>
+<li>HTTP/2 pseudo-headers: <code>WSI_TOKEN_HTTP_COLON_AUTHORITY</code>,
+<code>_COLON_METHOD</code>, <code>_COLON_PATH</code>, <code>_COLON_SCHEME</code>, <code>_COLON_STATUS</code>.</li>
+<li>Sentinels: <code>WSI_TOKEN_COUNT</code>, <code>WSI_TOKEN_NAME_PART</code>,
+<code>WSI_TOKEN_SKIPPING*</code>, <code>WSI_PARSING_COMPLETE</code>,
+<code>WSI_INIT_TOKEN_MUXURL</code>.</li>
+</ul>
+<p><code>getTokenName(WSI_TOKEN_HOST)</code> returns the literal header string
+("Host") — useful for debugging.</p>
+<h2 id="http-methods-lwshumeth_"><a class="anchor" href="#http-methods-lwshumeth_" aria-hidden="true">#</a>HTTP methods (<code>LWSHUMETH_*</code>)</h2>
+<p><code>LWSHUMETH_GET</code>, <code>_POST</code>, <code>_OPTIONS</code>, <code>_PUT</code>, <code>_PATCH</code>, <code>_DELETE</code>,
+<code>_CONNECT</code>, <code>_HEAD</code>, <code>_COLON_PATH</code>.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/constants.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#log-levels-lll_">Log levels (LLL_)</a></li><li class="lvl2"><a href="#write-protocols-lws_write_">Write protocols (LWS_WRITE_)</a></li><li class="lvl2"><a href="#context-port">Context port</a></li><li class="lvl2"><a href="#server-options-lws_server_option_">Server options (LWS_SERVER_OPTION_)</a></li><li class="lvl2"><a href="#mount-protocol-lwsmpro_">Mount protocol (LWSMPRO_)</a></li><li class="lvl2"><a href="#client-connect-flags-lccscf_">Client connect flags (LCCSCF_)</a></li><li class="lvl2"><a href="#http-header-tokens-wsi_token_">HTTP header tokens (WSI_TOKEN_)</a></li><li class="lvl2"><a href="#http-methods-lwshumeth_">HTTP methods (LWSHUMETH_)</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JS helpers under lib/ — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="../native/module.html">Module exports</a></li><li><a href="../native/LWSContext.html">LWSContext</a></li><li><a href="../native/LWSVhost.html">LWSVhost</a></li><li><a href="../native/LWSSocket.html">LWSSocket</a></li><li><a href="../native/LWSSPA.html">LWSSPA</a></li><li><a href="../native/LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="../native/protocols.html">Protocol handlers</a></li><li><a href="../native/callbacks.html">Callback reference</a></li><li><a href="../native/mounts.html">Mounts</a></li><li><a href="../native/tls.html">TLS</a></li><li><a href="../native/event-loop.html">Event loop</a></li><li><a href="../native/constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="../native/ws-server.html">WebSocket server</a></li><li><a href="../native/ws-client.html">WebSocket client</a></li><li><a href="../native/http-server.html">HTTP server</a></li><li><a href="../native/http-client.html">HTTP client</a></li><li><a href="../native/raw-tcp.html">Raw TCP</a></li><li><a href="../native/examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="helpers.html" class="here">lib/ helpers</a></li><li><a href="bun.html">Bun-compatible serve()</a></li><li><a href="middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="js-helpers-under-lib"><a class="anchor" href="#js-helpers-under-lib" aria-hidden="true">#</a>JS helpers under <code>lib/</code></h1>
+<p>Pure-JS wrappers shipped on top of the C bindings. They are not
+required — anything they do can be reproduced from the primitives
+documented elsewhere — but they offer a more familiar API surface.</p>
+<h2 id="high-level-modules"><a class="anchor" href="#high-level-modules" aria-hidden="true">#</a>High-level modules</h2>
+<h3 id="libservejs"><a class="anchor" href="#libservejs" aria-hidden="true">#</a><code>lib/serve.js</code></h3>
+<p>Bun-style HTTP server. <code>serve(opts, handler)</code> (or
+<code>serve(opts)[Symbol.asyncIterator]</code> for pull-style) hides the
+underlying <code>LWSContext</code>/protocol wiring.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">serve</span>, <span class="t-type">Response</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/serve.js'</span>;
+
+<span class="t-fn">serve</span>({ <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>, <span class="t-id">host</span><span class="t-op">:</span> <span class="t-str">'localhost'</span> }, <span class="t-kw">async</span> <span class="t-id">req</span> <span class="t-op">=&gt;</span> {
+  <span class="t-kw">if</span>(<span class="t-id">req</span>.<span class="t-prop">url</span>.<span class="t-fn">endsWith</span>(<span class="t-str">'/health'</span>))
+    <span class="t-kw">return</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'ok'</span>, { <span class="t-id">status</span><span class="t-op">:</span> <span class="t-num">200</span> });
+  <span class="t-kw">return</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'not found'</span>, { <span class="t-id">status</span><span class="t-op">:</span> <span class="t-num">404</span> });
+});</code></pre></div>
+<p>The handler receives a <code>Request</code> and may return a <code>Response</code> (or a
+plain <code>{ body, status, headers }</code> object that the helper wraps).
+WebSocket connections (<code>options.websocket</code>, default mountpoint
+<code>/ws</code>) and, with <code>options.raw</code> set, raw TCP connections hit the same
+handler as a bare <code>WebSocketStream</code> / <code>TCPSocket</code> instead of a
+<code>Request</code> - check with <code>instanceof</code>. <code>raw: { always: true }</code> treats
+<em>every</em> connection as raw, even ones that look like valid HTTP; see
+<a href="../native/raw-tcp.html#mixed-http-and-raw">undefined</a>
+for details.</p>
+<p><code>websocket</code>/<code>raw</code>, given as objects, also take a <code>Class</code> - the
+constructor used to wrap accepted connections in place of the
+defaults (<code>WebSocketStream</code> / <code>TCPSocket</code>):</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">serve</span>, <span class="t-type">Response</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/serve.js'</span>;
+<span class="t-kw">import</span> { <span class="t-type">WebSocket</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/websocket.js'</span>;
+<span class="t-kw">import</span> { <span class="t-type">TCPSocketStream</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/tcpsocketstream.js'</span>;
+
+<span class="t-fn">serve</span>({
+  <span class="t-id">websocket</span><span class="t-op">:</span> { <span class="t-type">Class</span><span class="t-op">:</span> <span class="t-type">WebSocket</span> },               <span class="t-cm">// evented, not streams</span>
+  <span class="t-id">raw</span><span class="t-op">:</span> { <span class="t-id">always</span><span class="t-op">:</span> <span class="t-atom">true</span>, <span class="t-type">Class</span><span class="t-op">:</span> <span class="t-type">TCPSocketStream</span> }, <span class="t-cm">// streams, not evented</span>
+  <span class="t-id">fetch</span><span class="t-op">:</span> <span class="t-id">x</span> <span class="t-op">=&gt;</span> { <span class="t-cm">/* … */</span> },
+});</code></pre></div>
+<p>This works because <code>WebSocket</code>, <code>WebSocketStream</code>, <code>TCPSocket</code>, and
+<code>TCPSocketStream</code> each expose a <code>.protocol(name, callback)</code> static -
+see their sections below - that's an interchangeable
+<code>createServer()</code>-compatible protocol descriptor, so <code>lib/serve.js</code>
+just calls whichever <code>Class.protocol(...)</code> it was given.</p>
+<h3 id="libfetchjs"><a class="anchor" href="#libfetchjs" aria-hidden="true">#</a><code>lib/fetch.js</code></h3>
+<p>WHATWG-<code>fetch</code>-shaped client built on <code>LWSContext.clientConnect</code>.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">toString</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+<span class="t-kw">import</span> { <span class="t-id">fetch</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/fetch.js'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">res</span> <span class="t-op">=</span> <span class="t-kw">await</span> <span class="t-fn">fetch</span>(<span class="t-str">'https://example.com/'</span>, { <span class="t-id">tls</span><span class="t-op">:</span> {} });
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">res</span>.<span class="t-prop">status</span>, <span class="t-id">res</span>.<span class="t-prop">headers</span>.<span class="t-kw">get</span>(<span class="t-str">'content-type'</span>));
+<span class="t-kw">for</span> <span class="t-kw">await</span> (<span class="t-kw">const</span> <span class="t-id">chunk</span> <span class="t-kw">of</span> <span class="t-id">res</span>.<span class="t-prop">body</span>) <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">toString</span>(<span class="t-id">chunk</span>));</code></pre></div>
+<p>Recognised options (subset):</p>
+<div class="tablewrap"><table><thead><tr><th>Option</th><th>Maps to</th></tr></thead><tbody><tr><td><code>method</code>, <code>headers</code>, <code>body</code></td><td><code>Request</code></td></tr><tr><td><code>signal</code></td><td><code>ctx.cancelService()</code> on abort</td></tr><tr><td><code>tls</code></td><td>TLS server options + per-vhost SSL context. Sub-keys: <code>ca</code>, <code>cert</code>, <code>key</code>, <code>rejectUnauthorized</code></td></tr><tr><td><code>h2</code></td><td><code>LCCSCF_H2_PRIOR_KNOWLEDGE</code></td></tr><tr><td><code>pwsi(wsi)</code></td><td>Hook called with the freshly created <code>LWSSocket</code></td></tr></tbody></table></div>
+<p>The body is exposed as a <code>ReadableStream</code> from
+<code>lib/lws/streams.js</code>. <code>Response.redirected</code> is <code>true</code> when lws
+followed at least one redirect to produce the response.</p>
+<h3 id="liblwsurljs"><a class="anchor" href="#liblwsurljs" aria-hidden="true">#</a><code>lib/lws/url.js</code></h3>
+<p>A conforming subset of the <a href="https://url.spec.whatwg.org/" target="_blank" rel="noopener">WHATWG URL Standard</a>:
+<code>URL</code> and <code>URLSearchParams</code>, implemented from the spec's own basic
+URL parser state machine (not a regex approximation) — special-scheme
+handling (<code>http</code>/<code>https</code>/<code>ws</code>/<code>wss</code>/<code>ftp</code>/<code>file</code>), relative-URL
+resolution against a base, IPv4/IPv6 host parsing and serialization,
+<code>file:</code>/opaque-path URLs (<code>mailto:</code>, …), and correct percent-encoding
+per component.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">URL</span>, <span class="t-type">URLSearchParams</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/lws/url.js'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">u</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">URL</span>(<span class="t-str">'/a/../b?x=1'</span>, <span class="t-str">'https://example.com/dir/'</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">u</span>.<span class="t-prop">href</span>);            <span class="t-cm">// https://example.com/b?x=1</span>
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">u</span>.<span class="t-prop">searchParams</span>.<span class="t-kw">get</span>(<span class="t-str">'x'</span>)); <span class="t-cm">// '1'</span>
+
+<span class="t-id">u</span>.<span class="t-prop">searchParams</span>.<span class="t-kw">set</span>(<span class="t-str">'y'</span>, <span class="t-str">'2'</span>);
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">u</span>.<span class="t-prop">href</span>);            <span class="t-cm">// https://example.com/b?x=1&amp;y=2 (searchParams writes back through)</span></code></pre></div>
+<p>Known deviation from the spec: no IDNA/Punycode — non-ASCII domain
+labels are lowercased and kept as UTF-8 rather than converted to
+<code>xn--</code> ASCII form. Plain ASCII domains are unaffected.</p>
+<h3 id="libwebsocketjs"><a class="anchor" href="#libwebsocketjs" aria-hidden="true">#</a><code>lib/websocket.js</code></h3>
+<p>WHATWG-<code>WebSocket</code>-shaped class:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">WebSocket</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/websocket.js'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">ws</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">WebSocket</span>(<span class="t-str">'wss://echo.websocket.events/'</span>, [<span class="t-str">'chat'</span>]);
+
+<span class="t-id">ws</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'open'</span>,    () <span class="t-op">=&gt;</span> <span class="t-id">ws</span>.<span class="t-fn">send</span>(<span class="t-str">'hi'</span>));
+<span class="t-id">ws</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'message'</span>, <span class="t-id">e</span> <span class="t-op">=&gt;</span> <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">e</span>.<span class="t-prop">data</span>));
+<span class="t-id">ws</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'close'</span>,   () <span class="t-op">=&gt;</span> <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'closed'</span>));
+<span class="t-id">ws</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'error'</span>,   <span class="t-id">e</span> <span class="t-op">=&gt;</span> <span class="t-id">console</span>.<span class="t-fn">error</span>(<span class="t-id">e</span>.<span class="t-prop">message</span>));
+
+<span class="t-cm">// or `ws.onmessage = …` style — the class extends an EventTarget</span>
+<span class="t-cm">// that auto-binds property-style handlers (see lib/lws/events.js).</span></code></pre></div>
+<p><code>WebSocket.lws(ws)</code> returns the underlying <code>LWSSocket</code> for advanced
+needs. <code>WebSocket.waitWrite(ws)</code> returns a promise that resolves
+when the socket is writeable.</p>
+<p><code>WebSocket.protocol(name, callback)</code> is the server-side counterpart:
+synthesizes a <code>createServer()</code>-compatible protocol descriptor that
+wraps every accepted connection as a <code>WebSocket</code> and hands it to
+<code>callback</code> once established - built on <code>lib/lws/protocols.js</code>'s <code>ws()</code>
+server-role adapter, same shape as <code>WebSocketStream.protocol()</code> below.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWSMPRO_NO_MOUNT</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+<span class="t-kw">import</span> { <span class="t-type">WebSocket</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/websocket.js'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
+  <span class="t-id">mounts</span><span class="t-op">:</span> [{ <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/echo'</span>, <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'echo'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_NO_MOUNT</span> }],
+  <span class="t-id">protocols</span><span class="t-op">:</span> [
+    <span class="t-type">WebSocket</span>.<span class="t-fn">protocol</span>(<span class="t-str">'echo'</span>, <span class="t-id">ws</span> <span class="t-op">=&gt;</span> <span class="t-id">ws</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'message'</span>, <span class="t-id">e</span> <span class="t-op">=&gt;</span> <span class="t-id">ws</span>.<span class="t-fn">send</span>(<span class="t-id">e</span>.<span class="t-prop">data</span>))),
+  ],
+});</code></pre></div>
+<h3 id="libwebsocketstreamjs"><a class="anchor" href="#libwebsocketstreamjs" aria-hidden="true">#</a><code>lib/websocketstream.js</code></h3>
+<p>WebSocket-stream proposal: pairs a <code>ReadableStream</code> with a
+<code>WritableStream</code> on top of the WS protocol. Independent of the
+EventTarget-based <code>WebSocket</code> (lib/websocket.js) - both talk to
+<code>lib/lws/protocols.js</code> directly rather than one wrapping the other.
+<code>WebSocketStream.protocol(name, callback)</code> is its server-side
+counterpart - see <code>lib/serve.js</code>'s own use of it for the shape.</p>
+<h3 id="libtcpsocketjs--libtcpsocketstreamjs"><a class="anchor" href="#libtcpsocketjs--libtcpsocketstreamjs" aria-hidden="true">#</a><code>lib/tcpsocket.js</code> / <code>lib/tcpsocketstream.js</code></h3>
+<p>EventTarget-style raw TCP socket (<code>TCPSocket</code>) and an independent
+Streams-based view (<code>TCPSocketStream</code>, its own file) - same
+relationship as <code>WebSocket</code>/<code>WebSocketStream</code> above. Both also expose
+a <code>.protocol(name, callback)</code> static (see <a href="../native/raw-tcp.html">doc/native/raw-tcp.md</a>
+for the underlying <code>raw()</code> role adapter) as a <code>createServer()</code>-
+integrated alternative to the <code>TCPSocket#bind()</code>/<code>.listen()</code> shown
+below:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">toString</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+<span class="t-kw">import</span> { <span class="t-type">TCPSocket</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/tcpsocket.js'</span>;
+<span class="t-kw">import</span> { <span class="t-type">TCPSocketStream</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/tcpsocketstream.js'</span>;
+
+<span class="t-cm">// Client.</span>
+<span class="t-kw">const</span> <span class="t-id">s</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">TCPSocket</span>(<span class="t-str">'example.com'</span>, <span class="t-num">80</span>);
+<span class="t-id">s</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'open'</span>,    () <span class="t-op">=&gt;</span> <span class="t-id">s</span>.<span class="t-fn">send</span>(<span class="t-str">'GET / HTTP/1.0\r\n\r\n'</span>));
+<span class="t-id">s</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'message'</span>, <span class="t-id">e</span> <span class="t-op">=&gt;</span> <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">toString</span>(<span class="t-id">e</span>.<span class="t-prop">data</span>)));
+<span class="t-id">s</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'close'</span>,   () <span class="t-op">=&gt;</span> <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'closed'</span>));
+
+<span class="t-cm">// Listener.</span>
+<span class="t-kw">const</span> <span class="t-id">server</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">TCPSocket</span>().<span class="t-fn">bind</span>(<span class="t-str">'0.0.0.0'</span>, <span class="t-num">1234</span>);
+<span class="t-id">server</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'accept'</span>, ({ <span class="t-id">socket</span> }) <span class="t-op">=&gt;</span> {
+  <span class="t-id">socket</span>.<span class="t-fn">addEventListener</span>(<span class="t-str">'message'</span>, <span class="t-id">e</span> <span class="t-op">=&gt;</span> <span class="t-id">socket</span>.<span class="t-fn">send</span>(<span class="t-id">e</span>.<span class="t-prop">data</span>));  <span class="t-cm">// echo</span>
+});
+<span class="t-id">server</span>.<span class="t-fn">listen</span>();
+
+<span class="t-cm">// Streams.</span>
+<span class="t-kw">const</span> <span class="t-id">stream</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">TCPSocketStream</span>({ <span class="t-id">host</span><span class="t-op">:</span> <span class="t-str">'example.com'</span>, <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">80</span> });
+<span class="t-kw">const</span> { <span class="t-id">readable</span>, <span class="t-id">writable</span>, <span class="t-id">remoteAddress</span> } <span class="t-op">=</span> <span class="t-kw">await</span> <span class="t-id">stream</span>.<span class="t-prop">opened</span>;</code></pre></div>
+<h2 id="low-level-helpers-under-liblws"><a class="anchor" href="#low-level-helpers-under-liblws" aria-hidden="true">#</a>Low-level helpers under <code>lib/lws/</code></h2>
+<div class="tablewrap"><table><thead><tr><th>Module</th><th>What it provides</th></tr></thead><tbody><tr><td><code>context.js</code></td><td><code>createContext(info)</code> — adds defaults (DNS servers from <code>/etc/resolv.conf</code>, <code>vhostName</code> from <code>/etc/hostname</code>, TLS options when <code>info.tls</code> is set), then <code>new LWSContext(info)</code></td></tr><tr><td><code>util.js</code></td><td><code>waitWrite(wsi)</code>, <code>mapper</code>/<code>weakMapper</code>, <code>actor</code>, <code>verbose</code>/<code>debug</code>, state constants <code>CONNECTING</code>/<code>OPEN</code>/<code>CLOSING</code>/<code>CLOSED</code>, <code>ConnectionError</code></td></tr><tr><td><code>events.js</code></td><td>A spec-shaped <code>EventTarget</code> plus <code>EventTargetProperties(['open',…])</code> for <code>onfoo = …</code> properties</td></tr><tr><td><code>body.js</code></td><td>Body mixin used by <code>Request</code>/<code>Response</code>: <code>arrayBuffer()</code>/<code>text()</code>/<code>json()</code>/<code>blob()</code>/<code>formData()</code>. <code>null</code> and <code>undefined</code> both mean "no body"</td></tr><tr><td><code>request.js</code></td><td><code>Request</code> (subset of WHATWG <code>Request</code>)</td></tr><tr><td><code>response.js</code></td><td><code>Response</code> (subset of WHATWG <code>Response</code>), including <code>redirected</code></td></tr><tr><td><code>headers.js</code></td><td><code>Headers</code> (case-insensitive map). Values are validated per spec: leading/trailing HTTP whitespace is trimmed, embedded NUL/CR/LF throws <code>TypeError</code> (prevents header injection via untrusted values)</td></tr><tr><td><code>url.js</code></td><td><code>URL</code> / <code>URLSearchParams</code> — see above</td></tr><tr><td><code>streams.js</code></td><td>A self-contained <code>ReadableStream</code>/<code>WritableStream</code>/<code>TransformStream</code> implementation</td></tr><tr><td><code>stream-utils.js</code></td><td>Reader/writer helpers</td></tr><tr><td><code>simple-queue.js</code></td><td>Queue used by <code>streams.js</code></td></tr><tr><td><code>list.js</code></td><td>Linked-list helpers</td></tr><tr><td><code>mimetypes.js</code></td><td>Extension→mimetype table suitable for <code>mounts[].extraMimetypes</code></td></tr><tr><td><code>assert.js</code></td><td>Trivial <code>assert</code> helper</td></tr><tr><td><code>abort.js</code></td><td><code>AbortController</code>/<code>AbortSignal</code></td></tr></tbody></table></div>
+<p>Most of these are exported as a side effect of <code>createContext</code> /
+<code>fetch</code> / <code>serve</code> and rarely need to be imported directly.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/js/helpers.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#high-level-modules">High-level modules</a></li><li class="lvl3"><a href="#libservejs">lib/serve.js</a></li><li class="lvl3"><a href="#libfetchjs">lib/fetch.js</a></li><li class="lvl3"><a href="#liblwsurljs">lib/lws/url.js</a></li><li class="lvl3"><a href="#libwebsocketjs">lib/websocket.js</a></li><li class="lvl3"><a href="#libwebsocketstreamjs">lib/websocketstream.js</a></li><li class="lvl3"><a href="#libtcpsocketjs--libtcpsocketstreamjs">lib/tcpsocket.js / lib/tcpsocketstream.js</a></li><li class="lvl2"><a href="#low-level-helpers-under-liblws">Low-level helpers under lib/lws/</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

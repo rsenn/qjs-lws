@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebSocket client — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html" class="here">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="websocket-client"><a class="anchor" href="#websocket-client" aria-hidden="true">#</a>WebSocket client</h1>
+<p>A WebSocket client uses an <code>LWSContext</code> with no listening port and a
+protocol that implements the client-side callbacks. The connection
+is opened with <code>ctx.clientConnect(url, info)</code>.</p>
+<h2 id="minimal-client"><a class="anchor" href="#minimal-client" aria-hidden="true">#</a>Minimal client</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">LWSContext</span>, <span class="t-id">toString</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">ctx</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">LWSContext</span>({
+  <span class="t-id">protocols</span><span class="t-op">:</span> [{
+    <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'ws'</span>,
+    <span class="t-fn">onClientEstablished</span>(<span class="t-id">wsi</span>)         { <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-str">'hello'</span>); },
+    <span class="t-fn">onClientReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>)       { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'recv'</span>, <span class="t-fn">toString</span>(<span class="t-id">data</span>)); },
+    <span class="t-fn">onClientClosed</span>(<span class="t-id">wsi</span>)              { <span class="t-id">ctx</span>.<span class="t-fn">cancelService</span>(); },
+    <span class="t-fn">onClientConnectionError</span>(<span class="t-id">wsi</span>, <span class="t-id">msg</span>) { <span class="t-id">console</span>.<span class="t-fn">error</span>(<span class="t-str">'fail'</span>, <span class="t-id">msg</span>); <span class="t-id">ctx</span>.<span class="t-fn">cancelService</span>(); },
+  }],
+});
+
+<span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-str">'wss://echo.websocket.events/'</span>);</code></pre></div>
+<p>The URI scheme:</p>
+<ul>
+<li><code>ws://</code> / <code>wss://</code>  → WebSocket</li>
+<li><code>http://</code> / <code>https://</code> → HTTP (<code>method</code> defaults to <code>GET</code>)</li>
+</ul>
+<p>For <code>wss://</code> / <code>https://</code>, qjs-lws sets a permissive default
+<code>ssl_connection</code> mask (see <a href="tls.html">tls.md</a>).</p>
+<h2 id="subprotocols"><a class="anchor" href="#subprotocols" aria-hidden="true">#</a>Subprotocols</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-str">'wss://example.com/socket'</span>, {
+  <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'chat,v2'</span>,           <span class="t-cm">// Sec-WebSocket-Protocol header</span>
+  <span class="t-id">localProtocolName</span><span class="t-op">:</span> <span class="t-str">'ws'</span>,       <span class="t-cm">// which JS protocol handles the wsi</span>
+});</code></pre></div>
+<p><code>localProtocolName</code> selects the JS protocol descriptor by name. If
+omitted, libwebsockets picks one based on the wsi role.</p>
+<h2 id="connection-info-object"><a class="anchor" href="#connection-info-object" aria-hidden="true">#</a>Connection info object</h2>
+<p>If you skip the URI-string form, pass an info object:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>({
+  <span class="t-id">address</span><span class="t-op">:</span> <span class="t-str">'example.com'</span>,
+  <span class="t-id">port</span><span class="t-op">:</span>    <span class="t-num">443</span>,
+  <span class="t-id">path</span><span class="t-op">:</span>    <span class="t-str">'/ws'</span>,
+  <span class="t-id">host</span><span class="t-op">:</span>    <span class="t-str">'example.com'</span>,
+  <span class="t-id">origin</span><span class="t-op">:</span>  <span class="t-str">'https://example.com'</span>,
+  <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'chat'</span>,
+  <span class="t-id">localProtocolName</span><span class="t-op">:</span> <span class="t-str">'ws'</span>,
+  <span class="t-id">ssl</span><span class="t-op">:</span>     <span class="t-atom">true</span>,
+  <span class="t-id">authUsername</span><span class="t-op">:</span> <span class="t-str">'user'</span>,
+  <span class="t-id">authPassword</span><span class="t-op">:</span> <span class="t-str">'pass'</span>,
+  <span class="t-id">iface</span><span class="t-op">:</span>   <span class="t-str">'eth0'</span>,
+  <span class="t-id">localPort</span><span class="t-op">:</span> <span class="t-num">12345</span>,
+  <span class="t-id">alpn</span><span class="t-op">:</span>    <span class="t-str">'h2,http/1.1'</span>,
+  <span class="t-id">keepWarmSecs</span><span class="t-op">:</span> <span class="t-num">30</span>,
+});</code></pre></div>
+<p>See <a href="LWSContext.html#clientconnect">LWSContext.md</a> for the full list.</p>
+<h2 id="writing"><a class="anchor" href="#writing" aria-hidden="true">#</a>Writing</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'ws'</span>,
+  <span class="t-fn">onClientEstablished</span>(<span class="t-id">wsi</span>) {
+    <span class="t-kw">this</span>.<span class="t-prop">queue</span> <span class="t-op">=</span> [<span class="t-str">'ping'</span>, <span class="t-str">'how are you?'</span>];
+    <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>();
+  },
+  <span class="t-fn">onClientWriteable</span>(<span class="t-id">wsi</span>) {
+    <span class="t-kw">const</span> <span class="t-id">msg</span> <span class="t-op">=</span> <span class="t-kw">this</span>.<span class="t-prop">queue</span>.<span class="t-fn">shift</span>();
+    <span class="t-kw">if</span>(<span class="t-id">msg</span> <span class="t-op">!==</span> <span class="t-atom">undefined</span>) <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">msg</span>);
+    <span class="t-kw">if</span>(<span class="t-kw">this</span>.<span class="t-prop">queue</span>.<span class="t-prop">length</span>) <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>();
+  },
+}</code></pre></div>
+<h2 id="sending-custom-handshake-headers"><a class="anchor" href="#sending-custom-handshake-headers" aria-hidden="true">#</a>Sending custom handshake headers</h2>
+<p><code>onClientAppendHandshakeHeader(wsi, buf, len)</code> lets you inject
+headers right before the upgrade request is sent:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">WSI_TOKEN_HTTP_USER_AGENT</span>, <span class="t-type">WSI_TOKEN_HTTP_COOKIE</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'ws'</span>,
+  <span class="t-fn">onClientAppendHandshakeHeader</span>(<span class="t-id">wsi</span>, <span class="t-id">buf</span>, <span class="t-id">len</span>) {
+    <span class="t-id">wsi</span>.<span class="t-fn">addHeader</span>(<span class="t-type">WSI_TOKEN_HTTP_USER_AGENT</span>, <span class="t-str">'qjs-lws/1.0'</span>, <span class="t-id">buf</span>, <span class="t-id">len</span>);
+    <span class="t-id">wsi</span>.<span class="t-fn">addHeader</span>(<span class="t-type">WSI_TOKEN_HTTP_COOKIE</span>,     <span class="t-str">'session=abc'</span>,  <span class="t-id">buf</span>, <span class="t-id">len</span>);
+  },
+}</code></pre></div>
+<p><code>buf</code> is an <code>ArrayBuffer</code> provided by libwebsockets; <code>len</code> is a
+single-element array <code>[n]</code> tracking the running offset that
+<code>addHeader</code> updates in place.</p>
+<h2 id="receiving-and-closing"><a class="anchor" href="#receiving-and-closing" aria-hidden="true">#</a>Receiving and closing</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'ws'</span>,
+  <span class="t-fn">onClientReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>, <span class="t-id">len</span>, <span class="t-id">frame</span>) {
+    <span class="t-kw">if</span>(<span class="t-kw">typeof</span> <span class="t-id">data</span> <span class="t-op">===</span> <span class="t-str">'string'</span>) <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'text:'</span>, <span class="t-id">data</span>);
+    <span class="t-kw">else</span>                          <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'binary:'</span>, <span class="t-kw">new</span> <span class="t-fn">Uint8Array</span>(<span class="t-id">data</span>));
+  },
+  <span class="t-fn">onWsPeerInitiatedClose</span>(<span class="t-id">wsi</span>, <span class="t-id">code</span>, <span class="t-id">reason</span>) {
+    <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'server closed'</span>, <span class="t-id">code</span>, <span class="t-id">reason</span>);
+  },
+  <span class="t-fn">onClientClosed</span>(<span class="t-id">wsi</span>) {
+    <span class="t-id">ctx</span>.<span class="t-fn">cancelService</span>();      <span class="t-cm">// exit the script</span>
+  },
+}</code></pre></div>
+<p><code>onClientConnectionError(wsi, message, errno)</code> fires for TCP / TLS
+/ HTTP-handshake failures <em>before</em> the WebSocket is established.</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/ws-client.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#minimal-client">Minimal client</a></li><li class="lvl2"><a href="#subprotocols">Subprotocols</a></li><li class="lvl2"><a href="#connection-info-object">Connection info object</a></li><li class="lvl2"><a href="#writing">Writing</a></li><li class="lvl2"><a href="#sending-custom-handshake-headers">Sending custom handshake headers</a></li><li class="lvl2"><a href="#receiving-and-closing">Receiving and closing</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

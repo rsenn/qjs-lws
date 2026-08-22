@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event-loop integration — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html" class="here">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="event-loop-integration"><a class="anchor" href="#event-loop-integration" aria-hidden="true">#</a>Event-loop integration</h1>
+<p>qjs-lws does <strong>not</strong> call <code>lws_service()</code> in a script-side loop.
+Instead, it forwards libwebsockets's pollfd registration to QuickJS's
+own <code>os.setReadHandler</code> / <code>os.setWriteHandler</code>. The QuickJS event
+loop is what wakes the C code up.</p>
+<p>Implemented in <code>iohandler.h</code> and <code>callback_pollfd</code> in <code>lws-context.c</code>.</p>
+<h2 id="how-it-works"><a class="anchor" href="#how-it-works" aria-hidden="true">#</a>How it works</h2>
+<ol>
+<li>libwebsockets calls <code>LWS_CALLBACK_ADD_POLL_FD</code> with
+<code>{ fd, events }</code>. qjs-lws installs a small JS thunk on the
+appropriate side (read/write) of that fd using
+<code>os.setReadHandler(fd, fn)</code> or <code>os.setWriteHandler(fd, fn)</code>.</li>
+<li>When QuickJS's <code>os</code> loop wakes the fd, the thunk calls
+<code>lws_service_fd()</code> with a fake <code>lws_pollfd</code> built from the
+event mask.</li>
+<li><code>LWS_CALLBACK_CHANGE_MODE_POLL_FD</code> swaps the handler between
+read and write according to the new event mask.</li>
+<li><code>LWS_CALLBACK_DEL_POLL_FD</code> clears both handlers, removing the
+fd from QuickJS's event loop.</li>
+</ol>
+<p><code>LWS_CALLBACK_LOCK_POLL</code> / <code>UNLOCK_POLL</code> are no-ops because there is
+no second thread.</p>
+<h2 id="optional-epoll7-backend-use_epoll"><a class="anchor" href="#optional-epoll7-backend-use_epoll" aria-hidden="true">#</a>Optional <code>epoll(7)</code> backend (<code>USE_EPOLL</code>)</h2>
+<p>The default backend above registers one QuickJS io handler <em>per fd</em>
+(and re-registers it on every <code>CHANGE_MODE_POLL_FD</code>, since each
+handler is a freshly-built JS closure). Build with <code>-DUSE_EPOLL=ON</code>
+(off by default; Linux-only) to instead route pollfd management
+through a single <code>epoll</code> instance:</p>
+<ol>
+<li><code>LWS_CALLBACK_ADD_POLL_FD</code> / <code>CHANGE_MODE_POLL_FD</code> call
+<code>lws_epoll_ctl(lc, fd, events)</code>, which lazily creates the
+<code>LWSContext</code>'s epoll instance (<code>epoll_create1</code>) on first use and
+issues <code>EPOLL_CTL_ADD</code>/<code>EPOLL_CTL_MOD</code> — no per-fd JS closure is
+created.</li>
+<li><code>LWS_CALLBACK_DEL_POLL_FD</code> calls <code>lws_epoll_del(lc, fd)</code>
+(<code>EPOLL_CTL_DEL</code>).</li>
+<li>The epoll instance's own fd is registered with
+<code>os.setReadHandler</code> exactly once. When it fires, <code>epoll_wait()</code>
+drains all ready fds and calls <code>lws_service_fd()</code> directly in C
+for each one — the QuickJS event loop is only ever woken for the
+one epoll fd, regardless of how many connections are open.</li>
+<li><code>ctx.cancelService()</code> / context teardown calls
+<code>lws_epoll_destroy(lc)</code>, which unregisters that one io handler and
+closes the epoll fd.</li>
+</ol>
+<p>Implemented in <code>lws-epoll.c</code> / <code>lws-epoll.h</code>, wired into
+<code>callback_pollfd()</code> and the inline pollfd handling in
+<code>callback_protocol()</code> (<code>lws-context.c</code>) behind <code>#ifdef USE_EPOLL</code>.
+The <code>LWSContext</code> struct gains an <code>epoll</code> field (also behind
+<code>#ifdef USE_EPOLL</code>) holding the <code>LWSEpoll*</code> instance.</p>
+<p>Everything under "Consequences for user code" below still applies
+unchanged — from script-side JS there's no observable difference
+between the two backends beyond fewer fds ever being registered with
+<code>os.setReadHandler</code>.</p>
+<h2 id="consequences-for-user-code"><a class="anchor" href="#consequences-for-user-code" aria-hidden="true">#</a>Consequences for user code</h2>
+<ul>
+<li><strong>You never call <code>os.setReadHandler</code> for an lws-managed fd
+yourself</strong> — it would clobber the binding's handler.</li>
+<li>The constructor of <code>LWSContext</code> and <code>LWSVhost</code> may <strong>invoke
+callbacks before returning</strong> because the underlying create call
+immediately registers fds with the loop.</li>
+<li>The script stays alive as long as there is at least one fd
+registered (i.e. while there are open connections or a listening
+socket). The standard QuickJS <code>qjs</code> runtime exits when its event
+loop has nothing to wait for.</li>
+<li>To shut everything down explicitly, call <code>ctx.cancelService()</code>.
+It runs <code>lws_cancel_service()</code> then clears every io handler the
+binding created (<code>iohandler_cleanup</code>).</li>
+<li>Closing one connection from JS via <code>wsi.close()</code> is fine — the
+remaining fds keep the loop alive.</li>
+</ul>
+<h2 id="custom-logging"><a class="anchor" href="#custom-logging" aria-hidden="true">#</a>Custom logging</h2>
+<p><code>logLevel(mask, callback)</code> plugs a JS function into libwebsockets'
+log path so the lws log lines flow through the same <code>os</code> loop:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">logLevel</span>, <span class="t-id">getLogLevelName</span>, <span class="t-id">getLogLevelColour</span>, <span class="t-type">LLL_USER</span>, <span class="t-type">LLL_ERR</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">logLevel</span>(<span class="t-type">LLL_USER</span> <span class="t-op">|</span> <span class="t-type">LLL_ERR</span>, (<span class="t-id">level</span>, <span class="t-id">msg</span>) <span class="t-op">=&gt;</span> {
+  <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">`[${getLogLevelName(level)}] ${msg}`</span>);
+});</code></pre></div>
+<p>If you don't supply a callback, libwebsockets writes ANSI-colourised
+output to <code>stderr</code> itself.</p>
+<h2 id="when-to-use-cancelservice"><a class="anchor" href="#when-to-use-cancelservice" aria-hidden="true">#</a>When to use <code>cancelService()</code></h2>
+<ul>
+<li>After an HTTP fetch finishes — call <code>ctx.cancelService()</code> in your
+<code>onClientHttpDropProtocol</code> callback so the script can exit cleanly.</li>
+<li>When tearing down a long-lived server in response to a signal.</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/event-loop.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#how-it-works">How it works</a></li><li class="lvl2"><a href="#optional-epoll7-backend-use_epoll">Optional epoll(7) backend (USE_EPOLL)</a></li><li class="lvl2"><a href="#consequences-for-user-code">Consequences for user code</a></li><li class="lvl2"><a href="#custom-logging">Custom logging</a></li><li class="lvl2"><a href="#when-to-use-cancelservice">When to use cancelService()</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

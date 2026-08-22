@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qjs-lws — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="getting-started.html">Get started</a>
+    <a href="docs/index.html">Docs</a>
+    <a href="changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="getting-started.html" class="here">Getting started</a></li><li><a href="docs/building.html">Building</a></li><li><a href="docs/index.html">API reference</a></li><li><a href="changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="docs/native/module.html">Module exports</a></li><li><a href="docs/native/LWSContext.html">LWSContext</a></li><li><a href="docs/native/LWSVhost.html">LWSVhost</a></li><li><a href="docs/native/LWSSocket.html">LWSSocket</a></li><li><a href="docs/native/LWSSPA.html">LWSSPA</a></li><li><a href="docs/native/LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="docs/native/protocols.html">Protocol handlers</a></li><li><a href="docs/native/callbacks.html">Callback reference</a></li><li><a href="docs/native/mounts.html">Mounts</a></li><li><a href="docs/native/tls.html">TLS</a></li><li><a href="docs/native/event-loop.html">Event loop</a></li><li><a href="docs/native/constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="docs/native/ws-server.html">WebSocket server</a></li><li><a href="docs/native/ws-client.html">WebSocket client</a></li><li><a href="docs/native/http-server.html">HTTP server</a></li><li><a href="docs/native/http-client.html">HTTP client</a></li><li><a href="docs/native/raw-tcp.html">Raw TCP</a></li><li><a href="docs/native/examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="docs/js/helpers.html">lib/ helpers</a></li><li><a href="docs/js/bun.html">Bun-compatible serve()</a></li><li><a href="docs/js/middleware.html">Middleware & routing</a></li><li><a href="docs/api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="qjs-lws"><a class="anchor" href="#qjs-lws" aria-hidden="true">#</a>qjs-lws</h1>
+<p><a href="https://libwebsockets.org/" target="_blank" rel="noopener">libwebsockets</a> bindings for QuickJS.</p>
+<p>Build instructions: <a href="docs/building.html">undefined</a>.
+Full API reference: <a href="docs/index.html">undefined</a>.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">LWSContext</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;</code></pre></div>
+<h2 id="lwscontext"><a class="anchor" href="#lwscontext" aria-hidden="true">#</a><code>LWSContext</code></h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">const</span> <span class="t-id">ctx</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">LWSContext</span>(<span class="t-id">info</span>);</code></pre></div>
+<p>When <code>info.port</code> is set (i.e. the context listens), prefer the
+equivalent <code>createServer(info)</code> — it's the same constructor call
+under a name that reads better at a server call site:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">ctx</span> <span class="t-op">=</span> <span class="t-fn">createServer</span>(<span class="t-id">info</span>);</code></pre></div>
+<p><code>info</code> mirrors <code>struct lws_context_creation_info</code>. Recognised keys
+(see <a href="docs/native/LWSContext.html">undefined</a> for the full list):</p>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>port</code></td><td>number</td><td>TCP port to listen on (omit for a client-only context)</td></tr><tr><td><code>vhostName</code></td><td>string</td><td>Virtual host name</td></tr><tr><td><code>iface</code></td><td>string</td><td>Interface to bind</td></tr><tr><td><code>options</code></td><td>number</td><td>OR-mask of <code>LWS_SERVER_OPTION_*</code></td></tr><tr><td><code>mounts</code></td><td>array</td><td>HTTP mount points — see <a href="docs/native/mounts.html">undefined</a></td></tr><tr><td><code>protocols</code></td><td>array</td><td>Protocol handler objects (below)</td></tr><tr><td><code>listenAcceptRole</code></td><td>string</td><td>Role applied with <code>LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG</code></td></tr><tr><td><code>listenAcceptProtocol</code></td><td>string</td><td>Protocol applied with the role</td></tr><tr><td><code>serverSslCert</code> / <code>serverSslPrivateKey</code> / <code>serverSslCa</code></td><td>string | ArrayBuffer</td><td>TLS material — see <a href="docs/native/tls.html">undefined</a></td></tr></tbody></table></div>
+<p>Property names accept both <code>camelCase</code> and <code>snake_case</code>.</p>
+<h3 id="protocol-handler"><a class="anchor" href="#protocol-handler" aria-hidden="true">#</a>Protocol handler</h3>
+<p>Each entry of <code>protocols</code> maps to one <code>struct lws_protocols</code>. You
+can implement either a single generic <code>callback</code> or named
+<code>onEventName</code> handlers (mix as needed):</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'my-protocol'</span>,
+
+  <span class="t-cm">// Named handler — receives only the event-specific args.</span>
+  <span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>)             { <span class="t-cm">/* `this` is per-connection state */</span> },
+  <span class="t-fn">onReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>, <span class="t-id">len</span>)      { <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">data</span>); },
+  <span class="t-fn">onClosed</span>(<span class="t-id">wsi</span>)                  { },
+
+  <span class="t-cm">// Generic fall-back. Receives the integer reason explicitly.</span>
+  <span class="t-fn">callback</span>(<span class="t-id">wsi</span>, <span class="t-id">reason</span>, ...<span class="t-prop">args</span>) { <span class="t-kw">return</span> <span class="t-num">0</span>; },
+}</code></pre></div>
+<ul>
+<li><code>wsi</code> is an <code>LWSSocket</code> — see <a href="docs/native/LWSSocket.html">undefined</a>.</li>
+<li>The handler's <code>this</code> is a per-connection plain object the binding
+allocates automatically (libwebsockets <code>user</code> data); use it to
+carry connection-local state.</li>
+<li>The named handler is derived from the <code>LWS_CALLBACK_*</code> enum by
+camelCasing and prefixing with <code>on</code>:
+<code>LWS_CALLBACK_CLIENT_ESTABLISHED</code> → <code>onClientEstablished</code>.
+Lookup table is in <code>lws_callback_names[]</code> (<code>lws.c</code>); the
+conversion is exposed at runtime as <code>getCallbackName(n)</code> and
+<code>getCallbackNumber(name)</code>.</li>
+</ul>
+<p>Common reason constants (exported on the module — <code>import {…} from 'lws'</code>):</p>
+<div class="tablewrap"><table><thead><tr><th>Constant</th><th>Value</th><th>When</th></tr></thead><tbody><tr><td><code>LWS_CALLBACK_ESTABLISHED</code></td><td>0</td><td>New WS connection established (server side)</td></tr><tr><td><code>LWS_CALLBACK_CLIENT_ESTABLISHED</code></td><td>3</td><td>Outbound WS connection established</td></tr><tr><td><code>LWS_CALLBACK_CLOSED</code></td><td>4</td><td>Connection closed</td></tr><tr><td><code>LWS_CALLBACK_RECEIVE</code></td><td>6</td><td>Server: WS data received</td></tr><tr><td><code>LWS_CALLBACK_CLIENT_RECEIVE</code></td><td>8</td><td>Client: WS data received</td></tr><tr><td><code>LWS_CALLBACK_SERVER_WRITEABLE</code></td><td>11</td><td>Server: connection is writeable</td></tr><tr><td><code>LWS_CALLBACK_HTTP</code></td><td>12</td><td>HTTP request arrived (server)</td></tr></tbody></table></div>
+<p>The full table is in <a href="docs/native/callbacks.html">undefined</a>.</p>
+<h2 id="minimal-websocket-server"><a class="anchor" href="#minimal-websocket-server" aria-hidden="true">#</a>Minimal WebSocket server</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWSMPRO_NO_MOUNT</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
+  <span class="t-id">vhostName</span><span class="t-op">:</span> <span class="t-str">'localhost'</span>,
+  <span class="t-id">mounts</span><span class="t-op">:</span> [{ <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/chat'</span>, <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'chat'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_NO_MOUNT</span> }],
+  <span class="t-id">protocols</span><span class="t-op">:</span> [{
+    <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'chat'</span>,
+    <span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>)    { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'connect from'</span>, <span class="t-id">wsi</span>.<span class="t-prop">peer</span><span class="t-op">?</span>.<span class="t-prop">host</span>); },
+    <span class="t-fn">onReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>)  { <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">data</span>); },          <span class="t-cm">// echo (text or binary)</span>
+    <span class="t-fn">onClosed</span>(<span class="t-id">wsi</span>)         { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'closed'</span>); },
+  }],
+});
+
+<span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'listening on ws://localhost:8080/chat'</span>);</code></pre></div>
+<h2 id="minimal-http-server"><a class="anchor" href="#minimal-http-server" aria-hidden="true">#</a>Minimal HTTP server</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWSMPRO_CALLBACK</span>, <span class="t-type">LWS_WRITE_HTTP_FINAL</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">3000</span>,
+  <span class="t-id">vhostName</span><span class="t-op">:</span> <span class="t-str">'localhost'</span>,
+  <span class="t-id">mounts</span><span class="t-op">:</span> [{ <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/'</span>, <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'http'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_CALLBACK</span> }],
+  <span class="t-id">protocols</span><span class="t-op">:</span> [{
+    <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'http'</span>,
+    <span class="t-fn">onHttp</span>(<span class="t-id">wsi</span> <span class="t-cm">/*, uri */</span>) {
+      <span class="t-kw">const</span> { <span class="t-id">method</span>, <span class="t-id">uri</span>, <span class="t-id">headers</span> } <span class="t-op">=</span> <span class="t-id">wsi</span>;          <span class="t-cm">// wsi.uri is always correct</span>
+      <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-id">method</span>, <span class="t-id">uri</span>);
+
+      <span class="t-kw">const</span> <span class="t-id">body</span> <span class="t-op">=</span> <span class="t-str">`hello ${uri}\n`</span>;
+
+      <span class="t-id">wsi</span>.<span class="t-fn">respond</span>(<span class="t-num">200</span>, { <span class="t-str">'content-type'</span><span class="t-op">:</span> <span class="t-str">'text/plain'</span> });
+      <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">body</span>, <span class="t-type">LWS_WRITE_HTTP_FINAL</span>);
+    },
+  }],
+});</code></pre></div>
+<h2 id="minimal-http-client"><a class="anchor" href="#minimal-http-client" aria-hidden="true">#</a>Minimal HTTP client</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-type">LWSContext</span>, <span class="t-id">toString</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-kw">const</span> <span class="t-id">ctx</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">LWSContext</span>({
+  <span class="t-id">protocols</span><span class="t-op">:</span> [{
+    <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'http'</span>,
+    <span class="t-fn">onEstablishedClientHttp</span>(<span class="t-id">wsi</span>, <span class="t-id">status</span>) { <span class="t-id">console</span>.<span class="t-fn">error</span>(<span class="t-str">'status'</span>, <span class="t-id">status</span>); },
+    <span class="t-fn">onReceiveClientHttp</span>(<span class="t-id">wsi</span>) {
+      <span class="t-kw">const</span> <span class="t-id">buf</span> <span class="t-op">=</span> <span class="t-kw">new</span> <span class="t-fn">ArrayBuffer</span>(<span class="t-num">64</span> <span class="t-op">*</span> <span class="t-num">1024</span>);
+      <span class="t-kw">if</span>(<span class="t-id">wsi</span>.<span class="t-fn">httpClientRead</span>(<span class="t-id">buf</span>)) <span class="t-kw">this</span>.<span class="t-fn">onReceiveClientHttpRead</span>(<span class="t-id">wsi</span>, <span class="t-id">buf</span>);
+    },
+    <span class="t-fn">onReceiveClientHttpRead</span>(<span class="t-id">wsi</span>, <span class="t-id">buf</span>, <span class="t-id">len</span>) { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-fn">toString</span>(<span class="t-id">buf</span>, <span class="t-num">0</span>, <span class="t-id">len</span>)); },
+    <span class="t-fn">onClosedClientHttp</span>(<span class="t-id">wsi</span>)                 { <span class="t-id">ctx</span>.<span class="t-fn">cancelService</span>(); },
+    <span class="t-fn">onClientConnectionError</span>(<span class="t-id">wsi</span>, <span class="t-id">msg</span>)       { <span class="t-id">console</span>.<span class="t-fn">error</span>(<span class="t-id">msg</span>); <span class="t-id">ctx</span>.<span class="t-fn">cancelService</span>(); },
+  }],
+});
+
+<span class="t-id">ctx</span>.<span class="t-fn">clientConnect</span>(<span class="t-str">'https://example.com/'</span>);</code></pre></div>
+<h2 id="notes"><a class="anchor" href="#notes" aria-hidden="true">#</a>Notes</h2>
+<ul>
+<li>qjs-lws does <strong>not</strong> run <code>lws_service()</code> in a JS loop. It hooks
+the libwebsockets pollfd callbacks and registers fds via
+QuickJS's own <code>os.setReadHandler</code> / <code>os.setWriteHandler</code>. The
+script stays alive while any fd is registered. See
+<a href="docs/native/event-loop.html">undefined</a>.</li>
+<li>Convenience wrappers (<code>fetch</code>, <code>serve</code>, <code>WebSocket</code>, <code>TCPSocket</code>,
+<code>TCPSocketStream</code>, <code>URL</code>/<code>URLSearchParams</code>) live under
+<a href="https://github.com/rsenn/qjs-lws/tree/main/lib" target="_blank" rel="noopener">undefined</a> and are documented in
+<a href="docs/js/helpers.html">undefined</a>.</li>
+<li><code>lib/lws/url.js</code> is a from-spec implementation of the WHATWG URL
+Standard's basic URL parser — special schemes, relative-URL
+resolution, IPv4/IPv6 hosts, <code>file:</code>/opaque-path URLs, and a
+<code>URLSearchParams</code> that writes back through to the parent <code>URL</code>.
+<code>fetch</code>'s <code>Request</code>/<code>Response</code>/<code>Headers</code>/body-reading are a
+conforming <em>subset</em> of WHATWG Fetch (no CORS/cache/service-worker
+semantics — this runs server-side, not in a browser sandbox), with
+spec-checked behaviour where they do overlap: <code>Headers</code> rejects
+header-injection attempts (embedded CR/LF/NUL in values), body
+reading (<code>text()</code>/<code>json()</code>/<code>arrayBuffer()</code>) is UTF-8-correct for
+both string and binary bodies, and <code>Response.redirected</code> reflects
+whether <code>fetch()</code> actually followed a redirect.</li>
+<li>More end-to-end examples in <a href="docs/native/examples.html">undefined</a>.</li>
+</ul></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/README.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#lwscontext">LWSContext</a></li><li class="lvl3"><a href="#protocol-handler">Protocol handler</a></li><li class="lvl2"><a href="#minimal-websocket-server">Minimal WebSocket server</a></li><li class="lvl2"><a href="#minimal-http-server">Minimal HTTP server</a></li><li class="lvl2"><a href="#minimal-http-client">Minimal HTTP client</a></li><li class="lvl2"><a href="#notes">Notes</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>

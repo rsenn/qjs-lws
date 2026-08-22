@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebSocket server — qjs-lws</title>
+<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/style.css">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body class="has-sidebar">
+<header class="topbar">
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <nav class="topnav">
+    <a href="../../getting-started.html">Get started</a>
+    <a href="../../docs/index.html">Docs</a>
+    <a href="../../changelog.html">Changelog</a>
+    <a href="https://github.com/rsenn/qjs-lws" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+  <button class="themetoggle" type="button" aria-label="Toggle colour scheme">◐</button>
+</header>
+<div class="layout">
+<aside class="sidebar"><div class="navgroup"><h3>Start here</h3><ul><li><a href="../../getting-started.html">Getting started</a></li><li><a href="../building.html">Building</a></li><li><a href="../index.html">API reference</a></li><li><a href="../../changelog.html">Changelog</a></li></ul></div><div class="navgroup"><h3>Native API</h3><ul><li><a href="module.html">Module exports</a></li><li><a href="LWSContext.html">LWSContext</a></li><li><a href="LWSVhost.html">LWSVhost</a></li><li><a href="LWSSocket.html">LWSSocket</a></li><li><a href="LWSSPA.html">LWSSPA</a></li><li><a href="LWSSockAddr46.html">LWSSockAddr46</a></li><li><a href="protocols.html">Protocol handlers</a></li><li><a href="callbacks.html">Callback reference</a></li><li><a href="mounts.html">Mounts</a></li><li><a href="tls.html">TLS</a></li><li><a href="event-loop.html">Event loop</a></li><li><a href="constants.html">Constants</a></li></ul></div><div class="navgroup"><h3>Recipes</h3><ul><li><a href="ws-server.html" class="here">WebSocket server</a></li><li><a href="ws-client.html">WebSocket client</a></li><li><a href="http-server.html">HTTP server</a></li><li><a href="http-client.html">HTTP client</a></li><li><a href="raw-tcp.html">Raw TCP</a></li><li><a href="examples.html">All examples</a></li></ul></div><div class="navgroup"><h3>JavaScript layer</h3><ul><li><a href="../js/helpers.html">lib/ helpers</a></li><li><a href="../js/bun.html">Bun-compatible serve()</a></li><li><a href="../js/middleware.html">Middleware & routing</a></li><li><a href="../api-compatibility.html">API compatibility</a></li></ul></div></aside>
+<main class="doc">
+<article><h1 id="websocket-server"><a class="anchor" href="#websocket-server" aria-hidden="true">#</a>WebSocket server</h1>
+<p>A WebSocket server is just an <code>LWSContext</code> with a protocol whose
+WebSocket callbacks are populated, plus a mount that gives the
+protocol a URL prefix (or that is implicit by selecting the protocol
+via <code>Sec-WebSocket-Protocol</code>).</p>
+<h2 id="minimal-echo-server"><a class="anchor" href="#minimal-echo-server" aria-hidden="true">#</a>Minimal echo server</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWS_WRITE_TEXT</span>, <span class="t-type">LWSMPRO_NO_MOUNT</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
+  <span class="t-id">vhostName</span><span class="t-op">:</span> <span class="t-str">'localhost'</span>,
+  <span class="t-id">mounts</span><span class="t-op">:</span> [{
+    <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/echo'</span>,
+    <span class="t-id">protocol</span><span class="t-op">:</span>   <span class="t-str">'echo'</span>,
+    <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_NO_MOUNT</span>,
+  }],
+  <span class="t-id">protocols</span><span class="t-op">:</span> [{
+    <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'echo'</span>,
+    <span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>)    { <span class="t-kw">this</span>.<span class="t-prop">peer</span> <span class="t-op">=</span> <span class="t-id">wsi</span>.<span class="t-prop">peer</span><span class="t-op">?</span>.<span class="t-prop">host</span>; <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'open'</span>, <span class="t-kw">this</span>.<span class="t-prop">peer</span>); },
+    <span class="t-fn">onReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>)  { <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">data</span>); },               <span class="t-cm">// text or binary</span>
+    <span class="t-fn">onClosed</span>(<span class="t-id">wsi</span>)         { <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'close'</span>, <span class="t-kw">this</span>.<span class="t-prop">peer</span>); },
+  }],
+});</code></pre></div>
+<p>The <code>this</code> object inside the callbacks is <strong>per-connection</strong> — see
+<a href="LWSSocket.html#lifetime--per-session-data">LWSSocket.md</a>.</p>
+<h2 id="backpressure-writing-only-when-writeable"><a class="anchor" href="#backpressure-writing-only-when-writeable" aria-hidden="true">#</a>Backpressure: writing only when writeable</h2>
+<p>For any write larger than one packet, request a writeable signal
+and queue data inside the writeable callback:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'feed'</span>,
+  <span class="t-kw">async</span> <span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>) {
+    <span class="t-kw">this</span>.<span class="t-prop">queue</span> <span class="t-op">=</span> [<span class="t-str">'a'</span>, <span class="t-str">'b'</span>, <span class="t-str">'c'</span>, <span class="t-str">'d'</span>];
+    <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>();
+  },
+  <span class="t-fn">onServerWriteable</span>(<span class="t-id">wsi</span>) {
+    <span class="t-kw">const</span> <span class="t-id">msg</span> <span class="t-op">=</span> <span class="t-kw">this</span>.<span class="t-prop">queue</span>.<span class="t-fn">shift</span>();
+    <span class="t-kw">if</span>(<span class="t-id">msg</span> <span class="t-op">!==</span> <span class="t-atom">undefined</span>) <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">msg</span>);
+    <span class="t-kw">if</span>(<span class="t-kw">this</span>.<span class="t-prop">queue</span>.<span class="t-prop">length</span>) <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>();
+  },
+}</code></pre></div>
+<p>You can also pass a one-shot handler to <code>wantWrite</code>:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">await</span> <span class="t-kw">new</span> <span class="t-fn">Promise</span>(<span class="t-id">r</span> <span class="t-op">=&gt;</span> <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>(<span class="t-id">r</span>));    <span class="t-cm">// resolves on next writeable</span>
+<span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-str">'hello'</span>);</code></pre></div>
+<h2 id="sub-protocols-and-the-upgrade"><a class="anchor" href="#sub-protocols-and-the-upgrade" aria-hidden="true">#</a>Sub-protocols and the upgrade</h2>
+<p>If the client sends <code>Sec-WebSocket-Protocol: chat, foo</code>, lws picks
+the first JS protocol whose <code>name</code> matches. Bind a URL prefix to a
+protocol name via <code>mounts</code> (<code>LWSMPRO_NO_MOUNT</code> reserves the prefix
+for non-HTTP use).</p>
+<p>To intercept the upgrade itself:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'chat'</span>,
+  <span class="t-fn">onHttpConfirmUpgrade</span>(<span class="t-id">wsi</span>, <span class="t-id">kind</span>) {       <span class="t-cm">// kind === 'websocket'</span>
+    <span class="t-kw">if</span>(<span class="t-op">!</span><span class="t-fn">validate</span>(<span class="t-id">wsi</span>.<span class="t-prop">headers</span>)) <span class="t-kw">return</span> <span class="t-op">-</span><span class="t-num">1</span>;  <span class="t-cm">// reject</span>
+  },
+  <span class="t-fn">onFilterProtocolConnection</span>(<span class="t-id">wsi</span>, <span class="t-id">name</span>) { <span class="t-cm">/* inspect chosen subprotocol */</span> },
+  <span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>) { … },
+}</code></pre></div>
+<h2 id="receiving-multi-fragment-messages"><a class="anchor" href="#receiving-multi-fragment-messages" aria-hidden="true">#</a>Receiving multi-fragment messages</h2>
+<p>For frames larger than the configured <code>rx_buffer_size</code>, the
+fragment descriptor is appended as a third argument:</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">onReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>, <span class="t-id">len</span>, <span class="t-id">frame</span>) {
+  <span class="t-kw">if</span>(<span class="t-id">frame</span><span class="t-op">?</span>.<span class="t-prop">multifragment</span>) {
+    <span class="t-kw">this</span>.<span class="t-prop">parts</span> <span class="t-op">??=</span> [];
+    <span class="t-kw">this</span>.<span class="t-prop">parts</span>.<span class="t-fn">push</span>(<span class="t-id">data</span>);
+    <span class="t-kw">if</span>(<span class="t-id">frame</span>.<span class="t-prop">final</span>) {
+      <span class="t-fn">handle</span>(<span class="t-fn">concat</span>(<span class="t-kw">this</span>.<span class="t-prop">parts</span>));
+      <span class="t-kw">this</span>.<span class="t-prop">parts</span>.<span class="t-prop">length</span> <span class="t-op">=</span> <span class="t-num">0</span>;
+    }
+  } <span class="t-kw">else</span> {
+    <span class="t-fn">handle</span>(<span class="t-id">data</span>);
+  }
+}</code></pre></div>
+<h2 id="handling-the-close-frame"><a class="anchor" href="#handling-the-close-frame" aria-hidden="true">#</a>Handling the close frame</h2>
+<p>When the peer sends a close frame, the binding synthesises
+<code>onWsPeerInitiatedClose(wsi, code, reasonStr)</code> instead of
+<code>onClientReceive</code>. After <code>onClosed</code> runs the connection is gone.</p>
+<div class="codeblock" data-lang="js"><pre><code class="language-js">{
+  <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'chat'</span>,
+  <span class="t-fn">onWsPeerInitiatedClose</span>(<span class="t-id">wsi</span>, <span class="t-id">code</span>, <span class="t-id">reason</span>) {
+    <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'peer closed'</span>, <span class="t-id">code</span>, <span class="t-id">reason</span>);
+    <span class="t-kw">return</span> <span class="t-num">0</span>;
+  },
+  <span class="t-fn">onClosed</span>(<span class="t-id">wsi</span>) { … },
+}</code></pre></div>
+<h2 id="closing-from-the-server"><a class="anchor" href="#closing-from-the-server" aria-hidden="true">#</a>Closing from the server</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-id">wsi</span>.<span class="t-fn">close</span>(<span class="t-num">1000</span>, <span class="t-str">'bye'</span>);     <span class="t-cm">// status code + optional reason</span></code></pre></div>
+<p><code>code</code> defaults to <code>1000</code>. <code>reason</code> may be a string or <code>ArrayBuffer</code>.</p>
+<h2 id="reflecting-client-headers"><a class="anchor" href="#reflecting-client-headers" aria-hidden="true">#</a>Reflecting client headers</h2>
+<div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">onEstablished</span>(<span class="t-id">wsi</span>) {
+  <span class="t-kw">const</span> { <span class="t-id">headers</span> } <span class="t-op">=</span> <span class="t-id">wsi</span>;
+  <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'User-Agent:'</span>, <span class="t-id">headers</span>[<span class="t-str">'user-agent'</span>]);
+  <span class="t-id">console</span>.<span class="t-fn">log</span>(<span class="t-str">'Origin:'</span>,     <span class="t-id">headers</span>[<span class="t-str">'origin'</span>]);
+}</code></pre></div>
+<p><code>wsi.headers</code> is populated on first access after a relevant HTTP
+callback (<code>FILTER_HTTP_CONNECTION</code>, <code>CLIENT_FILTER_PRE_ESTABLISH</code>,
+<code>HTTP</code>, <code>ESTABLISHED_CLIENT_HTTP</code>).</p></article>
+<p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/native/ws-server.md">Edit this page on GitHub →</a></p>
+</main>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#minimal-echo-server">Minimal echo server</a></li><li class="lvl2"><a href="#backpressure-writing-only-when-writeable">Backpressure: writing only when writeable</a></li><li class="lvl2"><a href="#sub-protocols-and-the-upgrade">Sub-protocols and the upgrade</a></li><li class="lvl2"><a href="#receiving-multi-fragment-messages">Receiving multi-fragment messages</a></li><li class="lvl2"><a href="#handling-the-close-frame">Handling the close frame</a></li><li class="lvl2"><a href="#closing-from-the-server">Closing from the server</a></li><li class="lvl2"><a href="#reflecting-client-headers">Reflecting client headers</a></li></ul></nav>
+</div>
+<footer class="sitefoot">
+  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+</footer>
+<script>
+document.querySelector('.themetoggle').addEventListener('click', function () {
+  var d = document.documentElement;
+  var dark = d.dataset.theme ? d.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  d.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', d.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>
