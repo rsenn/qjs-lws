@@ -30,24 +30,29 @@ under <code>Unreleased</code> until that changes.</p>
 <h2 id="unreleased"><a class="anchor" href="#unreleased" aria-hidden="true">#</a>Unreleased</h2>
 <h3 id="added"><a class="anchor" href="#added" aria-hidden="true">#</a>Added</h3>
 <ul>
-<li><code>lib/lws/url.js</code>: a conforming subset of the WHATWG URL Standard —
+<li><p>Documentation site under <code>tools/site/</code>, built by `qjsm
+tools/site/build.js<code>and published from the orphan</code>gh-pages` branch:
+a landing page plus every <code>doc/**</code> page rendered to HTML, with no
+toolchain beyond qjsm (the markdown renderer and syntax highlighter
+live in <code>tools/site/</code>). See <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/README.md" target="_blank" rel="noopener">tools/site/README.md</a>.</p></li>
+<li><p><code>lib/lws/url.js</code>: a conforming subset of the WHATWG URL Standard —
 <code>URL</code> and <code>URLSearchParams</code>, implemented from the spec's basic URL
 parser state machine (special schemes, relative resolution,
 IPv4/IPv6 hosts, <code>file:</code>/opaque-path URLs, percent-encoding per
 component). <code>URLSearchParams</code> writes back through to its parent
 <code>URL</code>'s <code>search</code>/<code>href</code>. Known deviation: no IDNA/Punycode (non-ASCII
 domain labels stay as lowercased UTF-8 rather than <code>xn--</code> form).
-See <a href="docs/js/helpers.html#liblwsurljs">doc/js/helpers.md</a>.</li>
-<li><code>Response</code> gained a <code>redirected</code> property (default <code>false</code>,
+See <a href="docs/js/helpers.html#liblwsurljs">doc/js/helpers.md</a>.</p></li>
+<li><p><code>Response</code> gained a <code>redirected</code> property (default <code>false</code>,
 preserved by <code>clone()</code>); <code>lib/fetch.js</code> sets it to <code>true</code> when lws
-follows a redirect.</li>
-<li>New <code>USE_EPOLL</code> CMake option (default <code>OFF</code>, Linux-only): routes
+follows a redirect.</p></li>
+<li><p>New <code>USE_EPOLL</code> CMake option (default <code>OFF</code>, Linux-only): routes
 pollfd management through a single <code>epoll(7)</code> instance
 (<code>lws-epoll.c</code>/<code>lws-epoll.h</code>) instead of one <code>os.setReadHandler</code>/
 <code>setWriteHandler</code> registration per fd. Previously these sources
 existed but were unconditionally excluded from the build. See
-<a href="docs/native/event-loop.html#optional-epoll7-backend-use_epoll">doc/native/event-loop.md</a>.</li>
-<li>Traffic logging under <code>LLL_USER</code>: every payload actually handed to
+<a href="docs/native/event-loop.html#optional-epoll7-backend-use_epoll">doc/native/event-loop.md</a>.</p></li>
+<li><p>Traffic logging under <code>LLL_USER</code>: every payload actually handed to
 <code>lws_write()</code> via <code>wsi.write()</code>/<code>wsi.respond()</code> now logs a `TX &lt;n&gt;
 bytes (proto=&lt;p&gt;): &lt;preview&gt;<code> line (</code>lws-socket.c`), and every
 `LWS_CALLBACK_{CLIENT_RECEIVE,CLIENT_RECEIVE_PONG,MQTT_CLIENT_RX,
@@ -60,7 +65,7 @@ new logging plumbing, this rides the existing <code>logLevel()</code>
 mechanism, so it's silent unless <code>LLL_USER</code> is enabled (as
 <code>lib/lws/context.js</code>'s default logger already does when <code>DEBUG</code> is
 set) and colorized/filtered the same way any other <code>LLL_USER</code>
-message is.</li>
+message is.</p></li>
 </ul>
 <h3 id="fixed"><a class="anchor" href="#fixed" aria-hidden="true">#</a>Fixed</h3>
 <ul>
