@@ -72,7 +72,15 @@ model (`qwen2.5-coder` by default) about the files in your project.
   README\* in the tree used to be seeded here, which ran to tens of KB
   before a single word had been exchanged; a top-level overview is enough
   to know the project's shape; `LIST:`/`READ:` reaches anything deeper.
-  `/reset` clears conversation history but keeps this initial scan.
+  `/reset` clears conversation history but keeps this initial scan; `/clear`
+  wipes it too, for a session with no scan at all.
+- **Session persistence.** The conversation is saved to `<model>.json`
+  (`lib/session-store.js`) after every turn and after `/reset`/`/clear`. If
+  that file already exists at startup, the REPL resumes from it instead of
+  running the automatic project scan again - kill and restart the REPL
+  (same `--model`, same working directory) and the conversation picks up
+  where it left off. `/clear` (see above) is the way to discard a resumed
+  session and start over.
 - **QuickJS/qjs-modules awareness.** The system prompt points the model at
   `quickjs.h` (the QuickJS C API) and the qjs-modules JS built-ins
   (`fs`/`console`/`process`/`util`) by name rather than paraphrasing their
@@ -96,7 +104,9 @@ model (`qwen2.5-coder` by default) about the files in your project.
 - **Session log.** Every prompt (with what was attached), reply, tool
   result, and file written is appended, timestamped, to `<model>.log` in
   the current directory (`lib/session-log.js`) - independent of the
-  terminal, and across runs (opened in append mode).
+  terminal, and across runs (opened in append mode). This is a read-only
+  transcript; `<model>.json` (see "Session persistence" above) is the
+  actual resumable conversation state.
 - **Thinking indicator.** A small animated "▘ Thinking..." spinner (cycling
   through the four Unicode quadrant-block glyphs) shows while waiting on
   the model, replaced by the reply the moment the first token (or the
@@ -184,6 +194,8 @@ connection rather than the model traffic is what's under suspicion.
 ## REPL commands
 
 - `/reset` - clear the conversation history (keeps the initial project scan)
+- `/clear` - wipe the conversation history completely, including the
+  initial project scan
 - `/exit` / `/quit` - quit (Ctrl-D also works)
 - `/help` - list commands
 - `/run <command>` - run a shell command yourself, immediately - no model

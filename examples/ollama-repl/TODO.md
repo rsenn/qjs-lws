@@ -201,6 +201,18 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- Session persistence and `/clear` (2026-08-17): the conversation
+  (`messages`, plus the `/reset` baseline `baseMessageCount`) is now saved
+  to `<model>.json` (`lib/session-store.js`) after every completed turn
+  and after `/reset`/`/clear`, and reloaded from there at startup instead
+  of always re-running the automatic project scan - a killed or restarted
+  REPL picks the session back up where it left off (same model name, same
+  `--root`; a different model or a fresh directory just starts clean, no
+  file to load). `/clear` wipes the conversation *and* the `/reset`
+  baseline completely (no system prompt, no project scan - a full restart
+  in place), unlike `/reset`, which keeps the initial project scan.
+  `/context` (already existed, see the entry below) is the way to inspect
+  what's currently held, resumed or not.
 - "Only the first prompt gets a reply, every one after it just hangs"
   (2026-08-09): root-caused and fixed - both `OllamaClient` and
   `GeminiClient` (`lib/ollama-client.js`/`lib/gemini-client.js`) reuse one

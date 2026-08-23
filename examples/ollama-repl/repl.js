@@ -51,6 +51,7 @@ import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js
 import { fileMode, SKIP_DIRS } from './lib/match.js';
 import { ChatREPL } from './lib/chat-repl.js';
 import { SessionLog } from './lib/session-log.js';
+import { SessionStore } from './lib/session-store.js';
 import { SentFiles } from './lib/sent-files.js';
 import { FileExchange } from './lib/file-exchange.js';
 import { runCommand } from './lib/run-command.js';
@@ -440,6 +441,7 @@ function totalChars(msgs) {
 }
 
 const HELP_TEXT = `/reset          - clear conversation history (keeps the initial project scan)
+/clear          - wipe conversation history completely, including the initial project scan
 /exit, /quit    - quit
 /help           - this text
 /run <command>  - run a shell command yourself, right now (no model round trip, no approval prompt - it's you asking, not the model)
@@ -475,7 +477,11 @@ async function main() {
   const log = new SessionLog(`${opts.model}.log`);
   const sentFiles = new SentFiles(opts.model, opts.root);
   const fileExchange = new FileExchange(opts.model, opts.root);
-  const messages = opts.failsafe ? [] : [{ role: 'system', content: SYSTEM_PROMPT }];
+  const store = new SessionStore(opts.model);
+  const saved = store.load();
+
+  const messages = saved ? saved.messages : opts.failsafe ? [] : [{ role: 'system', content: SYSTEM_PROMPT }];
+  const saveSession = () => store.save(messages, baseMessageCount);
 
   const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : opts.provider === 'openai' ? 'api.openai.com' : `${opts.host}:${opts.port}`;
   console.log(`ollama-repl: ${opts.provider}/${opts.model} @ ${endpoint}  (root: ${opts.root})${opts.failsafe ? '  [failsafe: no system prompt/project scan/tools]' : ''}`);
@@ -484,7 +490,9 @@ async function main() {
   console.log(`Logging this session to ${opts.model}.log.`);
   console.log(`History persists (^R to search, up/down to recall).`);
 
-  if(!opts.failsafe) {
+  if(saved) {
+    console.log(`\x1b[2m(resumed session from ${store.path}: ${messages.length} messages)\x1b[0m`);
+  } else if(!opts.failsafe) {
     console.log(`\x1b[2m(scanning project layout...)\x1b[0m`);
 
     const projectContext = await gatherProjectContext(opts.root);
@@ -501,7 +509,8 @@ async function main() {
   console.log('ready!');
 
   // /reset clears conversation history, not the auto-loaded project scan.
-  const baseMessageCount = messages.length;
+  let baseMessageCount = saved ? saved.baseMessageCount : messages.length;
+  saveSession();
   const startedAt = Date.now();
 
   /* Set to the active client's abort() (see chatRound() above) for the
@@ -522,7 +531,16 @@ async function main() {
 
       if(prompt === '/reset') {
         messages.length = baseMessageCount;
+        saveSession();
         console.log('(conversation reset)');
+        return;
+      }
+
+      if(prompt === '/clear') {
+        messages.length = 0;
+        baseMessageCount = 0;
+        saveSession();
+        console.log('(context cleared)');
         return;
       }
 
@@ -595,6 +613,7 @@ async function main() {
 
         messages.push({ role: 'assistant', content: reply });
         log.reply(reply);
+        saveSession();
         return;
       }
 
@@ -634,12 +653,14 @@ async function main() {
 
       const written = await applyFileBlocks(reply, opts.root, sentFiles, fileExchange);
       log.modified(written);
+      saveSession();
     },
     opts.root,
     () => abortRef.current?.() ?? false,
   );
 
   repl.addCleanupHandler(() => {
+    saveSession();
     log.close();
     client.destroy();
   });
