@@ -32,6 +32,7 @@
 
 size_t camelize(char*, size_t, const char*);
 size_t decamelize(char*, size_t, const char*);
+size_t log_escape(char*, size_t, const void*, size_t);
 
 int lwsjs_html_process_args(JSContext*, struct lws_process_html_args*, int, JSValueConst[]);
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
@@ -82,22 +83,6 @@ list_size(struct list_head* list) {
   list_for_each(el, list) { ++i; }
 
   return i;
-}
-
-/* Renders up to the first 40 bytes of `data` into `out` (must be >= 41
-   bytes) as a single-line, terminal-safe preview for TX/RX logging: every
-   non-printable byte becomes '.', nothing else is escaped. Truncation past
-   40 bytes is the caller's job to flag (compare `len` against 40). */
-static inline void
-log_preview(char* out, size_t outsz, const void* data, size_t len) {
-  const uint8_t* p = data;
-  size_t max = len < outsz - 1 ? len : outsz - 1;
-  size_t i;
-
-  for(i = 0; i < max; ++i)
-    out[i] = isprint(p[i]) ? (char)p[i] : '.';
-
-  out[i] = '\0';
 }
 
 /* The reasons that carry a payload worth logging under LLL_USER - every

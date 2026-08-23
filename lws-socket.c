@@ -138,9 +138,6 @@ socket_flush(LWSSocket* s) {
     }
 
     int n;
-    char preview[remaining + 1];
-
-    log_preview(preview, sizeof(preview), wc->buf + LWS_PRE + wc->pos, remaining);
 
     if((n = lws_write(s->wsi, wc->buf + LWS_PRE + wc->pos, remaining, wp)) < 0) {
       /* Connection is dead — drop everything so we don't keep re-arming. */
@@ -148,9 +145,12 @@ socket_flush(LWSSocket* s) {
       return;
     }
 
-    if(n > 0)
+    if(n > 0) {
+      char preview[4 * (size_t)n + 1];
+      size_t shown = log_escape(preview, sizeof(preview), wc->buf + LWS_PRE + wc->pos, (size_t)n);
+
       lwsl_wsi_user(s->wsi,
-                    "TX %d bytes (proto=%s): %.*s%s\n",
+                    "TX %d bytes (proto=%s): %s%s\n",
                     n,
                     ((const char*[]){
                         "TEXT",
@@ -167,9 +167,9 @@ socket_flush(LWSSocket* s) {
                         "NO_FIN",
                         "H2_STREAM_END",
                     })[wp & 0xf],
-                    (int)n,
                     preview,
-                    (size_t)n > sizeof(preview) - 1 ? "..." : "");
+                    shown < (size_t)n ? "..." : "");
+    }
 
     /* A single lws_write() call for a WS text/binary message IS the whole
        message: if the OS can't take it all immediately, lws buffers the
@@ -827,10 +827,10 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     if(n > 0) {
-      char preview[n + (n >> 2)];
+      char preview[4 * (size_t)n + 1];
+      size_t shown = log_escape(preview, sizeof(preview), ptr, (size_t)n);
 
-      log_preview(preview, sizeof(preview), ptr, (size_t)n);
-      lwsl_wsi_user(s->wsi, "TX %d bytes (proto=%d): %s%s\n", n, LWS_WRITE_HTTP_FINAL, preview, (size_t)n > sizeof(preview) - 1 ? "..." : "");
+      lwsl_wsi_user(s->wsi, "TX %d bytes (proto=%d): %s%s\n", n, LWS_WRITE_HTTP_FINAL, preview, shown < (size_t)n ? "..." : "");
     }
 
     written += n;

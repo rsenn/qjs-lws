@@ -648,10 +648,10 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   if(wsi) {
     if(is_rx_reason(reason)) {
       if(in && len > 0) {
-        char preview[len + (len >> 2)];
+        char preview[4 * len + 1];
+        size_t shown = log_escape(preview, sizeof(preview), in, len);
 
-        log_preview(preview, sizeof(preview), in, len);
-        lwsl_wsi_user(wsi, "%s: RX %zu bytes: %s%s\n", lwsjs_callback_name(reason), len, preview, len > sizeof(preview) - 1 ? "..." : "");
+        lwsl_wsi_user(wsi, "%s: RX %zu bytes: %s%s\n", lwsjs_callback_name(reason), len, preview, shown < len ? "..." : "");
       } else {
         lwsl_wsi_user(wsi, "%s\n", lwsjs_callback_name(reason));
       }

@@ -176,6 +176,64 @@ decamelize(char* dst, size_t dlen, const char* src) {
   return j;
 }
 
+/* Renders all of `data` (`len` bytes) into `out` as a single-line,
+   echo -e-compatible escape for TX/RX logging: backslash and the named
+   control chars use their short C-escape spelling (\\ \a \b \e \f \n \r
+   \t \v), every other non-printable byte becomes \xHH, and anything else
+   passes through unchanged. One input byte can expand into up to 4 output
+   chars, so `out` needs up to 4*len+1 bytes to never truncate - smaller
+   `outsz` just truncates earlier. Returns the number of *input* bytes
+   actually rendered (<= len); less than that means `outsz` ran out
+   first - compare the return value against `len` to flag truncation. */
+size_t
+log_escape(char* out, size_t outsz, const void* data, size_t len) {
+  static const char named_from[] = "\a\b\e\f\n\r\t\v";
+  static const char named_to[] = "abefnrtv";
+  static const char hex[] = "0123456789abcdef";
+  const uint8_t* p = data;
+  size_t i, j = 0;
+
+  if(outsz == 0)
+    return 0;
+
+  for(i = 0; i < len; ++i) {
+    uint8_t c = p[i];
+    char buf[4];
+    size_t blen;
+
+    if(c == '\\') {
+      buf[0] = buf[1] = '\\';
+      blen = 2;
+    } else if(isprint(c)) {
+      buf[0] = (char)c;
+      blen = 1;
+    } else {
+      const char* esc = memchr(named_from, c, sizeof(named_from) - 1);
+
+      if(esc) {
+        buf[0] = '\\';
+        buf[1] = named_to[esc - named_from];
+        blen = 2;
+      } else {
+        buf[0] = '\\';
+        buf[1] = 'x';
+        buf[2] = hex[(c >> 4) & 0xf];
+        buf[3] = hex[c & 0xf];
+        blen = 4;
+      }
+    }
+
+    if(j + blen >= outsz)
+      break;
+
+    memcpy(out + j, buf, blen);
+    j += blen;
+  }
+
+  out[j] = '\0';
+  return i;
+}
+
 /* WHATWG Encoding Standard's UTF-8 decoder (non-fatal mode): replaces
    every malformed byte or byte sequence with U+FFFD instead of
    rejecting the input, byte-range boundaries (including the 0xE0/0xED/
