@@ -97,6 +97,25 @@ socket_write_queue_clear(LWSSocket* s) {
    check). */
 #define HTTP_WRITE_CHUNK_MAX 16384
 
+/* enum lws_write_protocol's low nibble (LWS_WRITE_TEXT..LWS_WRITE_H2_STREAM_END)
+   as names, for TX traffic logging (socket_flush(), lwsjs_socket_write()'s
+   dispatching fast path below). */
+static const char* const lwsjs_write_proto_names[] = {
+    "TEXT",
+    "BINARY",
+    "CONTINUATION",
+    "HTTP",
+    0,
+    "PING",
+    "PONG",
+    "HTTP_FINAL",
+    "HTTP_HEADERS",
+    "HTTP_HEADERS_CONTINUATION",
+    "BUFLIST",
+    "NO_FIN",
+    "H2_STREAM_END",
+};
+
 /* Drain as many queued chunks as libwebsockets is willing to accept. If any
    remain (partial write, or lws is currently holding a partial internally),
    re-arm the writeable callback so we get called back to try again. */
@@ -148,23 +167,8 @@ socket_flush(LWSSocket* s) {
     if(n > 0) {
       /* Bypasses lwsl_wsi_user()'s fixed 1024-byte formatting buffer (see
          BUGS: lws-log-line-1024-byte-cap) via lwsjs_log_user_line() (lws.h). */
-      static const char* const wp_names[] = {
-          "TEXT",
-          "BINARY",
-          "CONTINUATION",
-          "HTTP",
-          0,
-          "PING",
-          "PONG",
-          "HTTP_FINAL",
-          "HTTP_HEADERS",
-          "HTTP_HEADERS_CONTINUATION",
-          "BUFLIST",
-          "NO_FIN",
-          "H2_STREAM_END",
-      };
       char prefix[256];
-      size_t plen = lwsjs_log_tx_prefix(prefix, sizeof(prefix), s->wsi, (unsigned long)n, wp_names[wp & 0xf]);
+      size_t plen = lwsjs_log_tx_prefix(prefix, sizeof(prefix), s->wsi, (unsigned long)n, lwsjs_write_proto_names[wp & 0xf]);
 
       lwsjs_log_user_line(s->wsi, prefix, plen, wc->buf + LWS_PRE + wc->pos, (size_t)n);
     }
@@ -689,6 +693,72 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
 
   if(len > size)
     len = size;
+
+  BOOL is_ws_message = proto != LWS_WRITE_HTTP && proto != LWS_WRITE_HTTP_FINAL;
+
+  /* We're synchronously inside this wsi's own ..._WRITEABLE callback
+     dispatch (lws-protocol.c sets s->dispatching/s->dispatch_reason around
+     that JS_Call) with nothing already ahead of us in write_queue - lws has
+     *just* told us we may write right now, so go straight to lws_write()
+     instead of round-tripping through write_chunk_new()/the write_queue/
+     socket_flush(), which exist to handle writing outside that window
+     (queued for a future WRITEABLE, or a chunk over HTTP_WRITE_CHUNK_MAX
+     that needs splitting across several - this fast path only takes over
+     the common single-call case; anything bigger falls through to the
+     normal queued path below, same as always). Capped to
+     HTTP_WRITE_CHUNK_MAX even for a WS message (which is otherwise never
+     split - see is_ws_message's use further down): unlike write_chunk_new()
+     this uses a stack buffer, so an unbounded single WS write here would
+     risk a stack overflow instead of just a large heap allocation. */
+  if(s->dispatching && is_writeable_reason(s->dispatch_reason) && list_empty(&s->write_queue) && len <= HTTP_WRITE_CHUNK_MAX) {
+    uint8_t stackbuf[LWS_PRE + len];
+
+    if(len)
+      memcpy(stackbuf + LWS_PRE, buf, len);
+
+    if(text)
+      JS_FreeCString(ctx, (const char*)buf);
+
+    if(sa && lws_wsi_is_udp(s->wsi)) {
+      struct lws_udp* udp;
+
+      if((udp = (struct lws_udp*)lws_get_udp(s->wsi)))
+        udp->sa46 = udp->sa46_pending = *sa;
+    }
+
+    int n = lws_write(s->wsi, stackbuf + LWS_PRE, len, proto);
+
+    if(n > 0) {
+      /* Bypasses lwsl_wsi_user()'s fixed 1024-byte formatting buffer (see
+         BUGS: lws-log-line-1024-byte-cap) via lwsjs_log_user_line() (lws.h). */
+      char prefix[256];
+      size_t plen = lwsjs_log_tx_prefix(prefix, sizeof(prefix), s->wsi, (unsigned long)n, lwsjs_write_proto_names[proto & 0xf]);
+
+      lwsjs_log_user_line(s->wsi, prefix, plen, stackbuf + LWS_PRE, (size_t)n);
+    }
+
+    /* Same "a WS message is never split, an HTTP body write can be" rule
+       as socket_flush() (see its own comment on is_ws_message) - a
+       partial HTTP write's leftover still needs to go out, but we won't
+       get another synchronous invitation to write until the next real
+       WRITEABLE, so queue it and re-arm exactly like socket_flush()'s own
+       tail does. */
+    if(n >= 0 && !is_ws_message && (size_t)n < len) {
+      WriteChunk* wc = write_chunk_new(stackbuf + LWS_PRE + n, len - (size_t)n, proto);
+
+      if(wc) {
+        list_add_tail(&wc->link, &s->write_queue);
+        s->write_buffered += len - (size_t)n;
+        lws_callback_on_writable(s->wsi);
+      }
+    } else if(n >= 0 && proto == LWS_WRITE_HTTP_FINAL && lws_http_transaction_completed(s->wsi)) {
+      s->completed = TRUE;
+    }
+
+    DEBUG_WSI(s->wsi, "direct-wrote %d/%zu bytes (dispatching, proto=%d)", n, len, proto);
+
+    return JS_NewInt32(ctx, (int)len);
+  }
 
   WriteChunk* wc = write_chunk_new(buf, len, proto);
 
