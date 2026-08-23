@@ -53,11 +53,11 @@ typedef struct {
   int fd, events;
   BOOL write;
   struct lws_context* lws;
-} LWSPollfdClosure;
+} PollFdClosure;
 
 static JSValue
 pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv, int magic, void* opaque) {
-  LWSPollfdClosure* pc = opaque;
+  PollFdClosure* pc = opaque;
   struct lws_pollfd pf = {
       .fd = pc->fd,
       .events = pc->events,
@@ -243,7 +243,7 @@ lwsjs_callback_name(enum lws_callback_reasons reason) {
   return 0;
 }
 
-/*enum lws_callback_reasons*/ int
+int
 lwsjs_callback_find(const char* name) {
   char buf[128];
 
@@ -532,9 +532,9 @@ lwsjs_callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* u
       lws_epoll_ctl(lws, x->fd, x->events);
 #else
       BOOL write = !!(x->events & POLLOUT);
-      LWSPollfdClosure* pc;
+      PollFdClosure* pc;
 
-      if(!(pc = malloc(sizeof(LWSPollfdClosure))))
+      if(!(pc = malloc(sizeof(PollFdClosure))))
         return -1;
 
       pc->fd = x->fd;
@@ -592,9 +592,9 @@ lwsjs_register_pipe_fds(LWSContext* lws) {
     lws_epoll_ctl(lws, fd, POLLIN);
 #else
     {
-      LWSPollfdClosure* pc;
+      PollFdClosure* pc;
 
-      if(!(pc = malloc(sizeof(LWSPollfdClosure))))
+      if(!(pc = malloc(sizeof(PollFdClosure))))
         continue;
 
       pc->fd = fd;
