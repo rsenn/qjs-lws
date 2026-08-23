@@ -247,7 +247,7 @@ lwsjs_callback_name(enum lws_callback_reasons reason) {
 lwsjs_callback_find(const char* name) {
   char buf[128];
 
-  decamelize(buf, sizeof(buf), name);
+  lwsjs_decamelize(buf, sizeof(buf), name);
 
   for(size_t i = 0; i < countof(callback_names); i++)
     if(callback_names[i])
@@ -266,7 +266,7 @@ callbacks_from_obj(JSContext* ctx, JSValueConst obj, JSValue callbacks[], size_t
       buf[0] = 'o';
       buf[1] = 'n';
 
-      camelize(&buf[2], sizeof(buf) - 2, callback_names[i]);
+      lwsjs_camelize(&buf[2], sizeof(buf) - 2, callback_names[i]);
       buf[2] = toupper(buf[2]);
 
       callbacks[i] = JS_GetPropertyStr(ctx, obj, buf);

@@ -144,7 +144,7 @@ static const char* const lwsjs_log_colours[] = {
 };
 
 size_t
-camelize(char* dst, size_t dlen, const char* src) {
+lwsjs_camelize(char* dst, size_t dlen, const char* src) {
   size_t i, j;
 
   for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
@@ -162,7 +162,7 @@ camelize(char* dst, size_t dlen, const char* src) {
 }
 
 size_t
-decamelize(char* dst, size_t dlen, const char* src) {
+lwsjs_decamelize(char* dst, size_t dlen, const char* src) {
   size_t i, j;
 
   for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
@@ -179,7 +179,7 @@ decamelize(char* dst, size_t dlen, const char* src) {
 /* Base-10 unsigned long -> decimal string, writing at most outsz-1 digits
    plus a NUL terminator into `out` (truncating the least-significant
    digits first if outsz is too small - same truncate-early contract as
-   camelize()/decamelize() above). Returns the number of
+   lwsjs_camelize()/lwsjs_decamelize() above). Returns the number of
    digit characters written (excluding the NUL). */
 size_t
 lwsjs_utoa(char* out, size_t outsz, unsigned long value) {
@@ -366,7 +366,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
       if(name) {
         char buf[strlen(name) + 1];
-        camelize(buf, sizeof(buf), name);
+        lwsjs_camelize(buf, sizeof(buf), name);
         buf[0] = toupper(buf[0]);
 
         ret = JS_NewString(ctx, buf);

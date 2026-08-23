@@ -30,8 +30,8 @@
 
 #define JS_ATOM_MAX_INT ((1u << 31) - 1)
 
-size_t camelize(char*, size_t, const char*);
-size_t decamelize(char*, size_t, const char*);
+size_t lwsjs_camelize(char*, size_t, const char*);
+size_t lwsjs_decamelize(char*, size_t, const char*);
 size_t lwsjs_utoa(char*, size_t, unsigned long);
 void lwsjs_log_user(struct lws*, const char*, size_t);
 void lwsjs_log_user_line(struct lws*, const char*, size_t, const void*, size_t);

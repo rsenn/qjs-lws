@@ -46,7 +46,7 @@ js_iterator_next(JSContext* ctx, JSValueConst obj, BOOL* done_p) {
    integer-typed properties bypassed js_has_property2()'s equivalent
    fallback by calling this function directly, so only the exact
    snake_case spelling worked for them). A no-op for names that are
-   already camelCase or contain no underscores (camelize() returns them
+   already camelCase or contain no underscores (lwsjs_camelize() returns them
    unchanged), so this doesn't change behavior for non-option callers. */
 BOOL
 js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
@@ -57,7 +57,7 @@ js_has_property(JSContext* ctx, JSValueConst obj, const char* name) {
   if(!ret) {
     char buf[strlen(name) + 1];
 
-    camelize(buf, sizeof(buf), name);
+    lwsjs_camelize(buf, sizeof(buf), name);
 
     if(strcmp(buf, name) != 0) {
       atom = JS_NewAtom(ctx, buf);
@@ -74,7 +74,7 @@ js_has_property2(JSContext* ctx, JSValueConst obj, const char* name) {
   if(!js_has_property(ctx, obj, name)) {
     char buf[strlen(name) + 1];
 
-    camelize(buf, sizeof(buf), name);
+    lwsjs_camelize(buf, sizeof(buf), name);
 
     return js_has_property(ctx, obj, buf);
   }
@@ -97,7 +97,7 @@ js_get_property(JSContext* ctx, JSValueConst obj, const char* name) {
   if(JS_IsUndefined(ret)) {
     char buf[strlen(name) + 1];
 
-    camelize(buf, sizeof(buf), name);
+    lwsjs_camelize(buf, sizeof(buf), name);
 
     if(strcmp(buf, name) != 0) {
       JS_FreeValue(ctx, ret);
