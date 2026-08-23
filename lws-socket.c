@@ -900,7 +900,16 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     js_free(ctx, tab);
   }
 
-  int n = lws_finalize_write_http_header(s->wsi, start, &p, end) ? -1 : (int)lws_ptr_diff_size_t(p, start);
+  /* A response that will never have a body (no body argument here, and
+     nothing already queued via a prior wsi.write() for this transaction)
+     MUST be finalized with LWS_WRITE_H2_STREAM_END, or under h2/h3 the
+     HEADERS frame goes out without END_STREAM: the stream never
+     completes, the client waits forever for a body that's never coming,
+     and lws has no timeout watching for it (see lws-write.h's own doc
+     comment on lws_finalize_write_http_header_flags()). h1 is unaffected
+     either way - the flag only matters to the h2/h3 write path. */
+  BOOL will_have_body = (ptr && len > 0) || !list_empty(&s->write_queue);
+  int n = lws_finalize_write_http_header_flags(s->wsi, start, &p, end, LWS_WRITE_HTTP_HEADERS | (will_have_body ? 0 : LWS_WRITE_H2_STREAM_END)) ? -1 : (int)lws_ptr_diff_size_t(p, start);
 
   DEBUG_WSI(s->wsi, "wrote headers (%d)", n);
 
@@ -912,6 +921,20 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
   }
 
   written += n;
+
+  /* No explicit lws_http_transaction_completed() call here for the
+     headers-only case, on purpose: respond() is always called synchronously
+     from within whatever reason is still handling the *request* (HTTP,
+     HTTP_BODY_COMPLETION, ...), never from a WRITEABLE dispatch - calling
+     it from inside that same still-in-progress dispatch confirmed
+     reproducibly wrong (an immediate, tight HTTP/FILTER_HTTP_CONNECTION/
+     HTTP_DROP_PROTOCOL loop, never reaching the client) rather than just
+     resetting for the next transaction once this dispatch actually
+     returns, which is what lws's own examples rely on instead (see
+     minimal-http-server-form-post-file.c's lws_http_redirect() call,
+     which never calls lws_http_transaction_completed() either). Simply
+     returning from the HTTP handler is enough for lws to reset/complete
+     the transaction itself. */
 
   if(ptr && len > 0) {
     /* Queued rather than lws_write()'d directly: this must not jump ahead
@@ -939,6 +962,42 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     JS_FreeCString(ctx, (const char*)ptr);
 
   return JS_NewUint32(ctx, written);
+}
+
+/* wsi.transactionCompleted() - manual escape hatch for a handler that
+   wrote its own response bytes directly (bypassing respond()/write()
+   entirely) and needs lws to decide "close now" vs "reset for the next
+   keep-alive transaction" itself, the same way respond()'s headers-only
+   path and socket_flush()/lwsjs_socket_write()'s dispatching fast path
+   already do automatically for the common cases. Returns true if the
+   connection will now close, false if it reset for a new transaction. */
+static JSValue
+lwsjs_socket_transaction_completed(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  LWSSocket* s;
+  BOOL close_now;
+
+  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+    return JS_EXCEPTION;
+
+  if((close_now = lws_http_transaction_completed(s->wsi) ? TRUE : FALSE))
+    s->completed = TRUE;
+
+  return JS_NewBool(ctx, close_now);
+}
+
+/* wsi.longPollRxOnly() - h2 client stream only: half-closes the stream
+   (sends an END_STREAM-flagged zero-length DATA frame) and marks it
+   immortal/read-only, for a server that supports an immortal long-poll
+   stream the client just wants to keep reading from indefinitely.
+   Returns false if this wasn't an h2 client stream. */
+static JSValue
+lwsjs_socket_long_poll_rxonly(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  LWSSocket* s;
+
+  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+    return JS_EXCEPTION;
+
+  return JS_NewBool(ctx, lws_h2_client_stream_long_poll_rxonly(s->wsi) == 0);
 }
 
 static JSValue
@@ -1664,6 +1723,9 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_DEF("wantWrite", 0, lwsjs_socket_want_write),
     JS_CFUNC_DEF("write", 1, lwsjs_socket_write),
     JS_CFUNC_DEF("respond", 1, lwsjs_socket_respond),
+    JS_CFUNC_DEF("redirect", 2, lwsjs_socket_redirect),
+    JS_CFUNC_DEF("transactionCompleted", 0, lwsjs_socket_transaction_completed),
+    JS_CFUNC_DEF("longPollRxOnly", 0, lwsjs_socket_long_poll_rxonly),
     JS_CFUNC_DEF("close", 0, lwsjs_socket_close),
     JS_CFUNC_DEF("httpClientRead", 1, lwsjs_socket_http_client_read),
     JS_CFUNC_DEF("addHeader", 4, lwsjs_socket_add_header),
