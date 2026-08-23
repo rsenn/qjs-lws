@@ -179,7 +179,7 @@ decamelize(char* dst, size_t dlen, const char* src) {
 /* Base-10 unsigned long -> decimal string, writing at most outsz-1 digits
    plus a NUL terminator into `out` (truncating the least-significant
    digits first if outsz is too small - same truncate-early contract as
-   camelize()/decamelize()/log_escape() above). Returns the number of
+   camelize()/decamelize() above). Returns the number of
    digit characters written (excluding the NUL). */
 size_t
 lwsjs_utoa(char* out, size_t outsz, unsigned long value) {
@@ -202,64 +202,6 @@ lwsjs_utoa(char* out, size_t outsz, unsigned long value) {
 
   out[j] = '\0';
   return j;
-}
-
-/* Renders all of `data` (`len` bytes) into `out` as a single-line,
-   echo -e-compatible escape for TX/RX logging: backslash and the named
-   control chars use their short C-escape spelling (\\ \a \b \e \f \n \r
-   \t \v), every other non-printable byte becomes \xHH, and anything else
-   passes through unchanged. One input byte can expand into up to 4 output
-   chars, so `out` needs up to 4*len+1 bytes to never truncate - smaller
-   `outsz` just truncates earlier. Returns the number of *input* bytes
-   actually rendered (<= len); less than that means `outsz` ran out
-   first - compare the return value against `len` to flag truncation. */
-size_t
-log_escape(char* out, size_t outsz, const void* data, size_t len) {
-  static const char named_from[] = "\a\b\e\f\n\r\t\v";
-  static const char named_to[] = "abefnrtv";
-  static const char hex[] = "0123456789abcdef";
-  const uint8_t* p = data;
-  size_t i, j = 0;
-
-  if(outsz == 0)
-    return 0;
-
-  for(i = 0; i < len; ++i) {
-    uint8_t c = p[i];
-    char buf[4];
-    size_t blen;
-
-    if(c == '\\') {
-      buf[0] = buf[1] = '\\';
-      blen = 2;
-    } else if(isprint(c)) {
-      buf[0] = (char)c;
-      blen = 1;
-    } else {
-      const char* esc = memchr(named_from, c, sizeof(named_from) - 1);
-
-      if(esc) {
-        buf[0] = '\\';
-        buf[1] = named_to[esc - named_from];
-        blen = 2;
-      } else {
-        buf[0] = '\\';
-        buf[1] = 'x';
-        buf[2] = hex[(c >> 4) & 0xf];
-        buf[3] = hex[c & 0xf];
-        blen = 4;
-      }
-    }
-
-    if(j + blen >= outsz)
-      break;
-
-    memcpy(out + j, buf, blen);
-    j += blen;
-  }
-
-  out[j] = '\0';
-  return i;
 }
 
 /* WHATWG Encoding Standard's UTF-8 decoder (non-fatal mode): replaces
@@ -1216,6 +1158,64 @@ lwsjs_log_user(struct lws* wsi, const char* buf, size_t len) {
   line[sizeof(throwaway) - 1 + len] = '\0';
 
   lwsjs_callback_log(LLL_USER, line);
+}
+
+/* Shared tail for every lwsjs_log_user() call site (lws-protocol.c's RX
+   path, lws-socket.c's socket_flush()/lwsjs_socket_respond() TX paths):
+   appends `data` (`len` bytes) after an already-built `prefix` (`plen`
+   bytes, NUL-terminated, from lwsjs_log_rx_prefix()/lwsjs_log_tx_prefix()
+   in lws.h) into a stack buffer sized for the true worst case, rendering
+   it as a single-line, echo -e-compatible escape - backslash and the
+   named control chars use their short C-escape spelling (\\ \a \b \e \f
+   \n \r \t \v), every other non-printable byte becomes \xHH, anything
+   else passes through unchanged - then dispatches the whole line via
+   lwsjs_log_user() above. `log_escape()` was this function's only caller,
+   so its body lives here directly rather than as a separate function. */
+void
+lwsjs_log_user_line(struct lws* wsi, const char* prefix, size_t plen, const void* data, size_t len) {
+  static const char named_from[] = "\a\b\e\f\n\r\t\v";
+  static const char named_to[] = "abefnrtv";
+  static const char hex[] = "0123456789abcdef";
+  const uint8_t* in = data;
+  char line[plen + 4 * len + 1];
+  size_t i, j = plen;
+
+  str_append(line, line + plen + 1, prefix);
+
+  for(i = 0; i < len; ++i) {
+    uint8_t c = in[i];
+    char buf[4];
+    size_t blen;
+
+    if(c == '\\') {
+      buf[0] = buf[1] = '\\';
+      blen = 2;
+    } else if(isprint(c)) {
+      buf[0] = (char)c;
+      blen = 1;
+    } else {
+      const char* esc = memchr(named_from, c, sizeof(named_from) - 1);
+
+      if(esc) {
+        buf[0] = '\\';
+        buf[1] = named_to[esc - named_from];
+        blen = 2;
+      } else {
+        buf[0] = '\\';
+        buf[1] = 'x';
+        buf[2] = hex[(c >> 4) & 0xf];
+        buf[3] = hex[c & 0xf];
+        blen = 4;
+      }
+    }
+
+    memcpy(line + j, buf, blen);
+    j += blen;
+  }
+
+  line[j] = '\0';
+
+  lwsjs_log_user(wsi, line, j);
 }
 
 int
