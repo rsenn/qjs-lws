@@ -176,6 +176,34 @@ decamelize(char* dst, size_t dlen, const char* src) {
   return j;
 }
 
+/* Base-10 unsigned long -> decimal string, writing at most outsz-1 digits
+   plus a NUL terminator into `out` (truncating the least-significant
+   digits first if outsz is too small - same truncate-early contract as
+   camelize()/decamelize()/log_escape() above). Returns the number of
+   digit characters written (excluding the NUL). */
+size_t
+lwsjs_utoa(char* out, size_t outsz, unsigned long value) {
+  char tmp[3 * sizeof(unsigned long)]; /* worst case: ~2.41 decimal digits per byte, rounded up */
+  size_t i = 0, j;
+
+  if(outsz == 0)
+    return 0;
+
+  do {
+    tmp[i++] = '0' + (value % 10);
+    value /= 10;
+  } while(value && i < sizeof(tmp));
+
+  if(i >= outsz)
+    i = outsz - 1;
+
+  for(j = 0; j < i; ++j)
+    out[j] = tmp[i - 1 - j];
+
+  out[j] = '\0';
+  return j;
+}
+
 /* Renders all of `data` (`len` bytes) into `out` as a single-line,
    echo -e-compatible escape for TX/RX logging: backslash and the named
    control chars use their short C-escape spelling (\\ \a \b \e \f \n \r
@@ -1156,6 +1184,38 @@ lwsjs_callback_log(int level, const char* line) {
 
   dbuf_free(&dbuf);
   dbuf_free(&func);
+}
+
+/* Bypasses lws's own logging pipe (lwsl_wsi_user() -> _lws_log_cx() ->
+   __lws_logv()) entirely, handing an already fully-built message straight
+   to lwsjs_callback_log() instead - the same sink function that pipe would
+   eventually call, just without going through __lws_logv()'s fixed
+   1024-byte internal formatting buffer first (see BUGS:
+   lws-log-line-1024-byte-cap - that cap silently truncates a large RX/TX
+   log_escape() preview no matter how big a buffer the caller allocated,
+   since the truncation happens one layer up from any of that). `buf`
+   (`len` bytes, not necessarily NUL-terminated) is expected to already be
+   the full message a caller of lwsl_wsi_user(wsi, ...) would normally get
+   - starting with the "[wsi tag]: ..." text lws's own lws_wsi_tag()/
+   lws_log_prepend_wsi() would have prepended. lwsjs_callback_log() itself
+   unconditionally strips one leading "<something>: " (normally the
+   timestamp/level-name segment __lws_logv() adds ahead of the wsi tag),
+   so this prepends a throwaway one of its own first to keep that contract
+   intact without eating into the real wsi tag. `wsi` isn't otherwise
+   used here - `buf` already carries its tag - but is taken anyway to
+   mirror lwsl_wsi_user()'s own signature at call sites. */
+void
+lwsjs_log_user(struct lws* wsi, const char* buf, size_t len) {
+  (void)wsi;
+
+  static const char throwaway[] = "USER: ";
+  char line[sizeof(throwaway) - 1 + len + 1];
+
+  memcpy(line, throwaway, sizeof(throwaway) - 1);
+  memcpy(line + sizeof(throwaway) - 1, buf, len);
+  line[sizeof(throwaway) - 1 + len] = '\0';
+
+  lwsjs_callback_log(LLL_USER, line);
 }
 
 int

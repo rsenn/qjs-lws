@@ -415,31 +415,6 @@ send() calls until the callback completes. All 8 unit tests pass.
     // inside a wss:// server's websocket.open(ws) handler:
     console.log(ws.peerCertificate, ws.tlsSessionReused);
 
-- lws-log-line-1024-byte-cap (libwebsockets/lib/core/logs.c:396,
-  __lws_logv): every LLL_USER (and other level) log line, including RX/TX
-  traffic logged via log_escape() (lws.c) at socket_flush()/
-  lwsjs_socket_respond()/lwsjs_callback_protocol(), gets formatted into a
-  fixed-size stack buffer before it ever reaches the JS logLevel()
-  callback - char buf[1024] here (this build has LWS_WITH_THREADPOOL
-  defined, so it takes the #else branch, not the char buf[256] one used
-  when LWS_MAX_SMP==1 && !LWS_WITH_THREADPOOL). A long RX/TX preview (a
-  large HTTP body chunk, for instance) is silently cut off at whatever's
-  left of that 1024 bytes after the wsi tag/reason-name/byte-count prefix,
-  regardless of how big the buffer log_escape()'s caller allocated - not a
-  bug in log_escape() itself (confirmed it renders the full input when
-  given a large enough buffer), the truncation happens one layer up,
-  inside vendored libwebsockets' own logging core, before our callback
-  ever sees the string. Not fixed here: would mean patching vendored lws's
-  fixed-size internal log buffer, a bigger change than this pass
-  attempted.
-
-    TRAFFIC=t.log DEBUG=1 qjsm examples/ollama-repl/repl.js --model
-    <any>, send a prompt with a large request/response body, check t.log:
-    a RECEIVE_CLIENT_HTTP_READ/socket_flush TX line for a chunk bigger
-    than ~950 bytes (1024 minus the prefix) ends mid-word with no "..."
-    marker (log_escape()'s own truncation flag never even gets appended,
-    since __lws_logv() already cut the string before that point)
-
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.

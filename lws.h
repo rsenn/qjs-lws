@@ -33,6 +33,8 @@
 size_t camelize(char*, size_t, const char*);
 size_t decamelize(char*, size_t, const char*);
 size_t log_escape(char*, size_t, const void*, size_t);
+size_t lwsjs_utoa(char*, size_t, unsigned long);
+void lwsjs_log_user(struct lws*, const char*, size_t);
 
 int lwsjs_html_process_args(JSContext*, struct lws_process_html_args*, int, JSValueConst[]);
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
@@ -40,6 +42,75 @@ void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);
 
 int lwsjs_init(JSContext*, JSModuleDef*);
 JSModuleDef* js_init_module(JSContext*, const char*);
+
+/* Bounded, NUL-terminated string append: copies as much of `src` as fits
+   before `end` (always leaving room for the terminator), and always
+   NUL-terminates at the new end. Returns the new write position, so
+   calls chain: p = str_append(str_append(p, end, "a"), end, "b"). Used
+   in place of snprintf()/memcpy() at lwsjs_log_user() call sites (see
+   BUGS-adjacent doc comments there) to build a log line's fixed literal
+   pieces without a format string. */
+static inline char*
+str_append(char* dst, char* end, const char* src) {
+  while(*src && dst + 1 < end)
+    *dst++ = *src++;
+
+  *dst = '\0';
+  return dst;
+}
+
+/* Builds "[wsi tag]: <reason>: RX <len> bytes: " into `out` (bounded to
+   `outsz`, always NUL-terminated) via str_append()/lwsjs_utoa() - no format
+   string. Returns the number of bytes written (excluding the NUL), the
+   `plen` lwsjs_log_user_line() below expects. */
+static inline size_t
+lwsjs_log_rx_prefix(char* out, size_t outsz, struct lws* wsi, const char* reason, unsigned long len) {
+  char* end = out + outsz;
+  char* p = out;
+
+  p = str_append(p, end, lws_wsi_tag(wsi));
+  p = str_append(p, end, ": ");
+  p = str_append(p, end, reason);
+  p = str_append(p, end, ": RX ");
+  p += lwsjs_utoa(p, (size_t)(end - p), len);
+  p = str_append(p, end, " bytes: ");
+
+  return (size_t)(p - out);
+}
+
+/* Builds "[wsi tag]: TX <n> bytes (proto=<proto>): " into `out` - same
+   bounding/NUL-termination/return contract as lwsjs_log_rx_prefix(). */
+static inline size_t
+lwsjs_log_tx_prefix(char* out, size_t outsz, struct lws* wsi, unsigned long n, const char* proto) {
+  char* end = out + outsz;
+  char* p = out;
+
+  p = str_append(p, end, lws_wsi_tag(wsi));
+  p = str_append(p, end, ": TX ");
+  p += lwsjs_utoa(p, (size_t)(end - p), n);
+  p = str_append(p, end, " bytes (proto=");
+  p = str_append(p, end, proto);
+  p = str_append(p, end, "): ");
+
+  return (size_t)(p - out);
+}
+
+/* Shared tail for every lwsjs_log_user() call site: appends the
+   log_escape()'d payload after an already-built `prefix` (`plen` bytes,
+   NUL-terminated, from lwsjs_log_rx_prefix()/lwsjs_log_tx_prefix() above)
+   into a stack buffer sized for the true worst case, and dispatches the
+   whole line via lwsjs_log_user() (lws.c) - bypassing lwsl_wsi_user()'s
+   fixed 1024-byte formatting buffer (see BUGS history on
+   lws-log-line-1024-byte-cap). */
+static inline void
+lwsjs_log_user_line(struct lws* wsi, const char* prefix, size_t plen, const void* data, size_t len) {
+  char line[plen + 4 * len + 1];
+
+  str_append(line, line + plen + 1, prefix);
+  log_escape(line + plen, sizeof(line) - plen, data, len);
+
+  lwsjs_log_user(wsi, line, plen + strlen(line + plen));
+}
 
 static inline int
 clz(uint32_t i) {

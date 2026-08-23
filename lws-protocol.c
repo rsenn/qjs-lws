@@ -648,10 +648,15 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   if(wsi) {
     if(is_rx_reason(reason)) {
       if(in && len > 0) {
-        char preview[4 * len + 1];
-        size_t shown = log_escape(preview, sizeof(preview), in, len);
+        /* Bypasses lwsl_wsi_user() (and thus __lws_logv()'s fixed
+           1024-byte formatting buffer, which silently truncates a large
+           RX preview no matter how big a buffer log_escape() is given -
+           see BUGS: lws-log-line-1024-byte-cap) via lwsjs_log_user_line()
+           (lws.h). */
+        char prefix[256];
+        size_t plen = lwsjs_log_rx_prefix(prefix, sizeof(prefix), wsi, lwsjs_callback_name(reason), (unsigned long)len);
 
-        lwsl_wsi_user(wsi, "%s: RX %zu bytes: %s%s\n", lwsjs_callback_name(reason), len, preview, shown < len ? "..." : "");
+        lwsjs_log_user_line(wsi, prefix, plen, in, len);
       } else {
         lwsl_wsi_user(wsi, "%s\n", lwsjs_callback_name(reason));
       }

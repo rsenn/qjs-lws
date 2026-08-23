@@ -146,29 +146,27 @@ socket_flush(LWSSocket* s) {
     }
 
     if(n > 0) {
-      char preview[4 * (size_t)n + 1];
-      size_t shown = log_escape(preview, sizeof(preview), wc->buf + LWS_PRE + wc->pos, (size_t)n);
+      /* Bypasses lwsl_wsi_user()'s fixed 1024-byte formatting buffer (see
+         BUGS: lws-log-line-1024-byte-cap) via lwsjs_log_user_line() (lws.h). */
+      static const char* const wp_names[] = {
+          "TEXT",
+          "BINARY",
+          "CONTINUATION",
+          "HTTP",
+          0,
+          "PING",
+          "PONG",
+          "HTTP_FINAL",
+          "HTTP_HEADERS",
+          "HTTP_HEADERS_CONTINUATION",
+          "BUFLIST",
+          "NO_FIN",
+          "H2_STREAM_END",
+      };
+      char prefix[256];
+      size_t plen = lwsjs_log_tx_prefix(prefix, sizeof(prefix), s->wsi, (unsigned long)n, wp_names[wp & 0xf]);
 
-      lwsl_wsi_user(s->wsi,
-                    "TX %d bytes (proto=%s): %s%s\n",
-                    n,
-                    ((const char*[]){
-                        "TEXT",
-                        "BINARY",
-                        "CONTINUATION",
-                        "HTTP",
-                        0,
-                        "PING",
-                        "PONG",
-                        "HTTP_FINAL",
-                        "HTTP_HEADERS",
-                        "HTTP_HEADERS_CONTINUATION",
-                        "BUFLIST",
-                        "NO_FIN",
-                        "H2_STREAM_END",
-                    })[wp & 0xf],
-                    preview,
-                    shown < (size_t)n ? "..." : "");
+      lwsjs_log_user_line(s->wsi, prefix, plen, wc->buf + LWS_PRE + wc->pos, (size_t)n);
     }
 
     /* A single lws_write() call for a WS text/binary message IS the whole
@@ -827,10 +825,16 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     if(n > 0) {
-      char preview[4 * (size_t)n + 1];
-      size_t shown = log_escape(preview, sizeof(preview), ptr, (size_t)n);
+      /* Bypasses lwsl_wsi_user()'s fixed 1024-byte formatting buffer the
+         same way socket_flush()/lwsjs_callback_protocol() do - see
+         BUGS: lws-log-line-1024-byte-cap - via lwsjs_log_user_line() (lws.h). */
+      char proto[3 * sizeof(unsigned long)];
+      lwsjs_utoa(proto, sizeof(proto), (unsigned long)LWS_WRITE_HTTP_FINAL);
 
-      lwsl_wsi_user(s->wsi, "TX %d bytes (proto=%d): %s%s\n", n, LWS_WRITE_HTTP_FINAL, preview, shown < (size_t)n ? "..." : "");
+      char prefix[256];
+      size_t plen = lwsjs_log_tx_prefix(prefix, sizeof(prefix), s->wsi, (unsigned long)n, proto);
+
+      lwsjs_log_user_line(s->wsi, prefix, plen, ptr, (size_t)n);
     }
 
     written += n;
