@@ -1139,7 +1139,7 @@ lwsjs_callback_log(int level, const char* line) {
     if(columns == 0)
       columns == linelen;
 
-    fprintf(stderr, "\r\x1b[30m%s%s\x1b[0m %.*s%s", lwsjs_log_colours[level], lev, (int)(linelen > columns ? columns - 10 - 3 : linelen), line, linelen > columns ? "..." : "");
+    fprintf(stderr, "\r\x1b[30m%s%s\x1b[0m %.*s%s\n", lwsjs_log_colours[level], lev, (int)(linelen > columns ? columns - 10 - 3 : linelen), line, linelen > columns ? "..." : "");
     fflush(stderr);
   }
 
