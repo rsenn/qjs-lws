@@ -57,6 +57,33 @@ write_chunk_free(WriteChunk* wc) {
   free(wc);
 }
 
+/* Builds a WriteChunk for `data` (`len` bytes, `proto`, optional `sa`) and
+   appends it to `s->write_queue`, bumping s->write_buffered - the common
+   core of every "queue this for later/eventual sending" call site
+   (lwsjs_socket_write()'s normal path and its dispatching fast path's
+   partial-write leftover, lwsjs_socket_respond()'s optional body). Doesn't
+   flush or re-arm anything itself, doesn't touch JS exception state -
+   callers that want either do it themselves, since what's appropriate
+   differs per call site (see each one). Returns NULL (nothing queued) only
+   on allocation failure. */
+static WriteChunk*
+socket_queue_write(LWSSocket* s, const void* data, size_t len, enum lws_write_protocol proto, const lws_sockaddr46* sa) {
+  WriteChunk* wc = write_chunk_new(data, len, proto);
+
+  if(!wc)
+    return NULL;
+
+  if(sa) {
+    wc->addr = *sa;
+    wc->has_addr = TRUE;
+  }
+
+  list_add_tail(&wc->link, &s->write_queue);
+  s->write_buffered += len;
+
+  return wc;
+}
+
 static void
 socket_write_queue_clear(LWSSocket* s) {
   while(!list_empty(&s->write_queue)) {
@@ -744,13 +771,8 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
        WRITEABLE, so queue it and re-arm exactly like socket_flush()'s own
        tail does. */
     if(n >= 0 && !is_ws_message && (size_t)n < len) {
-      WriteChunk* wc = write_chunk_new(stackbuf + LWS_PRE + n, len - (size_t)n, proto);
-
-      if(wc) {
-        list_add_tail(&wc->link, &s->write_queue);
-        s->write_buffered += len - (size_t)n;
+      if(socket_queue_write(s, stackbuf + LWS_PRE + n, len - (size_t)n, proto, NULL))
         lws_callback_on_writable(s->wsi);
-      }
     } else if(n >= 0 && proto == LWS_WRITE_HTTP_FINAL && lws_http_transaction_completed(s->wsi)) {
       s->completed = TRUE;
     }
@@ -760,7 +782,7 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
     return JS_NewInt32(ctx, (int)len);
   }
 
-  WriteChunk* wc = write_chunk_new(buf, len, proto);
+  WriteChunk* wc = socket_queue_write(s, buf, len, proto, sa);
 
   if(text)
     JS_FreeCString(ctx, (const char*)buf);
@@ -768,15 +790,20 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   if(!wc)
     return JS_ThrowOutOfMemory(ctx);
 
-  if(sa) {
-    wc->addr = *sa;
-    wc->has_addr = TRUE;
-  }
-
-  list_add_tail(&wc->link, &s->write_queue);
-  s->write_buffered += len;
-
-  socket_flush(s);
+  /* Request a WRITEABLE callback rather than flushing right here: an
+     eager, synchronous socket_flush() from a wsi.write() called outside of
+     any writeable dispatch (the common case - a WS/TCP send() from
+     arbitrary JS code, or an HTTP wsi.write() before wsi.respond() has
+     ever run for this transaction) has no way to know whether it's even
+     legal to put bytes on the wire right now - for an HTTP response in
+     particular, calling it before respond() has written the status line/
+     headers sent this chunk straight out first, corrupting the framing
+     (confirmed directly: curl got an unparseable response). Draining now
+     happens only from the real ..._WRITEABLE dispatch (lws-protocol.c,
+     unconditionally calls socket_flush() there) - or from this same
+     function's own dispatching fast path above, when we already know
+     it's our turn to write. */
+  lws_callback_on_writable(s->wsi);
 
   DEBUG_WSI(s->wsi, "queued %zu bytes, %zu buffered, partial=%d", len, s->write_buffered, lws_partial_buffered(s->wsi));
 
@@ -887,30 +914,28 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
   written += n;
 
   if(ptr && len > 0) {
-    if((n = lws_write(s->wsi, (uint8_t*)ptr, (unsigned int)len, LWS_WRITE_HTTP_FINAL)) < 0) {
-      if(is_str)
-        JS_FreeCString(ctx, (const char*)ptr);
+    /* Queued rather than lws_write()'d directly: this must not jump ahead
+       of anything the caller already queued via wsi.write() before calling
+       respond() (see BUGS-adjacent discussion - a premature wsi.write()
+       used to leave its chunk stranded in write_queue forever, since
+       nothing here ever drained it), and reusing socket_queue_write()/
+       socket_flush() gets the same partial-write retry and
+       HTTP_WRITE_CHUNK_MAX splitting every other body write already has,
+       instead of this one single unbounded, unretried lws_write() call.
+       socket_flush() does its own TX traffic logging for whatever it
+       actually sends, so there's nothing to log here directly. */
+    WriteChunk* wc = socket_queue_write(s, ptr, (size_t)len, LWS_WRITE_HTTP_FINAL, NULL);
 
-      return JS_ThrowInternalError(ctx, "lws_write");
-    }
+    if(is_str)
+      JS_FreeCString(ctx, (const char*)ptr);
 
-    if(n > 0) {
-      /* Bypasses lwsl_wsi_user()'s fixed 1024-byte formatting buffer the
-         same way socket_flush()/lwsjs_callback_protocol() do - see
-         BUGS: lws-log-line-1024-byte-cap - via lwsjs_log_user_line() (lws.h). */
-      char proto[3 * sizeof(unsigned long)];
-      lwsjs_utoa(proto, sizeof(proto), (unsigned long)LWS_WRITE_HTTP_FINAL);
+    if(!wc)
+      return JS_ThrowOutOfMemory(ctx);
 
-      char prefix[256];
-      size_t plen = lwsjs_log_tx_prefix(prefix, sizeof(prefix), s->wsi, (unsigned long)n, proto);
+    written += (size_t)len;
 
-      lwsjs_log_user_line(s->wsi, prefix, plen, ptr, (size_t)n);
-    }
-
-    written += n;
-  }
-
-  if(is_str)
+    socket_flush(s);
+  } else if(is_str)
     JS_FreeCString(ctx, (const char*)ptr);
 
   return JS_NewUint32(ctx, written);
