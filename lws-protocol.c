@@ -639,11 +639,11 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   if(is_loadcerts_reason(reason))
     return 0;
 
-  if(lwsjs_callback_js(wsi, reason, user, in, len) == 0)
-    return 0;
+if(is_lifecycle_reason(reason))
+  return  lwsjs_callback_js(wsi, reason, user, in, len);
 
-  if(is_pollfd_reason(reason) && lwsjs_callback_pollfd(wsi, reason, user, in, len) == 0)
-    return 0;
+  if(is_pollfd_reason(reason))
+    return lwsjs_callback_pollfd(wsi, reason, user, in, len);
 
   if(wsi) {
     if(is_rx_reason(reason)) {

@@ -139,6 +139,24 @@ list_size(struct list_head* list) {
   return i;
 }
 
+static inline BOOL 
+is_lifecycle_reason(enum lws_callback_reasons reason) {
+  switch(reason) {
+
+  case LWS_CALLBACK_WSI_CREATE:
+case LWS_CALLBACK_HTTP_BIND_PROTOCOL:
+case LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL:
+case LWS_CALLBACK_WS_SERVER_BIND_PROTOCOL:
+case LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL:
+case LWS_CALLBACK_RAW_PROXY_CLI_BIND_PROTOCOL:
+case LWS_CALLBACK_RAW_PROXY_SRV_BIND_PROTOCOL:
+case LWS_CALLBACK_RAW_SKT_BIND_PROTOCOL:
+case LWS_CALLBACK_RAW_FILE_BIND_PROTOCOL:
+case LWS_CALLBACK_WSI_DESTROY:return TRUE;
+    default: return FALSE;
+  }
+}
+
 /* The reasons that carry a payload worth logging under LLL_USER - every
    client/server receive path across WS, HTTP, MQTT, and raw (proxy). */
 static inline BOOL
