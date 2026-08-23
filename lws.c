@@ -1127,7 +1127,7 @@ lwsjs_callback_log_term(int level, const char* line) {
   size_t linelen = strlen(line);
 
   if(columns == 0)
-    columns == linelen;
+    columns = linelen;
 
   fprintf(stderr, "\r\x1b[30m%s%s\x1b[0m %.*s%s", lwsjs_log_colours[level], lev, (int)(linelen > columns ? columns - 10 - 3 : linelen), line, linelen > columns ? " ...\n" : "");
   fflush(stderr);
