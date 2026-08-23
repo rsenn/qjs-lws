@@ -17,7 +17,12 @@ static uint32_t socket_id;
 
 /* Per-write queue entry. The payload sits at buf + LWS_PRE so libwebsockets
    has room to fill the WebSocket frame header in place. pos is how many
-   payload bytes have already been handed to lws_write(). */
+   payload bytes have already been handed to lws_write(). A callback entry
+   (queued by socket_queue_callback(), from wsi.wantWrite(fn)) has buf ==
+   NULL instead - fn_obj/call_ctx are only meaningful for such an entry,
+   letting a pending wantWrite() handler take its turn in FIFO order among
+   whatever data chunks are already queued ahead of or behind it, instead
+   of firing out of order relative to writes issued around the same time. */
 typedef struct {
   struct list_head link;
   uint8_t* buf;
@@ -25,6 +30,8 @@ typedef struct {
   enum lws_write_protocol proto;
   lws_sockaddr46 addr;
   BOOL has_addr;
+  JSValue fn_obj;
+  JSContext* call_ctx;
 } WriteChunk;
 
 static WriteChunk*
@@ -48,12 +55,40 @@ write_chunk_new(const void* data, size_t len, enum lws_write_protocol proto) {
   wc->pos = 0;
   wc->proto = proto;
   wc->has_addr = FALSE;
+  wc->fn_obj = JS_UNDEFINED;
+  wc->call_ctx = NULL;
+  return wc;
+}
+
+/* Queues `fn` as a pending writeable-callback entry, in FIFO order with
+   whatever WriteChunks are already queued - see the WriteChunk comment
+   above. Returns NULL (nothing queued) only on allocation failure. */
+static WriteChunk*
+socket_queue_callback(LWSSocket* s, JSContext* ctx, JSValueConst fn) {
+  WriteChunk* wc = malloc(sizeof(*wc));
+
+  if(!wc)
+    return NULL;
+
+  wc->buf = NULL;
+  wc->len = 0;
+  wc->pos = 0;
+  wc->has_addr = FALSE;
+  wc->fn_obj = JS_DupValue(ctx, fn);
+  wc->call_ctx = ctx;
+
+  list_add_tail(&wc->link, &s->write_queue);
+
   return wc;
 }
 
 static void
 write_chunk_free(WriteChunk* wc) {
-  free(wc->buf);
+  if(wc->buf)
+    free(wc->buf);
+  else
+    JS_FreeValue(wc->call_ctx, wc->fn_obj);
+
   free(wc);
 }
 
@@ -143,19 +178,33 @@ static const char* const lwsjs_write_proto_names[] = {
     "H2_STREAM_END",
 };
 
-/* Drain as many queued chunks as libwebsockets is willing to accept. If any
-   remain (partial write, or lws is currently holding a partial internally),
-   re-arm the writeable callback so we get called back to try again. */
-void
+/* Drain as many queued data chunks as libwebsockets is willing to accept,
+   stopping (without consuming it) at a queued callback entry (buf == NULL,
+   from wsi.wantWrite(fn) - see the WriteChunk comment above) rather than
+   running past it, so a callback queued after some writes only fires once
+   those writes actually went out. If any data remains after that (partial
+   write, lws holding a partial internally, or a callback entry now at the
+   front), re-arm the writeable callback so we get called back to try
+   again. Returns how many chunks were fully written out this call, so the
+   caller (lwsjs_callback_protocol(), lws-protocol.c) can tell "drained
+   nothing" from "drained something" when deciding whether to also invoke a
+   callback entry now at the front of the queue. */
+int
 socket_flush(LWSSocket* s) {
+  int n_written = 0;
+
   if(!s || !s->wsi)
-    return;
+    return 0;
 
   while(!list_empty(&s->write_queue)) {
+    WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
+
+    if(!wc->buf)
+      break;
+
     if(lws_partial_buffered(s->wsi))
       break;
 
-    WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
     size_t remaining = wc->len - wc->pos;
     enum lws_write_protocol wp = wc->proto;
 
@@ -188,7 +237,7 @@ socket_flush(LWSSocket* s) {
     if((n = lws_write(s->wsi, wc->buf + LWS_PRE + wc->pos, remaining, wp)) < 0) {
       /* Connection is dead — drop everything so we don't keep re-arming. */
       socket_write_queue_clear(s);
-      return;
+      return n_written;
     }
 
     if(n > 0) {
@@ -221,6 +270,7 @@ socket_flush(LWSSocket* s) {
 
       list_del(&wc->link);
       write_chunk_free(wc);
+      n_written++;
       continue;
     }
 
@@ -231,6 +281,45 @@ socket_flush(LWSSocket* s) {
 
   if(!list_empty(&s->write_queue))
     lws_callback_on_writable(s->wsi);
+
+  return n_written;
+}
+
+/* TRUE if s->write_queue is non-empty and its front entry is a pending
+   wsi.wantWrite(fn) callback (buf == NULL) rather than data - i.e. the
+   caller (lwsjs_callback_protocol(), lws-protocol.c) should invoke it via
+   socket_pop_callback() below instead of expecting socket_flush() to have
+   consumed it. */
+BOOL
+socket_write_queue_front_is_callback(LWSSocket* s) {
+  if(list_empty(&s->write_queue))
+    return FALSE;
+
+  WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
+
+  return wc->buf == NULL;
+}
+
+/* Pops the pending wsi.wantWrite(fn) callback entry at the front of
+   s->write_queue (only valid when socket_write_queue_front_is_callback()
+   just returned TRUE) and returns its function, via *pctx its JSContext.
+   If anything is still queued behind it (more data, or another callback),
+   re-arms the writeable callback so it gets its own turn too - the same
+   way socket_flush()'s own tail does for leftover data. */
+JSValue
+socket_pop_callback(LWSSocket* s, JSContext** pctx) {
+  WriteChunk* wc = list_entry(s->write_queue.next, WriteChunk, link);
+  JSContext* ctx = wc->call_ctx;
+  JSValue fn = JS_DupValue(ctx, wc->fn_obj);
+
+  list_del(&wc->link);
+  write_chunk_free(wc);
+
+  if(!list_empty(&s->write_queue))
+    lws_callback_on_writable(s->wsi);
+
+  *pctx = ctx;
+  return fn;
 }
 
 static const enum lws_token_indexes lwsjs_method_tokens[] = {
@@ -311,7 +400,6 @@ socket_alloc(JSContext* ctx) {
 
   sock->ref_count = 1;
   sock->headers = JS_UNDEFINED;
-  sock->write_handler = JS_UNDEFINED;
   sock->id = ++socket_id;
   sock->method = -1;
   sock->dispatching = FALSE;
@@ -390,11 +478,6 @@ socket_free(LWSSocket* sock, JSRuntime* rt) {
   DEBUG("free LWSSocket: %p (ref_count = %d)", sock, sock->ref_count);
 
   if(--sock->ref_count == 0) {
-    if(!JS_IsUndefined(sock->write_handler)) {
-      JS_FreeValueRT(rt, sock->write_handler);
-      sock->write_handler = JS_UNDEFINED;
-    }
-
     JS_FreeValueRT(rt, sock->headers);
     sock->headers = JS_UNDEFINED;
 
@@ -655,27 +738,39 @@ lwsjs_socket_method_data(JSContext* ctx, JSValueConst this_val, const char* meth
   return s;
 }
 
+/* wsi.wantWrite([fn]) - with a callback `fn`, queues it as its own entry in
+   s->write_queue (socket_queue_callback() above) so it fires in FIFO order
+   relative to whatever wsi.write() calls were already queued, instead of
+   replacing a single pending handler slot the way this used to work.
+   Without a callback, this is just the old "ask lws for a WRITEABLE
+   callback" no-op-if-already-pending behavior (s->want_write), for the
+   common case of a plain onWriteable()/onRawWriteable() protocol handler
+   driving its own writes. */
 static JSValue
 lwsjs_socket_want_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   LWSSocket* s;
-  JSValue ret = JS_UNDEFINED;
 
   if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
     return JS_EXCEPTION;
+
+  if(argc > 0) {
+    if(!socket_queue_callback(s, ctx, argv[0]))
+      return JS_ThrowOutOfMemory(ctx);
+
+    lws_callback_on_writable(s->wsi);
+
+    return JS_NewBool(ctx, TRUE);
+  }
 
   if(!s->want_write) {
     lws_callback_on_writable(s->wsi);
 
     s->want_write = TRUE;
-    ret = JS_NewBool(ctx, TRUE);
 
-    if(argc > 0) {
-      JS_FreeValue(ctx, s->write_handler);
-      s->write_handler = JS_DupValue(ctx, argv[0]);
-    }
+    return JS_NewBool(ctx, TRUE);
   }
 
-  return ret;
+  return JS_UNDEFINED;
 }
 
 static JSValue

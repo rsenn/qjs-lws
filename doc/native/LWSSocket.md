@@ -21,16 +21,22 @@ The `LWSSocket` constructor itself only carries the static helpers
 
 Calls `lws_callback_on_writable()`. When the connection is next
 writeable, libwebsockets fires `LWS_CALLBACK_*_WRITEABLE`. If a
-function `callback` is supplied, it replaces any pending writeable
-handler and is called once with `(wsi)`; its return value is used as
-the callback return (return `-1` to close).
+function `callback` is supplied, it's queued as its own entry in the
+socket's internal write queue, alongside any bytes already queued via
+`write()` - so it fires once those writes have actually gone out,
+in the same order the `write()`/`wantWrite()` calls that queued them
+were made, not immediately on the next writeable event. It's called
+once with `(wsi)`; its return value is used as the callback return
+(return `-1` to close). Calling `wantWrite(fn)` again before an earlier
+one has fired queues a second, independent entry rather than replacing
+the first - both fire in turn.
 
 ```js
 await new Promise(r => wsi.wantWrite(r));   // common pattern
 wsi.write(buf);
 ```
 
-If `wantWrite` is called repeatedly without a callback, only the
+If `wantWrite` is called repeatedly **without** a callback, only the
 first registers a pending request — duplicate calls are ignored
 (the C code guards with `s->want_write`).
 

@@ -687,36 +687,36 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   LWSSocket* s = lwsjs_socket_data(sock);
 
   if(is_writeable_reason(reason)) {
-    /* Drain any queued wsi.write() chunks first; socket_flush re-arms the
-       writeable callback if it couldn't push everything out this round. */
-    if(s)
-      socket_flush(s);
+    /* Drain as many queued wsi.write() chunks as lws will take, stopping
+       at a queued wsi.wantWrite(fn) callback entry rather than running
+       past it (socket_flush(), lws-socket.c). */
+    int n_flushed = s ? socket_flush(s) : 0;
 
-    /* Only fire the user's wantWrite() handler once our internal queue is
-       empty — that way waitWrite() semantically means "drained", not
-       "ready for the first byte" while a backlog is still going out.
-       socket_flush already re-armed if the queue isn't empty yet, so this
-       fires on a subsequent WRITEABLE callback. */
-    if(s && s->want_write && list_empty(&s->write_queue)) {
-      s->want_write = FALSE;
+    /* Only consider firing a queued wantWrite() callback once this round
+       drained no data - that way a callback queued after some writes
+       fires only once those writes actually went out, not while a
+       backlog is still going out (socket_flush already re-armed for that
+       case, so this is revisited on a subsequent WRITEABLE callback). */
+    if(s && n_flushed == 0 && socket_write_queue_front_is_callback(s)) {
+      JSContext* fnctx;
+      JSValue fn = socket_pop_callback(s, &fnctx);
 
-      if(!JS_IsUndefined(s->write_handler)) {
-        JSValue fn = s->write_handler;
-        s->write_handler = JS_UNDEFINED;
-        s->dispatching = TRUE;
-        s->dispatch_reason = reason;
-        JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 1, &sock);
-        s->dispatching = FALSE;
-        s->dispatch_reason = -1;
-        ret = to_int32free(ctx, result);
-        JS_FreeValue(ctx, fn);
+      s->dispatching = TRUE;
+      s->dispatch_reason = reason;
+      JSValue result = JS_Call(fnctx, fn, JS_UNDEFINED, 1, &sock);
+      s->dispatching = FALSE;
+      s->dispatch_reason = -1;
+      ret = to_int32free(fnctx, result);
+      JS_FreeValue(fnctx, fn);
 
-        if(s->closed)
-          ret = -1;
+      if(s->closed)
+        ret = -1;
 
-        goto end;
-      }
+      goto end;
     }
+
+    if(s)
+      s->want_write = FALSE;
 
     if(reason == LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER)
       s->redirected_to_get = lws_http_is_redirected_to_get(wsi);

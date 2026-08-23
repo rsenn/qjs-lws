@@ -21,7 +21,7 @@ typedef struct {
   void* obj;
   BOOL client : 1, want_write : 1, redirected_to_get : 1, completed : 1, closed : 1, dispatching : 1, close_code_set : 1;
   int dispatch_reason;
-  JSValue headers, write_handler;
+  JSValue headers;
   int response_code, body_pending, method;
   /* Our own copy of the code/reason a local .close() call was given,
      stashed here (not read back from lws's own ping_payload_buf via
@@ -50,7 +50,9 @@ extern JSClassID lwsjs_socket_class_id;
 int socket_getid(struct lws* wsi);
 LWSSocket* socket_get(struct lws* wsi);
 LWSSocket* socket_alloc(JSContext* ctx);
-void socket_flush(LWSSocket* s);
+int socket_flush(LWSSocket* s);
+BOOL socket_write_queue_front_is_callback(LWSSocket* s);
+JSValue socket_pop_callback(LWSSocket* s, JSContext** pctx);
 struct lws* lwsjs_socket_wsi(JSValueConst);
 void lwsjs_socket_destroy(JSContext*, struct lws*);
 JSValue lwsjs_socket_wrap(JSContext*, LWSSocket*);

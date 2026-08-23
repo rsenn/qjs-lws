@@ -415,6 +415,38 @@ send() calls until the callback completes. All 8 unit tests pass.
     // inside a wss:// server's websocket.open(ws) handler:
     console.log(ws.peerCertificate, ws.tlsSessionReused);
 
+### ws-server-close-event-delayed-30s (lws-protocol.c): a WS server-side
+  `close` event (WebSocket.protocol()'s wrapper, lib/websocket.js) doesn't
+  fire until ~30 seconds after the peer actually sends its close frame,
+  even though the client-side close handshake itself completes immediately.
+  Confirmed on a plain client-initiated `wsi.close(1000, 'done')` against a
+  `WebSocket.protocol()` server: the server-side wsi *does* see the close
+  frame right away (visible in the CLOSED-reason callback sequence), but
+  the JS `close` event/promise doesn't resolve until exactly ~30000ms
+  later - looks like a hardcoded close-handshake/timeout default
+  (PENDING_TIMEOUT_* or similar) rather than anything driven by the actual
+  network round trip. Reproduces identically before and after the
+  wantWrite()/write_queue callback-entry rework in this same commit, so
+  it's pre-existing, not caused by that change.
+
+    import { createServer, LWSContext, LWSMPRO_NO_MOUNT } from 'lws.so';
+    import { WebSocket } from './lib/websocket.js';
+    const port = 19998;
+    const closed = new Promise(r => {
+      createServer({
+        port, vhostName: 'localhost',
+        mounts: [{ mountpoint: '/echo', protocol: 'echo', originProtocol: LWSMPRO_NO_MOUNT }],
+        protocols: [WebSocket.protocol('echo', ws => ws.addEventListener('close', r))],
+      });
+    });
+    const client = new LWSContext({
+      protocols: [{ name: 'ws', onClientEstablished: wsi => wsi.close(1000, 'done') }],
+    });
+    client.clientConnect(`ws://localhost:${port}/echo`, { protocol: 'echo', localProtocolName: 'ws' });
+    const t0 = Date.now();
+    await closed;
+    console.log(Date.now() - t0); // ~30000, should be near-instant
+
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
