@@ -6,6 +6,8 @@
 #include "lws-protocol.h"
 #include "lws.h"
 #include "js-utils.h"
+#include <termios.h>
+#include <sys/ioctl.h>
 
 #ifdef LWSJS_PRECOMPILED
 struct bytecode {
@@ -1113,17 +1115,31 @@ lwsjs_callback_log(int level, const char* line) {
     JS_FreeValue(ctx, args[0]);
     JS_FreeValue(ctx, ret);
   } else {
+    struct winsize wsz;
+
+    if(ioctl(0, TIOCGWINSZ, &wsz) != 0) {
+      memset(&wsz, 0, sizeof(wsz));
+    }
+
+    size_t columns = wsz.ws_col;
+
     char lev[9];
     size_t len = strlen(lwsjs_log_levels[level]);
     int i;
     for(i = 0; i < (sizeof(lev) - len) / 2; i++)
       lev[i] = ' ';
     i += snprintf(&lev[i], sizeof(lev) - i, "%s", lwsjs_log_levels[level]);
+
     while(i < sizeof(lev))
       lev[i++] = ' ';
     lev[sizeof(lev) - 1] = '\0';
 
-    fprintf(stderr, "\r\x1b[30m%s%s\x1b[0m %s", lwsjs_log_colours[level], lev, line);
+    size_t linelen = strlen(line);
+
+    if(columns == 0)
+      columns == linelen;
+
+    fprintf(stderr, "\r\x1b[30m%s%s\x1b[0m %.*s%s", lwsjs_log_colours[level], lev, (int)(linelen > columns ? columns - 10 - 3 : linelen), line, linelen > columns ? "..." : "");
     fflush(stderr);
   }
 
