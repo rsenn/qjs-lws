@@ -26,11 +26,6 @@ in the relevant spec.
 - `TransformStream`, `TransformStreamDefaultController` — `lib/lws/streams.js`
 - `ByteLengthQueuingStrategy`, `CountQueuingStrategy` — `lib/lws/streams.js`
 
-### DOM / Events (WHATWG DOM Standard)
-- ✅ `EventTarget` — `lib/lws/events.js` (with `once` and `signal` options)
-- ✅ `AbortController` — `lib/lws/abort.js`
-- ✅ `AbortSignal` (+ `.timeout()`, `.any()`, `.abort()`) — `lib/lws/abort.js`
-
 ### WebSocket APIs
 - `WebSocket` (WHATWG + Bun pub/sub) — `lib/websocket.js`
 - `WebSocketStream` (Chromium API) — `lib/websocketstream.js`
@@ -98,35 +93,7 @@ in the relevant spec.
     - `/websockets/` — WebSocket API tests
     - `/FileAPI/` — File API tests
 
-## Completed Work
-
-### Response vs ServerResponse Untangling (commit e139858, latest)
-- ✅ `Response` now has readonly `status` property (WHATWG compliant)
-- ✅ `ServerResponse` has chainable `status(code)` method (Express conventions)
-- ✅ Client-side Response created with status/headers when established (not mutated)
-- ✅ `serve.js` bridges them via `flush()` function
-- ✅ Removed `cookie()` and `clearCookie()` from Response (Express-style, not WHATWG)
-- ✅ All tests pass
-
-### WHATWG Fetch API Compliance
-- ✅ **Body.bytes()** method implemented - returns Promise<Uint8Array>
-- ✅ **Body.formData()** now returns FormData instance (not plain object)
-- ✅ **Request.clone()** checks bodyUsed and throws TypeError if already consumed
-- ✅ **Response.clone()** checks bodyUsed and throws TypeError if already consumed
-- ✅ **Headers iteration order** now sorted lexicographically (not insertion order)
-- ✅ **Response.status** is readonly property (not method)
-
-### WHATWG DOM Standard Compliance
-- ✅ **EventTarget options** - supports `once` and `signal` per WHATWG DOM spec
-  - `once: true` automatically removes listener after first invocation
-  - `signal: AbortSignal` removes listener when signal is aborted
-  - Handles edge cases: already-aborted signals, wrapped listener removal
-  - All 8 unit tests pass
-
-### Remaining Fetch API Issues
-- ✅ **fetch()** accepts Request objects as first argument (FIXED)
-- ✅ **fetch()** throws TypeError instead of ConnectionError for network errors (FIXED)
-- ✅ **fetch()** AbortSignal handling complete (FIXED)
+## Open Items
 
 ### Remaining Spec Violations (see BUGS file)
 - Server methods partially implemented (11 stubs added, need lws context integration)
@@ -139,120 +106,20 @@ The goal is to maximize compatibility with scripts written for WHATWG standards,
 
 ### High-Impact, Low-Cost Additions
 
-1. **WebSocket Static Methods** (lib/websocket.js) ✅ DONE
-   - Added `WebSocket.connect(url, protocols?)` - returns Promise<WebSocket> (Bun-style)
-   - Added `WebSocket.isWebSocket(obj)` - type guard (Deno-style)
-   - Cost: ~30 lines, high compatibility gain
-   - Tests: 4 tests in test-websocket-static-methods.js all pass
-
-2. **TCPSocket Socket Options** (lib/tcpsocket.js) ✅ DONE
-   - Added `setNoDelay(noDelay?)` - disable Nagle's algorithm (Node/Bun/Deno)
-   - Added `setKeepAlive(enable?, initialDelay?)` - TCP keepalive (Node/Bun/Deno)
-   - Added `setTimeout(timeout, callback?)` - socket timeout (Node/Bun/Deno)
-   - All methods are stubs (no-op) pending native lws socket option support
-   - Cost: ~80 lines, enables Node.js TCP patterns
-   - Tests: 10 tests in test-tcpsocket-options.js all pass
-
-3. **UDPSocket Socket Options** (lib/udpsocket.js)
+1. **UDPSocket Socket Options** (lib/udpsocket.js)
    - Add `setBroadcast(flag)` - enable broadcast (Node/Bun/Deno)
    - Add `setTTL(ttl)` - IP TTL (Node/Bun/Deno)
    - Add `setMulticastTTL(ttl)` - multicast TTL (Node/Bun/Deno)
    - Add `setMulticastLoopback(flag)` - multicast loopback (Node/Bun/Deno)
    - Cost: ~50 lines, enables multicast/broadcast patterns
 
-4. **Server Lifecycle** (lib/serve.js) ✅ DONE
-   - ✅ `server.stop()` returning Promise (Bun/Deno)
-   - ✅ `server.id` property (Bun)
-   - ✅ `server.pendingRequests` counter (Bun)
-   - ✅ `server.pendingWebSockets` counter (Bun)
-   - ✅ `server.url` property (URL object)
-   - ✅ `server.development` property (boolean)
-   - Cost: ~30 lines, enables graceful shutdown patterns
-   - Tests: 10 tests in test-server-lifecycle.js all pass
-
-5. **WebSocket Handler Extensions** (lib/serve.js WebSocketHandler) ✅ DONE
-   - ✅ `ping(ws, data)` and `pong(ws, data)` handlers (Bun) - wired to event listeners
-   - ✅ `idleTimeout` option (Bun) - **fully wired**, native `wsi.setTimeout()` (`lws_set_timeout()`), re-armed per message
-   - ✅ `maxPayloadLength` option (Bun) - accepted (pending native lws config support)
-   - ✅ `perMessageDeflate` option (Bun) - accepted (pending native lws compression support)
-   - ✅ `backpressureLimit` option (Bun) - accepted (pending native lws backpressure support)
-   - ✅ `closeOnBackpressureLimit` option (Bun) - accepted (pending native lws backpressure support)
-   - ✅ `sendPings` option (Bun) - accepted (pending native lws ping config support)
-   - ✅ `publishToSelf` option (Bun) - accepted (pending TopicRegistry changes)
-   - ✅ `drain(ws)` handler (Bun) - **fully wired**, native `wsi.sendPipeChoked`/`wantWrite()` (`lws_send_pipe_choked()`)
-   - Cost: ~40 lines, enables production WebSocket servers
-   - Tests: 10 tests in test-websocket-handler-options.js all pass
-
 ### Medium-Impact Additions (Requires Native Support)
 
-6. **TCPSocket/WebSocket Drain Handler** ✅ DONE (lib/tcpsocket.js, lib/websocket.js)
-   - ✅ `TCPSocket#writableNeedDrain` / `WebSocket#writableNeedDrain` getters, backed by
-     the new `wsi.sendPipeChoked` (native `lws_send_pipe_choked()`)
-   - ✅ `WebSocket`'s `'drain'` event (and `serve()`'s `websocket.drain` handler) now
-     actually fires - see "Native Binding Plan" below
-   - TCPSocket itself only got the getter, not a `'drain'` event - nothing in this
-     project's TCPSocket API surface calls for one yet (Bun's `Socket` handler has no
-     `drain` callback of its own)
-
-7. **WebSocket bufferedAmount** ✅ DONE (lib/websocket.js)
-   - ✅ `WebSocket#bufferedAmount` getter (WHATWG/Bun/Deno), backed by the already-existing
-     `wsi.bufferedAmount`
-
-8. **UDPSocket Multicast** (lib/udpsocket.js)
+2. **UDPSocket Multicast** (lib/udpsocket.js)
    - Add `addMembership(multicastAddress, interfaceAddress?)` (Node/Bun/Deno)
    - Add `dropMembership(multicastAddress, interfaceAddress?)` (Node/Bun/Deno)
    - Requires: expose lws multicast socket options to JS
    - Cost: ~30 lines JS + native changes
-
-### Native Binding Plan: idle timeout, backpressure, TLS peer info ✅ DONE
-
-Three previously-unbound `libwebsockets/include/libwebsockets/*.h` functions
-closed several of the "pending native lws ... support" gaps listed above (item
-5's `idleTimeout`/`drain`, item 6, and the Server `timeout()` stub in `BUGS`'
-`server-missing-11-methods`) - all three are now implemented and tested
-(29/29 ctest suites pass; `Server#timeout()` confirmed end-to-end: an idle WS
-client is force-closed by the server ~1s after `server.timeout(1)`). JS
-surface, in `lws-socket.c` unless noted, following the existing
-`PROP_*`/`JS_CGETSET_MAGIC_DEF` getter and plain `JS_CFUNC_DEF` method
-conventions:
-
-1. **`lws_set_timeout(wsi, reason, secs)`** (`lws-timeout-timer.h`) — idle timeout
-   - Native: `wsi.setTimeout(seconds)` — method, calls
-     `lws_set_timeout(wsi, seconds > 0 ? PENDING_TIMEOUT_USER_OK : NO_PENDING_TIMEOUT, seconds)`.
-     This is a **hard, auto-closing** timeout (lws force-closes the connection
-     itself at expiry) — a different contract than `TCPSocket#setTimeout()`
-     (Node-shaped: just emits `'timeout'`, doesn't close), which stays
-     unchanged and separate.
-   - High-level (`lib/serve.js`): `Server#timeout(seconds)` — replaces the
-     no-op stub; applies `wsi.setTimeout(seconds)` to every new HTTP/WS
-     connection as it's accepted, matching Bun's server-wide idle-timeout
-     semantics. Also used for `websocket.idleTimeout` (item 5 above), which
-     takes precedence over the server-wide value when both are set.
-
-2. **`lws_send_pipe_choked(wsi)`** (`lws-ws-state.h`) — backpressure
-   - Native: `wsi.sendPipeChoked` — readonly boolean getter (same shape as
-     the existing `isPipelineLeader`).
-   - High-level: `TCPSocket#writableNeedDrain` (and `WebSocket`'s
-     equivalent) — readonly getter mirroring Node's
-     `socket.writableNeedDrain`, backed by `wsi.sendPipeChoked`.
-   - `websocket.drain` handler (`lib/serve.js`):
-     `if(wsDrain) ws.addEventListener('drain', () => wsDrain(ws));` — the
-     `'drain'` *event* needs no new native plumbing: `wantWrite()`/
-     `waitWrite()` already only fires once the write queue is fully drained
-     (`lws-protocol.c:695-700`), so `lib/websocket.js` just arms it via that
-     existing mechanism whenever a `send()` leaves `bufferedAmount > 0`.
-
-3. **`lws_tls_peer_cert_info()` / `lws_tls_session_is_reused()`** (`lws-x509.h`/`lws-client.h`) — TLS peer info
-   - Native:
-     - `wsi.peerCertificate` — readonly getter,
-       `{ subjectCN, issuerCN, validFrom, validTo, verified }` (Dates for
-       validFrom/validTo) or `null` if not TLS / no peer cert — a
-       simplified analog of Node's `tlsSocket.getPeerCertificate()`.
-     - `wsi.tlsSessionReused` — readonly boolean getter.
-   - High-level: ✅ `TCPSocket#peerCertificate`/`#tlsSessionReused` and
-     `WebSocket#peerCertificate`/`#tlsSessionReused` (`lib/tcpsocket.js`,
-     `lib/websocket.js`). `ServerRequest` doesn't get its own copies — use
-     `request.wsi.peerCertificate` via the existing `.wsi` escape hatch.
 
 ### Compatibility Patterns to Support
 
@@ -298,23 +165,14 @@ socket.bind(8080);
 
 ### Implementation Priority
 
-**Phase 1** (High compatibility gain, no native changes) ✅ **COMPLETE**:
-1. ✅ WebSocket static methods (WebSocket.connect, WebSocket.isWebSocket)
-2. ✅ TCPSocket socket options (setNoDelay, setKeepAlive, setTimeout) - stubs added
-3. ✅ UDPSocket socket options (setBroadcast, setTTL, setMulticastTTL, setMulticastLoopback, addMembership, dropMembership, setMulticastInterface, addSourceSpecificMembership, dropSourceSpecificMembership) - stubs added
-4. ✅ Server lifecycle (stop() promise, id, pendingRequests, pendingWebSockets, url, development)
-5. ✅ WebSocket handler extensions (ping/pong, idleTimeout, maxPayloadLength, perMessageDeflate, backpressureLimit, closeOnBackpressureLimit, sendPings, publishToSelf, drain)
-
 **Phase 2** (Medium compatibility gain, requires native support):
-6. ✅ TCPSocket/WebSocket drain handler (writableNeedDrain + WebSocket 'drain' event)
-7. ✅ WebSocket bufferedAmount
-8. UDPSocket multicast (addMembership, dropMembership)
+1. UDPSocket multicast (addMembership, dropMembership)
 
 **Phase 3** (Low priority, niche use cases):
-9. TCPSocket pause/resume (Node.js streams compatibility)
-10. TCPSocket ref/unref (Node.js process lifecycle)
-11. UDPSocket connect/disconnect (Node.js connected UDP sockets)
-12. WebSocket binaryType 'blob' (currently only 'arraybuffer')
+2. TCPSocket pause/resume (Node.js streams compatibility)
+3. TCPSocket ref/unref (Node.js process lifecycle)
+4. UDPSocket connect/disconnect (Node.js connected UDP sockets)
+5. WebSocket binaryType 'blob' (currently only 'arraybuffer')
 
 ---
 
