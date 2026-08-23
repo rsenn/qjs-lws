@@ -214,27 +214,41 @@ done - see item 4a above for the same live-verification gap.
   `/context` (already existed, see the entry below) is the way to inspect
   what's currently held, resumed or not.
 - "Only the first prompt gets a reply, every one after it just hangs"
-  (2026-08-09): root-caused and fixed - both `OllamaClient` and
-  `GeminiClient` (`lib/ollama-client.js`/`lib/gemini-client.js`) reuse one
-  kept-alive/pipelined (`LCCSCF_PIPELINE`) connection for every request.
-  Sending the next prompt right after a reply always worked; leaving the
-  REPL idle for ~90s (normal human typing/reading time) before the next
-  one made that request hang forever - no reply, no error, confirmed via
-  `-x` debug logging that the request was sent but none of the connection
-  lifecycle callbacks (`onEstablishedClientHttp`/`onCompletedClientHttp`/
-  `onClosedClientHttp`/`onClientConnectionError`, `lib/lws/protocols.js`)
-  ever fired for it - the pipelined connection had gone silently dead
-  during the idle gap (most likely closed server-side) without lws
-  detecting it before trying to reuse it. Fixed by tracking when each
-  client's connection was last known good and discarding/recreating the
-  `LWSContext` (forcing a fresh TCP connection) if a new request starts
-  more than `IDLE_RECONNECT_MS` (30s - a conservative margin below the
-  observed ~90s failure point) after that. Verified fixed against a real
-  Ollama server: the exact same 90s-idle-gap repro that reliably hung
-  before the fix now gets a reply every time. The `GeminiClient` half of
-  the fix mirrors `OllamaClient`'s but wasn't verified live (no reachable
-  idle-timing repro against a real Gemini endpoint attempted) - same
-  live-verification gap as the rest of `GeminiClient`, see item 4a above.
+  (2026-08-09, superseded 2026-08-23): originally mitigated by discarding
+  the kept-alive/pipelined (`LCCSCF_PIPELINE`) connection and reconnecting
+  if a request started more than `IDLE_RECONNECT_MS` (30s) after the
+  previous one - aimed at a real but *different* failure (the connection
+  going silently dead server-side after ~90s idle). That mitigation didn't
+  actually cover the common case: further investigation (prompted by a
+  live Gemini repro showing `ESTABLISHED_CLIENT_HTTP`/
+  `SERVER_NEW_CLIENT_INSTANTIATED` firing spuriously with no
+  `CLIENT_APPEND_HANDSHAKE_HEADER`/`CLIENT_HTTP_WRITEABLE` ever following,
+  then a timeout) root-caused the real, always-hit trigger to a
+  vendored-libwebsockets gap: an h1 client request queued onto an
+  already-idle pipelined connection - which is what any real, human-paced
+  pause between prompts produces, regardless of the 30s threshold - is
+  never promoted out of `LRS_H2_WAITING_TO_SEND_HEADERS`
+  (`lws_wsi_mux_apply_queue()` only handles h2/h3/mqtt roles; see BUGS:
+  h1-late-queued-pipeline-never-promoted for the full native trace). Not
+  fixable at this layer. `OllamaClient`/`GeminiClient`/`OpenAIClient`
+  (`lib/ollama-client.js`/`lib/gemini-client.js`/`lib/openai-client.js`)
+  now open a fresh connection per request instead of reusing one across
+  turns - `LCCSCF_PIPELINE` and `IDLE_RECONNECT_MS` removed entirely.
+  Verified against a real Ollama server with an explicit multi-second
+  pause between turns. `GeminiClient` needed a second fix on top of
+  removing `LCCSCF_PIPELINE`: a live repro (real `GEMINI_API_KEY`) still
+  hit the exact same symptom on a 2nd paused request even with the flag
+  gone, because `GeminiClient` (unlike `OpenAIClient`) never pinned ALPN
+  and was negotiating h2 with Google's servers - h2 has its own
+  connection-reuse behavior independent of the app-level pipeline flag.
+  Forcing `alpn: 'http/1.1'` (mirroring `OpenAIClient`'s own existing
+  workaround for a different h2 bug) fixed it; see BUGS:
+  gemini-client-h2-second-request-queued-never-promoted for the exact
+  trace and why the root mechanism wasn't fully pinned down. Verified live
+  against real Gemini: 3 sequential paused requests, previously reliably
+  failing on the 2nd, all completed correctly after the ALPN change.
+  `OpenAIClient` not re-verified live (same live-verification gap as the
+  rest of it, see item 4a above).
 
 - `--provider gemini`: `lib/gemini-client.js` (`chat()`/`chatStream()`,
   same shape as `OllamaClient`) and `repl.js --provider gemini` wiring it

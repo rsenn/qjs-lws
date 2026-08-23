@@ -20,10 +20,14 @@
  * and tool-use format (documented in `../API.md`, not Ollama's own wire
  * shape) - `#toContents()` converts it natively into Gemini's `contents`/
  * `tools`/`toolConfig` request shape and back out of its response.
+ *
+ * Each request opens its own fresh connection rather than a kept-alive
+ * `LCCSCF_PIPELINE` connection reused across turns - see OllamaClient's
+ * own doc comment (BUGS: h1-late-queued-pipeline-never-promoted) for why.
  */
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
-import { LCCSCF_PIPELINE, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
+import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
 import { Console } from 'console';
 import { open as fopen, getenv } from 'std';
 
@@ -35,15 +39,6 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
    "thinking" model response. Overridable via `timeoutSecs` for tests/
    tuning. */
 const DEFAULT_TIMEOUT_SECS = 15 * 60;
-
-/* Mirrors OllamaClient's own IDLE_RECONNECT_MS - see its doc comment and
-   BUGS: ollama-pipelined-connection-hangs-after-idle-gap. Not directly
-   confirmed against a real Gemini idle timeout (that repro was Ollama-
-   specific), but GeminiClient uses the identical LCCSCF_PIPELINE
-   kept-alive pattern, so the same class of failure - a pipelined
-   connection going silently dead during an idle gap between prompts,
-   with no lifecycle callback ever firing to report it - applies here too. */
-const IDLE_RECONNECT_MS = 30_000;
 
 /* Mirrors OllamaClient's own debug log (see its DEBUG_LOG_PATH comment)
    but kept in a separate file so the two clients' logs don't interleave. */
@@ -60,9 +55,6 @@ export class GeminiClient {
   #debugFile;
   #timeoutMs;
   #timeoutSecs;
-  /** Same rationale as OllamaClient#lastActivityAt - see its own doc
-      comment. */
-  #lastActivityAt = null;
 
   /**
    * @param {object} opts
@@ -172,12 +164,6 @@ export class GeminiClient {
   async #post(pathSuffix, messages, { tools, toolChoice, ...options }) {
     std.puts('\x1b[1;35m\n#post\x1b[0m\n');
 
-    // See OllamaClient#post's identical IDLE_RECONNECT_MS check/comment.
-    if(this.#lastActivityAt != null && Date.now() - this.#lastActivityAt > IDLE_RECONNECT_MS) {
-      this.#ctx.destroy();
-      this.#ctx = this.#newContext();
-    }
-
     const { contents, systemInstruction } = this.#toContents(messages);
 
     const payload = {
@@ -195,7 +181,21 @@ export class GeminiClient {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': this.#apiKey },
       body: JSON.stringify(payload),
-      sslConnection: LCCSCF_PIPELINE,
+      /* Forces http/1.1 over ALPN instead of letting the server negotiate
+         h2. Google's servers happily negotiate h2, and h2 connections
+         reuse/multiplex independently of the app-level LCCSCF_PIPELINE
+         flag (which only gates h1's own opt-in reuse path,
+         lib/core-net/client/connect2.c) - live testing against a real
+         Gemini endpoint showed a 2nd request landing in exactly the
+         ESTABLISHED_CLIENT_HTTP-before-CLIENT_HTTP_WRITEABLE symptom
+         removing LCCSCF_PIPELINE was meant to fix (see BUGS:
+         h1-late-queued-pipeline-never-promoted) even with that flag gone,
+         right after a 1st request that had negotiated h2. Forcing h1
+         removes h2 (and whatever reuse/coalescing it does) from the
+         picture entirely - same workaround OpenAIClient already uses,
+         there for an unrelated h2 WINDOW_UPDATE bug (see its own
+         comment). */
+      alpn: 'http/1.1',
     });
 
     // Registered synchronously, right after connect() resolves - no
@@ -291,7 +291,6 @@ export class GeminiClient {
     std.puts('\x1b[1;35m\nchat\x1b[0m\n');
     const resp = await this.#post('generateContent', messages, options);
     const data = await resp.json();
-    this.#lastActivityAt = Date.now();
     this.#debugConsole?.debug('response', data);
 
     const parts = data?.candidates?.[0]?.content?.parts;
@@ -323,6 +322,10 @@ export class GeminiClient {
     let buf = '';
     let full = '';
     const toolCalls = [];
+    // Set once the final SSE event's candidate carries a `finishReason`
+    // (e.g. "STOP") - per the API, that only appears on the last event of
+    // a candidate's stream.
+    let sawFinish = false;
 
     for(;;) {
       const { done, value } = await this.#readWithTimeout(reader);
@@ -345,7 +348,10 @@ export class GeminiClient {
         const chunk = JSON.parse(dataLine.slice(5).trim());
         this.#debugConsole?.debug('chunk', chunk);
 
-        const parts = chunk?.candidates?.[0]?.content?.parts ?? [];
+        const candidate = chunk?.candidates?.[0];
+        if(candidate?.finishReason) sawFinish = true;
+
+        const parts = candidate?.content?.parts ?? [];
         const { content: token, toolCalls: chunkCalls } = this.#toResult(parts);
 
         if(token) {
@@ -357,7 +363,12 @@ export class GeminiClient {
       }
 
       if(done) {
-        this.#lastActivityAt = Date.now();
+        // See OllamaClient#chatStream's identical reasoning: reaching the
+        // end of the HTTP stream without ever seeing a `finishReason`
+        // means the connection closed before the response actually
+        // finished - surface that instead of returning a silently-
+        // truncated reply.
+        if(!sawFinish) throw new Error('Gemini: connection closed before the response finished');
         return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
       }
     }

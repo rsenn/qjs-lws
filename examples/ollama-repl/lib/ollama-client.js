@@ -2,10 +2,14 @@
  * A tiny, dedicated Ollama `/api/chat` client built directly on the
  * `httpClient` protocol adapter (`lib/lws/protocols.js`) - the same
  * adapter `fetch()` (`lib/fetch.js`) is built on, but with its own
- * `LWSContext` and `LCCSCF_PIPELINE` connect flag so every request in a
- * REPL session reuses one persistent, kept-alive HTTP/1.1 connection to
- * the local Ollama server instead of opening a fresh TCP connection (and
- * paying a new connect/TLS-less-but-still-a-round-trip cost) per turn.
+ * `LWSContext`. Each request opens its own fresh HTTP/1.1 connection to
+ * the local Ollama server rather than a kept-alive `LCCSCF_PIPELINE`
+ * connection reused across turns - libwebsockets never promotes a second
+ * h1 client request queued onto an already-idle pipelined connection (see
+ * BUGS: h1-late-queued-pipeline-never-promoted), and any real, human-
+ * paced pause between REPL turns is enough to land in that broken path,
+ * so reconnecting per turn is the only reliable option until that's
+ * fixed upstream.
  *
  * Mirrors the connect/established/error wiring `fetch()` uses internally
  * (see lib/fetch.js) - a `#pending`/`settled` handoff between
@@ -26,7 +30,7 @@
  */
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
-import { LCCSCF_PIPELINE, toString } from 'lws.so';
+import { toString } from 'lws.so';
 import { Console } from 'console';
 import { open as fopen, getenv } from 'std';
 
@@ -38,23 +42,6 @@ import { open as fopen, getenv } from 'std';
    call, and longer still for a large model, a long prompt, or a slow/
    CPU-only box. Overridable via `timeoutSecs` for tests/tuning. */
 const DEFAULT_TIMEOUT_SECS = 15 * 60;
-
-/* How long the kept-alive/pipelined connection (LCCSCF_PIPELINE, #post()
-   below) may sit idle between requests before it's discarded and replaced
-   with a fresh one, instead of being reused as-is. Idle time here means
-   the gap between one request finishing and the next one starting (normal
-   time spent waiting on the user, not time spent mid-request) - a real
-   idle keep-alive connection can go silently dead in that gap (confirmed
-   directly: Ollama's own server, or something between it and this client,
-   drops the connection after roughly 90s of inactivity), and lws's
-   pipelining doesn't detect that before trying to reuse it - the next
-   request then hangs forever with no reply and no error, since none of
-   the connection lifecycle callbacks ever fire for it either. See BUGS:
-   ollama-pipelined-connection-hangs-after-idle-gap for the full repro.
-   30s is a conservative margin below the observed ~90s failure point, not
-   a measured exact boundary - lower if a shorter real-world timeout ever
-   turns up. */
-const IDLE_RECONNECT_MS = 30_000;
 
 /* Every request payload and raw response, appended here (not the
    terminal, which is already busy with the "Thinking..." spinner/reply)
@@ -77,11 +64,6 @@ export class OllamaClient {
   #debugConsole;
   #debugFile;
   #timeoutSecs;
-  /** Date.now() the last time a request actually finished (a response was
-      received) - null until the first one has, so the idle-reconnect check
-      in #post() below never fires before there's even been a first
-      connection to go stale. */
-  #lastActivityAt = null;
 
   /**
    * @param {object} opts
@@ -113,9 +95,7 @@ export class OllamaClient {
     this.#ctx = this.#newContext();
   }
 
-  /** Builds a fresh `LWSContext` bound to `#adapter` - factored out of the
-      constructor so #post() below can call it again to replace a
-      possibly-stale pipelined connection (see IDLE_RECONNECT_MS). */
+  /** Builds a fresh `LWSContext` bound to `#adapter`. */
   #newContext() {
     return createContext({ protocols: [{ name: 'http', ...this.#adapter }], timeoutSecs: this.#timeoutSecs });
   }
@@ -149,22 +129,12 @@ export class OllamaClient {
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(payload) {
-    // See IDLE_RECONNECT_MS above: a pipelined connection that's sat idle
-    // too long may already be dead without lws having noticed - replace it
-    // with a fresh one rather than risk reusing a wsi that will never
-    // produce a response.
-    if(this.#lastActivityAt != null && Date.now() - this.#lastActivityAt > IDLE_RECONNECT_MS) {
-      this.#ctx.destroy();
-      this.#ctx = this.#newContext();
-    }
-
     const url = `http://${this.host}:${this.port}/api/chat`;
 
     const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
-      sslConnection: LCCSCF_PIPELINE,
     });
 
     // Registered synchronously, right after connect() resolves - no
@@ -293,7 +263,6 @@ export class OllamaClient {
 
     const resp = await this.#post(payload);
     const data = await resp.json();
-    this.#lastActivityAt = Date.now();
     this.#debugConsole?.debug('response', data);
 
     if(!data?.message) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
@@ -363,15 +332,30 @@ export class OllamaClient {
         }
 
         if(chunk.done) {
-          this.#lastActivityAt = Date.now();
+          // Ollama's own payload-level "done" can arrive before the HTTP
+          // response stream itself is fully drained (e.g. a trailing
+          // chunked-encoding terminator still in flight) - returning
+          // without cancelling left the reader's lock on the underlying
+          // stream (lib/lws/protocols.js's per-connection `session.stream`)
+          // unreleased, since only draining to the stream's own `done` or
+          // cancelling releases it (see ReadableStreamAsyncIteratorImpl in
+          // lib/lws/streams.js). Same cleanup #readWithTimeout's timeout
+          // path already does below.
+          await reader.cancel().catch(() => {});
           return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
         }
       }
 
-      if(done) {
-        this.#lastActivityAt = Date.now();
-        return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
-      }
+      /* Reaching here means the underlying HTTP stream itself ended
+         (CLOSED_CLIENT_HTTP/COMPLETED_CLIENT_HTTP, lib/lws/protocols.js)
+         without ever seeing Ollama's own payload-level "done" line above -
+         a well-behaved response always sends that line before closing, so
+         this is a genuine premature close (dropped connection, server
+         crash, ...), not a valid empty/short reply. Surface it as an error
+         rather than silently returning whatever partial content arrived -
+         see chatRound()/repl.js's error-flow for how the "Thinking..."
+         spinner stops and this gets shown to the user. */
+      if(done) throw new Error('Ollama: connection closed before the response finished');
     }
   }
 

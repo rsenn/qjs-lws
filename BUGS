@@ -93,10 +93,13 @@
 - h1-late-queued-pipeline-never-promoted (libwebsockets/lib/roles/h1/ops-h1.c,
   rops_handle_POLLOUT_h1; contrast libwebsockets/lib/core-net/wsi.c:1720,
   lws_wsi_mux_apply_queue): native root cause of the ollama-repl "only the
-  first prompt works" symptom (mitigated at the application layer - see
-  IDLE_RECONNECT_MS in examples/ollama-repl/lib/ollama-client.js/
-  gemini-client.js, and tests/test-keepalive.js's investigation - but not
-  fixable there, this lives entirely in vendored libwebsockets). When a
+  first prompt works" symptom (worked around at the application layer -
+  ollama-client.js/gemini-client.js/openai-client.js under
+  examples/ollama-repl/lib/ no longer use LCCSCF_PIPELINE at all, opening a
+  fresh connection per request instead of trying to reuse one across
+  human-paced turns; see tests/test-keepalive.js's own investigation too -
+  but not fixable there, this lives entirely in vendored libwebsockets).
+  When a
   second HTTP/1.1 client request is queued onto an existing LCCSCF_PIPELINE
   connection *after* the first transaction has already fully completed and
   gone idle (as opposed to being queued while the first is still in
@@ -135,6 +138,16 @@
     wait ~90s past the reply, send a second - watch for
     ESTABLISHED_CLIENT_HTTP/SERVER_NEW_CLIENT_INSTANTIATED with no
     subsequent CLIENT_APPEND_HANDSHAKE_HEADER before CLIENT_HTTP_DROP_PROTOCOL
+
+- gemini-client-h2-second-request-queued-never-promoted (examples/ollama-repl/lib/gemini-client.js, worked around by forcing `alpn: 'http/1.1'` on its connect() options): a live 2nd request against a real Gemini endpoint showed the exact same ESTABLISHED_CLIENT_HTTP-before-CLIENT_HTTP_WRITEABLE/no-CLIENT_APPEND_HANDSHAKE_HEADER/CLIENT_HTTP_DROP_PROTOCOL symptom as h1-late-queued-pipeline-never-promoted above, even after LCCSCF_PIPELINE was removed from gemini-client.js entirely (wsi->client_pipeline is unconditionally reset from the connect-info's ssl_connection on every top-level lws_client_connect_via_info() call - confirmed by reading lws-context.c's lwsjs_client_connect() and connect.c - so it should have been 0 for that 2nd request). The 1st request had negotiated h2 (LLL_USER log showed it tagged mux|0|...|h2_sid1_...); the 2nd showed a plain wsicli|1 tag (no mux), so it wasn't reusing the h2 mux's stream either. Root cause not conclusively identified - h2's connection coalescing/reuse is protocol-inherent, independent of the client_pipeline app flag, and is the strongest suspect, but the exact mechanism producing this specific h1-shaped symptom on a would-be-solo h1 connection wasn't traced through the native source. Forcing ALPN to http/1.1 (same workaround openai-client.js already uses, there for the unrelated h2-window-update-overflow bug below) removes h2 from the picture entirely and was confirmed to fix it: 3 sequential live requests with multi-second pauses between them, previously reliably hitting this on the 2nd request, all completed correctly after the change.
+
+    reproduce against a real Gemini endpoint (GEMINI_API_KEY set): qjsm
+    examples/ollama-repl/repl.js --provider gemini --model
+    gemini-flash-latest --stream -x -x, send one prompt, wait a few
+    seconds, send a second - watch traffic.log for a 2nd wsi entry with
+    ESTABLISHED_CLIENT_HTTP firing before SERVER_NEW_CLIENT_INSTANTIATED/
+    CLIENT_APPEND_HANDSHAKE_HEADER; only reproduced with the alpn override
+    removed from gemini-client.js's connect() options
 
 - h2-window-update-overflow-fix-option-breaks-connect (libwebsockets/lib/tls/openssl/openssl-client.c:513):
   setting the vhost option LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW

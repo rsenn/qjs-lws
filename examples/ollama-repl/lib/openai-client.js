@@ -24,10 +24,14 @@
  * provider's wire shape) - `#toMessages()` converts it natively into the
  * OpenAI-style `messages`/`tools`/`tool_choice` request shape and back
  * out of its response.
+ *
+ * Each request opens its own fresh connection rather than a kept-alive
+ * `LCCSCF_PIPELINE` connection reused across turns - see OllamaClient's
+ * own doc comment (BUGS: h1-late-queued-pipeline-never-promoted) for why.
  */
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
-import { LCCSCF_PIPELINE, LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
+import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
 import { Console } from 'console';
 import { open as fopen, getenv } from 'std';
 
@@ -39,16 +43,6 @@ const DEFAULT_API_PATH = '/chat/completions';
    built-in default (see wsi-timeout.c/context.c) is too short for a slow
    response. Overridable via `timeoutSecs` for tests/tuning. */
 const DEFAULT_TIMEOUT_SECS = 15 * 60;
-
-/* Mirrors OllamaClient's own IDLE_RECONNECT_MS - see its doc comment and
-   BUGS: ollama-pipelined-connection-hangs-after-idle-gap. Not directly
-   confirmed against every OpenAI-compatible provider's idle timeout (that
-   repro was Ollama-specific), but OpenAIClient uses the identical
-   LCCSCF_PIPELINE kept-alive pattern, so the same class of failure - a
-   pipelined connection going silently dead during an idle gap between
-   prompts, with no lifecycle callback ever firing to report it - applies
-   here too. */
-const IDLE_RECONNECT_MS = 30_000;
 
 /* Mirrors OllamaClient's own debug log (see its DEBUG_LOG_PATH comment)
    but kept in a separate file so the clients' logs don't interleave. */
@@ -67,9 +61,6 @@ export class OpenAIClient {
   #debugFile;
   #timeoutMs;
   #timeoutSecs;
-  /** Same rationale as OllamaClient#lastActivityAt - see its own doc
-      comment. */
-  #lastActivityAt = null;
 
   /**
    * @param {object} opts
@@ -201,12 +192,6 @@ export class OpenAIClient {
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(payload) {
-    // See OllamaClient#post's identical IDLE_RECONNECT_MS check/comment.
-    if(this.#lastActivityAt != null && Date.now() - this.#lastActivityAt > IDLE_RECONNECT_MS) {
-      this.#ctx.destroy();
-      this.#ctx = this.#newContext();
-    }
-
     this.#debugConsole?.debug('request', payload);
 
     const url = `${this.#baseUrl}${this.#apiPath}`;
@@ -215,7 +200,6 @@ export class OpenAIClient {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` },
       body: JSON.stringify(payload),
-      sslConnection: LCCSCF_PIPELINE,
       /* Forces http/1.1 over ALPN instead of letting the server negotiate
          h2 - some OpenAI-compatible servers send a connection-level
          WINDOW_UPDATE that overflows lws's 31-bit tx-credit max
@@ -309,7 +293,6 @@ export class OpenAIClient {
 
     const resp = await this.#post(payload);
     const data = await resp.json();
-    this.#lastActivityAt = Date.now();
     this.#debugConsole?.debug('response', data);
 
     const message = data?.choices?.[0]?.message;
@@ -345,6 +328,7 @@ export class OpenAIClient {
     /** index -> { id, name, args } accumulator - `args` is the raw JSON
         string built up across chunks, parsed only once the stream ends. */
     const toolCallsByIndex = new Map();
+    let sawDone = false;
 
     for(;;) {
       const { done, value } = await this.#readWithTimeout(reader);
@@ -359,7 +343,11 @@ export class OpenAIClient {
 
         if(!line.startsWith('data:')) continue;
         const data = line.slice(5).trim();
-        if(!data || data === '[DONE]') continue;
+        if(!data) continue;
+        if(data === '[DONE]') {
+          sawDone = true;
+          continue;
+        }
 
         const chunk = JSON.parse(data);
         this.#debugConsole?.debug('chunk', chunk);
@@ -382,7 +370,12 @@ export class OpenAIClient {
       }
 
       if(done) {
-        this.#lastActivityAt = Date.now();
+        // See OllamaClient#chatStream's identical reasoning: reaching the
+        // end of the HTTP stream without ever seeing the `data: [DONE]`
+        // sentinel means the connection closed before the response
+        // actually finished - surface that instead of returning a
+        // silently-truncated reply.
+        if(!sawDone) throw new Error('OpenAI: connection closed before the response finished');
         const toolCalls = [...toolCallsByIndex.entries()].map(([i, { id, name, args }]) => ({ id: id ?? `${name}#${i}`, name, args: args ? JSON.parse(args) : {} }));
         return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
       }

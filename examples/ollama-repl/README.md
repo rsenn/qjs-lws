@@ -3,12 +3,12 @@
 A small Claude-Code-style REPL for chatting with a local [Ollama](https://ollama.com)
 model (`qwen2.5-coder` by default) about the files in your project.
 
-- **Kept-alive HTTP client.** `lib/ollama-client.js` talks to Ollama's
+- **Dedicated HTTP client.** `lib/ollama-client.js` talks to Ollama's
   `/api/chat` endpoint directly through the `httpClient` protocol adapter
   (`lib/lws/protocols.js`) - the same building block `fetch()` uses - with
-  its own `LWSContext` and `LCCSCF_PIPELINE` connect flag, so every prompt
-  in a session reuses one persistent HTTP/1.1 connection instead of paying
-  a fresh TCP connect per turn.
+  its own `LWSContext`. Each prompt opens its own fresh connection rather
+  than reusing one across turns - see BUGS:
+  h1-late-queued-pipeline-never-promoted for why.
 - **Token streaming (`--stream`).** Ollama's own HTTP API streams
   newline-delimited JSON when asked (`stream: true`) over that same
   connection - no child process or second connection needed. `chatStream()`
