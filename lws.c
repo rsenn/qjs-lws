@@ -1072,6 +1072,67 @@ lwsjs_log_clean(const char* line, DynBuf* dbuf, DynBuf* func) {
   }
 }
 
+/* lwsjs_callback_log()'s branch for once a JS log sink has been installed
+   via logLevel(level, fn) (lwsjs_log_ctx/lwsjs_log_fn) - hands the already
+   level-decoded, whitespace-trimmed `line` (plus `func`, the "lws_foo"/
+   "rops_bar" caller-name prefix lwsjs_log_clean() peeled off, or NULL if
+   none was found) to that JS callback as (level, message, func). */
+static void
+lwsjs_callback_log_js(int level, const char* line, const char* func) {
+  size_t len = strlen(line);
+
+  while(len > 0) {
+    if(!isspace(line[len - 1]))
+      break;
+    --len;
+  }
+
+  JSContext* ctx = lwsjs_log_ctx;
+  JSValueConst args[] = {
+      JS_NewUint32(ctx, level),
+      JS_NewStringLen(ctx, line, len),
+      func ? JS_NewString(ctx, func) : JS_UNDEFINED,
+  };
+  JSValue ret = JS_Call(ctx, lwsjs_log_fn, JS_NULL, 3, args);
+  JS_FreeValue(ctx, args[1]);
+  JS_FreeValue(ctx, args[0]);
+  JS_FreeValue(ctx, ret);
+}
+
+/* lwsjs_callback_log()'s branch for when no JS log sink has been installed -
+   the default fallback: prints the already level-decoded `line` straight to
+   the terminal (stderr), colour- and level-tagged, wrapped to the current
+   terminal width. */
+static void
+lwsjs_callback_log_term(int level, const char* line) {
+  struct winsize wsz;
+
+  if(ioctl(0, TIOCGWINSZ, &wsz) != 0) {
+    memset(&wsz, 0, sizeof(wsz));
+  }
+
+  size_t columns = wsz.ws_col;
+
+  char lev[9];
+  size_t len = strlen(lwsjs_log_levels[level]);
+  int i;
+  for(i = 0; i < (sizeof(lev) - len) / 2; i++)
+    lev[i] = ' ';
+  i += snprintf(&lev[i], sizeof(lev) - i, "%s", lwsjs_log_levels[level]);
+
+  while(i < sizeof(lev))
+    lev[i++] = ' ';
+  lev[sizeof(lev) - 1] = '\0';
+
+  size_t linelen = strlen(line);
+
+  if(columns == 0)
+    columns == linelen;
+
+  fprintf(stderr, "\r\x1b[30m%s%s\x1b[0m %.*s%s", lwsjs_log_colours[level], lev, (int)(linelen > columns ? columns - 10 - 3 : linelen), line, linelen > columns ? " ...\n" : "");
+  fflush(stderr);
+}
+
 static void
 lwsjs_callback_log(int level, const char* line) {
   line = strstr(line, ": ");
@@ -1095,53 +1156,10 @@ lwsjs_callback_log(int level, const char* line) {
   dbuf_putc(&dbuf, '\0');
   line = (const char*)dbuf.buf;
 
-  if(lwsjs_log_ctx) {
-    size_t len = strlen(line);
-
-    while(len > 0) {
-      if(!isspace(line[len - 1]))
-        break;
-      --len;
-    }
-
-    JSContext* ctx = lwsjs_log_ctx;
-    JSValueConst args[] = {
-        JS_NewUint32(ctx, level),
-        JS_NewStringLen(ctx, line, len),
-        func.size ? JS_NewString(ctx, func.buf) : JS_UNDEFINED,
-    };
-    JSValue ret = JS_Call(ctx, lwsjs_log_fn, JS_NULL, 3, args);
-    JS_FreeValue(ctx, args[1]);
-    JS_FreeValue(ctx, args[0]);
-    JS_FreeValue(ctx, ret);
-  } else {
-    struct winsize wsz;
-
-    if(ioctl(0, TIOCGWINSZ, &wsz) != 0) {
-      memset(&wsz, 0, sizeof(wsz));
-    }
-
-    size_t columns = wsz.ws_col;
-
-    char lev[9];
-    size_t len = strlen(lwsjs_log_levels[level]);
-    int i;
-    for(i = 0; i < (sizeof(lev) - len) / 2; i++)
-      lev[i] = ' ';
-    i += snprintf(&lev[i], sizeof(lev) - i, "%s", lwsjs_log_levels[level]);
-
-    while(i < sizeof(lev))
-      lev[i++] = ' ';
-    lev[sizeof(lev) - 1] = '\0';
-
-    size_t linelen = strlen(line);
-
-    if(columns == 0)
-      columns == linelen;
-
-    fprintf(stderr, "\r\x1b[30m%s%s\x1b[0m %.*s%s", lwsjs_log_colours[level], lev, (int)(linelen > columns ? columns - 10 - 3 : linelen), line, linelen > columns ? " ...\n" : "");
-    fflush(stderr);
-  }
+  if(lwsjs_log_ctx)
+    lwsjs_callback_log_js(level, line, func.size ? (const char*)func.buf : NULL);
+  else
+    lwsjs_callback_log_term(level, line);
 
   dbuf_free(&dbuf);
   dbuf_free(&func);

@@ -184,6 +184,23 @@
     });
     await adapter.connect(ctx, 'https://example.com/', { method: 'GET', ssl_connection: LCCSCF_PIPELINE }); // logs "error: connect SYSCALL 9"
 
+- term-log-zero-columns-noop-comparison (lws.c, lwsjs_callback_log_term()):
+  the `if(columns == 0) columns == linelen;` fallback for a TIOCGWINSZ that
+  reports 0 columns (no controlling tty, e.g. output piped/redirected) uses
+  `==` instead of `=`, so it's a no-op comparison rather than the assignment
+  it was clearly meant to be - `columns` stays 0 in that case. Found while
+  splitting lwsjs_callback_log() into lwsjs_callback_log_js()/
+  lwsjs_callback_log_term(); not fixed since it wasn't the specific ask.
+  With columns still 0, the later `linelen > columns ? columns - 10 - 3 :
+  linelen` always takes the truthy branch and `columns - 10 - 3` underflows
+  (columns is size_t), producing a huge %.*s precision - likely relies on
+  printf clamping that to the string's actual length rather than genuinely
+  reading out of bounds, but not confirmed either way.
+
+    qjsm -e "import('lws.so').then(m => m.logLevel(m.LLL_USER, undefined))" < /dev/null 2>&1 | cat
+    // pipe stdout/stderr so fd 0 has no tty and TIOCGWINSZ fails/returns 0
+    // columns; any log line emitted after this should show the effect
+
 ---
 
 ## API Compatibility Bugs (from doc/api-compatibility.md assessment)
