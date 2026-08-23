@@ -1723,7 +1723,6 @@ static const JSCFunctionListEntry lws_socket_proto_funcs[] = {
     JS_CFUNC_DEF("wantWrite", 0, lwsjs_socket_want_write),
     JS_CFUNC_DEF("write", 1, lwsjs_socket_write),
     JS_CFUNC_DEF("respond", 1, lwsjs_socket_respond),
-    JS_CFUNC_DEF("redirect", 2, lwsjs_socket_redirect),
     JS_CFUNC_DEF("transactionCompleted", 0, lwsjs_socket_transaction_completed),
     JS_CFUNC_DEF("longPollRxOnly", 0, lwsjs_socket_long_poll_rxonly),
     JS_CFUNC_DEF("close", 0, lwsjs_socket_close),
