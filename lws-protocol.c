@@ -660,12 +660,7 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
       } else {
         lwsl_wsi_user(wsi, "%s\n", lwsjs_callback_name(reason));
       }
-    } else /*if(is_connected_reason(reason)) {
-      lwsl_wsi_user(wsi, "%s\n", lwsjs_callback_name(reason));
-    } else if(is_closed_reason(reason)) {
-      lwsl_wsi_user(wsi, "%s\n", lwsjs_callback_name(reason));
-    } else*/
-    {
+    } else {
       lwsl_wsi_user(wsi, "%s\n", lwsjs_callback_name(reason));
     }
   }
