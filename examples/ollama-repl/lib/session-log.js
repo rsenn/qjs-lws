@@ -11,7 +11,7 @@ export class SessionLog {
   #file;
 
   constructor(path) {
-    this.#file = fopen(path, 'a');
+    this.#file = fopen(this.path = path, 'a');
   }
 
   #line(tag, text) {

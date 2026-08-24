@@ -455,17 +455,6 @@ Anything else is sent to the model as a prompt.`;
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
 
-  if(opts.lwsDebug) {
-    let f = std.open('traffic.log', 'a+');
-
-    logLevel(LLL_USER, (level, msg) => {
-      //msg = msg.replace(/^[^\]]*\]: [^:]*: /, '');
-      //f.puts(`\x1b[1;33m${msg}\x1b[0m\n`);
-      f.puts(`${msg}\n`);
-      f.flush();
-    });
-  }
-
   let client;
   try {
     client = opts.provider === 'gemini' ? new GeminiClient(opts) : opts.provider === 'openai' ? new OpenAIClient(opts) : new OllamaClient(opts);
@@ -474,7 +463,7 @@ async function main() {
     exit(1);
   }
 
-  const log = new SessionLog(`${opts.model}.log`);
+  const log = new SessionLog(`${opts.model.replaceAll(':', '-')}.log`);
   const sentFiles = new SentFiles(opts.model, opts.root);
   const fileExchange = new FileExchange(opts.model, opts.root);
   const store = new SessionStore(opts.model);
@@ -487,7 +476,7 @@ async function main() {
   console.log(`ollama-repl: ${opts.provider}/${opts.model} @ ${endpoint}  (root: ${opts.root})${opts.failsafe ? '  [failsafe: no system prompt/project scan/tools]' : ''}`);
   //console.log(`Type a prompt and press Enter.\nReference files by name or glob (e.g. src/*.js) to attach them.`);
   console.log(`/help for commands.`);
-  console.log(`Logging this session to ${opts.model}.log.`);
+  console.log(`Logging this session to ${log.path}`);
   console.log(`History persists (^R to search, up/down to recall).`);
 
   if(saved) {

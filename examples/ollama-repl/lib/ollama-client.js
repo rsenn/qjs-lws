@@ -45,7 +45,7 @@ const DEFAULT_TIMEOUT_SECS = 15 * 60;
 /* Every request payload and raw response, appended here when debug mode
    is on (`-x`/`--debug`, repl.js, or the `DEBUG` env var - either enables
    it). See lib/logger.js's own doc comment. */
-const DEBUG_LOG_PATH = 'ollama-repl-debug.log';
+const DEBUG_LOG_PATH = scriptArgs[0] + '.log';
 
 export class OllamaClient {
   #ctx;
