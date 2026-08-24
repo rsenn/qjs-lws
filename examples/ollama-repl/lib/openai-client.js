@@ -32,7 +32,7 @@
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
-import { RequestLogger } from './logger.js';
+import { RequestLogger } from '../../../lib/logger.js';
 import { getenv } from 'std';
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -189,13 +189,15 @@ export class OpenAIClient {
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(payload) {
-    this.#logger.request(payload);
-
     const url = `${this.#baseUrl}${this.#apiPath}`;
+    const headers = { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` };
+
+    this.#logger.request('POST', url, headers);
+    this.#logger.body(payload);
 
     const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` },
+      headers,
       body: JSON.stringify(payload),
       /* Forces http/1.1 over ALPN instead of letting the server negotiate
          h2 - some OpenAI-compatible servers send a connection-level
@@ -213,6 +215,8 @@ export class OpenAIClient {
     // `await` in between - see OllamaClient#post's identical comment for
     // why that ordering matters.
     const resp = await this.#awaitResponse(req, wsi);
+
+    this.#logger.response(resp.status, resp.statusText, resp.headers);
 
     // See OllamaClient#post's identical comment: `.status`, not `.ok`.
     if(resp.status < 200 || resp.status >= 300) {
@@ -290,7 +294,7 @@ export class OpenAIClient {
 
     const resp = await this.#post(payload);
     const data = await resp.json();
-    this.#logger.response(data);
+    this.#logger.body(data);
 
     const message = data?.choices?.[0]?.message;
     if(!message) throw new Error(`unexpected OpenAI response: ${JSON.stringify(data)}`);
@@ -347,7 +351,7 @@ export class OpenAIClient {
         }
 
         const chunk = JSON.parse(data);
-        this.#logger.chunk(chunk);
+        this.#logger.body(chunk);
 
         const delta = chunk?.choices?.[0]?.delta;
         if(!delta) continue;

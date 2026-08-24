@@ -31,7 +31,7 @@
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { toString } from 'lws.so';
-import { RequestLogger } from './logger.js';
+import { RequestLogger } from '../../../lib/logger.js';
 
 /* lws's own default (15s, see wsi-timeout.c/context.c) for how long a
    client connection may sit waiting on e.g. the server's reply before lws
@@ -121,10 +121,14 @@ export class OllamaClient {
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(payload) {
     const url = `http://${this.host}:${this.port}/api/chat`;
+    const headers = { 'content-type': 'application/json' };
+
+    this.#logger.request('POST', url, headers);
+    this.#logger.body(payload);
 
     const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
     });
 
@@ -132,6 +136,8 @@ export class OllamaClient {
     // `await` in between - so no native callback can fire in the gap and
     // find nothing here to reject/resolve yet.
     const resp = await this.#awaitResponse(req, wsi);
+
+    this.#logger.response(resp.status, resp.statusText, resp.headers);
 
     /* Not `resp.ok`: Response's `.ok` is computed once at construction
        time (lib/lws/response.js), before HttpClientProtocol patches in
@@ -250,11 +256,10 @@ export class OllamaClient {
    */
   async chat(messages, { think = false, tools, toolChoice, ...options } = {}) {
     const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: false, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
-    this.#logger.request(payload);
 
     const resp = await this.#post(payload);
     const data = await resp.json();
-    this.#logger.response(data);
+    this.#logger.body(data);
 
     if(!data?.message) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
 
@@ -285,7 +290,6 @@ export class OllamaClient {
    */
   async chatStream(messages, { think = false, tools, toolChoice, ...options } = {}, onToken) {
     const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: true, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
-    this.#logger.request(payload);
 
     const resp = await this.#post(payload);
     const reader = resp.body.getReader();
@@ -312,7 +316,7 @@ export class OllamaClient {
         if(!line.trim()) continue;
 
         const chunk = JSON.parse(line);
-        this.#logger.chunk(chunk);
+        this.#logger.body(chunk);
 
         const { content: token, toolCalls: chunkCalls } = this.#toResult(chunk.message, toolCalls.length);
         for(const tc of chunkCalls ?? []) toolCalls.push(tc);

@@ -28,7 +28,7 @@
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
-import { RequestLogger } from './logger.js';
+import { RequestLogger } from '../../../lib/logger.js';
 import { getenv } from 'std';
 
 const DEFAULT_MODEL = 'gemini-flash-latest';
@@ -170,13 +170,15 @@ export class GeminiClient {
       ...(tools ? { tools: [{ functionDeclarations: tools.map(({ name, description, parameters }) => ({ name, description, parameters })) }] } : {}),
       ...(toolChoice ? { toolConfig: this.#toToolConfig(toolChoice) } : {}),
     };
-    this.#logger.request(payload);
-
     const url = `${API_BASE}/${this.model}:${pathSuffix}`;
+    const headers = { 'content-type': 'application/json', 'x-goog-api-key': this.#apiKey };
+
+    this.#logger.request('POST', url, headers);
+    this.#logger.body(payload);
 
     const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': this.#apiKey },
+      headers,
       body: JSON.stringify(payload),
       /* Forces http/1.1 over ALPN instead of letting the server negotiate
          h2. Google's servers happily negotiate h2, and h2 connections
@@ -199,6 +201,8 @@ export class GeminiClient {
     // `await` in between - see OllamaClient#post's identical comment for
     // why that ordering matters.
     const resp = await this.#awaitResponse(req, wsi);
+
+    this.#logger.response(resp.status, resp.statusText, resp.headers);
 
     // See OllamaClient#post's identical comment: `.status`, not `.ok`.
     if(resp.status < 200 || resp.status >= 300) {
@@ -288,7 +292,7 @@ export class GeminiClient {
     std.puts('\x1b[1;35m\nchat\x1b[0m\n');
     const resp = await this.#post('generateContent', messages, options);
     const data = await resp.json();
-    this.#logger.response(data);
+    this.#logger.body(data);
 
     const parts = data?.candidates?.[0]?.content?.parts;
     if(!parts) throw new Error(`unexpected Gemini response: ${JSON.stringify(data)}`);
@@ -343,7 +347,7 @@ export class GeminiClient {
         if(!dataLine) continue;
 
         const chunk = JSON.parse(dataLine.slice(5).trim());
-        this.#logger.chunk(chunk);
+        this.#logger.body(chunk);
 
         const candidate = chunk?.candidates?.[0];
         if(candidate?.finishReason) sawFinish = true;

@@ -154,12 +154,17 @@ wiring this into `repl.js`'s own tool loop). Concretely still open:
 - Done: `OllamaClient`/`GeminiClient`/`OpenAIClient` each used to build
   their own debug `Console` inline, inconsistently (only `OllamaClient`
   set `maxStringLength: Infinity`, so a large attached-context body could
-  get truncated in `gemini-repl-debug.log`/`openai-repl-debug.log`).
-  Pulled into a shared `lib/logger.js` (`RequestLogger`, wrapping
-  `std.open()` + `Console`) that all three now construct identically -
-  `colors: false`, `compact: -1`, `reparseable: true`,
-  `maxStringLength: Infinity`, `maxArrayLength: Infinity` - so nothing
-  truncates and every client's debug log formats the same way.
+  get truncated in `gemini-repl-debug.log`/`openai-repl-debug.log`), and
+  only logged the JSON body, never the request/response headers. Pulled
+  into a project-level, generic `RequestLogger` (the project root's
+  `lib/logger.js`, not chat-repl-specific - wraps `std.open()` + `Console`)
+  that all three now construct identically: `request()`/`response()` log
+  the method/status line plus headers, one per line, plain text;
+  `body()` logs the request/response body (or one streamed chunk) as a
+  still-live JS value via `colors: false`, `compact: -1`,
+  `reparseable: true`, `maxStringLength: Infinity`,
+  `maxArrayLength: Infinity` - so nothing truncates, a logged JSON body
+  stays copy-pasteable, and every client's debug log formats the same way.
 
 ## 5. Redesign the binding-writing context (see DEMO.md) - implemented, unverified live
 
