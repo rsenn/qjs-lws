@@ -57,7 +57,7 @@ trailing `": "` is stripped).
 getLogLevelName(LLL_USER)        // → "USER"
 getLogLevelColour(LLL_USER)      // → ANSI escape
 visible(LLL_INFO)                // → boolean (level currently visible)
-log([level], [wsiOrCtx], msg | ArrayBuffer)
+log([level], [wsiOrCtx], msg)
 logLevel(mask, [callback(level, line)])
 ```
 
@@ -69,8 +69,7 @@ ANSI-colourised log lines to `stderr`.
 
 `log()` writes a user-level log message. If passed an `LWSSocket`,
 the line is prefixed with the wsi tag; if passed an `LWSContext`
-the message is associated with that context. With an ArrayBuffer
-argument the buffer is hex-dumped.
+the message is associated with that context.
 
 ### URI / connection info
 

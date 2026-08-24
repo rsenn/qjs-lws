@@ -408,8 +408,6 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       int32_t level = -1;
       LWSSocket* ls = NULL;
       LWSContext* lws = NULL;
-      uint8_t* buf = NULL;
-      size_t len;
       int i;
 
       for(i = 0; i < argc; ++i) {
@@ -419,8 +417,6 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
           continue;
         else if(argc > 1 && lws == NULL && (lws = JS_GetOpaque(argv[i], lwsjs_context_class_id)))
           continue;
-        else if(buf == NULL && (buf = JS_GetArrayBuffer(ctx, &len, argv[i])))
-          continue;
         else if(msg == NULL && !(msg = JS_ToCString(ctx, argv[i])))
           return JS_ThrowTypeError(ctx, "argument %d must be string", i + 1);
       }
@@ -428,21 +424,12 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       if(level == -1)
         level = LLL_USER;
 
-      if(buf) {
-        if(lws)
-          lwsl_hexdump_context(lws->ctx, level, buf, len);
-        else if(ls)
-          lwsl_hexdump_wsi(ls->wsi, level, buf, len);
-        else
-          lwsl_hexdump_level(level, buf, len);
-      } else {
-        if(ls)
-          _lws_log_cx(lwsl_wsi_get_cx(ls->wsi), lws_log_prepend_wsi, ls->wsi, level, NULL, "%s", msg);
-        else if(lws)
-          _lws_log_cx(lwsl_context_get_cx(lws->ctx), lws_log_prepend_context, lws->ctx, level, NULL, "%s", msg);
-        else
-          _lws_log(level, "%s", msg);
-      }
+      if(ls)
+        _lws_log_cx(lwsl_wsi_get_cx(ls->wsi), lws_log_prepend_wsi, ls->wsi, level, NULL, "%s", msg);
+      else if(lws)
+        _lws_log_cx(lwsl_context_get_cx(lws->ctx), lws_log_prepend_context, lws->ctx, level, NULL, "%s", msg);
+      else
+        _lws_log(level, "%s", msg);
 
       if(msg)
         JS_FreeCString(ctx, msg);
@@ -1158,8 +1145,8 @@ lwsjs_callback_log(int level, const char* line) {
 
   if(lwsjs_log_ctx)
     lwsjs_callback_log_js(level, line, func.size ? (const char*)func.buf : NULL);
-  /*else
-    lwsjs_callback_log_term(level, line);*/
+  else
+    lwsjs_callback_log_term(level, line);
 
   dbuf_free(&dbuf);
   dbuf_free(&func);
