@@ -32,8 +32,8 @@
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
-import { Console } from 'console';
-import { open as fopen, getenv } from 'std';
+import { RequestLogger } from './logger.js';
+import { getenv } from 'std';
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -45,7 +45,8 @@ const DEFAULT_API_PATH = '/chat/completions';
 const DEFAULT_TIMEOUT_SECS = 15 * 60;
 
 /* Mirrors OllamaClient's own debug log (see its DEBUG_LOG_PATH comment)
-   but kept in a separate file so the clients' logs don't interleave. */
+   but kept in a separate file so the clients' logs don't interleave.
+   See lib/logger.js's own doc comment. */
 const DEBUG_LOG_PATH = 'openai-repl-debug.log';
 
 export class OpenAIClient {
@@ -57,8 +58,7 @@ export class OpenAIClient {
   /** Same req -> {resolve, reject} bookkeeping as OllamaClient#settled -
       see its own doc comment for why this is a plain Map, not a WeakMap. */
   #settled = new Map();
-  #debugConsole;
-  #debugFile;
+  #logger;
   #timeoutMs;
   #timeoutSecs;
 
@@ -94,10 +94,7 @@ export class OpenAIClient {
     this.#timeoutMs = timeoutSecs * 1000;
     this.#timeoutSecs = timeoutSecs;
 
-    if(debug || getenv('DEBUG')) {
-      this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
-      this.#debugConsole = new Console(this.#debugFile, { inspectOptions: { depth: Infinity, compact: false } });
-    }
+    this.#logger = new RequestLogger(DEBUG_LOG_PATH, debug);
 
     this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
 
@@ -192,7 +189,7 @@ export class OpenAIClient {
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(payload) {
-    this.#debugConsole?.debug('request', payload);
+    this.#logger.request(payload);
 
     const url = `${this.#baseUrl}${this.#apiPath}`;
 
@@ -293,7 +290,7 @@ export class OpenAIClient {
 
     const resp = await this.#post(payload);
     const data = await resp.json();
-    this.#debugConsole?.debug('response', data);
+    this.#logger.response(data);
 
     const message = data?.choices?.[0]?.message;
     if(!message) throw new Error(`unexpected OpenAI response: ${JSON.stringify(data)}`);
@@ -350,7 +347,7 @@ export class OpenAIClient {
         }
 
         const chunk = JSON.parse(data);
-        this.#debugConsole?.debug('chunk', chunk);
+        this.#logger.chunk(chunk);
 
         const delta = chunk?.choices?.[0]?.delta;
         if(!delta) continue;
@@ -385,11 +382,7 @@ export class OpenAIClient {
   /* Idempotent - see BUGS: repl-controlc-double-invokes-cleanup-handlers.
      A double Ctrl-C in the REPL (lib/chat-repl.js's base class) runs every
      registered cleanup handler, including this one via destroy(), twice;
-     without this guard the second call's this.#debugFile?.close() throws
-     "invalid file handle" on the already-closed handle, and since that
-     throw happens inside the REPL's own exit()'s cleanup loop - which
-     runs *before* exit()'s std.exit() call - it silently stops the
-     process from ever actually exiting. */
+     #logger.close() has its own matching guard, see lib/logger.js. */
   #destroyed = false;
 
   destroy() {
@@ -397,6 +390,6 @@ export class OpenAIClient {
     this.#destroyed = true;
 
     this.#ctx.destroy();
-    this.#debugFile?.close();
+    this.#logger.close();
   }
 }

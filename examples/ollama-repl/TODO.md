@@ -151,13 +151,15 @@ wiring this into `repl.js`'s own tool loop). Concretely still open:
   their directories on every call (once per chat prompt, at minimum) -
   fine at current scale, but worth caching per-session if it's ever
   noticeably slow.
-- `OllamaClient`'s debug `Console` now sets `maxStringLength: Infinity` in
-  its `inspectOptions` (so a large attached-context body in a logged
-  request/response doesn't get truncated); `GeminiClient`'s debug
-  `Console` (`lib/gemini-client.js`) still only sets `depth: Infinity` and
-  will truncate long strings in `gemini-repl-debug.log`. Worth matching
-  the two if `GeminiClient`'s debug log is ever used to inspect a large
-  payload.
+- Done: `OllamaClient`/`GeminiClient`/`OpenAIClient` each used to build
+  their own debug `Console` inline, inconsistently (only `OllamaClient`
+  set `maxStringLength: Infinity`, so a large attached-context body could
+  get truncated in `gemini-repl-debug.log`/`openai-repl-debug.log`).
+  Pulled into a shared `lib/logger.js` (`RequestLogger`, wrapping
+  `std.open()` + `Console`) that all three now construct identically -
+  `colors: false`, `compact: -1`, `reparseable: true`,
+  `maxStringLength: Infinity`, `maxArrayLength: Infinity` - so nothing
+  truncates and every client's debug log formats the same way.
 
 ## 5. Redesign the binding-writing context (see DEMO.md) - implemented, unverified live
 

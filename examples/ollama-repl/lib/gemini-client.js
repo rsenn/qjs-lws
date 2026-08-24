@@ -28,8 +28,8 @@
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
-import { Console } from 'console';
-import { open as fopen, getenv } from 'std';
+import { RequestLogger } from './logger.js';
+import { getenv } from 'std';
 
 const DEFAULT_MODEL = 'gemini-flash-latest';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -41,7 +41,8 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_TIMEOUT_SECS = 15 * 60;
 
 /* Mirrors OllamaClient's own debug log (see its DEBUG_LOG_PATH comment)
-   but kept in a separate file so the two clients' logs don't interleave. */
+   but kept in a separate file so the two clients' logs don't interleave.
+   See lib/logger.js's own doc comment. */
 const DEBUG_LOG_PATH = 'gemini-repl-debug.log';
 
 export class GeminiClient {
@@ -51,8 +52,7 @@ export class GeminiClient {
   /** Same req -> {resolve, reject} bookkeeping as OllamaClient#settled -
       see its own doc comment for why this is a plain Map, not a WeakMap. */
   #settled = new Map();
-  #debugConsole;
-  #debugFile;
+  #logger;
   #timeoutMs;
   #timeoutSecs;
 
@@ -75,10 +75,7 @@ export class GeminiClient {
     this.#timeoutMs = timeoutSecs * 1000;
     this.#timeoutSecs = timeoutSecs;
 
-    if(debug || getenv('DEBUG')) {
-      this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
-      this.#debugConsole = new Console(this.#debugFile, { inspectOptions: { depth: Infinity, compact: false } });
-    }
+    this.#logger = new RequestLogger(DEBUG_LOG_PATH, debug);
 
     this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
 
@@ -173,7 +170,7 @@ export class GeminiClient {
       ...(tools ? { tools: [{ functionDeclarations: tools.map(({ name, description, parameters }) => ({ name, description, parameters })) }] } : {}),
       ...(toolChoice ? { toolConfig: this.#toToolConfig(toolChoice) } : {}),
     };
-    this.#debugConsole?.debug('request', payload);
+    this.#logger.request(payload);
 
     const url = `${API_BASE}/${this.model}:${pathSuffix}`;
 
@@ -291,7 +288,7 @@ export class GeminiClient {
     std.puts('\x1b[1;35m\nchat\x1b[0m\n');
     const resp = await this.#post('generateContent', messages, options);
     const data = await resp.json();
-    this.#debugConsole?.debug('response', data);
+    this.#logger.response(data);
 
     const parts = data?.candidates?.[0]?.content?.parts;
     if(!parts) throw new Error(`unexpected Gemini response: ${JSON.stringify(data)}`);
@@ -346,7 +343,7 @@ export class GeminiClient {
         if(!dataLine) continue;
 
         const chunk = JSON.parse(dataLine.slice(5).trim());
-        this.#debugConsole?.debug('chunk', chunk);
+        this.#logger.chunk(chunk);
 
         const candidate = chunk?.candidates?.[0];
         if(candidate?.finishReason) sawFinish = true;
@@ -377,11 +374,7 @@ export class GeminiClient {
   /* Idempotent - see BUGS: repl-controlc-double-invokes-cleanup-handlers.
      A double Ctrl-C in the REPL (lib/chat-repl.js's base class) runs every
      registered cleanup handler, including this one via destroy(), twice;
-     without this guard the second call's this.#debugFile?.close() throws
-     "invalid file handle" on the already-closed handle, and since that
-     throw happens inside the REPL's own exit()'s cleanup loop - which
-     runs *before* exit()'s std.exit() call - it silently stops the
-     process from ever actually exiting. */
+     #logger.close() has its own matching guard, see lib/logger.js. */
   #destroyed = false;
 
   destroy() {
@@ -389,6 +382,6 @@ export class GeminiClient {
     this.#destroyed = true;
 
     this.#ctx.destroy();
-    this.#debugFile?.close();
+    this.#logger.close();
   }
 }

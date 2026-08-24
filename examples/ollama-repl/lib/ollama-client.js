@@ -31,8 +31,7 @@
 import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { toString } from 'lws.so';
-import { Console } from 'console';
-import { open as fopen, getenv } from 'std';
+import { RequestLogger } from './logger.js';
 
 /* lws's own default (15s, see wsi-timeout.c/context.c) for how long a
    client connection may sit waiting on e.g. the server's reply before lws
@@ -43,13 +42,9 @@ import { open as fopen, getenv } from 'std';
    CPU-only box. Overridable via `timeoutSecs` for tests/tuning. */
 const DEFAULT_TIMEOUT_SECS = 15 * 60;
 
-/* Every request payload and raw response, appended here (not the
-   terminal, which is already busy with the "Thinking..." spinner/reply)
-   when debug mode is on (`-x`/`--debug`, repl.js, or the `DEBUG` env var
-   - either enables it). A dedicated Console instance (not the global
-   `console`) so this is unaffected by whatever the global one is doing
-   and always goes to the file, formatted the same way console.debug()
-   would format it (inspect(), full depth - see console.js). */
+/* Every request payload and raw response, appended here when debug mode
+   is on (`-x`/`--debug`, repl.js, or the `DEBUG` env var - either enables
+   it). See lib/logger.js's own doc comment. */
 const DEBUG_LOG_PATH = 'ollama-repl-debug.log';
 
 export class OllamaClient {
@@ -61,8 +56,7 @@ export class OllamaClient {
       any particular req (see #reject() below) can still walk every
       outstanding one instead of silently going nowhere. */
   #settled = new Map();
-  #debugConsole;
-  #debugFile;
+  #logger;
   #timeoutSecs;
 
   /**
@@ -85,10 +79,7 @@ export class OllamaClient {
     this.#timeoutMs = timeoutSecs * 1000;
     this.#timeoutSecs = timeoutSecs;
 
-    if(debug || getenv('DEBUG')) {
-      this.#debugFile = fopen(DEBUG_LOG_PATH, 'a');
-      this.#debugConsole = new Console(this.#debugFile, { inspectOptions: { depth: Infinity, maxStringLength: Infinity, compact: false } });
-    }
+    this.#logger = new RequestLogger(DEBUG_LOG_PATH, debug);
 
     this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
 
@@ -259,11 +250,11 @@ export class OllamaClient {
    */
   async chat(messages, { think = false, tools, toolChoice, ...options } = {}) {
     const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: false, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
-    this.#debugConsole?.debug('request', payload);
+    this.#logger.request(payload);
 
     const resp = await this.#post(payload);
     const data = await resp.json();
-    this.#debugConsole?.debug('response', data);
+    this.#logger.response(data);
 
     if(!data?.message) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
 
@@ -294,7 +285,7 @@ export class OllamaClient {
    */
   async chatStream(messages, { think = false, tools, toolChoice, ...options } = {}, onToken) {
     const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: true, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
-    this.#debugConsole?.debug('request', payload);
+    this.#logger.request(payload);
 
     const resp = await this.#post(payload);
     const reader = resp.body.getReader();
@@ -321,7 +312,7 @@ export class OllamaClient {
         if(!line.trim()) continue;
 
         const chunk = JSON.parse(line);
-        this.#debugConsole?.debug('chunk', chunk);
+        this.#logger.chunk(chunk);
 
         const { content: token, toolCalls: chunkCalls } = this.#toResult(chunk.message, toolCalls.length);
         for(const tc of chunkCalls ?? []) toolCalls.push(tc);
@@ -385,11 +376,7 @@ export class OllamaClient {
   /* Idempotent - see BUGS: repl-controlc-double-invokes-cleanup-handlers.
      A double Ctrl-C in the REPL (lib/chat-repl.js's base class) runs every
      registered cleanup handler, including this one via destroy(), twice;
-     without this guard the second call's this.#debugFile?.close() throws
-     "invalid file handle" on the already-closed handle, and since that
-     throw happens inside the REPL's own exit()'s cleanup loop - which
-     runs *before* exit()'s std.exit() call - it silently stops the
-     process from ever actually exiting. */
+     #logger.close() has its own matching guard, see lib/logger.js. */
   #destroyed = false;
 
   destroy() {
@@ -397,6 +384,6 @@ export class OllamaClient {
     this.#destroyed = true;
 
     this.#ctx.destroy();
-    this.#debugFile?.close();
+    this.#logger.close();
   }
 }
