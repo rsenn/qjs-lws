@@ -4,9 +4,9 @@ import { puts, exit, err as stderr } from 'std';
 import { LLL_USER, LLL_WARN, LLL_ERR, logLevel } from 'lws.so';
 import { Console } from 'console';
 
-globalThis.console = new Console(stderr, { inspectOptions: {} });
+//globalThis.console = new Console(stderr, { inspectOptions: {} });
 
-logLevel((process.env.DEBUG ? LLL_USER : 0) | LLL_WARN | LLL_ERR, (l, m) => console.log(m.replace(/: \w+: /, ': ')));
+//logLevel((process.env.DEBUG ? LLL_USER : 0) | LLL_WARN | LLL_ERR, (l, m) => console.log(m.replace(/: \w+: /, ': ')));
 
 async function main() {
   const apiKey = process.env.SERP_API_KEY;

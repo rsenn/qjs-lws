@@ -1158,8 +1158,8 @@ lwsjs_callback_log(int level, const char* line) {
 
   if(lwsjs_log_ctx)
     lwsjs_callback_log_js(level, line, func.size ? (const char*)func.buf : NULL);
-  else
-    lwsjs_callback_log_term(level, line);
+  /*else
+    lwsjs_callback_log_term(level, line);*/
 
   dbuf_free(&dbuf);
   dbuf_free(&func);

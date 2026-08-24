@@ -663,11 +663,21 @@ install(PROGRAMS examples/ollama-repl/repl.js
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
         RENAME ollama-repl)
 
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/search.js" _SEARCH_JS_CONTENT)
-string(REPLACE "'./lib/fetch.js'" "'fetch'" _SEARCH_JS_CONTENT "${_SEARCH_JS_CONTENT}")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/search.js" "${_SEARCH_JS_CONTENT}")
+set(SRC_JS "${CMAKE_CURRENT_SOURCE_DIR}/search.js")
+set(BIN_JS "${CMAKE_CURRENT_BINARY_DIR}/search.js")
 
-install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/search.js"
+# Define a build-time command that triggers only when the source is newer than the binary
+add_custom_command(
+    OUTPUT "${BIN_JS}"
+    DEPENDS "${SRC_JS}"
+    COMMAND ${CMAKE_COMMAND} -DSRC="${SRC_JS}" -DBIN="${BIN_JS}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/subst-import.cmake"
+    COMMENT "Transforming search.js for installation"
+)
+
+# Ensure the target/install step depends on the generated file
+add_custom_target(generate_search_js ALL DEPENDS "${BIN_JS}")
+
+install(PROGRAMS "${BIN_JS}"
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
         RENAME search)
 
