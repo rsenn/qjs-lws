@@ -127,14 +127,15 @@ returned object, same as a non-streamed `chat()` call).
   file-attachment-via-prompt-text workflow. Noted here as the natural next
   extension point (another optional message field, e.g. `parts: [...]`)
   if it's ever needed.
-- Wiring real tool-calling into `repl.js`'s automatic `LIST:`/`READ:`/
-  `RUN:` loop (`lib/tool-requests.js`, `runToolLoop()`). That loop is a
-  plain-text protocol parsed out of the reply body, independent of either
-  API's native tool-calling - replacing or complementing it with real
-  `tools`/`toolCalls` is a bigger, separate change (system prompt rewrite,
-  round-trip loop rewrite, `--provider`-specific behavior since only
-  `GeminiClient` enforces `toolChoice`). This rewrite only makes the
-  *client* API capable of it; see `TODO.md` for that as a follow-up.
+- ~~Wiring real tool-calling into `repl.js`'s loop~~ - done: `repl.js`'s
+  `runToolLoop()` now drives `TOOLS`/`executeTool()` (`lib/tool-requests.js`)
+  via real `tools`/`toolCalls` instead of a plain-text `LIST:`/`READ:`/
+  `RUN:` protocol parsed out of the reply body. Verified live against a
+  real OpenAI-compatible endpoint (`qwen3.8-flash`): a `list_directory`
+  round-trip (call -> real result fed back -> a correct final answer with
+  no further calls) and a `run_command` round-trip where the model wrote
+  and ran its own heredoc-based shell test script, unprompted beyond the
+  tool's own description text.
 - A call id that round-trips through the wire protocol - not possible,
   neither API has one.
 

@@ -177,19 +177,27 @@ against - defaults to the current directory.
 
 `--failsafe` strips out all of the REPL's own scaffolding: no system
 prompt, no automatic project scan, no file-ref attachment, no
-LIST:/READ:/RUN: tool loop, no "File:" auto-write. Each turn is just the
+tool-calling loop, no "File:" auto-write. Each turn is just the
 message you typed, sent to the model as-is (conversation history is still
 kept across turns) - useful when you want a plain chat against the model
 itself, or when the scaffolding is what you're trying to rule out.
 
-`-x` (or the `DEBUG` env var, regardless of `-x`) logs every raw Ollama
-request/response - and, with `--stream`, every individual NDJSON chunk -
-to `ollama-repl-debug.log` (append mode, `inspect()`-formatted, full
-depth) instead of the terminal. A second `-x` (`-x -x`) additionally
-turns on `lws.so`'s own `LLL_USER` logging - the underlying HTTP
-connection itself (connect/write/read/close), not the request/response
-bodies - printed straight to stderr as it happens, for when the
-connection rather than the model traffic is what's under suspicion.
+Three separate logs, not one - each answers a different question:
+
+- `<model>.log` - the conversation transcript (prompts/replies/tool
+  calls/files written), always on.
+- `-x`/`--debug` (or the `DEBUG` env var set to any non-empty value - not
+  a numeric "level", `DEBUG=1` and `DEBUG=anything` behave identically)
+  logs every raw request/response - and, with `--stream`, every
+  individual streamed chunk - to `<provider>-repl-debug.log` (e.g.
+  `ollama-repl-debug.log`; append mode, `inspect()`-formatted, full
+  depth) instead of the terminal.
+- `TRAFFIC=<path>` (an env var, not a flag) additionally logs native
+  socket-level RX/TX traffic for the underlying HTTP connection itself
+  (connect/write/read/close), not the request/response bodies, to that
+  file - for when the connection rather than the model traffic is what's
+  under suspicion. Setting `DEBUG` also prints lws's own error/warning
+  lines straight to the terminal, independent of `TRAFFIC`.
 
 ## REPL commands
 

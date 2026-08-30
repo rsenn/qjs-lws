@@ -132,9 +132,29 @@ export class ChatREPL extends REPL {
        Confirmed via a standalone repro: without this reset, three piped
        lines ("hello"/"world"/"/exit") collapsed into
        "hello"/"helloworld"/"helloworld/exit" instead of three separate
-       submissions. */
+       submissions.
+
+       lastCmd/lastCursorPos are reset right alongside cmd/cursorPos,
+       mirroring what readlinePrintPrompt() (base REPL) always does when it
+       prints a fresh prompt - except no new prompt is printed here
+       (onLine() may run for a long time: a whole chat round, tokens
+       streamed straight to stdout by chatRound()/repl.js, bypassing
+       readline's own cursor tracking entirely). Without this second
+       reset, a keystroke typed before the next prompt reappears makes
+       update() (repl.js) diff against the *previous* submitted command
+       line instead of blank - it then relocates the cursor back to that
+       stale position and clears forward, tearing into whatever the
+       spinner/streamed reply has since printed there ("the prompt
+       spilling into the output"). With lastCmd reset to '' too, update()
+       takes its cheap append-from-current-cursor path instead: the typed
+       character still lands wherever the streamed output currently
+       leaves the cursor (unavoidable without buffering input separately -
+       tolerable), but nothing already on screen gets relocated over or
+       erased. */
     this.cmd = '';
     this.cursorPos = 0;
+    this.lastCmd = '';
+    this.lastCursorPos = 0;
 
     /* The same batched-bytes situation means a *second* complete line can
        arrive and reach handleCmd() again before the first's onLine()
@@ -167,9 +187,9 @@ export class ChatREPL extends REPL {
   }
 
   /**
-   * Asks a yes/no question and waits for the answer - used to gate RUN:
-   * requests (lib/tool-requests.js) on user approval before a shell
-   * command actually executes. Deliberately bypasses handleCmd()/#run()/
+   * Asks a yes/no question and waits for the answer - used to gate
+   * run_command tool calls (lib/tool-requests.js) on user approval before
+   * a shell script actually executes. Deliberately bypasses handleCmd()/#run()/
    * the busy-queue above entirely (calling the base REPL's own
    * readlineStart() directly, with its own one-off callback) rather than
    * going through onLine() - this is normally invoked *from inside* an
@@ -198,14 +218,60 @@ export class ChatREPL extends REPL {
            instead of silently dropping it (confirmed directly: without
            this, piped "y"/"next prompt" lost the second line entirely -
            readlineCallback stayed pointed at this already-settled
-           closure, whose resolve() on a second call is a silent no-op). */
+           closure, whose resolve() on a second call is a silent no-op).
+
+           lastCmd/lastCursorPos reset alongside cmd/cursorPos for the same
+           reason as handleCmd()'s own reset (see its comment) - answering
+           doesn't print a fresh prompt either (the caller's onLine() call
+           is still in progress), so leaving them stale would let the next
+           keystroke's update() (repl.js) relocate the cursor back to this
+           confirm prompt's line and clear forward, over whatever's
+           printed since. */
         this.cmd = '';
         this.cursorPos = 0;
+        this.lastCmd = '';
+        this.lastCursorPos = 0;
 
         if(!answered) {
           answered = true;
           this.ps1 = savedPs1;
           resolve(/^y(es)?$/i.test((answer ?? '').trim()));
+        } else if(answer) {
+          this.handleCmd(answer);
+        }
+      };
+
+      this.readlineStart('', cb);
+    });
+  }
+
+  /**
+   * Asks a free-text question and waits for the typed answer - backs the
+   * `ask_user` tool (lib/tool-requests.js). Same shape/reasoning as
+   * confirm() above (bypasses handleCmd()/#run(), resets
+   * cmd/cursorPos/lastCmd/lastCursorPos in its one-off callback) - see
+   * confirm()'s own doc comment for why.
+   *
+   * @returns {Promise<string>}
+   */
+  ask(promptText) {
+    const savedPs1 = this.ps1;
+    let answered = false;
+
+    return new Promise(resolve => {
+      this.ps1 = '\x1b[33m(answer)> \x1b[0m';
+      console.log(`\x1b[33m${promptText}\x1b[0m`);
+
+      const cb = answer => {
+        this.cmd = '';
+        this.cursorPos = 0;
+        this.lastCmd = '';
+        this.lastCursorPos = 0;
+
+        if(!answered) {
+          answered = true;
+          this.ps1 = savedPs1;
+          resolve((answer ?? '').trim());
         } else if(answer) {
           this.handleCmd(answer);
         }

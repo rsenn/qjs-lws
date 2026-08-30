@@ -74,8 +74,8 @@ function stripPunctuation(token) {
  * deduped, capped at `MAX_FILES`/`MAX_TOTAL_BYTES` so a runaway glob can't
  * flood the request. `dependencies` is that file's own direct imports/
  * includes (paths only, see `directDependencies()` - `lib/imports.js`) -
- * not attached, just named, so the model can `READ:` whichever it actually
- * needs instead of every attached file dragging its dependency chain along
+ * not attached, just named, so the model can `read_file` whichever it
+ * actually needs instead of every attached file dragging its dependency chain along
  * unasked. `text` is unchanged; callers combine it with `files` themselves
  * (see buildMessage() in repl.js) so detection stays independent of
  * formatting.
@@ -220,7 +220,7 @@ export function languageFor(path) {
 export function formatFileBlocks(files) {
   return files
     .map(f => {
-      const deps = f.dependencies?.length ? `\n(imports/includes: ${f.dependencies.join(', ')} - READ: any of these you actually need)` : '';
+      const deps = f.dependencies?.length ? `\n(imports/includes: ${f.dependencies.join(', ')} - read_file any of these you actually need)` : '';
       return `File: ${f.path}\n\`\`\`${languageFor(f.path)}\n${f.content}\n\`\`\`${deps}`;
     })
     .join('\n\n');

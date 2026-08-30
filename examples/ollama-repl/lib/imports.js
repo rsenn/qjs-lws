@@ -4,7 +4,7 @@
  * relative path - so a file attached to a prompt can be annotated with
  * what it directly depends on (see `directDependencies()` below and
  * `file-refs.js`) without those files' *contents* being pulled in and
- * attached too; the model is expected to `READ:` whichever of them it
+ * attached too; the model is expected to `read_file` whichever of them it
  * actually turns out to need (see the system prompt, repl.js).
  */
 import { readdir, S_IFDIR, S_IFREG } from 'os';

@@ -1,18 +1,15 @@
 /**
- * Parses LIST:/READ:/RUN: request lines out of a reply and executes
- * them, so the model can inspect the project or run a command - before
- * giving its actual answer, instead of guessing. See the system prompt
- * in repl.js for the exact contract given to the model; repl.js's chat
- * loop is what bounds how many rounds of this run per turn
- * (MAX_TOOL_ROUNDS).
+ * Native tool schemas (`TOOLS`, passed as `tools` to client.chat()/
+ * chatStream() - see API.md) and their execution (`executeTool()`), for
+ * the tool-calling loop in repl.js (`runToolLoop()`) - replaces the
+ * earlier LIST:/READ:/RUN: plain-text-in-the-reply-body protocol with
+ * real, provider-native function calling.
  */
 import { stat, S_IFREG } from 'os';
 import { loadFile } from 'std';
 import { walk, fileMode } from './match.js';
 import { runCommand } from './run-command.js';
 import { qjsProjectDirs } from './reference-files.js';
-
-const REQUEST_RE = /^(LIST|READ|RUN):[ \t]*(.+)$/gm;
 
 const LISTABLE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 'h', 'cpp', 'hpp', 'html', 'css', 'md', 'cmake', 'txt', 'sh']);
 const MAX_READ_BYTES = 64 * 1024;
@@ -24,17 +21,6 @@ function isListable(name) {
 
   const ext = base.slice(base.lastIndexOf('.') + 1).toLowerCase();
   return LISTABLE_EXT.has(ext);
-}
-
-/** Every `{ type: 'LIST'|'READ'|'RUN', arg }` request found in `text`, in order. */
-export function extractRequests(text) {
-  const requests = [];
-  let m;
-
-  REQUEST_RE.lastIndex = 0;
-  while((m = REQUEST_RE.exec(text))) requests.push({ type: m[1], arg: m[2].trim() });
-
-  return requests;
 }
 
 /** Every listable (JS/C/HTML/CSS/Markdown + README*) file under `dir` (relative to `root`), sorted. */
@@ -56,10 +42,11 @@ export function listFiles(dir, root) {
 /**
  * If `arg` names (or starts with, path-fashion) a sibling "qjs-*" project
  * (reference-files.js's `qjsProjectDirs()`), resolves it against that
- * project's own directory instead of `root` - so "LIST: qjs-modules" or
- * "READ: qjs-modules/quickjs-archive.c" reach into the sibling project
- * the same way an ordinary LIST:/READ: reaches into this one. Falls back
- * to `root` unchanged for anything that isn't a known project name.
+ * project's own directory instead of `root` - so `list_directory`/
+ * `read_file` with "qjs-modules" or "qjs-modules/quickjs-archive.c" reach
+ * into the sibling project the same way they already reach into this one.
+ * Falls back to `root` unchanged for anything that isn't a known project
+ * name.
  */
 function resolveBase(arg, root) {
   const slash = arg.indexOf('/');
@@ -74,8 +61,6 @@ function resolveBase(arg, root) {
 function readFile(path, root) {
   const full = root === '.' ? path : `${root}/${path}`;
 
-  //console.log('fileMode(full)', fileMode(full), S_IFREG);
-
   if(fileMode(full) !== S_IFREG) return null;
 
   const content = loadFile(full);
@@ -84,39 +69,99 @@ function readFile(path, root) {
   return content.length > MAX_READ_BYTES ? content.slice(0, MAX_READ_BYTES) + '\n... (truncated)' : content;
 }
 
+/** `{ name, description, parameters }` triples - see API.md's shared
+    message/tool-use format; passed straight through to whichever wire
+    shape a given client needs (OllamaClient#toTools()/OpenAIClient#toTools()/
+    GeminiClient's functionDeclarations wrapping). */
+export const TOOLS = [
+  {
+    name: 'list_directory',
+    description: 'Recursively lists source files and README* under a directory in the project tree (or a sibling "qjs-*" reference project checked out alongside it, e.g. "qjs-modules").',
+    parameters: {
+      type: 'object',
+      properties: {
+        dir: { type: 'string', description: 'Directory path relative to the project root, or a sibling "qjs-*" project name (e.g. "." or "lib" or "qjs-modules")' },
+      },
+      required: ['dir'],
+    },
+  },
+  {
+    name: 'read_file',
+    description: 'Reads the contents of one file (path relative to the project root, or "qjs-*/..." into a sibling reference project).',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path to read, e.g. "src/main.c" or "qjs-modules/doc/js/fs.md"' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'run_command',
+    description:
+      "Runs a shell script in the project root and returns its combined stdout+stderr and exit code. This is a real shell (`shish -c '<script>'`, or `sh -c` if shish isn't installed) - not a single fixed command - so it accepts a whole multi-line script: pipes, `find`/`xargs`/`grep`/`head`/`tail`, `cat <<EOF > file` heredocs to write out a throwaway test file, `&&`/`;` to chain steps, etc. Typical uses: `git status`/`git diff`/`git log` to see what's actually changed; a heredoc + `qjsm -e` or `qjsm <path>` to write and run a small script that checks whether some API/behavior actually exists or works before writing it into a real file; a standalone `gcc -shared -fPIC ...` compile + smoke test for a native binding, instead of guessing it will work. You'll be asked to approve each script before it runs.",
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'Shell script to execute - one line or many' },
+      },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'ask_user',
+    description: 'Asks the human user a clarifying question and waits for their typed answer - use when scope is ambiguous, a change looks destructive, or information is missing that only the user has, instead of guessing.',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'The question to ask the user' },
+      },
+      required: ['question'],
+    },
+  },
+];
+
 /**
- * Runs every request against the project tree rooted at `root`, and
- * formats the results into one block of text meant to be fed straight
- * back to the model as its next turn's input (see repl.js's tool loop).
+ * Executes one tool call and returns its result as a string (the `tool`
+ * message's `content` - see API.md).
  *
- * @param {(cmd: string) => Promise<boolean>} [confirmRun] - asked before
- *   each RUN: request actually executes; a declined command is reported
+ * @param {string} name
+ * @param {object} args
+ * @param {string} root
+ * @param {(cmd: string) => Promise<boolean>} [confirmRun] - asked before a
+ *   `run_command` call actually executes; a declined script is reported
  *   back to the model as declined, not run. Omit to run unconditionally
- *   (used for repl.js's own startup project-scan, which never issues
- *   RUN: requests in the first place).
+ *   (used for repl.js's own startup project-scan reads, which never call
+ *   `run_command` in the first place).
+ * @param {(question: string) => Promise<string>} [askUser] - asked for
+ *   `ask_user` calls; omit where there's no user to ask (same startup-scan
+ *   case as `confirmRun`).
  */
-export async function runRequests(requests, root, confirmRun) {
-  const parts = [];
-
-  for(const { type, arg } of requests) {
-    if(type === 'LIST') {
-      const { base, rel, prefix } = resolveBase(arg === '.' || arg === '' ? '' : arg, root);
-      const files = listFiles(rel, base).map(f => (prefix ? `${prefix}/${f}` : f));
-      parts.push(`LIST: ${arg}\n${files.length ? files.join('\n') : '(no matching files)'}`);
-    } else if(type === 'READ') {
-      const { base, rel } = resolveBase(arg, root);
-      const content = readFile(rel, base);
-      parts.push(content == null ? `READ: ${arg}\n(not found, or not a regular file)` : `READ: ${arg}\n\`\`\`\n${content}\n\`\`\``);
-    } else if(type === 'RUN') {
-      if(confirmRun && !(await confirmRun(arg))) {
-        parts.push(`RUN: ${arg}\n(declined by user - not executed)`);
-        continue;
-      }
-
-      const { output, status, timedOut } = await runCommand(arg, { cwd: root });
-      parts.push(`RUN: ${arg}\n(exit ${status}${timedOut ? ', timed out' : ''})\n\`\`\`\n${output || '(no output)'}\n\`\`\``);
-    }
+export async function executeTool(name, args, root, confirmRun, askUser) {
+  if(name === 'list_directory') {
+    const dir = args.dir === '.' || !args.dir ? '' : args.dir;
+    const { base, rel, prefix } = resolveBase(dir, root);
+    const files = listFiles(rel, base).map(f => (prefix ? `${prefix}/${f}` : f));
+    return files.length ? files.join('\n') : '(no matching files)';
   }
 
-  return parts.join('\n\n');
+  if(name === 'read_file') {
+    const { base, rel } = resolveBase(args.path, root);
+    const content = readFile(rel, base);
+    return content == null ? '(not found, or not a regular file)' : content;
+  }
+
+  if(name === 'run_command') {
+    if(confirmRun && !(await confirmRun(args.command))) return '(declined by user - not executed)';
+
+    const { output, status, timedOut } = await runCommand(args.command, { cwd: root });
+    return `(exit ${status}${timedOut ? ', timed out' : ''})\n${output || '(no output)'}`;
+  }
+
+  if(name === 'ask_user') {
+    if(!askUser) return '(no user prompt mechanism available)';
+    return await askUser(args.question);
+  }
+
+  return `unknown tool: ${name}`;
 }

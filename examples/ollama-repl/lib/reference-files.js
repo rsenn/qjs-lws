@@ -15,9 +15,10 @@
  * The sibling "qjs-*" projects themselves (qjs-modules, qjs-ffi, qjs-net,
  * ...) aren't flattened into individual named files here - there are too
  * many, and their layouts differ - instead `qjsProjectDirs()` is used by
- * `tool-requests.js` to let LIST:/READ: reach into them by project name
- * (e.g. "LIST: qjs-modules", "READ: qjs-modules/quickjs-archive.c"), the
- * same way those requests already reach into the project itself.
+ * `tool-requests.js` to let the `list_directory`/`read_file` tools reach
+ * into them by project name (e.g. dir/path "qjs-modules" or
+ * "qjs-modules/quickjs-archive.c"), the same way those tools already reach
+ * into the project itself.
  *
  * Read-only in effect even though nothing here enforces that: a "File:
  * quickjs.h" block in a reply gets resolved against `--root` by
@@ -54,7 +55,7 @@ export function qjsProjectDirs(root = '.') {
     one (ffi -> qjs-ffi, lws -> qjs-lws, ...), otherwise the qjs-modules
     grab-bag repo, where most single-file native modules (archive, blob,
     json, sockets, ...) actually live. Not guaranteed accurate for every
-    module - LIST: the guessed directory to confirm rather than assume. */
+    module - list_directory the guessed directory to confirm rather than assume. */
 function guessNativeModuleProject(name, projects) {
   return projects.get(`qjs-${name}`) ?? projects.get(`qjs-${name.replace(/_/g, '-')}`) ?? projects.get('qjs-modules') ?? null;
 }

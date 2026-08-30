@@ -26,27 +26,35 @@
  *   ollama-repl [--model ...] [...]
  *
  * `--failsafe` drops all of the above scaffolding: no system prompt, no
- * project scan, no file-ref attachment, no LIST:/READ:/RUN: tool loop, no
+ * project scan, no file-ref attachment, no tool-calling loop, no
  * "File:" auto-write - just the conversation, sent to the model as-is, for
  * when the normal prompt/tooling machinery itself is what's under
  * suspicion (or simply unwanted).
  *
- * A second `-x`/`--debug` (e.g. `-x -x`) additionally turns on `lws.so`'s
- * own LLL_USER logging (the underlying HTTP connection - connects,
- * writes, reads, closes) to stderr, on top of the first `-x`'s
- * request/response body logging to `<model>.log` - for when the model
- * traffic itself looks fine but something at the socket/HTTP level
- * (lib/lws/protocols.js, lib/lws/context.js) is suspect.
+ * Three separate logs, not one - each answers a different question:
+ *   - `<model>.log` (lib/session-log.js) - the conversation transcript
+ *     (prompts/replies/tool calls/files written), always on.
+ *   - `<provider>-repl-debug.log` (lib/logger.js's `RequestLogger`, one
+ *     per client) - the raw request/response JSON each provider actually
+ *     sent/received, turned on by `-x`/`--debug` here or by setting the
+ *     `DEBUG` env var to any non-empty value (not a numeric "level" -
+ *     `DEBUG=1` and `DEBUG=anything` behave identically).
+ *   - `TRAFFIC=<path>` (an env var, not a flag - read once by
+ *     lib/lws/context.js, shared by every client) - native-level socket
+ *     RX/TX bytes for the underlying HTTP connection itself (connects,
+ *     writes, reads, closes), for when the JSON traffic above looks fine
+ *     but something at the socket/HTTP layer is suspect. Setting `DEBUG`
+ *     also prints lws's own ERR/WARN/USER lines straight to the terminal,
+ *     independent of `TRAFFIC`.
  */
 import { exit, out as stdout, err as stderr } from 'std';
 import { clearTimeout, setTimeout, stat, readdir, S_IFDIR } from 'os';
-import { logLevel, LLL_USER } from 'lws.so';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
-import { extractRequests, runRequests } from './lib/tool-requests.js';
+import { TOOLS, executeTool } from './lib/tool-requests.js';
 import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
 import { fileMode, SKIP_DIRS } from './lib/match.js';
 import { ChatREPL } from './lib/chat-repl.js';
@@ -56,15 +64,14 @@ import { SentFiles } from './lib/sent-files.js';
 import { FileExchange } from './lib/file-exchange.js';
 import { runCommand } from './lib/run-command.js';
 
-/* Bounds the LIST:/READ:/RUN: tool loop (see SYSTEM_PROMPT and
-   runToolLoop() below) - a request round costs a real network round trip
+/* Bounds the tool-calling loop (see TOOLS/lib/tool-requests.js and
+   runToolLoop() below) - a tool-call round costs a real network round trip
    to the model, so this caps both latency and (if the model gets stuck
    re-requesting) runaway cost, not just literal infinite loops. */
 const MAX_TOOL_ROUNDS = 4;
 
 function parseArgs(argv) {
-  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, lwsDebug: false, failsafe: false };
-  let debugCount = 0;
+  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -74,12 +81,14 @@ function parseArgs(argv) {
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--stream') opts.stream = true;
-    else if(arg === '-x' || arg === '--debug') {
-      opts.debug = true;
-      if(++debugCount >= 2) opts.lwsDebug = true;
-    } else if(arg === '--failsafe') opts.failsafe = true;
+    else if(arg === '-x' || arg === '--debug') opts.debug = true;
+    else if(arg === '--failsafe') opts.failsafe = true;
     else if(arg === '--help' || arg === '-h') {
-      console.log('Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x [-x]] [--failsafe]');
+      console.log(
+        'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe]\n' +
+          '  -x/--debug logs raw request/response JSON to <provider>-repl-debug.log (same as setting DEBUG=1).\n' +
+          '  TRAFFIC=<path> (env var, not a flag) additionally logs native socket-level RX/TX traffic to that file.',
+      );
       exit(0);
     }
   }
@@ -96,13 +105,25 @@ function parseArgs(argv) {
 
 const SYSTEM_PROMPT = `You are a coding assistant working inside a local project tree, similar to
 Claude Code: verify against the actual codebase instead of guessing, and
-ground answers in what you've actually seen (via READ:/LIST:/RUN: below),
-not assumption. Ask if genuinely unsure rather than guessing.
+ground answers in what you've actually seen using the tools available to
+you (list_directory/read_file/run_command/ask_user), not assumption. Use
+them liberally and before answering, not after - a wrong answer grounded
+in nothing costs more than the extra round trip. Ask the user (ask_user)
+if something genuinely can't be resolved by looking, rather than guessing.
 
 This project runs on QuickJS (qjs/qjsm), not Node.js - don't assume Node's
 globals, module system ("require", "node_modules"), or built-ins ("path",
-"crypto", "buffer", "process.nextTick") are available unless a project
-file actually imports/defines one; check (READ:/LIST: below) if unsure.
+"crypto", "buffer", "process.nextTick") are available. Before writing code
+that touches the filesystem, environment, process, or child processes,
+check (read_file/run_command - e.g. grep for "from 'process'"/"from 'fs'"/
+"from 'util'"/"from 'child_process'") whether the file/project you're
+editing already imports one of qjs-modules' own built-ins (process/fs/
+util/child_process) - if so, match that existing convention; otherwise
+default to QuickJS's own std/os modules, since those are always present
+with no extra dependency (quickjs.md, one read_file away, is the
+reference). This only constrains code meant to run inside qjs/qjsm itself
+- write ordinary browser-side JS when that's what's actually being asked
+for.
 
 Attached file contents in the user's messages look like:
 
@@ -110,7 +131,7 @@ File: path/to/file.ext
 \`\`\`language
 ...current contents...
 \`\`\`
-(imports/includes: ../lib/foo.js - READ: any of these you actually need)
+(imports/includes: ../lib/foo.js - read_file any of these you actually need)
 
 Only when explicitly asked to create, write, or modify a file, reply with
 a block in that same format - "File: path" then a fenced code block with
@@ -120,53 +141,45 @@ automatically, overwriting what's there. Don't use it for ordinary
 conversation - plain text is fine for that. Label any other code snippet
 you write the same way (a real filename, matching extension) unless it's
 obviously not meant to be saved; anything left unlabeled is auto-saved
-anyway, so a real name is just more useful than an invented one.
+anyway, so a real name is just more useful than an invented one. Before
+writing a "File:" block for a file that already exists, read_file it
+first if you haven't already this session - ground the rewrite in its
+current contents rather than assumption.
 
-You can ask the REPL to do things for you before answering, one request
-per line, anywhere in your reply:
-
-LIST: <directory>
-READ: <path-or-glob>
-RUN: <shell command>
-
-LIST recursively lists source files (and README*) under a directory -
-<directory> can also be a sibling "qjs-*" reference project checked out
-alongside this one (e.g. "LIST: qjs-modules"). READ shows a file's
-contents, or every file matching a glob. RUN executes a shell command in
-the project root and shows its output (you'll be asked to approve each
-one first) - use it for git (status/diff/log, to see what's actually
-changed or already there) and for testing: \`qjsm -e '<code>'\` evaluates
-a JS snippet immediately and shows the result, so you can check a
-QuickJS/C-binding API call actually works (or a syntax idea actually
-runs) before writing it into a file - much cheaper than writing a whole
-file and hoping. Issue as many requests as you need in one reply - each
-runs and you're shown the results and asked again, so build up what you
-need before committing to a final answer.
+run_command runs a real shell script in the project root, not just a
+single fixed command - multi-line, pipes, \`find\`/\`xargs\`/\`grep\`/\`head\`/
+\`tail\`, \`cat <<EOF > file\` heredocs to write out a throwaway test file,
+whatever the task needs (you'll be asked to approve each script first).
+Use it for git (status/diff/log, to see what's actually changed or
+already there) and for testing: write a small script and run it with
+\`qjsm\` (or \`qjs\` for module-free snippets) to check a QuickJS/C-binding
+API call actually works, or a syntax idea actually runs, before writing
+it into a real file - much cheaper than writing a whole file and hoping.
 
 The project's top-level layout and README/CMakeLists.txt are already
 given below, gathered automatically at session start - read that first.
 For anything else - a subdirectory, a specific file, a sibling "qjs-*"
 project, the QuickJS C API (quickjs.h) or qjs-modules' JS built-ins
 (fs.js/console.js/process.js/util.js under /usr/local/lib/quickjs/) -
-READ:/LIST: it rather than guessing at its contents; naming a header or
-built-in by name attaches the real file automatically.
+read_file/list_directory it rather than guessing at its contents; naming
+a header or built-in by name attaches the real file automatically.
 
 Writing a new native (C) QuickJS binding is a common request here - when
 one of examples/fib.c, examples/point.c, and the quickjs-binding-api.md
 cheat sheet are attached below, they're the reference for it, already
-picked for you; otherwise READ an existing one for the real shape of the
-boilerplate (a sibling "qjs-*" project's own .c file, or LIST: one of
-them if you don't know which - qjs-ffi and qjs-modules are the most
-representative), and READ quickjs.h for any exact JS_* signature the
-cheat sheet doesn't cover, rather than recalling it from memory. Before
-writing any C, sketch the JS-facing API in one or two lines as plain text
-(argument/return types, sync vs. async, e.g. \`deflate(data:
-ArrayBuffer|Uint8Array): ArrayBuffer\`) - catches a bad shape before code
-exists for it, and gives the human a checkpoint to redirect at. Verify
-the binding compiles/links and a quick JS-side smoke test actually works
-via RUN: - compile it standalone, not through this project's own build
-(that pulls in libwebsockets and a multi-minute link for something that
-needs none of it):
+picked for you; otherwise read_file an existing one for the real shape of
+the boilerplate (a sibling "qjs-*" project's own .c file, or
+list_directory one of them if you don't know which - qjs-ffi and
+qjs-modules are the most representative), and read_file quickjs.h for any
+exact JS_* signature the cheat sheet doesn't cover, rather than recalling
+it from memory. Before writing any C, sketch the JS-facing API in one or
+two lines as plain text (argument/return types, sync vs. async, e.g.
+\`deflate(data: ArrayBuffer|Uint8Array): ArrayBuffer\`) - catches a bad
+shape before code exists for it, and gives the human a checkpoint to
+redirect at. Verify the binding compiles/links and a quick JS-side smoke
+test actually works via run_command - compile it standalone, not through
+this project's own build (that pulls in libwebsockets and a multi-minute
+link for something that needs none of it):
 \`gcc -shared -fPIC -I<quickjs-source-dir> -o binding.so binding.c
 -DJS_SHARED_LIBRARY [-lwhatever]\`, then \`qjsm -e '<smoke test importing
 ./binding.so>'\` - before presenting it as done, don't just describe code
@@ -271,9 +284,14 @@ function startSpinner(label = 'Thinking') {
  * set to the active client's abort() for the duration of the call (and
  * cleared after) - see main()'s ChatREPL construction below, whose Ctrl-C
  * handler calls it to cancel the in-flight request instead of quitting.
- * @returns {Promise<string>} the reply text
+ * The reply line (`<provider>> ...`) is only printed when there's actual
+ * text content - a tool-only turn (see runToolLoop() below) has none, and
+ * printing an empty "<provider>> " line for it would just be noise.
+ * `chatOptions` (`{ tools, toolChoice }` - see API.md) is passed straight
+ * through to client.chat()/chatStream().
+ * @returns {Promise<{content: string, toolCalls?: object[]}>}
  */
-async function chatRound(client, messages, opts, abortRef) {
+async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   //console.log('chatRound');
   const t0 = Date.now();
   const stopSpinner = startSpinner();
@@ -290,7 +308,7 @@ async function chatRound(client, messages, opts, abortRef) {
     if(opts.stream) {
       let first = true;
 
-      const { content: reply } = await client.chatStream(messages, {}, token => {
+      const result = await client.chatStream(messages, chatOptions, token => {
         if(first) {
           stopSpinner();
           stdout.puts(`\n${opts.provider}> `);
@@ -301,19 +319,22 @@ async function chatRound(client, messages, opts, abortRef) {
         stdout.flush();
       });
 
-      if(first) stopSpinner(); // reply came back empty - no token ever arrived to stop it
+      if(first) stopSpinner(); // no text token ever arrived to stop it (empty or tool-only reply)
 
-      stdout.puts('\n\n');
-      stdout.flush();
+      if(!first) {
+        stdout.puts('\n\n');
+        stdout.flush();
+      }
+
       cogitated();
-      return reply;
+      return result;
     }
 
-    const { content: reply } = await client.chat(messages);
+    const result = await client.chat(messages, chatOptions);
     stopSpinner();
-    console.log(`\n${opts.provider}> ${reply}\n`);
+    if(result.content) console.log(`\n${opts.provider}> ${result.content}\n`);
     cogitated();
-    return reply;
+    return result;
   } finally {
     abortRef.current = null;
     stopSpinner();
@@ -321,34 +342,37 @@ async function chatRound(client, messages, opts, abortRef) {
 }
 
 /**
- * Drives the LIST:/READ:/RUN: request loop (see SYSTEM_PROMPT): runs one
- * chat round, and if the reply contains request lines, executes them,
- * feeds the results back as the next turn's input, and repeats - up to
- * MAX_TOOL_ROUNDS - until a reply with no more requests (or the round cap)
- * is reached. `messages` is mutated in place (a user turn, then one
- * assistant turn per round); callers that want to roll back an aborted
- * turn should snapshot `messages.length` before calling this.
+ * Drives the tool-calling loop (see SYSTEM_PROMPT/TOOLS): runs one
+ * chat round with TOOLS (lib/tool-requests.js) offered, and if the reply
+ * asks for one or more tool calls, executes each one (executeTool()) and
+ * feeds its result back as a `tool`-role message, then repeats - up to
+ * MAX_TOOL_ROUNDS - until a reply with no tool calls (or the round cap) is
+ * reached. On the capping round, `tools` is omitted and `toolChoice:
+ * 'none'` passed instead, forcing a real text answer rather than silently
+ * dropping a request the model still wanted to make. `messages` is mutated
+ * in place (a user turn, then one assistant turn - and any `tool` turns -
+ * per round); callers that want to roll back an aborted turn should
+ * snapshot `messages.length` before calling this.
  *
  * @returns {Promise<string>} the final reply shown to the user
  */
-async function runToolLoop(client, messages, opts, log, confirmRun, abortRef) {
+async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef) {
   for(let round = 0; ; round++) {
-    const reply = await chatRound(client, messages, opts, abortRef);
-    messages.push({ role: 'assistant', content: reply });
-    log.reply(reply);
+    const final = round >= MAX_TOOL_ROUNDS - 1;
+    const result = await chatRound(client, messages, opts, abortRef, final ? { toolChoice: 'none' } : { tools: TOOLS });
 
-    const requests = extractRequests(reply);
-    if(!requests.length || round >= MAX_TOOL_ROUNDS - 1) return reply;
+    messages.push({ role: 'assistant', content: result.content, ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}) });
+    log.reply(result.content);
 
-    console.log(`\x1b[2m(${requests.map(r => `${r.type}: ${r.arg}`).join(' | ')})\x1b[0m`);
+    if(!result.toolCalls?.length) return result.content;
 
-    const results = await runRequests(requests, opts.root, confirmRun);
-    log.toolResults(results);
+    console.log(`\x1b[2m(${result.toolCalls.map(tc => `${tc.name}(${JSON.stringify(tc.args)})`).join(' | ')})\x1b[0m`);
 
-    messages.push({
-      role: 'user',
-      content: `Tool results:\n\n${results}\n\nContinue - answer now if you have enough information, or issue more LIST:/READ:/RUN: requests if you still need to.`,
-    });
+    for(const tc of result.toolCalls) {
+      const output = await executeTool(tc.name, tc.args, opts.root, confirmRun, askUser);
+      log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
+      messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
+    }
   }
 }
 
@@ -374,27 +398,28 @@ async function gitIgnoredTopLevel(root) {
 }
 
 /**
- * Runs an automatic LIST + READ of the project root's own layout - a
+ * Runs an automatic list + read of the project root's own layout - a
  * shallow, top-level-only directory listing, plus the root README.md and
- * CMakeLists.txt if the project has them - and returns it formatted the
- * same way a model-requested LIST:/READ: round would be - seeded into
- * `messages` once at startup (see main()) so the model always starts a
- * session already knowing the project's shape, the same way Claude Code
- * auto-reads project context rather than waiting to be asked.
+ * CMakeLists.txt if the project has them (via executeTool(), the same
+ * read_file the model itself calls) - seeded into `messages` once at
+ * startup (see main()) so the model always starts a session already
+ * knowing the project's shape, the same way Claude Code auto-reads
+ * project context rather than waiting to be asked.
  *
- * Deliberately shallow: this used to run a full recursive LIST (every
- * listable file in the whole tree, up to 300 entries) and READ every
+ * Deliberately shallow: this used to run a full recursive listing (every
+ * listable file in the whole tree, up to 300 entries) and read every
  * README* found anywhere under root, not just the top-level one - on this
  * project alone that came to a ~80KB first-turn payload before a single
  * word had been exchanged, which is what actually triggered
  * BUGS:tls-client-large-body-hangs-or-closes against a real API. A
  * top-level listing plus the project's own README/CMakeLists.txt is
  * enough to know the project's shape; anything deeper is exactly what the
- * LIST:/READ: tool loop is for. Files are further filtered to SOURCE_EXT
- * (file-refs.js) - directories always stay (needed to see the layout at
- * all), but a top-level file with no source extension (a cert, a lockfile,
- * a build cache stray SKIP_DIRS/.gitignore didn't already catch) is noise
- * for "what does this project look like", not signal.
+ * tool-calling loop (runToolLoop() above) is for. Files are further
+ * filtered to SOURCE_EXT (file-refs.js) - directories always stay (needed
+ * to see the layout at all), but a top-level file with no source
+ * extension (a cert, a lockfile, a build cache stray SKIP_DIRS/.gitignore
+ * didn't already catch) is noise for "what does this project look like",
+ * not signal.
  */
 async function gatherProjectContext(root) {
   const [names] = readdir(root);
@@ -408,17 +433,15 @@ async function gatherProjectContext(root) {
     .map(({ name, isDir }) => (isDir ? `${name}/` : name))
     .join('\n');
 
-  const requests = [];
+  const reads = [];
 
   const [readmeStat] = stat(root === '.' ? 'README.md' : `${root}/README.md`);
-  if(readmeStat) requests.push({ type: 'READ', arg: 'README.md' });
+  if(readmeStat) reads.push(`README.md\n${await executeTool('read_file', { path: 'README.md' }, root)}`);
 
   const [cmakeStat] = stat(root === '.' ? 'CMakeLists.txt' : `${root}/CMakeLists.txt`);
-  if(cmakeStat) requests.push({ type: 'READ', arg: 'CMakeLists.txt' });
+  if(cmakeStat) reads.push(`CMakeLists.txt\n${await executeTool('read_file', { path: 'CMakeLists.txt' }, root)}`);
 
-  const reads = requests.length ? await runRequests(requests, root) : '';
-
-  return `LIST: . (top-level only)\n${layout || '(empty)'}${reads ? `\n\n${reads}` : ''}`;
+  return `Project layout (top-level only):\n${layout || '(empty)'}${reads.length ? `\n\n${reads.join('\n\n')}` : ''}`;
 }
 
 /** One line per message: index, role, char count, and a truncated preview - the
@@ -593,7 +616,7 @@ async function main() {
 
         let reply;
         try {
-          reply = await chatRound(client, messages, opts, abortRef);
+          ({ content: reply } = await chatRound(client, messages, opts, abortRef));
         } catch(e) {
           console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
           messages.length = turnStart; // don't leave a dangling/partial turn behind
@@ -630,10 +653,11 @@ async function main() {
       messages.push({ role: 'user', content: finalText });
 
       const confirmRun = cmd => repl.confirm(`Run this command?\n  ${cmd}`);
+      const askUser = question => repl.ask(question);
 
       let reply;
       try {
-        reply = await runToolLoop(client, messages, opts, log, confirmRun, abortRef);
+        reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef);
       } catch(e) {
         console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
         messages.length = turnStart; // don't leave a dangling/partial turn behind

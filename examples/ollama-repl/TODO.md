@@ -1,45 +1,80 @@
 # TODO
 
-## Assessment (2026-08-04, updated 2026-08-04)
+## Assessment (2026-08-04, updated 2026-08-30)
 
-Current state: still not very useful yet as a working tool for QuickJS C
-native-module or JS coding via `qjsm`. The pieces (file attach, LIST:/READ:/
-RUN:, file-block writeback, session log) all work individually, but the
-model doesn't reliably *drive* them the way Claude Code drives its own
-tools - it tends to answer from guesswork instead of grounding itself in
-the actual codebase first, and it still has no way to ask the user
-anything. The harness's *reach* has grown a lot since the original
-assessment - it's no longer confined to `--root`, basic prompting/
-answering actually works now, and context is built more deliberately
-(dependencies named instead of dumped) - but the model still has to be
-told when to use that reach, and the "ask the user" half of the plumbing
-is still entirely missing.
+`repl.js`'s tool loop was rewritten (2026-08-30) to drive real provider-
+native tool-calling (`tools`/`toolCalls` - see `API.md`) instead of a
+plain-text `LIST:`/`READ:`/`RUN:` protocol parsed out of the reply body -
+`TOOLS`/`executeTool()` (`lib/tool-requests.js`): `list_directory`,
+`read_file`, `run_command` (a real shell script via `shish -c`, falling
+back to `/bin/sh -c` if `shish` isn't installed - multi-line, heredocs,
+`find`/`xargs`, not just one command line), and the previously-missing
+`ask_user` (item 1 below - done). Verified live against a real OpenAI-
+compatible endpoint (`qwen3.8-flash`/`qwen3-coder-flash`): a
+`list_directory` round-trip, and a `run_command` round-trip where the
+model wrote and ran its own heredoc-based shell test script unprompted,
+guided only by the tool's own description text - see `API.md`'s "what's
+out of scope" section, now updated.
 
-## 1. Add an ASK: request type (user feedback loop)
+**Not yet done / still open:**
 
-Still not implemented. There is no way for the model to ask the *user* a
-clarifying question mid-turn. `LIST:`/`READ:`/`RUN:` all round-trip
-through the REPL automatically; the model can request information from
-the filesystem but not from the human. For anything genuinely ambiguous
-(which of two similarly-named files, whether to overwrite, what behavior
-is actually wanted) it currently either guesses or asks in prose that the
-REPL just prints as its final answer - no reply comes back to it, so the
-"question" is a dead end.
+- **Not verified against the actual target model (`qwen2.5-coder` via a
+  local Ollama server)** - this environment's Ollama install has been
+  fighting system-level problems all session (a failed `snap install
+  ollama`, a working `curl -fsSL https://ollama.com/install.sh | sh`
+  install left `/usr/local/bin/ollama` at mode `700 root:root` - unreadable
+  by a normal user, and the `ollama.service` unit stuck restart-looping on
+  `Permission denied`/`status=203/EXEC` for the same reason - and running
+  the binary as root via `sudo` segfaults immediately even on `--version`,
+  which smells like leftover AppArmor confinement from the earlier failed
+  snap install (`snap.ollama.*` profiles visible in `dmesg`) colliding with
+  the native binary of the same name). Not resolved this session - next
+  session should retry `ollama list`/`ollama pull qwen2.5-coder` once
+  that's sorted, then actually run the two PoC coding tasks below through
+  `--provider ollama --model qwen2.5-coder` and read the resulting
+  `qwen2.5-coder.log` conversation transcript to see how the real target
+  model behaves (all live verification so far used an OpenAI-compatible
+  proxy with a different model family, as a stand-in).
+- **Two PoC coding tasks, chosen as the harness's actual bar to clear**
+  (per direct instruction): (1) write a small JS class using only
+  QuickJS's own `std`/`os` modules (a first attempt was started this
+  session against `qwen3-coder-flash` - a `RingBuffer` class writing to a
+  file via `std.open()` - but the session was interrupted before
+  completion, see the note below); (2) write a small C library routine
+  against `quickjs.h` - e.g. a class with a couple of "exotic" methods
+  (something beyond a trivial getter/setter, closer to the fib.c/point.c
+  reference shape). Both should go through the *real* interactive
+  `repl.js` harness (not a bypassed direct-client script), and the
+  resulting `<model>.log` should be read back afterward to find concrete,
+  specific things to fix in the system prompt/tool loop - not just "it
+  didn't work," but *what specifically* the model got wrong or guessed at
+  instead of checking.
+- **Unconfirmed oddity, not yet root-caused**: the interrupted PoC run
+  above (piped `<prompt>\n/exit\n` into `qjsm repl.js`, non-interactively)
+  hit a 90s timeout without ever finishing, after the model had already
+  made one `run_command` tool call that hit `ChatREPL#confirm()`'s y/n
+  gate. Plausible innocent explanation: the piped `/exit` line doesn't
+  match `confirm()`'s `/^y(es)?$/i` check, so the command is declined and
+  the tool loop correctly continues to a second live network round - which
+  on a slow/loaded API can easily exceed a 90s wrapper timeout on its own,
+  with no actual hang involved. But this wasn't confirmed either way before
+  the session ended - worth deliberately re-testing piped, non-interactive
+  input against a `confirm()`/`ask()` prompt specifically (not just as a
+  side effect of a PoC run) before trusting non-interactive testing of this
+  harness in general.
 
-- New request type `ASK: <question>`, handled in `lib/tool-requests.js`
-  next to `extractRequests`/`runRequests`.
-- In `repl.js`'s `runToolLoop`, an `ASK:` result should suspend the loop,
-  print the question, read one line from the user (reuse
-  `ChatREPL#confirm`-style prompting, or a plain `readline`), and feed the
-  answer back as the next turn's tool result - same shape as a LIST/READ
-  result today.
-- System prompt: tell the model `ASK:` exists and *when* to prefer it over
-  guessing (ambiguous scope, destructive-looking change, missing info
-  only the user has) - mirroring the "prefer asking over assuming"
-  language already there for file contents, but pointed at the user
-  instead of the filesystem.
-- Should count toward `MAX_TOOL_ROUNDS` like the others so a model that
-  gets stuck asking can't loop forever.
+## 1. Add an ASK: request type (user feedback loop) - done (2026-08-30)
+
+Implemented as the `ask_user` tool (`lib/tool-requests.js`'s `TOOLS`), not
+a text-prefix request type - part of the same native tool-calling rewrite
+as item 3 below. `ChatREPL#ask()` (`lib/chat-repl.js`, mirrors the
+existing `#confirm()`) prompts and waits for a typed answer;
+`executeTool('ask_user', ...)` returns it as the tool result, fed back the
+same way any other tool result is. Counts toward `MAX_TOOL_ROUNDS` like
+every other tool call, same as originally planned. Not yet exercised by an
+actual live model turning ambiguous scope into a real `ask_user` call
+(neither PoC run this session reached one) - worth specifically prompting
+for during the next live session (see the "PoC coding tasks" item above).
 
 ## 2. Rework the system prompt and context mechanism
 
@@ -55,10 +90,22 @@ a shallow top-level-only listing (filtered to `SOURCE_EXT`,
 root `README.md`/`CMakeLists.txt` - on this project that's roughly an
 80KB first-turn payload down to the ~10-35KB range depending on `--root`.
 
+Also since (2026-08-30): the `LIST:`/`READ:`/`RUN:` text-contract
+paragraph is gone entirely, replaced by real tool declarations (`TOOLS`,
+`lib/tool-requests.js`) sent to the provider natively - the system prompt
+now only says *when*/*why* to prefer tools over guessing, not their exact
+syntax, since that's carried structurally by the `tools` schema instead.
+Also added: explicit guidance to check (via the tools) whether a project
+already imports qjs-modules' `process`/`fs`/`util`/`child_process` before
+defaulting to QuickJS's own `std`/`os`, and a note that the QuickJS-not-
+Node constraint only applies to code meant to run inside qjs/qjsm itself,
+not browser-side JS. Unverified: whether this actually changes qwen2.5-
+coder's behavior in practice - see the "not yet done" PoC items above.
+
 Still open:
 - Consider re-injecting a short reminder of the tool-use rule
-  periodically (e.g. appended to the "Tool results:" continuation message
-  in `runToolLoop`) rather than relying on it surviving from the system
+  periodically (e.g. appended to each `tool`-role result message in
+  `runToolLoop`) rather than relying on it surviving from the system
   prompt alone across a long conversation.
 - `gatherProjectContext()`'s scan is now deliberately shallow and fixed at
   startup - good for payload size, but it means work centered on a
@@ -75,35 +122,43 @@ Still open:
   already been shown" truthfully, and would shrink context growth over a
   long session.
 
-## 3. Push the model harder toward using the harness
+## 3. Push the model harder toward using the harness - tool-calling rewrite done (2026-08-30), still needs live pressure-testing
 
-Even with ASK: added and the prompt restructured, qwen2.5-coder needs to
-be told, explicitly and repeatedly, to *prefer* LIST:/READ:/RUN:/
-ASK: over answering from memory - especially for:
+The mechanism changed (native `tools`/`toolCalls` instead of a text
+protocol - see the top of this file and `API.md`), but the underlying goal
+- get the model to actually *prefer* checking over guessing - still needs
+real qwen2.5-coder sessions to confirm it worked, not just that the wiring
+is correct. Specific gaps to watch for once live:
 
 - C/QuickJS work: read the actual binding file and `quickjs.h` (via the
-  `lib/reference-files.js` name-drop mechanism) before describing or
-  editing JS<->C glue, rather than recalling the API from the primer in
-  the system prompt alone.
+  `lib/reference-files.js` name-drop mechanism, or the `read_file` tool)
+  before describing or editing JS<->C glue, rather than recalling the API
+  from the primer in the system prompt alone.
 - Native-module work specifically: now that `nativeModules()` can guess
   which sibling project a compiled `.so` came from, that guess isn't
   surfaced to the model anywhere yet (it's dead code from the model's
-  point of view) - either inject it into the system prompt or expose it
-  as another LIST:/READ: shortcut (e.g. resolving a bare `.so` name to
-  its guessed project) so the model actually uses it instead of guessing
-  which qjs-* project a given native module lives in.
-- Anything it's about to write a `File:` block for: `READ:` the target
+  point of view) - either inject it into the system prompt or expose it as
+  another tool argument (e.g. resolving a bare `.so` name to its guessed
+  project) so the model actually uses it instead of guessing which qjs-*
+  project a given native module lives in.
+- Anything it's about to write a `File:` block for: `read_file` the target
   file first if it already exists, so the rewrite is grounded in the
-  current contents rather than the model's assumption of what's there.
-- `MAX_TOOL_ROUNDS` is 4 - worth revisiting once ASK:/heavier tool use
-  land, since a real "explore, then ask, then read, then answer" sequence
-  can burn through that quickly on a non-trivial question, and sibling-
-  project exploration adds more rounds a session might need. The new
-  "write a native binding" demo (README.md) is a concrete case that can
-  plausibly need more than 4: LIST a sibling project, READ a template
-  file, READ quickjs.h, RUN: the build, RUN: a smoke test
-  - that's 5-6 rounds before a final answer even on a clean run, before
-  counting a build failure or a wrong-signature retry.
+  current contents rather than the model's assumption of what's there -
+  the system prompt says this now, but it's unverified whether the model
+  actually follows it.
+- `MAX_TOOL_ROUNDS` is still 4 (now enforced by dropping `tools`/forcing
+  `toolChoice: 'none'` on the capping round instead of just discarding a
+  still-pending request, see the top of this file) - worth revisiting now
+  that `ask_user` is real, heavier tool use, since a real "explore, then
+  ask, then read, then answer" sequence can burn through that quickly on a
+  non-trivial question, and sibling-project exploration adds more rounds a
+  session might need. The "write a native binding" demo (README.md) is a
+  concrete case that can plausibly need more than 4: list a sibling
+  project, read a template file, read quickjs.h, run the build, run a
+  smoke test - that's 5-6 tool calls before a final answer even on a clean
+  run, before counting a build failure or a wrong-signature retry. The two
+  PoC coding tasks above are a good live test of whether 4 is actually too
+  tight in practice.
 
 ## 4a. Follow-ups from the message-format/tool-use rewrite (2026-08-06)
 
@@ -113,26 +168,19 @@ of Gemini being forced through Ollama's flat `{role, content}` shape - see
 section for the two biggest deliberate omissions (multimodal parts,
 wiring this into `repl.js`'s own tool loop). Concretely still open:
 
-- Not yet verified against a live Gemini/Ollama *tool-calling* exchange -
-  this environment had no reachable Ollama server or a valid
-  `GEMINI_API_KEY` to test against (only a deliberately-invalid one, to
-  confirm connectivity/request framing - see BUGS:
-  tls-client-large-body-closes-above-16kb, found via that same testing).
-  Checked so far: both files parse and import cleanly, both classes
-  instantiate/`destroy()` without error, `GeminiClient` was confirmed to
-  reach the real endpoint and get a real (well-formed, non-"closed")
-  response across a wide range of body sizes, and the request/response
-  shapes were reviewed against the vendored API docs (see `API.md`'s
-  research section). What's still unverified is a real `tools`/
-  `toolCalls` round trip specifically - re-verify with a valid key/server
-  before relying on it, especially `OllamaClient`'s streaming path, since
-  a `tool_calls` chunk arriving mid-stream (per Ollama's own docs) was
-  never observed directly here.
-- `repl.js`'s own `LIST:`/`READ:`/`RUN:` loop (`runToolLoop()`,
-  `lib/tool-requests.js`) still doesn't use this - it's a separate
-  plain-text-in-the-reply-body protocol, untouched by this rewrite. Using
-  real `tools`/`toolCalls` there instead (or alongside) is a bigger,
-  separate change - see `API.md`.
+- Real `tools`/`toolCalls` round trip now verified (2026-08-30), but only
+  against `GeminiClient` (got real 503s - "high demand" - fast and
+  correctly surfaced as errors, no hang, confirming the request framing
+  with `tools` attached is sound) and `OpenAIClient` against an OpenAI-
+  compatible proxy (`qwen3.8-flash`/`qwen3-coder-flash` - a full
+  successful `list_directory` and `run_command` round trip each, see the
+  top of this file). `OllamaClient`'s own wire format (and its streaming
+  `tool_calls`-mid-chunk path specifically) is still unverified - no
+  reachable Ollama server this session either (see the "not yet done"
+  section at the top of this file for why).
+- ~~`repl.js`'s own `LIST:`/`READ:`/`RUN:` loop doesn't use this~~ - done
+  (2026-08-30): `runToolLoop()` now drives `TOOLS`/`executeTool()`
+  natively - see the top of this file and `API.md`.
 - No multimodal message parts (images/audio/PDFs via `inlineData`/
   `fileData`) - not needed for this project's text-only workflow yet;
   `API.md` sketches how it'd extend the format if it ever is.
