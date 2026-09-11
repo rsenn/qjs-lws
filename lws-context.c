@@ -370,14 +370,28 @@ client_connect_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws_client_
 
 static void
 client_connect_info_from_uri(JSContext* ctx, char* uri, struct lws_client_connect_info* info) {
+#ifdef HAVE_LWS_PARSE_URI_CREATE
   lws_parse_uri_t* parsed = lws_parse_uri_create(uri);
 
   if(!parsed)
     return;
 
-  if(parsed->scheme) {
-    BOOL ssl = !strcmp(parsed->scheme, "https") || !strcmp(parsed->scheme, "wss");
-    BOOL http = !strncmp(parsed->scheme, "http", 4);
+  const char* scheme = parsed->scheme;
+  const char* host = parsed->host;
+  const char* path = parsed->path;
+  int port = parsed->port;
+#else
+  const char *scheme, *host, *path;
+  int port;
+  int r = lws_parse_uri(uri, &scheme, &host, &port, &path);
+
+  if(r)
+    return;
+#endif
+
+  if(scheme) {
+    BOOL ssl = !strcmp(scheme, "https") || !strcmp(scheme, "wss");
+    BOOL http = !strncmp(scheme, "http", 4);
 
     if(http)
       str_replace(ctx, &info->method, js_strdup(ctx, "GET"));
@@ -388,15 +402,17 @@ client_connect_info_from_uri(JSContext* ctx, char* uri, struct lws_client_connec
       info->ssl_connection &= ~(LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE);
   }
 
-  if(parsed->host)
-    str_replace(ctx, &info->host, js_strdup(ctx, parsed->host));
+  if(host)
+    str_replace(ctx, &info->host, js_strdup(ctx, host));
 
-  info->port = parsed->port;
+  info->port = port;
 
-  if(parsed->path)
-    str_replace(ctx, &info->path, js_strdup(ctx, parsed->path));
+  if(path)
+    str_replace(ctx, &info->path, js_strdup(ctx, path));
 
+#ifdef HAVE_LWS_PARSE_URI_CREATE
   lws_parse_uri_destroy(&parsed);
+#endif
 }
 
 static char*

@@ -616,6 +616,22 @@ unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
 #dump(X509_self_signed)
 #dump(X509_self_signed2)
 
+# lws_parse_uri_create() only exists since libwebsockets v5.x; older v4.x
+# only has the deprecated lws_parse_uri().
+set(CMAKE_REQUIRED_LIBRARIES
+    "${LIBWEBSOCKETS_LIBRARIES};${MBEDTLS_LIBRARIES};${OPENSSL_LIBRARIES};${BROTLI_LIBRARIES};${ZLIB_LIBRARY}")
+list(POP_FRONT CMAKE_REQUIRED_LIBRARIES LIBWEBSOCKETS_LIBRARY)
+set(CMAKE_REQUIRED_LINK_DIRECTORIES
+    "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR};${BROTLI_LIBRARY_DIR}")
+check_library_exists("${LIBWEBSOCKETS_LIBRARY}" lws_parse_uri_create
+                     "${LIBWEBSOCKETS_LIBRARY_DIR}" HAVE_LWS_PARSE_URI_CREATE)
+unset(CMAKE_REQUIRED_LIBRARIES)
+unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
+
+if(HAVE_LWS_PARSE_URI_CREATE)
+  add_definitions(-DHAVE_LWS_PARSE_URI_CREATE)
+endif(HAVE_LWS_PARSE_URI_CREATE)
+
 message(
   "Library directories:\n\
   libwebsockets - ${LIBWEBSOCKETS_LIBRARY_DIR}\n\
