@@ -1,9 +1,8 @@
 /**
- * CLI (util.getOpt) + Polipo-style (/etc/polipo/config) config file, merged.
+ * CLI + Polipo-style (/etc/polipo/config) config file, merged.
  * Precedence: built-in defaults < config file < CLI flags.
  */
-import { getOpt, showHelp } from 'util';
-import { loadFile } from 'std';
+import { loadFile, puts, exit } from 'std';
 
 export const defaults = {
   proxyPort: 8123,
@@ -60,8 +59,46 @@ const cliOptions = {
   'onward-port': [true, Number],
   'dns-servers': [true, null], // comma-separated - resolves onward hostnames via these instead of /etc/resolv.conf
   verbose: [false, (_v, prev) => (prev ?? 0) + 1, 'v'],
-  '@': [],
 };
+
+/** "--proxy-port"/"-c" -> canonical option name ("proxy-port"/"config"), built once from `cliOptions`. */
+const aliases = new Map(Object.entries(cliOptions).flatMap(([name, [, , short]]) => [[`--${name}`, name], ...(short ? [[`-${short}`, name]] : [])]));
+
+/**
+ * Table-driven CLI parser, keyed entirely off `cliOptions`' own shape
+ * (`name: [hasArg, handler?, shortAlias?]`) via the `aliases` lookup above -
+ * no per-flag branching. Long options accept both `--flag value` and
+ * `--flag=value`; anything that isn't a recognized flag collects into the
+ * returned `@` array.
+ */
+function parseArgs(args) {
+  const result = { '@': [] };
+
+  for(let i = 0; i < args.length; i++) {
+    const eq = args[i].indexOf('=');
+    const name = aliases.get(eq === -1 ? args[i] : args[i].slice(0, eq));
+
+    if(!name) {
+      result['@'].push(args[i]);
+      continue;
+    }
+
+    const [hasArg, handler] = cliOptions[name];
+    const raw = !hasArg ? true : eq !== -1 ? args[i].slice(eq + 1) : args[++i];
+
+    result[name] = handler ? handler(raw, result[name], cliOptions) : raw;
+  }
+
+  return result;
+}
+
+function showHelp(opts) {
+  const maxlen = Object.keys(opts).reduce((n, k) => Math.max(n, k.length), 0);
+  const lines = Object.entries(opts).map(([name, [hasArg, , short]]) => `  ${short ? `-${short}, ` : '    '}--${name.padEnd(maxlen)} ${hasArg ? 'ARG' : ''}`);
+
+  puts(`Usage: ${scriptArgs[0].split('/').pop()} [OPTIONS]\n\n${lines.join('\n')}\n`);
+  exit(0);
+}
 
 /**
  * @param  {string[]} args        Usually `scriptArgs.slice(1)`
@@ -69,7 +106,7 @@ const cliOptions = {
  *                                        `--config` isn't given
  */
 export function loadConfig(args, defaultConfigPath = './proxy.conf') {
-  const cli = getOpt(cliOptions, args);
+  const cli = parseArgs(args);
 
   const configPath = cli.config ?? defaultConfigPath;
   const explicit = cli.config != null;
