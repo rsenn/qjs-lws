@@ -15,9 +15,20 @@ fi
 
 cd "$SRC_DIR"
 
+lws_major=$(sed -n 's/^set(CPACK_PACKAGE_VERSION_MAJOR "\([^"]*\)").*/\1/p' CMakeLists.txt)
+
 for p in "$PATCH_DIR"/000*.patch; do
   [ -e "$p" ] || continue
   name=$(basename "$p")
+
+  case "$name" in
+    0003-*)
+      if [ "$lws_major" != "5" ]; then
+        echo "libwebsockets patch: $name requires libwebsockets 5.x (found '$lws_major'), skipping"
+        continue
+      fi
+      ;;
+  esac
 
   if git apply --check "$p" >/dev/null 2>&1; then
     git apply "$p"
