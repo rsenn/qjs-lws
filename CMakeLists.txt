@@ -34,7 +34,15 @@ endif(USE_EPOLL)
 
 option(DO_TESTS "Perform tests" ON)
 
-plugin(DEADDROP deaddrop ON)
+# protocol_deaddrop was added to libwebsockets after v4.x; the plugin
+# source simply isn't there in an older vendored/system libwebsockets.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/plugins/protocol_deaddrop/protocol_lws_deaddrop.c")
+  set(DEADDROP_AVAILABLE ON)
+else()
+  set(DEADDROP_AVAILABLE OFF)
+  message(WARNING "protocol_deaddrop plugin source not found (needs a newer libwebsockets) - disabling PLUGIN_DEADDROP")
+endif()
+plugin(DEADDROP deaddrop ${DEADDROP_AVAILABLE})
 plugin(RAW_PROXY raw-proxy ON)
 plugin(FULLTEXT_DEMO protocol_fulltext_demo OFF)
 plugin(LWS_STATUS protocol_lws_status ON)
@@ -616,21 +624,94 @@ unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
 #dump(X509_self_signed)
 #dump(X509_self_signed2)
 
+# Some JS API surface depends on libwebsockets functions/constants that
+# only exist in newer libwebsockets (or, for the txn-queue introspection
+# functions, only in this project's own patched libwebsockets fork). Probe
+# for each individually so qjs-lws keeps building - with reduced JS API
+# surface - against an older or unpatched libwebsockets, instead of just
+# failing to compile.
+include(CheckCSourceCompiles)
+
+macro(CHECK_LWS_FUNCTION FUNC VAR)
+  set(CMAKE_REQUIRED_LIBRARIES
+      "${LIBWEBSOCKETS_LIBRARIES};${MBEDTLS_LIBRARIES};${OPENSSL_LIBRARIES};${BROTLI_LIBRARIES};${ZLIB_LIBRARY}")
+  list(POP_FRONT CMAKE_REQUIRED_LIBRARIES LIBWEBSOCKETS_LIBRARY)
+  set(CMAKE_REQUIRED_LINK_DIRECTORIES
+      "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR};${BROTLI_LIBRARY_DIR}")
+  check_library_exists("${LIBWEBSOCKETS_LIBRARY}" ${FUNC}
+                       "${LIBWEBSOCKETS_LIBRARY_DIR}" ${VAR})
+  unset(CMAKE_REQUIRED_LIBRARIES)
+  unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
+  if(${VAR})
+    add_definitions(-D${VAR})
+  endif(${VAR})
+endmacro(CHECK_LWS_FUNCTION FUNC VAR)
+
+macro(CHECK_LWS_CONSTANT EXPR VAR)
+  set(CMAKE_REQUIRED_INCLUDES
+      "${LIBWEBSOCKETS_INCLUDE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/include;${OPENSSL_INCLUDE_DIR};${MBEDTLS_INCLUDE_DIR}")
+  set(CMAKE_REQUIRED_DEFINITIONS "-D_GNU_SOURCE")
+  check_c_source_compiles(
+    "#include <libwebsockets.h>\nint main(void) { return (int)(${EXPR}); }\n"
+    ${VAR})
+  unset(CMAKE_REQUIRED_INCLUDES)
+  unset(CMAKE_REQUIRED_DEFINITIONS)
+  if(${VAR})
+    add_definitions(-D${VAR})
+  endif(${VAR})
+endmacro(CHECK_LWS_CONSTANT EXPR VAR)
+
 # lws_parse_uri_create() only exists since libwebsockets v5.x; older v4.x
 # only has the deprecated lws_parse_uri().
-set(CMAKE_REQUIRED_LIBRARIES
-    "${LIBWEBSOCKETS_LIBRARIES};${MBEDTLS_LIBRARIES};${OPENSSL_LIBRARIES};${BROTLI_LIBRARIES};${ZLIB_LIBRARY}")
-list(POP_FRONT CMAKE_REQUIRED_LIBRARIES LIBWEBSOCKETS_LIBRARY)
-set(CMAKE_REQUIRED_LINK_DIRECTORIES
-    "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR};${BROTLI_LIBRARY_DIR}")
-check_library_exists("${LIBWEBSOCKETS_LIBRARY}" lws_parse_uri_create
-                     "${LIBWEBSOCKETS_LIBRARY_DIR}" HAVE_LWS_PARSE_URI_CREATE)
-unset(CMAKE_REQUIRED_LIBRARIES)
-unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
+check_lws_function(lws_parse_uri_create HAVE_LWS_PARSE_URI_CREATE)
 
-if(HAVE_LWS_PARSE_URI_CREATE)
-  add_definitions(-DHAVE_LWS_PARSE_URI_CREATE)
-endif(HAVE_LWS_PARSE_URI_CREATE)
+check_lws_function(lws_sa46_is_ipv4_mapped HAVE_LWS_SA46_IS_IPV4_MAPPED)
+check_lws_function(lws_finalize_write_http_header_flags
+                   HAVE_LWS_FINALIZE_WRITE_HTTP_HEADER_FLAGS)
+check_lws_function(lws_x509_create_cert HAVE_LWS_X509_CREATE_CERT)
+check_lws_function(lws_x509_cert_fingerprint HAVE_LWS_X509_CERT_FINGERPRINT)
+
+# Transaction-queue introspection is a patch specific to this project's own
+# libwebsockets fork (see libwebsockets/ commit "Add transaction queue
+# introspection, SA46 pending UDP support, and ACME SNI cert keygen
+# patches") - it's absent from both stock v4.x and stock v5.x.
+check_lws_function(lws_get_txn_queue_leader HAVE_LWS_GET_TXN_QUEUE_LEADER)
+check_lws_function(lws_wsi_is_txn_queue_leader HAVE_LWS_WSI_IS_TXN_QUEUE_LEADER)
+check_lws_function(lws_get_txn_queue_depth HAVE_LWS_GET_TXN_QUEUE_DEPTH)
+if(HAVE_LWS_GET_TXN_QUEUE_LEADER AND HAVE_LWS_WSI_IS_TXN_QUEUE_LEADER AND HAVE_LWS_GET_TXN_QUEUE_DEPTH)
+  set(HAVE_LWS_TXN_QUEUE_INTROSPECTION ON)
+  add_definitions(-DHAVE_LWS_TXN_QUEUE_INTROSPECTION)
+endif()
+
+check_lws_constant(LWS_WRITE_QUIC_DATAGRAM HAVE_LWS_WRITE_QUIC_DATAGRAM)
+check_lws_constant(LWS_ADNS_RECORD_SOA HAVE_LWS_ADNS_RECORD_SOA)
+check_lws_constant(LWS_ADNS_RECORD_TXT HAVE_LWS_ADNS_RECORD_TXT)
+check_lws_constant(LWS_TLS_CERT_INFO_DER_SPKI HAVE_LWS_TLS_CERT_INFO_DER_SPKI)
+
+set(LWS_COMPAT_MISSING "")
+foreach(
+  FEATURE
+  HAVE_LWS_PARSE_URI_CREATE
+  HAVE_LWS_SA46_IS_IPV4_MAPPED
+  HAVE_LWS_FINALIZE_WRITE_HTTP_HEADER_FLAGS
+  HAVE_LWS_X509_CREATE_CERT
+  HAVE_LWS_X509_CERT_FINGERPRINT
+  HAVE_LWS_TXN_QUEUE_INTROSPECTION
+  HAVE_LWS_WRITE_QUIC_DATAGRAM
+  HAVE_LWS_ADNS_RECORD_SOA
+  HAVE_LWS_ADNS_RECORD_TXT
+  HAVE_LWS_TLS_CERT_INFO_DER_SPKI)
+  if(NOT ${FEATURE})
+    list(APPEND LWS_COMPAT_MISSING "${FEATURE}")
+  endif(NOT ${FEATURE})
+endforeach(FEATURE)
+
+if(LWS_COMPAT_MISSING)
+  message(WARNING
+    "Building against a libwebsockets missing: ${LWS_COMPAT_MISSING} - "
+    "the corresponding JS API will be degraded or unavailable. Upgrade "
+    "libwebsockets for full functionality.")
+endif(LWS_COMPAT_MISSING)
 
 message(
   "Library directories:\n\

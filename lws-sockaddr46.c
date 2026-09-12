@@ -7,6 +7,23 @@
 JSClassID lwsjs_sockaddr46_class_id;
 static JSValue lwsjs_sockaddr46_proto, lwsjs_sockaddr46_ctor;
 
+#ifndef HAVE_LWS_SA46_IS_IPV4_MAPPED
+/* lws_sa46_is_ipv4_mapped() only exists since libwebsockets' ipv4-dns-over-
+   ipv6 commit; reimplemented here to the same ::ffff:0:0/96 check for older
+   libwebsockets that lack it. */
+static int
+lws_sa46_is_ipv4_mapped_fallback(const lws_sockaddr46* sa46) {
+  if(sa46 && sa46->sa4.sin_family == AF_INET6) {
+    const uint8_t* a = sa46->sa6.sin6_addr.s6_addr;
+
+    return !a[0] && !a[1] && !a[2] && !a[3] && !a[4] && !a[5] && !a[6] && !a[7] && !a[8] && !a[9] && a[10] == 0xff && a[11] == 0xff;
+  }
+
+  return 0;
+}
+#define lws_sa46_is_ipv4_mapped lws_sa46_is_ipv4_mapped_fallback
+#endif
+
 static JSValue
 lwsjs_sockaddr46_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
   lws_sockaddr46 sa = {0};

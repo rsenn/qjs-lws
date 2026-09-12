@@ -182,6 +182,15 @@ pem_wrap(JSContext* ctx, const char* label, const uint8_t* der, size_t der_len) 
   return ret;
 }
 
+#ifndef HAVE_LWS_X509_CREATE_CERT
+
+JSValue
+lwsjs_generate_self_signed_cert(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  return JS_ThrowInternalError(ctx, "generateSelfSignedCert: not supported by this libwebsockets version (needs a newer libwebsockets)");
+}
+
+#else /* HAVE_LWS_X509_CREATE_CERT */
+
 JSValue
 lwsjs_generate_self_signed_cert(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   JSValueConst opts = argc > 0 ? argv[0] : JS_UNDEFINED;
@@ -248,6 +257,8 @@ lwsjs_generate_self_signed_cert(JSContext* ctx, JSValueConst this_val, int argc,
 
   return ret;
 }
+
+#endif /* HAVE_LWS_X509_CREATE_CERT */
 
 #else /* !LWS_WITH_TLS */
 
@@ -376,7 +387,9 @@ lwsjs_x509_get(JSContext* ctx, JSValueConst this_val, int magic) {
     case X509_PROP_VALID_FROM_DATE: return x509_info_date(x509, ctx, LWS_TLS_CERT_INFO_VALIDITY_FROM);
     case X509_PROP_VALID_TO_DATE: return x509_info_date(x509, ctx, LWS_TLS_CERT_INFO_VALIDITY_TO);
     case X509_PROP_RAW: return x509_info_bytes(x509, ctx, LWS_TLS_CERT_INFO_DER_RAW);
+#ifdef HAVE_LWS_TLS_CERT_INFO_DER_SPKI
     case X509_PROP_PUBLIC_KEY: return x509_info_bytes(x509, ctx, LWS_TLS_CERT_INFO_DER_SPKI);
+#endif
     case X509_PROP_AUTHORITY_KEY_ID: return x509_info_bytes(x509, ctx, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID);
     case X509_PROP_SUBJECT_KEY_ID: return x509_info_bytes(x509, ctx, LWS_TLS_CERT_INFO_SUBJECT_KEY_ID);
   }
@@ -404,6 +417,9 @@ lwsjs_x509_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
       return JS_NewBool(ctx, lws_x509_verify(x509, other, NULL) == 0);
     }
 
+#ifndef HAVE_LWS_X509_CERT_FINGERPRINT
+    case X509_METHOD_FINGERPRINT: return JS_ThrowInternalError(ctx, "fingerprint: not supported by this libwebsockets version (needs a newer libwebsockets)");
+#else
     case X509_METHOD_FINGERPRINT: {
       const char* name = argc > 0 ? JS_ToCString(ctx, argv[0]) : NULL;
       int type = LWS_GENHASH_TYPE_SHA1;
@@ -437,6 +453,7 @@ lwsjs_x509_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
       *p = 0;
       return JS_NewString(ctx, out);
     }
+#endif /* HAVE_LWS_X509_CERT_FINGERPRINT */
 
     case X509_METHOD_TO_STRING: {
       uint8_t buf[X509_INFO_BUF_SIZE];

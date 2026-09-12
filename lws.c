@@ -440,26 +440,39 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       char* uri;
 
       if((uri = to_string(ctx, argv[0]))) {
+#ifdef HAVE_LWS_PARSE_URI_CREATE
         lws_parse_uri_t* lpu;
 
         if((lpu = lws_parse_uri_create(uri))) {
+          const char* scheme = lpu->scheme;
+          const char* host = lpu->host;
+          const char* path = lpu->path;
+          int port = lpu->port;
+#else
+        const char *scheme, *host, *path;
+        int port;
+
+        if(!lws_parse_uri(uri, &scheme, &host, &port, &path)) {
+#endif
           ret = JS_NewObjectProto(ctx, JS_NULL);
 
-          if(lpu->scheme && lpu->scheme[0])
-            JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, lpu->scheme));
+          if(scheme && scheme[0])
+            JS_SetPropertyStr(ctx, ret, "protocol", JS_NewString(ctx, scheme));
 
-          if(lpu->host && lpu->host[0])
-            JS_SetPropertyStr(ctx, ret, "host", JS_NewString(ctx, lpu->host));
+          if(host && host[0])
+            JS_SetPropertyStr(ctx, ret, "host", JS_NewString(ctx, host));
 
-          if(lpu->port)
-            JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, lpu->port));
+          if(port)
+            JS_SetPropertyStr(ctx, ret, "port", JS_NewInt32(ctx, port));
 
-          if(lpu->path)
-            JS_SetPropertyStr(ctx, ret, "path", JS_NewString(ctx, lpu->path));
+          if(path)
+            JS_SetPropertyStr(ctx, ret, "path", JS_NewString(ctx, path));
 
           // if(lpu->unix_skt) JS_SetPropertyStr(ctx, ret, "unix", JS_TRUE);
 
+#ifdef HAVE_LWS_PARSE_URI_CREATE
           lws_parse_uri_destroy(&lpu);
+#endif
         }
 
         js_free(ctx, (char*)uri);
@@ -753,7 +766,9 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CONSTANT(LWS_WRITE_H2_STREAM_END),
     JS_CONSTANT(LWS_WRITE_CLIENT_IGNORE_XOR_MASK),
     JS_CONSTANT(LWS_WRITE_RAW),
+#ifdef HAVE_LWS_WRITE_QUIC_DATAGRAM
     JS_CONSTANT(LWS_WRITE_QUIC_DATAGRAM),
+#endif
 
     JS_CONSTANT(LWSAHH_FLAG_NO_SERVER_NAME),
 
@@ -1009,9 +1024,13 @@ static const JSCFunctionListEntry lws_funcs[] = {
 
     JS_CONSTANT(LWS_ADNS_RECORD_A),
     JS_CONSTANT(LWS_ADNS_RECORD_CNAME),
+#ifdef HAVE_LWS_ADNS_RECORD_SOA
     JS_CONSTANT(LWS_ADNS_RECORD_SOA),
+#endif
     JS_CONSTANT(LWS_ADNS_RECORD_MX),
+#ifdef HAVE_LWS_ADNS_RECORD_TXT
     JS_CONSTANT(LWS_ADNS_RECORD_TXT),
+#endif
     JS_CONSTANT(LWS_ADNS_RECORD_AAAA),
     JS_CONSTANT(LWS_ADNS_RECORD_DS),
     JS_CONSTANT(LWS_ADNS_RECORD_RRSIG),

@@ -1003,8 +1003,15 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
      and lws has no timeout watching for it (see lws-write.h's own doc
      comment on lws_finalize_write_http_header_flags()). h1 is unaffected
      either way - the flag only matters to the h2/h3 write path. */
+#ifdef HAVE_LWS_FINALIZE_WRITE_HTTP_HEADER_FLAGS
   BOOL will_have_body = (ptr && len > 0) || !list_empty(&s->write_queue);
   int n = lws_finalize_write_http_header_flags(s->wsi, start, &p, end, LWS_WRITE_HTTP_HEADERS | (will_have_body ? 0 : LWS_WRITE_H2_STREAM_END)) ? -1 : (int)lws_ptr_diff_size_t(p, start);
+#else
+  /* No flags control on this libwebsockets - a bodyless response under
+     h2/h3 won't carry END_STREAM and the client will hang waiting for a
+     body that never comes (see the comment above); h1 is unaffected. */
+  int n = lws_finalize_write_http_header(s->wsi, start, &p, end) ? -1 : (int)lws_ptr_diff_size_t(p, start);
+#endif
 
   DEBUG_WSI(s->wsi, "wrote headers (%d)", n);
 
@@ -1734,6 +1741,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
       break;
     }
 
+#ifdef HAVE_LWS_TXN_QUEUE_INTROSPECTION
     case PROP_PIPELINE_LEADER: {
       struct lws* wsi = s->wsi ? lws_get_txn_queue_leader(s->wsi) : NULL;
 
@@ -1756,6 +1764,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       break;
     }
+#endif /* HAVE_LWS_TXN_QUEUE_INTROSPECTION */
 
     case PROP_SEND_PIPE_CHOKED: {
       ret = JS_NewBool(ctx, lws_send_pipe_choked(s->wsi));
