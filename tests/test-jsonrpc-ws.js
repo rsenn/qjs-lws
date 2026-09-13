@@ -13,6 +13,7 @@
  * printed URL. Run from the repo root: qjsm tests/test-jsonrpc-ws.js
  * (mount origins below are relative to the repo root).
  */
+import { getenv } from 'std';
 import { createServer, LWSContext, LWSMPRO_FILE, LWSMPRO_NO_MOUNT } from 'lws.so';
 import { WsProtocol, WsClientProtocol } from '../lib/lws/protocols.js';
 import { JsonRpcHandler } from '../lib/rpc/json-rpc-handler.js';
@@ -72,63 +73,70 @@ const server = createServer({
 console.log(`playground:   http://localhost:${port}/`);
 console.log(`RPC endpoint: ws://localhost:${port}/rpc`);
 
-/* Quick self-test through the exact same client stack the browser uses
+/* Quick self-tests through the exact same client stack the browser uses
    (createWsClientHandlers()/createRemoteObjectFactory()), so a startup
    failure here is caught immediately instead of only surfacing once
-   someone opens the playground. Its own connection is torn down right
-   after - only `server` stays up for the browser. */
-let resolveOpen, rejectOpen;
-const opened = new Promise((resolve, reject) => {
-  resolveOpen = resolve;
-  rejectOpen = reject;
-});
+   someone opens the playground. Skipped by default - running them here
+   blocks the REPL below from reading stdin until they finish, which in
+   practice was until the *first real connection* to the server's own
+   listener, defeating the point of an immediately-usable REPL. Set
+   SELFTEST=1 to run them. */
+async function selfTest() {
+  let resolveOpen, rejectOpen;
+  const opened = new Promise((resolve, reject) => {
+    resolveOpen = resolve;
+    rejectOpen = reject;
+  });
 
-const client = createWsClientHandlers();
+  const client = createWsClientHandlers();
 
-const protocol = new WsClientProtocol({
-  name: 'jsonrpc',
-  ...client,
-  open(wsi) {
-    client.open(wsi);
-    resolveOpen();
-  },
-  error(wsi, msg) {
-    rejectOpen(new Error(msg));
-  },
-});
+  const protocol = new WsClientProtocol({
+    name: 'jsonrpc',
+    ...client,
+    open(wsi) {
+      client.open(wsi);
+      resolveOpen();
+    },
+    error(wsi, msg) {
+      rejectOpen(new Error(msg));
+    },
+  });
 
-const selfTestCtx = new LWSContext({ protocols: [protocol] });
-protocol.connect(selfTestCtx, `ws://localhost:${port}/rpc`, { protocols: 'jsonrpc' });
-await opened;
+  const selfTestCtx = new LWSContext({ protocols: [protocol] });
+  protocol.connect(selfTestCtx, `ws://localhost:${port}/rpc`, { protocols: 'jsonrpc' });
+  await opened;
 
-const factory = createRemoteObjectFactory(client.call);
-const arr = await factory.new('Array', 1, 2, 3);
-await arr.push(4);
-console.log('self-test: new Array(1, 2, 3), .push(4) -> length', await arr.length);
-await factory.delete(arr);
+  const factory = createRemoteObjectFactory(client.call);
+  const arr = await factory.new('Array', 1, 2, 3);
+  await arr.push(4);
+  console.log('self-test: new Array(1, 2, 3), .push(4) -> length', await arr.length);
+  await factory.delete(arr);
 
-selfTestCtx.destroy();
+  selfTestCtx.destroy();
 
-/* Reversed-roles self-test: lib/websocket.js's WebSocket class is built to
-   match the browser's own exactly (see its header comment), so it stands in
-   for a browser page here - it dials out to /rpc-reverse and serves a tiny
-   JsonRpcHandler via createWebSocketServer(), the same call a real browser
-   page would make. `reverseClient` (registered on the accepting side above)
-   is the one making the JSON-RPC call despite being the WS transport
-   *server*. */
-const reverseRpc = new JsonRpcHandler({ methods: { ping: () => 'pong' } });
-const reverseWs = new WebSocket(`ws://localhost:${port}/rpc-reverse`, 'jsonrpc-reverse');
+  /* Reversed-roles self-test: lib/websocket.js's WebSocket class is built to
+     match the browser's own exactly (see its header comment), so it stands
+     in for a browser page here - it dials out to /rpc-reverse and serves a
+     tiny JsonRpcHandler via createWebSocketServer(), the same call a real
+     browser page would make. `reverseClient` (registered on the accepting
+     side above) is the one making the JSON-RPC call despite being the WS
+     transport *server*. */
+  const reverseRpc = new JsonRpcHandler({ methods: { ping: () => 'pong' } });
+  const reverseWs = new WebSocket(`ws://localhost:${port}/rpc-reverse`, 'jsonrpc-reverse');
 
-await new Promise((resolve, reject) => {
-  reverseWs.addEventListener('open', () => resolve(), { once: true });
-  reverseWs.addEventListener('error', () => reject(new Error('WebSocket error')), { once: true });
-});
-createWebSocketServer(reverseWs, reverseRpc);
-await reverseOpened;
+  await new Promise((resolve, reject) => {
+    reverseWs.addEventListener('open', () => resolve(), { once: true });
+    reverseWs.addEventListener('error', () => reject(new Error('WebSocket error')), { once: true });
+  });
+  createWebSocketServer(reverseWs, reverseRpc);
+  await reverseOpened;
 
-console.log("self-test (reversed roles): reverseClient.call('ping') ->", await reverseClient.call('ping', []));
+  console.log("self-test (reversed roles): reverseClient.call('ping') ->", await reverseClient.call('ping', []));
 
-reverseWs.close();
+  reverseWs.close();
+}
+
+if(getenv('SELFTEST')) await selfTest();
 
 /* Interactive REPL, if this qjsm build has qjs-modules' 'repl' module (same
    optional-dependency situation as 'textcode'/'bjson' elsewhere in this
@@ -150,7 +158,10 @@ try {
   const repl = new REPL('rpc', false); // false = suppress the "QuickJS - Type \h for help" banner
   repl.historyLoad();
 
-  console.log(`REPL ready - factory.new(className, ...args)/.list()/.delete(obj)/.id(obj) drive the createRemoteObjectEndpoint() a browser page serves over ws://localhost:${port}/rpc-reverse (see tests/jsonrpc-ws-playground/client.js); call('method', [params])/notify(...) send a raw JSON-RPC request there instead`);
+  console.log(`REPL ready - factory.new(className, ...args)/.list()/.delete(obj)/.id(obj) drive the createRemoteObjectEndpoint()
+a browser page serves over ws://localhost:${port}/rpc-reverse (see tests/jsonrpc-ws-playground/client.js); call('method', [params])/notify(...)
+send a raw JSON-RPC request there instead`);
+
   repl.run();
 } catch(error) {
   // 'repl' module not built into this qjsm - no interactive REPL, demo still runs headless
