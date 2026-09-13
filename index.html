@@ -42,7 +42,14 @@
     </div>
   </div>
 
-  <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">serve</span>, <span class="t-type">Response</span> } <span class="t-kw">from</span> <span class="t-str">'./lib/serve.js'</span>;
+  <div class="hero-example">
+    <p class="example-switch">Example for API:
+      <button class="tab-btn active" type="button" data-tab="bun">Bun.serve</button>
+      <button class="tab-btn" type="button" data-tab="lws">low-level lws</button>
+    </p>
+
+    <div class="tab-pane active" data-tab="bun">
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">serve</span>, <span class="t-type">Response</span> } <span class="t-kw">from</span> <span class="t-str">'serve'</span>;
 
 <span class="t-fn">serve</span>({
   <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
@@ -61,7 +68,51 @@
     <span class="t-kw">return</span> <span class="t-kw">new</span> <span class="t-fn">Response</span>(<span class="t-str">'hello from qjs-lws'</span>);
   },
 });</code></pre></div>
+    </div>
+
+    <div class="tab-pane" data-tab="lws">
+      <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">import</span> { <span class="t-id">createServer</span>, <span class="t-type">LWSMPRO_CALLBACK</span>, <span class="t-type">LWSMPRO_NO_MOUNT</span>, <span class="t-type">LWS_WRITE_HTTP_FINAL</span> } <span class="t-kw">from</span> <span class="t-str">'lws'</span>;
+
+<span class="t-fn">createServer</span>({
+  <span class="t-id">port</span><span class="t-op">:</span> <span class="t-num">8080</span>,
+  <span class="t-id">vhostName</span><span class="t-op">:</span> <span class="t-str">'localhost'</span>,
+
+  <span class="t-id">mounts</span><span class="t-op">:</span> [
+    { <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/ws'</span>, <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'ws'</span>,   <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_NO_MOUNT</span> },
+    { <span class="t-id">mountpoint</span><span class="t-op">:</span> <span class="t-str">'/'</span>,   <span class="t-id">protocol</span><span class="t-op">:</span> <span class="t-str">'http'</span>, <span class="t-id">originProtocol</span><span class="t-op">:</span> <span class="t-type">LWSMPRO_CALLBACK</span> },
+  ],
+
+  <span class="t-id">protocols</span><span class="t-op">:</span> [
+    {
+      <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'ws'</span>,
+      <span class="t-fn">onReceive</span>(<span class="t-id">wsi</span>, <span class="t-id">data</span>) { <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">data</span>); },
+    },
+    {
+      <span class="t-id">name</span><span class="t-op">:</span> <span class="t-str">'http'</span>,
+      <span class="t-fn">onHttp</span>(<span class="t-id">wsi</span>, <span class="t-id">uri</span>) {
+        <span class="t-id">wsi</span>.<span class="t-fn">respond</span>(<span class="t-num">200</span>, { <span class="t-str">'content-type'</span><span class="t-op">:</span> <span class="t-str">'text/plain'</span> });
+        <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-str">'hello from qjs-lws\n'</span>, <span class="t-type">LWS_WRITE_HTTP_FINAL</span>);
+      },
+    },
+  ],
+});</code></pre></div>
+    </div>
+  </div>
 </section>
+
+<script>
+document.querySelectorAll('.hero-example').forEach(function (box) {
+  var btns = box.querySelectorAll('.tab-btn');
+  var panes = box.querySelectorAll('.tab-pane');
+  btns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tab = btn.dataset.tab;
+      btns.forEach(function (b) { b.classList.toggle('active', b === btn); });
+      panes.forEach(function (p) { p.classList.toggle('active', p.dataset.tab === tab); });
+    });
+  });
+});
+</script>
 
 <section class="section">
   <h2>Why it exists</h2>
