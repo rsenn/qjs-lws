@@ -17,8 +17,15 @@
     </div>
   </div>
 
-  <x-code lang="js">
-import { serve, Response } from './lib/serve.js';
+  <div class="hero-example">
+    <p class="example-switch">Example for API:
+      <button class="tab-btn active" type="button" data-tab="bun">Bun.serve</button>
+      <button class="tab-btn" type="button" data-tab="lws">low-level lws</button>
+    </p>
+
+    <div class="tab-pane active" data-tab="bun">
+      <x-code lang="js">
+import { serve, Response } from 'serve';
 
 serve({
   port: 8080,
@@ -37,8 +44,54 @@ serve({
     return new Response('hello from qjs-lws');
   },
 });
-  </x-code>
+      </x-code>
+    </div>
+
+    <div class="tab-pane" data-tab="lws">
+      <x-code lang="js">
+import { createServer, LWSMPRO_CALLBACK, LWSMPRO_NO_MOUNT, LWS_WRITE_HTTP_FINAL } from 'lws';
+
+createServer({
+  port: 8080,
+  vhostName: 'localhost',
+
+  mounts: [
+    { mountpoint: '/ws', protocol: 'ws',   originProtocol: LWSMPRO_NO_MOUNT },
+    { mountpoint: '/',   protocol: 'http', originProtocol: LWSMPRO_CALLBACK },
+  ],
+
+  protocols: [
+    {
+      name: 'ws',
+      onReceive(wsi, data) { wsi.write(data); },
+    },
+    {
+      name: 'http',
+      onHttp(wsi, uri) {
+        wsi.respond(200, { 'content-type': 'text/plain' });
+        wsi.write('hello from qjs-lws\n', LWS_WRITE_HTTP_FINAL);
+      },
+    },
+  ],
+});
+      </x-code>
+    </div>
+  </div>
 </section>
+
+<script>
+document.querySelectorAll('.hero-example').forEach(function (box) {
+  var btns = box.querySelectorAll('.tab-btn');
+  var panes = box.querySelectorAll('.tab-pane');
+  btns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tab = btn.dataset.tab;
+      btns.forEach(function (b) { b.classList.toggle('active', b === btn); });
+      panes.forEach(function (p) { p.classList.toggle('active', p.dataset.tab === tab); });
+    });
+  });
+});
+</script>
 
 <section class="section">
   <h2>Why it exists</h2>
