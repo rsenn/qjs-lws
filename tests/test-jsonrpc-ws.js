@@ -147,7 +147,7 @@ try {
   globalThis.notify = reverseClient.notify;
   globalThis.factory = createRemoteObjectFactory(reverseClient.call);
 
-  const repl = new REPL('rpc', true);
+  const repl = new REPL('rpc', false); // false = suppress the "QuickJS - Type \h for help" banner
   repl.historyLoad();
 
   console.log(`REPL ready - factory.new(className, ...args)/.list()/.delete(obj)/.id(obj) drive the createRemoteObjectEndpoint() a browser page serves over ws://localhost:${port}/rpc-reverse (see tests/jsonrpc-ws-playground/client.js); call('method', [params])/notify(...) send a raw JSON-RPC request there instead`);

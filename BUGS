@@ -365,6 +365,31 @@
     await closed;
     console.log(Date.now() - t0); // ~30000, should be near-instant
 
+- vhost-destroy-logs-spurious-not-on-no-listener-list-error
+  (libwebsockets/lib/core-net/vhost.c:1706-1707, __lws_vhost_destroy2()):
+  destroying any vhost logs "ERR [vh|N|name||-1]: not on no_listener list"
+  unconditionally unless the vhost is on `no_listener_vlist` - but a vhost
+  only ever gets added to that list from server.c's `sockfd_probe_listener()`
+  path, gated on `a->vhost->iface` being set (binding to one specific
+  network interface). A normal vhost (no `iface` option - the common case,
+  including every vhost this project creates) never takes that path, so
+  it's permanently "not on the list" and this fires every single time such
+  a vhost is destroyed. Cosmetic/harmless - not an actual error, nothing is
+  broken - just noisy: confirmed by reading vhost.c/server.c, not something
+  worth patching in the vendored libwebsockets submodule without being
+  asked. Running tests/test-jsonrpc-ws.js prints it 3 times: once each for
+  the "default" and implicit "system" vhosts of the main server context at
+  shutdown, and once for a second client context's default vhost - named
+  after the machine's hostname since no `vhostName` was passed - torn down
+  later and asynchronously by ContextRefCounter (lib/lws/context.js) once
+  its ref count hits zero after the reversed-roles self-test's
+  `reverseWs.close()`, which is why that third one appears interleaved with
+  later output (e.g. after the REPL banner) instead of at the same point in
+  the script.
+
+    // any LWSContext without an `iface` option on its vhost(s) logs this
+    // on destroy; e.g. just running tests/test-jsonrpc-ws.js reproduces it.
+
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
