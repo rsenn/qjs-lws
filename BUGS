@@ -1,3 +1,48 @@
+- ws-large-message-hangs-final-fragment-unreliable
+  (libwebsockets/lib/roles/ws/ops-ws.c:946 lws_is_final_fragment(), consumed
+  by lws-protocol.c's WS receive dispatch and lib/lws/protocols.js's
+  WsProtocol/WsClientProtocol `message` callback): **HIGH PRIORITY** - a WS
+  message received by this process (either role - accepting WsProtocol *or* connecting
+  WsClientProtocol, both go through the same dispatch) that arrives split
+  across more than one native read never reaches the JS `message` handler as
+  a complete message, and the caller has no reliable way to detect or
+  reassemble it, because lws_is_final_fragment() - the only signal available
+  for "is this the last piece" - has been separately observed to report
+  `wsi->ws->final` true for *every* fragment of such a message in this build
+  (see lib/websocket.js:228-237's own prior note on this, from before this
+  session), not just the actual last one. That prior note frames it as
+  "reassembly is unreliable, frame explicitly at the app level instead" and
+  stops there - root cause was not traced further into ops-ws.c at that
+  time. This session reproduced the concrete failure mode: a real Chrome
+  tab's `ws.send()` of a JSON string at or above ~4221 bytes (a 3950-byte
+  message is fine) to an *accepting* WsProtocol on this process never
+  reaches that protocol's `message` callback at all - no error, no partial
+  delivery, nothing; the sending side's ws.send() returns normally. Getting
+  from "final is reported true for every fragment" (lib/websocket.js's
+  finding) to "the message is dropped instead of delivered piecemeal"
+  (this session's finding) needs a real trace through ops-ws.c's rx state
+  machine (wsi->ws->rx_packet_length/wsi->ws->final bookkeeping around
+  lws_ws_client_rx_sm(), ops-ws.c) against an actual multi-read receive of a
+  >4KB payload - not done yet. Investigate before relying on any WS message
+  over roughly this size in either direction; lib/rpc/'s raw/TCP transport
+  (frameMessage()/createMessageUnframer(), lib/rpc/common.js) sidesteps this
+  entirely by never trusting WS message boundaries for framing, which is
+  the fallback if this can't be fixed natively.
+
+    // server (accepting) side:
+    import { createServer, LWSMPRO_NO_MOUNT } from 'lws.so';
+    import { WsProtocol } from './lib/lws/protocols.js';
+    let onMsg;
+    createServer({
+      port: 19999, vhostName: 'localhost',
+      mounts: [{ mountpoint: '/echo', protocol: 'echo', originProtocol: LWSMPRO_NO_MOUNT }],
+      protocols: [{ name: 'echo', ...new WsProtocol({ name: 'echo', message: (wsi, data) => onMsg?.(data) }) }],
+    });
+    // browser page connecting to ws://localhost:19999/echo, subprotocol 'echo':
+    const ws = new WebSocket('ws://localhost:19999/echo', 'echo');
+    await new Promise(r => (ws.onopen = r));
+    ws.send('x'.repeat(4221)); // never reaches onMsg above; 'x'.repeat(3950) does
+
 - deferred-close-hangs-on-established-client-http (lws-protocol.c:~50,
   pollfd_handler's forced-service while loop; ops-h1.c:719-747,
   rops_handle_POLLIN_h1): closing an HTTP client wsi from
@@ -183,6 +228,32 @@
       protocols: [{ name: 'http', ...adapter }], timeout_secs: 15,
     });
     await adapter.connect(ctx, 'https://example.com/', { method: 'GET', ssl_connection: LCCSCF_PIPELINE }); // logs "error: connect SYSCALL 9"
+
+- json-rpc-handler-rejects-missing-params (lib/rpc/json-rpc-handler.js:80): a request
+  with no params field at all is rejected as -32600 invalid request, even though
+  json-rpc 2.0 makes params optional. handleSingleRequest()'s validity check requires
+  request.params to already be an array or object, so a bare {jsonrpc, method, id}
+  request (params key entirely absent, e.g. after JSON.stringify() drops an
+  undefined params field) fails validation before the method lookup ever runs.
+  confirmed via tests/test-jsonrpc-ws.js: calling a method with no params argument
+  produces "Invalid Request" instead of reaching the handler (or its expected
+  "method not found"/execution-error responses).
+
+    const handler = new JsonRpcHandler({ methods: { ping: () => 'pong' } });
+    await handler.handleRequest({ jsonrpc: '2.0', method: 'ping', id: 1 }); // -32600, should call ping()
+
+- json-rpc-handler-error-data-loses-message-over-wire (lib/rpc/json-rpc-handler.js:101-105):
+  handleSingleRequest()'s catch clause always sets error.message to the fixed string
+  "Server error" and puts the raw thrown Error object in error.data, discarding the
+  original message everywhere except in-process (same JS realm, no serialization).
+  Error's own message/stack aren't enumerable own properties, so JSON.stringify(error)
+  is "{}" - any real transport (lib/rpc/ws-server.js, lib/rpc/http-server.js, both of
+  which JSON.stringify() the response before writing it) delivers data: {} to the
+  caller, destroying the actual error detail. Found while testing
+  lib/rpc/remote-object-endpoint.js against lib/rpc/remote-object-factory.js: a
+  deliberately-thrown "No such object #<id>" came back as just "Server error".
+
+    JSON.stringify({ data: new Error('boom') }); // '{"data":{}}' - message/stack lost
 
 ---
 

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JSON-RPC playground</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 0; padding: 16px; background: #111; color: #ddd; }
+  h1 { font-size: 16px; margin: 0 0 12px; }
+  h3 { font-size: 13px; margin: 0 0 6px; color: #9cf; }
+  select, input, button { font: inherit; background: #222; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; }
+  button { cursor: pointer; }
+  button:hover { background: #333; }
+  #controls { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+  #ctor-args { width: 220px; }
+  #instances { display: flex; flex-wrap: wrap; gap: 12px; }
+  .card { border: 1px solid #333; border-radius: 6px; padding: 10px; width: 320px; background: #181818; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+  .row span:first-child { width: 70px; flex-shrink: 0; color: #9cf; }
+  .row input { flex: 1; min-width: 0; }
+  .result { color: #9f9; word-break: break-all; }
+  #log { margin-top: 16px; border-top: 1px solid #333; padding-top: 8px; max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 12px; color: #999; }
+  #log div { padding: 1px 0; }
+</style>
+</head>
+<body>
+<h1>JSON-RPC playground</h1>
+
+<div id="controls">
+  <select id="class-select"></select>
+  <input id="ctor-args" placeholder="constructor args, JSON array e.g. [1,2,3]" value="[]">
+  <button id="instantiate">new</button>
+</div>
+
+<div id="instances"></div>
+
+<div id="log"></div>
+
+<script type="module" src="client.js"></script>
+</body>
+</html>
