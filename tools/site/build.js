@@ -178,9 +178,12 @@ function shell({ title, root, body, cls }) {
 <link rel="icon" href="${root}assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="${cls}">
+<body class="${cls}" data-root="${root}">
 <header class="topbar">
   <a class="brand" href="${root}index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <div class="search">
+    <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
+  </div>
   <nav class="topnav">
     <a href="${root}getting-started.html">Get started</a>
     <a href="${root}docs/index.html">Docs</a>
@@ -194,6 +197,8 @@ ${body}
   <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
      <a href="${GITHUB}/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
 </footer>
+<script src="${root}assets/search-index.js"></script>
+<script src="${root}assets/search.js"></script>
 <script>
 document.querySelector('.themetoggle').addEventListener('click', function () {
   var d = document.documentElement;
@@ -210,6 +215,8 @@ document.querySelector('.themetoggle').addEventListener('click', function () {
 
 /* ------------------------------------------------------------------ build */
 
+const SEARCH = [];
+
 function buildPage(page) {
   const md = read(page.src);
   const { html, headings } = render(md, {
@@ -220,6 +227,11 @@ function buildPage(page) {
   const depth = page.out.split('/').length - 1;
   const root = '../'.repeat(depth);
   const h1 = headings.find(h => h.level === 1);
+  const pageTitle = h1 ? h1.text : page.title;
+
+  SEARCH.push({ u: page.out, t: pageTitle, k: 'page' });
+  for (const h of headings)
+    if (h.level >= 2) SEARCH.push({ u: page.out + '#' + h.id, t: h.text, p: pageTitle, k: 'section' });
 
   const body = `<div class="layout">
 <aside class="sidebar">${sidebar(page)}</aside>
@@ -231,7 +243,7 @@ ${toc(headings)}
 </div>`;
 
   write(OUT + '/' + page.out, shell({
-    title: (h1 ? h1.text : page.title) + ' — qjs-lws',
+    title: pageTitle + ' — qjs-lws',
     root, body, cls: 'has-sidebar',
   }));
 }
@@ -268,14 +280,23 @@ function buildLanding() {
   }));
 }
 
+/** JSON-safe-ish emit: search entries are our own generated strings (doc
+ * headings), never arbitrary input, so JSON.stringify is enough - no need
+ * for an HTML-escaping pass like the page templates use. */
+function buildSearchIndex() {
+  write(OUT + '/assets/search-index.js', 'window.SEARCH_INDEX = ' + JSON.stringify(SEARCH) + ';\n');
+}
+
 const SELF = dirname(import.meta.url.replace(/^file:\/\//, '')) || '.';
 const OUT = scriptArgs[1] || '_site';
 
 buildLanding();
 for (const page of PAGES) buildPage(page);
+buildSearchIndex();
 
 write(OUT + '/assets/style.css', read(SELF + '/style.css'));
+write(OUT + '/assets/search.js', read(SELF + '/search.js'));
 write(OUT + '/assets/favicon.svg', read(SELF + '/favicon.svg'));
 write(OUT + '/.nojekyll', '');
 
-console.log('built ' + (PAGES.length + 1) + ' pages into ' + OUT + '/');
+console.log('built ' + (PAGES.length + 1) + ' pages (' + SEARCH.length + ' search entries) into ' + OUT + '/');
