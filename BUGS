@@ -390,6 +390,31 @@
     // any LWSContext without an `iface` option on its vhost(s) logs this
     // on destroy; e.g. just running tests/test-jsonrpc-ws.js reproduces it.
 
+- serve-websocket-options-silently-ignored (lib/serve.js:593-599): six of
+  `serve()`'s Bun-shaped `websocket` handler options are read into local
+  variables but never referenced again anywhere else in the file -
+  `perMessageDeflate`, `maxPayloadLength`, `backpressureLimit`,
+  `closeOnBackpressureLimit`, `sendPings`, and `publishToSelf` all have zero
+  effect, with no comment nearby flagging them as stubs (unlike this file's
+  other admitted stubs - `reload()`, `closeIdleConnections()`,
+  `server.fetch()` - which say so where they're defined). Confirmed by
+  reading the file: each is assigned once (destructured from
+  `websocket.<name>`) and grep finds no other occurrence of the variable
+  name. `idleTimeout`/`ping`/`pong`/`drain` from the same options object
+  *are* wired up correctly nearby, which is what makes the silent ones easy
+  to miss. A caller passing e.g. `maxPayloadLength` believing it caps
+  message size, or `publishToSelf: true` believing it changes `ws.publish()`
+  behavior, gets no error and no effect.
+
+    import { serve } from './lib/serve.js';
+    serve({
+      websocket: {
+        message(ws, data) {},
+        maxPayloadLength: 100,     // never enforced - a 1MB message still arrives
+        publishToSelf: true,       // ws.publish() still always excludes the sender
+      },
+    });
+
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
