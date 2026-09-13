@@ -220,6 +220,11 @@ a `ServerWebSocket` feature.
   `doc/native/LWSSocket.md`). `ServerRequest` doesn't get its own copies -
   use `request.wsi.peerCertificate` via the existing `.wsi` escape hatch.
 
+**Not yet implemented:** `websocket.perMessageDeflate`, `.maxPayloadLength`,
+`.backpressureLimit`, `.closeOnBackpressureLimit`, `.sendPings`, and
+`.publishToSelf` are all accepted (read, not rejected) but currently have no
+effect - see `BUGS: serve-websocket-options-silently-ignored`.
+
 ## TLS
 
 `serve({ tls: {cert, key} })` constructs an SSL-capable vhost, matching
