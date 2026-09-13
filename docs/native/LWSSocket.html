@@ -9,9 +9,12 @@
 <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="has-sidebar">
+<body class="has-sidebar" data-root="../../">
 <header class="topbar">
   <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <div class="search">
+    <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
+  </div>
   <nav class="topnav">
     <a href="../../getting-started.html">Get started</a>
     <a href="../../docs/index.html">Docs</a>
@@ -36,12 +39,18 @@ first argument to protocol callbacks.</p>
 <h3 id="wantwritecallback"><a class="anchor" href="#wantwritecallback" aria-hidden="true">#</a><code>wantWrite([callback])</code></h3>
 <p>Calls <code>lws_callback_on_writable()</code>. When the connection is next
 writeable, libwebsockets fires <code>LWS_CALLBACK_*_WRITEABLE</code>. If a
-function <code>callback</code> is supplied, it replaces any pending writeable
-handler and is called once with <code>(wsi)</code>; its return value is used as
-the callback return (return <code>-1</code> to close).</p>
+function <code>callback</code> is supplied, it's queued as its own entry in the
+socket's internal write queue, alongside any bytes already queued via
+<code>write()</code> - so it fires once those writes have actually gone out,
+in the same order the <code>write()</code>/<code>wantWrite()</code> calls that queued them
+were made, not immediately on the next writeable event. It's called
+once with <code>(wsi)</code>; its return value is used as the callback return
+(return <code>-1</code> to close). Calling <code>wantWrite(fn)</code> again before an earlier
+one has fired queues a second, independent entry rather than replacing
+the first - both fire in turn.</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">await</span> <span class="t-kw">new</span> <span class="t-fn">Promise</span>(<span class="t-id">r</span> <span class="t-op">=&gt;</span> <span class="t-id">wsi</span>.<span class="t-fn">wantWrite</span>(<span class="t-id">r</span>));   <span class="t-cm">// common pattern</span>
 <span class="t-id">wsi</span>.<span class="t-fn">write</span>(<span class="t-id">buf</span>);</code></pre></div>
-<p>If <code>wantWrite</code> is called repeatedly without a callback, only the
+<p>If <code>wantWrite</code> is called repeatedly <strong>without</strong> a callback, only the
 first registers a pending request — duplicate calls are ignored
 (the C code guards with <code>s-&gt;want_write</code>).</p>
 <h3 id="writedata--len_or_protocol--protocol--sockaddr"><a class="anchor" href="#writedata--len_or_protocol--protocol--sockaddr" aria-hidden="true">#</a><code>write(data [, len_or_protocol [, protocol]] [, sockaddr])</code></h3>
@@ -174,6 +183,8 @@ state to <code>this</code> from any callback:</p>
   <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
      <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
 </footer>
+<script src="../../assets/search-index.js"></script>
+<script src="../../assets/search.js"></script>
 <script>
 document.querySelector('.themetoggle').addEventListener('click', function () {
   var d = document.documentElement;

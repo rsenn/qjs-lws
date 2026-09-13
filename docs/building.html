@@ -9,9 +9,12 @@
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="has-sidebar">
+<body class="has-sidebar" data-root="../">
 <header class="topbar">
   <a class="brand" href="../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <div class="search">
+    <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
+  </div>
   <nav class="topnav">
     <a href="../getting-started.html">Get started</a>
     <a href="../docs/index.html">Docs</a>
@@ -26,13 +29,65 @@
 <article><h1 id="building-qjs-lws"><a class="anchor" href="#building-qjs-lws" aria-hidden="true">#</a>Building qjs-lws</h1>
 <p>The module is built with CMake; the result is a QuickJS native module
 <code>lws.so</code> plus its companion JS helpers under <code>lib/</code>.</p>
+<h2 id="prerequisite-quickjs-itself"><a class="anchor" href="#prerequisite-quickjs-itself" aria-hidden="true">#</a>Prerequisite: QuickJS itself</h2>
+<p>qjs-lws is a QuickJS native module, so a QuickJS install (headers +
+library, found via <code>cmake/FindQuickJS.cmake</code>) must exist first. This
+project is developed against the <code>cxx-designated</code> branch of
+<a href="https://github.com/rsenn/quickjs" target="_blank" rel="noopener">rsenn/quickjs</a> (a fork of
+<a href="https://bellard.org/quickjs/" target="_blank" rel="noopener">bellard/quickjs</a> with the <code>cfg.sh</code>/CMake
+build used below) - not <code>main</code> - so clone that branch specifically.
+qjs-lws is meant to be checked out <em>inside</em> that clone, as
+<code>quickjs/qjs-lws</code>, not next to it: several things (this doc's own
+build recipe, and <code>examples/ollama-repl</code>'s sibling-project lookup)
+resolve QuickJS's own source via <code>..</code> from qjs-lws's own directory.</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">git</span> <span class="t-id">clone</span> <span class="t-op">-b</span> <span class="t-id">cxx-designated</span> <span class="t-id">https</span>://<span class="t-id">github.com</span>/<span class="t-id">rsenn</span>/<span class="t-id">quickjs.git</span>
+<span class="t-id">cd</span> <span class="t-id">quickjs</span>
+<span class="t-id">cmake</span> <span class="t-op">-B</span> <span class="t-id">build</span>/<span class="t-id">release</span> <span class="t-op">-DCMAKE_BUILD_TYPE</span>=<span class="t-id">Release</span> <span class="t-op">-DCMAKE_INSTALL_PREFIX</span>=/<span class="t-id">usr</span>/<span class="t-kw">local</span> .
+<span class="t-id">sudo</span> <span class="t-id">cmake</span> <span class="t-op">--build</span> <span class="t-id">build</span>/<span class="t-id">release</span> <span class="t-op">--target</span> <span class="t-id">install</span> <span class="t-op">-j</span></code></pre></div>
+<p>The install step needs write access to <code>-DCMAKE_INSTALL_PREFIX</code>
+(<code>/usr/local</code> above) - drop <code>sudo</code> if you pointed it at a prefix your
+user already owns.</p>
+<p>QuickJS also ships a <code>cfg.sh</code> (source it, then run `TYPE=Release
+prefix=/usr/local cfg<code>) that wraps the same </code>cmake` invocation and
+picks a host-triplet-named build directory (e.g. <code>build/x86_64-linux-gnu</code>)
+instead of a fixed one - convenient once you know it, but that
+directory name isn't the same on every machine, so it doesn't belong
+in a copy-pasteable recipe; the plain <code>cmake</code>/<code>build/release</code> form
+above (and in "Standard build" below) is the one to follow here.</p>
+<p>Once QuickJS itself is installed, <code>cd ..</code> back out and continue with
+qjs-lws itself - clone it <em>inside</em> that same <code>quickjs</code> checkout (see
+"Standard build" below) - and, if any of the <code>examples/</code> you want to
+run need it, qjs-modules (next section).</p>
+<h2 id="optional-prerequisite-qjs-modules-needed-by-some-examples"><a class="anchor" href="#optional-prerequisite-qjs-modules-needed-by-some-examples" aria-hidden="true">#</a>Optional prerequisite: qjs-modules (needed by some examples)</h2>
+<p><a href="https://github.com/rsenn/qjs-modules" target="_blank" rel="noopener">qjs-modules</a> is a separate
+sibling project (native + pure-JS modules for QuickJS, and the <code>qjsm</code>
+interpreter - "QuickJS Modular", a superset of plain <code>qjs</code> with ES
+module resolution, <code>process</code>/<code>fs</code>/<code>util</code>/etc. built in). qjs-lws itself
+doesn't need it, but a few <code>examples/</code> do:</p>
+<div class="tablewrap"><table><thead><tr><th>Example</th><th>Needs qjs-modules for</th><th>Run with</th></tr></thead><tbody><tr><td><code>examples/ollama-repl</code></td><td>the <code>qjsm</code> interpreter itself (ES module resolution, <code>process</code>/<code>fs</code>/etc. availability); <code>REPL</code> from <code>'repl'</code> (interactive prompt); <code>Console</code> from <code>'console'</code> (via the shared <code>lib/logger.js</code>)</td><td><code>qjsm repl.js ...</code> (not plain <code>qjs</code> - see the example's own <code>CLAUDE.md</code>)</td></tr><tr><td><code>examples/crawler</code></td><td><code>Console</code> from <code>'console'</code>, <code>Repeater</code> from <code>'repeater'</code>, <code>XMLParser</code> from <code>'xml'</code></td><td><code>qjs</code> (imports resolve once qjs-modules' JS libdir is installed)</td></tr><tr><td><code>examples/debugger</code></td><td><code>TextEncoder</code>/<code>TextDecoder</code> from <code>'textcode'</code></td><td><code>qjs</code></td></tr></tbody></table></div>
+<p>Everything else under <code>examples/</code> (<code>dns-server</code>, <code>proxy</code>,
+<code>raw-proxy-fallback</code>, <code>websocket-chat</code>) runs on plain <code>qjs</code> + qjs-lws
+alone, no qjs-modules install needed.</p>
+<p>Build/install it the same way, after QuickJS itself is installed (it
+also needs <code>quickjs.h</code>/etc., found the same way qjs-lws finds them):</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">git</span> <span class="t-id">clone</span> <span class="t-id">https</span>://<span class="t-id">github.com</span>/<span class="t-id">rsenn</span>/<span class="t-id">qjs-modules.git</span>
+<span class="t-id">cd</span> <span class="t-id">qjs-modules</span>
+<span class="t-id">cmake</span> <span class="t-op">-B</span> <span class="t-id">build</span>/<span class="t-id">release</span> <span class="t-op">-DCMAKE_BUILD_TYPE</span>=<span class="t-id">Release</span> <span class="t-op">-DCMAKE_INSTALL_PREFIX</span>=/<span class="t-id">usr</span>/<span class="t-kw">local</span> .
+<span class="t-id">sudo</span> <span class="t-id">cmake</span> <span class="t-op">--build</span> <span class="t-id">build</span>/<span class="t-id">release</span> <span class="t-op">--target</span> <span class="t-id">install</span> <span class="t-op">-j</span></code></pre></div>
+<p>This installs the pure-JS modules (<code>console.js</code>/<code>repl.js</code>/<code>fs.js</code>/...)
+under QuickJS's module search path, the native modules (<code>xml</code>, ...)
+alongside them, and the <code>qjsm</code> binary to <code>bin</code> - see qjs-modules' own
+<code>README.md</code> for its module index and optional <code>MODULE_*</code> CMake flags
+(most native modules besides the ones above are gated behind an
+external library dependency and off by default).</p>
 <h2 id="required-dependencies"><a class="anchor" href="#required-dependencies" aria-hidden="true">#</a>Required dependencies</h2>
 <ul>
 <li>A C compiler (GCC or Clang). Windows builds use MinGW (see
 <code>x86_64-w64-mingw32.log</code>).</li>
 <li>CMake ≥ 3.5.</li>
-<li>A QuickJS install (<code>quickjs.h</code>, <code>cutils.h</code>, <code>list.h</code>). The build
-uses <code>cmake/FindQuickJS.cmake</code> and <code>cmake/QuickJSModule.cmake</code>.</li>
+<li>A QuickJS install (<code>quickjs.h</code>, <code>cutils.h</code>, <code>list.h</code>) - see
+"Prerequisite: QuickJS itself" above. The build uses
+<code>cmake/FindQuickJS.cmake</code> and <code>cmake/QuickJSModule.cmake</code>.</li>
 <li>libwebsockets (optionally vendored; <code>BUILD_LIBWEBSOCKETS=ON</code> will
 build the submodule under <code>libwebsockets/</code>).</li>
 <li>zlib (only when not using the in-tree libwebsockets).</li>
@@ -51,17 +106,23 @@ out).</p>
 <code>LWS_STATUS</code>, <code>LWS_ACME_CLIENT</code>, <code>LWS_SSHD_DEMO</code>, <code>DUMB_INCREMENT</code>,
 <code>MIRROR</code>, <code>LWS_RAW_SSHD</code>, <code>RAW_TEST</code>.</p>
 <h2 id="standard-build"><a class="anchor" href="#standard-build" aria-hidden="true">#</a>Standard build</h2>
-<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">git</span> <span class="t-id">submodule</span> <span class="t-id">update</span> <span class="t-op">--init</span> <span class="t-op">--recursive</span>
-<span class="t-id">mkdir</span> <span class="t-id">build</span> &amp;&amp; <span class="t-id">cd</span> <span class="t-id">build</span>
-<span class="t-id">cmake</span> <span class="t-op">-DDEBUG_OUTPUT</span>=<span class="t-id">OFF</span> <span class="t-op">-DDO_TESTS</span>=<span class="t-id">ON</span> ..
-<span class="t-id">make</span> <span class="t-op">-j</span></code></pre></div>
-<p>The shared module is written to <code>build/lws.so</code> (or <code>lws.dll</code> /
-<code>lws.dylib</code>).</p>
+<p>Run from <em>inside</em> a QuickJS checkout (see "Prerequisite: QuickJS
+itself" above):</p>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">git</span> <span class="t-id">clone</span> <span class="t-id">https</span>://<span class="t-id">github.com</span>/<span class="t-id">rsenn</span>/<span class="t-id">qjs-lws.git</span>
+<span class="t-id">cd</span> <span class="t-id">qjs-lws</span>
+<span class="t-id">git</span> <span class="t-id">submodule</span> <span class="t-id">update</span> <span class="t-op">--init</span> <span class="t-op">--recursive</span>
+<span class="t-id">cmake</span> <span class="t-op">-B</span> <span class="t-id">build</span>/<span class="t-id">release</span> <span class="t-op">-DCMAKE_BUILD_TYPE</span>=<span class="t-id">Release</span> <span class="t-op">-DCMAKE_INSTALL_PREFIX</span>=/<span class="t-id">usr</span>/<span class="t-kw">local</span> <span class="t-op">-DDEBUG_OUTPUT</span>=<span class="t-id">OFF</span> <span class="t-op">-DDO_TESTS</span>=<span class="t-id">ON</span> .
+<span class="t-id">sudo</span> <span class="t-id">cmake</span> <span class="t-op">--build</span> <span class="t-id">build</span>/<span class="t-id">release</span> <span class="t-op">--target</span> <span class="t-id">install</span> <span class="t-op">-j</span></code></pre></div>
+<p>The shared module is written to <code>build/release/lws.so</code> (or <code>lws.dll</code> /
+<code>lws.dylib</code>), and installed alongside its <code>lib/</code> JS helpers under the
+<code>-DCMAKE_INSTALL_PREFIX</code> given above. Drop the install step (and
+<code>sudo</code>) if you just want to build it in place and run from <code>build/release</code>
+directly, e.g. for the "Loading the module" recipe below.</p>
 <h2 id="loading-the-module"><a class="anchor" href="#loading-the-module" aria-hidden="true">#</a>Loading the module</h2>
 <p>QuickJS resolves <code>import 'lws'</code> to <code>lws.so</code> when the directory is on
 the module search path. The <code>qjs</code> binary supports <code>-I &lt;path&gt;</code> and
 falls back to the script's own directory.</p>
-<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjs</span> <span class="t-op">-I</span> ./<span class="t-id">build</span>  ./<span class="t-id">tests</span>/<span class="t-id">unittests</span>/<span class="t-id">test-lwscontext.js</span></code></pre></div>
+<div class="codeblock" data-lang="sh"><pre><code class="language-sh"><span class="t-id">qjs</span> <span class="t-op">-I</span> ./<span class="t-id">build</span>/<span class="t-id">release</span>  ./<span class="t-id">tests</span>/<span class="t-id">unittests</span>/<span class="t-id">test-lwscontext.js</span></code></pre></div>
 <h2 id="debugging-tips"><a class="anchor" href="#debugging-tips" aria-hidden="true">#</a>Debugging tips</h2>
 <ul>
 <li><code>-DDEBUG_OUTPUT=ON</code> enables <code>DEBUG()</code>/<code>DEBUG_WSI()</code> macros that
@@ -73,12 +134,14 @@ about — useful for leak hunts.</li>
 </ul></article>
 <p class="editlink"><a href="https://github.com/rsenn/qjs-lws/blob/main/doc/building.md">Edit this page on GitHub →</a></p>
 </main>
-<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#required-dependencies">Required dependencies</a></li><li class="lvl2"><a href="#configuration-options">Configuration options</a></li><li class="lvl3"><a href="#libwebsockets-plugins">libwebsockets plugins</a></li><li class="lvl2"><a href="#standard-build">Standard build</a></li><li class="lvl2"><a href="#loading-the-module">Loading the module</a></li><li class="lvl2"><a href="#debugging-tips">Debugging tips</a></li></ul></nav>
+<nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#prerequisite-quickjs-itself">Prerequisite: QuickJS itself</a></li><li class="lvl2"><a href="#optional-prerequisite-qjs-modules-needed-by-some-examples">Optional prerequisite: qjs-modules (needed by some examples)</a></li><li class="lvl2"><a href="#required-dependencies">Required dependencies</a></li><li class="lvl2"><a href="#configuration-options">Configuration options</a></li><li class="lvl3"><a href="#libwebsockets-plugins">libwebsockets plugins</a></li><li class="lvl2"><a href="#standard-build">Standard build</a></li><li class="lvl2"><a href="#loading-the-module">Loading the module</a></li><li class="lvl2"><a href="#debugging-tips">Debugging tips</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
   <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
      <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
 </footer>
+<script src="../assets/search-index.js"></script>
+<script src="../assets/search.js"></script>
 <script>
 document.querySelector('.themetoggle').addEventListener('click', function () {
   var d = document.documentElement;

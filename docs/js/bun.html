@@ -9,9 +9,12 @@
 <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="has-sidebar">
+<body class="has-sidebar" data-root="../../">
 <header class="topbar">
   <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <div class="search">
+    <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
+  </div>
   <nav class="topnav">
     <a href="../../getting-started.html">Get started</a>
     <a href="../../docs/index.html">Docs</a>
@@ -218,6 +221,10 @@ and <code>WebSocket#peerCertificate</code>/<code>#tlsSessionReused</code> (Node'
 <code>doc/native/LWSSocket.md</code>). <code>ServerRequest</code> doesn't get its own copies -
 use <code>request.wsi.peerCertificate</code> via the existing <code>.wsi</code> escape hatch.</li>
 </ul>
+<p><strong>Not yet implemented:</strong> <code>websocket.perMessageDeflate</code>, <code>.maxPayloadLength</code>,
+<code>.backpressureLimit</code>, <code>.closeOnBackpressureLimit</code>, <code>.sendPings</code>, and
+<code>.publishToSelf</code> are all accepted (read, not rejected) but currently have no
+effect - see <code>BUGS: serve-websocket-options-silently-ignored</code>.</p>
 <h2 id="tls"><a class="anchor" href="#tls" aria-hidden="true">#</a>TLS</h2>
 <p><code>serve({ tls: {cert, key} })</code> constructs an SSL-capable vhost, matching
 Bun's <code>tls</code> option shape (<code>lib/lws/tls.js</code>'s <code>tlsContextOptions()</code>).
@@ -241,6 +248,8 @@ unknown-length one.</p></article>
   <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
      <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
 </footer>
+<script src="../../assets/search-index.js"></script>
+<script src="../../assets/search.js"></script>
 <script>
 document.querySelector('.themetoggle').addEventListener('click', function () {
   var d = document.documentElement;

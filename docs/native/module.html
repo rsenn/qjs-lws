@@ -9,9 +9,12 @@
 <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="has-sidebar">
+<body class="has-sidebar" data-root="../../">
 <header class="topbar">
   <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <div class="search">
+    <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
+  </div>
   <nav class="topnav">
     <a href="../../getting-started.html">Get started</a>
     <a href="../../docs/index.html">Docs</a>
@@ -53,7 +56,7 @@ trailing <code>": "</code> is stripped).</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">getLogLevelName</span>(<span class="t-type">LLL_USER</span>)        <span class="t-cm">// → "USER"</span>
 <span class="t-fn">getLogLevelColour</span>(<span class="t-type">LLL_USER</span>)      <span class="t-cm">// → ANSI escape</span>
 <span class="t-fn">visible</span>(<span class="t-type">LLL_INFO</span>)                <span class="t-cm">// → boolean (level currently visible)</span>
-<span class="t-fn">log</span>([<span class="t-id">level</span>], [<span class="t-id">wsiOrCtx</span>], <span class="t-id">msg</span> <span class="t-op">|</span> <span class="t-type">ArrayBuffer</span>)
+<span class="t-fn">log</span>([<span class="t-id">level</span>], [<span class="t-id">wsiOrCtx</span>], <span class="t-id">msg</span>)
 <span class="t-fn">logLevel</span>(<span class="t-id">mask</span>, [<span class="t-fn">callback</span>(<span class="t-id">level</span>, <span class="t-id">line</span>)])</code></pre></div>
 <p><code>logLevel</code> with one numeric arg sets the active mask
 (<code>lws_set_log_level</code>). With a second function argument it installs a
@@ -62,8 +65,7 @@ line with <code>(level, msg)</code>. Without the callback, libwebsockets writes
 ANSI-colourised log lines to <code>stderr</code>.</p>
 <p><code>log()</code> writes a user-level log message. If passed an <code>LWSSocket</code>,
 the line is prefixed with the wsi tag; if passed an <code>LWSContext</code>
-the message is associated with that context. With an ArrayBuffer
-argument the buffer is hex-dumped.</p>
+the message is associated with that context.</p>
 <h3 id="uri--connection-info"><a class="anchor" href="#uri--connection-info" aria-hidden="true">#</a>URI / connection info</h3>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-fn">parseUri</span>(<span class="t-id">uri</span>)              <span class="t-cm">// parses into struct lws_client_connect_info (internal)</span></code></pre></div>
 <h3 id="buffer--string-helpers"><a class="anchor" href="#buffer--string-helpers" aria-hidden="true">#</a>Buffer / string helpers</h3>
@@ -96,6 +98,8 @@ constants. See <a href="constants.html">constants.md</a> for the catalogue.</p><
   <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
      <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
 </footer>
+<script src="../../assets/search-index.js"></script>
+<script src="../../assets/search.js"></script>
 <script>
 document.querySelector('.themetoggle').addEventListener('click', function () {
   var d = document.documentElement;

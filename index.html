@@ -9,9 +9,12 @@
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="landing">
+<body class="landing" data-root="">
 <header class="topbar">
   <a class="brand" href="index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <div class="search">
+    <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
+  </div>
   <nav class="topnav">
     <a href="getting-started.html">Get started</a>
     <a href="docs/index.html">Docs</a>
@@ -264,6 +267,8 @@
   <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
      <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
 </footer>
+<script src="assets/search-index.js"></script>
+<script src="assets/search.js"></script>
 <script>
 document.querySelector('.themetoggle').addEventListener('click', function () {
   var d = document.documentElement;
