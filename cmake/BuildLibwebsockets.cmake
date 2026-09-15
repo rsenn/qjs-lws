@@ -1,13 +1,30 @@
 include(CheckLibraryExists)
 
 macro(build_libwebsockets)
-  if(ARGN)
-    set(TARGET "${ARGN}")
-  else(ARGN)
-    set(TARGET libwebsockets)
-  endif(ARGN)
+  # Accepts either the legacy positional form build_libwebsockets(<target>)
+  # or build_libwebsockets(TARGET <target> PIC <ON|OFF>). PIC controls
+  # whether the compiled objects get -fPIC (needed when this build feeds a
+  # shared module) or not (cheaper/smaller when it only ever feeds a static
+  # module) - see build-pic-and-nopic-libwebsockets in CMakeLists.txt.
+  cmake_parse_arguments(BLW "" "TARGET;PIC" "" ${ARGN})
 
-  message("-- Building LIBWEBSOCKETS from source")
+  if(BLW_TARGET)
+    set(TARGET "${BLW_TARGET}")
+  elseif(BLW_UNPARSED_ARGUMENTS)
+    list(GET BLW_UNPARSED_ARGUMENTS 0 TARGET)
+  else()
+    set(TARGET libwebsockets)
+  endif()
+
+  if(DEFINED BLW_PIC)
+    set(LWS_BUILD_PIC "${BLW_PIC}")
+  else()
+    set(LWS_BUILD_PIC ON)
+  endif()
+
+  set(LWS_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}")
+
+  message("-- Building LIBWEBSOCKETS from source (target=${TARGET}, PIC=${LWS_BUILD_PIC})")
 
   if(NOT DEFINED LIBWEBSOCKETS_C_FLAGS)
     message(
@@ -23,23 +40,12 @@ macro(build_libwebsockets)
   set(LWS_WITH_STATIC ON CACHE BOOL "build libwebsockets static library")
   set(LWS_HAVE_LIBCAP FALSE CACHE BOOL "have libcap")
 
-  # include: libwebsockets find_package(libwebsockets)
-  #unset(LIBWEBSOCKETS_INCLUDE_DIR)
-  if(NOT "${LIBWEBSOCKETS_INCLUDE_DIR}")
-    unset(LIBWEBSOCKETS_INCLUDE_DIR CACHE)
-  endif(NOT "${LIBWEBSOCKETS_INCLUDE_DIR}")
-
-  if(NOT EXISTS "${LIBWEBSOCKETS_INCLUDE_DIR}")
-    set(LIBWEBSOCKETS_INCLUDE_DIR #${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/include
-        ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets
-        #${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/include
-    )
-  endif(NOT EXISTS "${LIBWEBSOCKETS_INCLUDE_DIR}")
+  set(LIBWEBSOCKETS_INCLUDE_DIR "${LWS_BINARY_DIR}")
 
   include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/include
-    ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets
-    ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/include)
+    ${LWS_BINARY_DIR}
+    ${LWS_BINARY_DIR}/include)
 
   set(LIBWEBSOCKETS_FOUND ON CACHE BOOL "found libwebsockets")
   check_library_exists(cap cap_init "" LIBCAP)
@@ -144,14 +150,18 @@ macro(build_libwebsockets)
   #else(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib/libwebsockets.a")
   #  set(LIBWEBSOCKETS_LIBRARIES "websockets;${LIBWEBSOCKETS_LIBRARIES}")
   #endif(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib/libwebsockets.a")
-  set(LIBWEBSOCKETS_LIBRARIES "${LIBWEBSOCKETS_LIBRARIES}"
-      CACHE STRING "libwebsockets libraries")
+  # Not CACHEd: build_libwebsockets() can run twice in one configure (once
+  # PIC, once not - see CMakeLists.txt), and each call's INCLUDE_DIR/
+  # LIBRARY_DIR must reflect *that* call's own binary dir, not get stuck on
+  # whichever call happened to run first.
+  set(LIBWEBSOCKETS_LIBRARIES "${LIBWEBSOCKETS_LIBRARIES}")
+  set(LIBWEBSOCKETS_LIBRARY_DIR "${LWS_BINARY_DIR}/lib")
 
-  set(LIBWEBSOCKETS_INCLUDE_DIR "${LIBWEBSOCKETS_INCLUDE_DIR}"
-      CACHE PATH "libwebsockets include directory")
-  set(LIBWEBSOCKETS_LIBRARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib
-      CACHE PATH "libwebsockets library directory")
-  # add_subdirectory(libwebsockets ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets)
+  # Per-target copies so the caller can wire up each of qjs-lws/qjs-lws-static
+  # with the right variant when both are built in the same configure.
+  set(${TARGET}_LWS_INCLUDE_DIR "${LIBWEBSOCKETS_INCLUDE_DIR}")
+  set(${TARGET}_LWS_LIBRARY_DIR "${LIBWEBSOCKETS_LIBRARY_DIR}")
+  set(${TARGET}_LWS_LIBRARIES "${LIBWEBSOCKETS_LIBRARIES}")
 
   list(APPEND LIBWEBSOCKETS_ARGS -DLWS_HAVE_HMAC_CTX_new:INTERNAL=1
        -DLWS_HAVE_RSA_SET0_KEY:INTERNAL=1 -DLWS_HAVE_ECDSA_SIG_set0:INTERNAL=1
@@ -257,8 +267,8 @@ macro(build_libwebsockets)
   ExternalProject_Add(
     "${TARGET}"
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
-    BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/libwebsockets
-    PREFIX libwebsockets
+    BINARY_DIR ${LWS_BINARY_DIR}
+    PREFIX ${TARGET}
     PATCH_COMMAND
       sh ${CMAKE_CURRENT_SOURCE_DIR}/patches/apply-patches.sh
       ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
@@ -294,7 +304,7 @@ macro(build_libwebsockets)
       -DLWS_ROLE_WS:BOOL=ON
       -DLWS_SSL_CLIENT_USE_OS_CA_CERTS:BOOL=ON
       -DLWS_SSL_SERVER_WITH_ECDH_CERT:BOOL=OFF
-      -DLWS_STATIC_PIC:BOOL=ON
+      -DLWS_STATIC_PIC:BOOL=${LWS_BUILD_PIC}
       -DLWS_SUPPRESS_DEPRECATED_API_WARNINGS:BOOL=ON
       -DLWS_TLS_LOG_PLAINTEXT_RX:BOOL=OFF
       -DLWS_TLS_LOG_PLAINTEXT_TX:BOOL=OFF

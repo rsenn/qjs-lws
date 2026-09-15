@@ -415,6 +415,30 @@
       },
     });
 
+- build-libwebsockets-argn-check-always-false (cmake/BuildLibwebsockets.cmake:4):
+  the `build_libwebsockets()` macro's `if(ARGN)` (meant to pick a custom
+  ExternalProject target name when the caller passes one, e.g.
+  `build_libwebsockets(websockets)` from CMakeLists.txt) is always false, so
+  the macro always falls through to the hardcoded default name
+  `libwebsockets` regardless of what's passed. Confirmed by adding a debug
+  `message()` right after the if/else and reconfiguring: `ARGN='websockets'
+  TARGET='libwebsockets'`. Root cause: inside a macro, `ARGN` is only
+  substitutable via `${ARGN}` - `if(ARGN)` (bare, no `${}`) makes CMake's
+  if() look up a normal variable literally named `ARGN`, which doesn't
+  exist, so it's always empty/false. This masks a second latent bug: the
+  `if(TARGET libbrotli) ExternalProject_Add_StepDependencies(websockets
+  configure libbrotli) endif()` block a few dozen lines below the call site
+  references a target named `websockets`, which never actually exists
+  (the real target is always `libwebsockets`) - only unnoticed because
+  `BUILD_BROTLI` is OFF by default on systems where brotli is found via
+  pkg-config, so that branch never runs.
+
+    not practically reproducible in plain JS - it's a CMake macro; the repro
+    is: add `message(STATUS "ARGN='${ARGN}'")` right after
+    cmake/BuildLibwebsockets.cmake's `if(ARGN)`/`else()` block and reconfigure
+    with `cmake -S . -B <dir>` - the target always ends up named
+    `libwebsockets` even though `websockets` was passed.
+
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.

@@ -23,6 +23,8 @@ if(USE_CURL)
   option(BUILD_CURL "Build curl library" ${LOCAL_CURL})
 endif(USE_CURL)
 option(BUILD_MINIMAL_EXAMPLES "Build minimal-examples" OFF)
+option(BUILD_SHARED_MODULES "Build the shared module (lws.so)" ON)
+option(BUILD_STATIC_MODULES "Also build a static module (lws.a) alongside the shared module" OFF)
 option(DEBUG_OUTPUT "Output debug messages" OFF)
 option(
   USE_EPOLL
@@ -298,16 +300,45 @@ if(BUILD_LIBWEBSOCKETS)
 
   include(FindZLIB)
 
-  build_libwebsockets(websockets)
+  # libwebsockets needs -fPIC objects to go into the shared module (lws.so)
+  # but not into the static one (lws.a) - when both modules are enabled,
+  # build it twice, once each way, instead of forcing PIC on the static
+  # build too.
+  set(LWS_BUILD_TARGETS "")
 
-  if(TARGET libmbedtls)
-    #ExternalProject_Add_StepDependencies(websockets configure libmbedtls)
-    #add_dependencies(libwebsockets libmbedtls)
-  endif(TARGET libmbedtls)
-  if(TARGET libbrotli)
-    ExternalProject_Add_StepDependencies(websockets configure libbrotli)
-    #aminnet.cedd_dependencies(libwebsockets libbrotli)
-  endif(TARGET libbrotli)
+  # NOTE: a lone build must NOT be named "websockets" - that string is also
+  # the plain library name in LIBWEBSOCKETS_LIBRARIES (-lwebsockets), and
+  # target_link_libraries() treats a bare name that also matches an
+  # existing CMake target specially, which fails since the ExternalProject
+  # step target isn't a linkable library type. "libwebsockets" doesn't
+  # collide with that lookup, nor do the shared/static-suffixed names below.
+  if(BUILD_SHARED_MODULES AND BUILD_STATIC_MODULES)
+    build_libwebsockets(TARGET websockets_shared PIC ON)
+    build_libwebsockets(TARGET websockets_static PIC OFF)
+    list(APPEND LWS_BUILD_TARGETS websockets_shared websockets_static)
+  elseif(BUILD_SHARED_MODULES)
+    build_libwebsockets(TARGET libwebsockets PIC ON)
+    set(websockets_shared_LWS_INCLUDE_DIR ${libwebsockets_LWS_INCLUDE_DIR})
+    set(websockets_shared_LWS_LIBRARY_DIR ${libwebsockets_LWS_LIBRARY_DIR})
+    set(websockets_shared_LWS_LIBRARIES ${libwebsockets_LWS_LIBRARIES})
+    list(APPEND LWS_BUILD_TARGETS libwebsockets)
+  elseif(BUILD_STATIC_MODULES)
+    build_libwebsockets(TARGET libwebsockets PIC OFF)
+    set(websockets_static_LWS_INCLUDE_DIR ${libwebsockets_LWS_INCLUDE_DIR})
+    set(websockets_static_LWS_LIBRARY_DIR ${libwebsockets_LWS_LIBRARY_DIR})
+    set(websockets_static_LWS_LIBRARIES ${libwebsockets_LWS_LIBRARIES})
+    list(APPEND LWS_BUILD_TARGETS libwebsockets)
+  endif()
+
+  foreach(LWS_TARGET ${LWS_BUILD_TARGETS})
+    if(TARGET libmbedtls)
+      #ExternalProject_Add_StepDependencies(${LWS_TARGET} configure libmbedtls)
+      #add_dependencies(libwebsockets libmbedtls)
+    endif(TARGET libmbedtls)
+    if(TARGET libbrotli)
+      ExternalProject_Add_StepDependencies(${LWS_TARGET} configure libbrotli)
+    endif(TARGET libbrotli)
+  endforeach(LWS_TARGET)
 else(BUILD_LIBWEBSOCKETS)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindBrotli.cmake)
 
@@ -315,6 +346,14 @@ else(BUILD_LIBWEBSOCKETS)
   if(WIN32)
     link_libraries(crypt32 iphlpapi)
   endif(WIN32)
+
+  # A single system libwebsockets serves both modules - no PIC/no-PIC split.
+  set(websockets_shared_LWS_INCLUDE_DIR "${LIBWEBSOCKETS_INCLUDE_DIR}")
+  set(websockets_shared_LWS_LIBRARY_DIR "${LIBWEBSOCKETS_LIBRARY_DIR}")
+  set(websockets_shared_LWS_LIBRARIES "${LIBWEBSOCKETS_LIBRARIES}")
+  set(websockets_static_LWS_INCLUDE_DIR "${LIBWEBSOCKETS_INCLUDE_DIR}")
+  set(websockets_static_LWS_LIBRARY_DIR "${LIBWEBSOCKETS_LIBRARY_DIR}")
+  set(websockets_static_LWS_LIBRARIES "${LIBWEBSOCKETS_LIBRARIES}")
 endif(BUILD_LIBWEBSOCKETS)
 
 if(OPENSSL_INCLUDE_DIR AND NOT OPENSSL_LIBRARY_DIR)
@@ -356,8 +395,8 @@ if(USE_CURL)
   include_directories(${CURL_INCLUDE_DIR})
 endif(USE_CURL)
 
-link_directories(${QUICKJS_LIBRARY_DIR} ${LIBWEBSOCKETS_LIBRARY_DIR}
-                 ${OPENSSL_LIBRARY_DIR} ${MBEDTLS_LIBRARY_DIR})
+link_directories(${QUICKJS_LIBRARY_DIR} ${OPENSSL_LIBRARY_DIR}
+                 ${MBEDTLS_LIBRARY_DIR})
 include_directories(
   lib ${CMAKE_CURRENT_BINARY_DIR} ${QUICKJS_INCLUDE_DIR}
   ${LIBWEBSOCKETS_INCLUDE_DIR} ${OPENSSL_INCLUDE_DIR} ${MBEDTLS_INCLUDE_DIR})
@@ -512,15 +551,17 @@ check_includes(alloca.h)
 check_library_exists(iphlpapi GetNetworkParams "" HAVE_GETNETWORKPARAMS)
 check_library_exists(mincore GetAdaptersAddresses "" HAVE_GETADAPTERSADDRESSES)
 
-if(WIN32)
-  add_library(qjs-lws MODULE ${JS_BINDINGS_SOURCES})
-else(WIN32)
-  add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
-endif(WIN32)
+if(BUILD_SHARED_MODULES)
+  if(WIN32)
+    add_library(qjs-lws MODULE ${JS_BINDINGS_SOURCES})
+  else(WIN32)
+    add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
+  endif(WIN32)
 
-#add_dependencies(qjs-lws modules/precompiled.c)
+  #add_dependencies(qjs-lws modules/precompiled.c)
 
-target_include_directories(qjs-lws PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/modules)
+  target_include_directories(qjs-lws PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/modules)
+endif(BUILD_SHARED_MODULES)
 
 #add_dependencies(qjs-lws minnet.c)
 if(HAVE_GETNETWORKPARAMS)
@@ -531,11 +572,16 @@ if(HAVE_GETADAPTERSADDRESSES)
 endif(HAVE_GETADAPTERSADDRESSES)
 
 link_libraries(${EXTRA_LIBRARIES})
-target_link_libraries(qjs-lws ${EXTRA_LIBRARIES} ${QUICKJS_LIBRARY})
 
-if(BUILD_LIBWEBSOCKETS)
-  add_dependencies(qjs-lws libwebsockets)
-endif(BUILD_LIBWEBSOCKETS)
+if(BUILD_SHARED_MODULES)
+  target_link_libraries(qjs-lws ${EXTRA_LIBRARIES} ${QUICKJS_LIBRARY})
+
+  if(BUILD_LIBWEBSOCKETS AND TARGET websockets_shared)
+    add_dependencies(qjs-lws websockets_shared)
+  elseif(BUILD_LIBWEBSOCKETS AND TARGET libwebsockets)
+    add_dependencies(qjs-lws libwebsockets)
+  endif()
+endif(BUILD_SHARED_MODULES)
 
 #set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-rpath=${CMAKE_INSTALL_RPATH}:${CURL_LIBRARY_DIR}")
 
@@ -546,10 +592,10 @@ if(OPENSSL_SSL_LIBRARY AND OPENSSL_CRYPTO_LIBRARY)
   endif(NOT OPENSSL_LIBRARIES)
 endif(OPENSSL_SSL_LIBRARY AND OPENSSL_CRYPTO_LIBRARY)
 
-if(USE_CURL)
+if(BUILD_SHARED_MODULES AND USE_CURL)
   target_include_directories(qjs-lws PRIVATE ${CURL_INCLUDE_DIR})
   target_link_libraries(qjs-lws ${CURL_LIBRARY})
-endif(USE_CURL)
+endif()
 
 list(APPEND OPENSSL_LIBRARIES pthread dl)
 
@@ -561,7 +607,18 @@ macro(TARGET_LINK TARGET)
     set(GNUTLS_LINK_LIBS "")
   endif()
 
-  set(OUTPUT_NAME ${ARGN})
+  set(VNAME ${ARGN})
+  get_target_property(TARGET_TYPE ${TARGET} TYPE)
+  if(TARGET_TYPE STREQUAL "STATIC_LIBRARY")
+    # Namespaced so a downstream project linking several modules' archives
+    # together can't have one collide with a same-named wrapped library
+    # (e.g. an `lws` binding against a vendored `liblws.a`) on the linker
+    # command line - the .so stays bare since that name doubles as the
+    # dlopen()/module-registry key a script imports by.
+    set(OUTPUT_NAME "quickjs-${VNAME}")
+  else()
+    set(OUTPUT_NAME "${VNAME}")
+  endif()
   target_include_directories(${TARGET} PRIVATE ${LIBWEBSOCKETS_INCLUDE_DIR})
   set_target_properties(
     ${TARGET}
@@ -592,9 +649,77 @@ macro(TARGET_LINK TARGET)
     ${TARGET} ${LIBWEBSOCKETS_LIBRARIES} ${MBEDTLS_LIBRARIES}
     ${OPENSSL_LIBRARIES} ${GNUTLS_LINK_LIBS} ${EXTRA_LIBRARIES} ${SOCKET_LIBRARIES}
     ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY})
+
+  # A static archive doesn't carry its own transitive link dependencies -
+  # anything statically linking quickjs-${VNAME}.a back in needs to supply
+  # these libraries/flags itself. Write a same-named sidecar next to the
+  # .a (quickjs-${VNAME}.a -> quickjs-${VNAME}.cmake) that a *different*
+  # top-level project's CMakeLists.txt can include() to pick them back up -
+  # see quickjs-native-bindings skill, section 21, for the convention this
+  # follows (QUICKJS_<UNAME>_LIBRARIES/LINK_FLAGS, reference: qjs-ffi).
+  if(TARGET_TYPE STREQUAL "STATIC_LIBRARY" AND VNAME)
+    string(TOUPPER "${VNAME}" UNAME)
+    string(REPLACE "-" "_" UNAME "${UNAME}")
+
+    set(QUICKJS_${UNAME}_LIBRARIES
+        ${LIBWEBSOCKETS_LIBRARIES} ${MBEDTLS_LIBRARIES} ${OPENSSL_LIBRARIES}
+        ${GNUTLS_LINK_LIBS} ${EXTRA_LIBRARIES} ${SOCKET_LIBRARIES}
+        ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY} ${QUICKJS_LIBRARY})
+    if(QUICKJS_${UNAME}_LIBRARIES)
+      list(REMOVE_DUPLICATES QUICKJS_${UNAME}_LIBRARIES)
+    endif(QUICKJS_${UNAME}_LIBRARIES)
+
+    # In-tree/system library directories a bare -lwebsockets etc. above
+    # needs -L for, folded into LINK_FLAGS rather than a separate variable.
+    set(QUICKJS_${UNAME}_LINK_DIRS
+        ${LIBWEBSOCKETS_LIBRARY_DIR} ${OPENSSL_LIBRARY_DIR}
+        ${MBEDTLS_LIBRARY_DIR} ${QUICKJS_LIBRARY_DIR})
+    if(QUICKJS_${UNAME}_LINK_DIRS)
+      list(REMOVE_DUPLICATES QUICKJS_${UNAME}_LINK_DIRS)
+    endif(QUICKJS_${UNAME}_LINK_DIRS)
+    set(QUICKJS_${UNAME}_LINK_FLAGS "")
+    foreach(LINK_DIR ${QUICKJS_${UNAME}_LINK_DIRS})
+      if(LINK_DIR)
+        set(QUICKJS_${UNAME}_LINK_FLAGS "${QUICKJS_${UNAME}_LINK_FLAGS} -L${LINK_DIR}")
+      endif(LINK_DIR)
+    endforeach(LINK_DIR)
+    string(STRIP "${QUICKJS_${UNAME}_LINK_FLAGS}" QUICKJS_${UNAME}_LINK_FLAGS)
+
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${OUTPUT_NAME}.cmake" "\
+set(QUICKJS_${UNAME}_LIBRARIES \"${QUICKJS_${UNAME}_LIBRARIES}\")
+set(QUICKJS_${UNAME}_LINK_FLAGS \"${QUICKJS_${UNAME}_LINK_FLAGS}\")
+")
+  endif()
 endmacro(TARGET_LINK TARGET)
 
-target_link(qjs-lws lws)
+if(BUILD_SHARED_MODULES)
+  set(LIBWEBSOCKETS_INCLUDE_DIR "${websockets_shared_LWS_INCLUDE_DIR}")
+  set(LIBWEBSOCKETS_LIBRARY_DIR "${websockets_shared_LWS_LIBRARY_DIR}")
+  set(LIBWEBSOCKETS_LIBRARIES "${websockets_shared_LWS_LIBRARIES}")
+  target_link(qjs-lws lws)
+endif(BUILD_SHARED_MODULES)
+
+if(BUILD_STATIC_MODULES)
+  add_library(qjs-lws-static STATIC ${JS_BINDINGS_SOURCES})
+  target_include_directories(qjs-lws-static PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/modules)
+  target_link_libraries(qjs-lws-static ${EXTRA_LIBRARIES} ${QUICKJS_LIBRARY})
+
+  if(BUILD_LIBWEBSOCKETS AND TARGET websockets_static)
+    add_dependencies(qjs-lws-static websockets_static)
+  elseif(BUILD_LIBWEBSOCKETS AND TARGET libwebsockets)
+    add_dependencies(qjs-lws-static libwebsockets)
+  endif()
+
+  if(USE_CURL)
+    target_include_directories(qjs-lws-static PRIVATE ${CURL_INCLUDE_DIR})
+    target_link_libraries(qjs-lws-static ${CURL_LIBRARY})
+  endif(USE_CURL)
+
+  set(LIBWEBSOCKETS_INCLUDE_DIR "${websockets_static_LWS_INCLUDE_DIR}")
+  set(LIBWEBSOCKETS_LIBRARY_DIR "${websockets_static_LWS_LIBRARY_DIR}")
+  set(LIBWEBSOCKETS_LIBRARIES "${websockets_static_LWS_LIBRARIES}")
+  target_link(qjs-lws-static lws)
+endif(BUILD_STATIC_MODULES)
 
 include(CheckLibraryExists)
 
@@ -742,9 +867,11 @@ if(NOT QUICKJS_C_MODULE_DIR)
       "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/quickjs")
 endif(NOT QUICKJS_C_MODULE_DIR)
 
-install(TARGETS qjs-lws DESTINATION "${QUICKJS_C_MODULE_DIR}"
-        PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE
-                    GROUP_READ WORLD_READ WORLD_EXECUTE)
+if(BUILD_SHARED_MODULES)
+  install(TARGETS qjs-lws DESTINATION "${QUICKJS_C_MODULE_DIR}"
+          PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE
+                      GROUP_READ WORLD_READ WORLD_EXECUTE)
+endif(BUILD_SHARED_MODULES)
 
 file(GLOB JS_LIB_FILES lib/*.js)
 install(FILES ${JS_LIB_FILES} DESTINATION "${QUICKJS_JS_MODULE_DIR}")
