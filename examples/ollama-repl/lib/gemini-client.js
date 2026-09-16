@@ -1,4 +1,4 @@
-/**
+  /**
  * A tiny Google Gemini `generateContent`/`streamGenerateContent` client
  * (https://ai.google.dev/api/generate-content), built directly on the
  * `httpClient` protocol adapter (`lib/lws/protocols.js`) with its own
@@ -29,7 +29,8 @@ import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
 import { RequestLogger } from '../../../lib/logger.js';
-import { getenv } from 'std';
+import { getenv, puts } from 'std';
+import { setTimeout, clearTimeout } from 'os';
 
 const DEFAULT_MODEL = 'gemini-flash-latest';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -159,7 +160,7 @@ export class GeminiClient {
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(pathSuffix, messages, { tools, toolChoice, ...options }) {
-    std.puts('\x1b[1;35m\n#post\x1b[0m\n');
+    puts('\x1b[1;35m\n#post\x1b[0m\n');
 
     const { contents, systemInstruction } = this.#toContents(messages);
 
@@ -289,7 +290,7 @@ export class GeminiClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chat(messages, options = {}) {
-    std.puts('\x1b[1;35m\nchat\x1b[0m\n');
+    puts('\x1b[1;35m\nchat\x1b[0m\n');
     const resp = await this.#post('generateContent', messages, options);
     const data = await resp.json();
     this.#logger.body(data);
@@ -316,7 +317,7 @@ export class GeminiClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chatStream(messages, options = {}, onToken) {
-    std.puts('\x1b[1;35m\nchatStream\x1b[0m\n');
+    puts('\x1b[1;35m\nchatStream\x1b[0m\n');
     const resp = await this.#post('streamGenerateContent?alt=sse', messages, options);
     const reader = resp.body.getReader();
 
