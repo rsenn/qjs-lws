@@ -901,10 +901,6 @@ add_custom_command(
 # Ensure the target/install step depends on the generated file
 add_custom_target(generate_search_js ALL DEPENDS "${BIN_JS}")
 
-install(PROGRAMS "${BIN_JS}"
-        DESTINATION "${CMAKE_INSTALL_BINDIR}"
-        RENAME search)
-
 # examples/ollama-repl/lib/*.js import the project's own lib/lws/*.js by a
 # relative, in-repo path (../../../lib/lws/...) that only resolves next to
 # this source tree - once installed, lib/ goes dir-less ('file.js') and
@@ -938,6 +934,15 @@ endforeach(OLLAMA_REPL_LIB_FILE)
 file(GLOB OLLAMA_REPL_LIB_INSTALL_FILES "${OLLAMA_REPL_LIB_BUILD_DIR}/*.js")
 install(FILES ${OLLAMA_REPL_LIB_INSTALL_FILES}
         DESTINATION "${CMAKE_INSTALL_BINDIR}/lib")
+
+# Installed last: BIN_JS is a build-time generated file (see
+# generate_search_js above), not a source file. If it's ever missing at
+# install time (e.g. `cmake --install` run without a prior build), CMake's
+# install script aborts on this file INSTALL - placing this rule last
+# ensures that failure can't also skip installing everything above it.
+install(PROGRAMS "${BIN_JS}"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        RENAME search)
 
 file(GLOB TESTS tests/unittests/test-*.js)
 relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
