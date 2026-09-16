@@ -6,6 +6,7 @@
 #include "lws-protocol.h"
 #include "lws.h"
 #include "js-utils.h"
+#include <quickjs-libc.h>
 #include <termios.h>
 #include <sys/ioctl.h>
 
@@ -337,6 +338,7 @@ enum {
   FUNCTION_PARSE_NUMERIC_ADDRESS,
   FUNCTION_WRITE_NUMERIC_ADDRESS,
   FUNCTION_INTERFACE_TO_SA,
+  FUNCTION_RUN_EVENT_LOOP,
 };
 
 static JSValue
@@ -717,6 +719,22 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       JS_FreeCString(ctx, iface);
       break;
     }
+
+    case FUNCTION_RUN_EVENT_LOOP: {
+      /* js_std_loop() (quickjs-libc.c) only returns once every os
+         timer/read-handler/write-handler in the whole runtime has drained -
+         it doesn't stop early just because one particular caller's
+         condition became true (there's no such hook). That's fine for a
+         one-shot blocking call made before anything else registers with
+         the event loop (e.g. a synchronous fetch driven from a module
+         loader hook, run before the main script starts) - see the
+         qjs-net minnet_client_next() for the same pattern used
+         elsewhere in this codebase family - but calling this while other
+         timers/sockets/servers are already running will block until
+         those drain too, not just until the caller's own work is done. */
+      js_std_loop(ctx);
+      break;
+    }
   }
 
   return ret;
@@ -740,6 +758,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("parseNumericAddress", 1, lwsjs_functions, FUNCTION_PARSE_NUMERIC_ADDRESS),
     JS_CFUNC_MAGIC_DEF("writeNumericAddress", 1, lwsjs_functions, FUNCTION_WRITE_NUMERIC_ADDRESS),
     JS_CFUNC_MAGIC_DEF("interfaceToSa", 1, lwsjs_functions, FUNCTION_INTERFACE_TO_SA),
+    JS_CFUNC_MAGIC_DEF("runEventLoop", 0, lwsjs_functions, FUNCTION_RUN_EVENT_LOOP),
     JS_CFUNC_DEF("generateSelfSignedCert", 1, lwsjs_generate_self_signed_cert),
     JS_PROP_INT32_DEF("LWSMPRO_HTTP", LWSMPRO_HTTP, 0),
     JS_PROP_INT32_DEF("LWSMPRO_HTTPS", LWSMPRO_HTTPS, 0),

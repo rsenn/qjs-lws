@@ -163,6 +163,30 @@ macro(build_libwebsockets)
   set(${TARGET}_LWS_LIBRARY_DIR "${LIBWEBSOCKETS_LIBRARY_DIR}")
   set(${TARGET}_LWS_LIBRARIES "${LIBWEBSOCKETS_LIBRARIES}")
 
+  # LWS_HAVE_X509_VERIFY_PARAM_set1_host's own CHECK_FUNCTION_EXISTS()
+  # (libwebsockets/lib/tls/CMakeLists.txt) runs with CMAKE_REQUIRED_LIBRARIES
+  # missing the OpenSSL libs (confirmed via this sub-build's own
+  # CMakeConfigureLog.yaml: the check's link line has -lgnutls -ldl -lpthread,
+  # no -lssl/-lcrypto, even with LWS_WITH_SSL=ON and OPENSSL_LIBRARIES passed
+  # above) so it always comes back false, even though this function has been
+  # in OpenSSL since 1.0.2 and every OpenSSL this project links against has
+  # it. A false result here isn't just a missed optimization: the client TLS
+  # code (lib/tls/openssl/openssl-client.c) has a #else branch for it that
+  # unconditionally fails the connection unless the caller also set
+  # LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK - which lib/fetch.js's own direct
+  # https:// requests do, masking this, but libwebsockets' own internal
+  # http->https redirect-follow (lib/roles/http/client/client-http.c) does
+  # not, so any http:// URL that 301s to https:// (as most real CDNs do)
+  # fails outright with "bio_create failed" until this is pre-seeded (see
+  # lib/lws/protocols.js's onClientHttpRedirect for the other half of the
+  # fix - even with this, lws's own redirect-follow still carries over the
+  # original http:// request's other permissive TLS flags, or lack of
+  # them, unchanged). Pre-seeding the cache value, same technique as the
+  # HMAC_CTX_new/RSA_SET0_KEY/etc. entries below, skips the broken check
+  # instead of fixing its CMAKE_REQUIRED_LIBRARIES ordering inside the
+  # vendored submodule.
+  list(APPEND LIBWEBSOCKETS_ARGS -DLWS_HAVE_X509_VERIFY_PARAM_set1_host:INTERNAL=1)
+
   list(APPEND LIBWEBSOCKETS_ARGS -DLWS_HAVE_HMAC_CTX_new:INTERNAL=1
        -DLWS_HAVE_RSA_SET0_KEY:INTERNAL=1 -DLWS_HAVE_ECDSA_SIG_set0:INTERNAL=1
        -DLWS_HAVE_BN_bn2binpad:INTERNAL=1)

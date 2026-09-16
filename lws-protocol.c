@@ -1021,7 +1021,17 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
       s->dispatch_reason = reason;
     }
 
-    JSValue result = JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, i, argv);
+    /* Every on<Reason> handler is optional - a protocol object only defines
+       the ones it cares about (see the `?.`-guarded onXxx wrappers in
+       lib/lws/protocols.js) - but *cb falls back to JS_UNDEFINED, not a
+       no-op, when neither a per-reason nor a base "callback" handler was
+       registered. Calling JS_Call on that unconditionally threw a
+       spurious, unrelated-looking "TypeError: not a function" for every
+       such reason (e.g. LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER on a
+       client that never defines onClientAppendHandshakeHeader) while still
+       falling through to the same post-call defaults below either way -
+       skip the call instead of making it and discarding the exception. */
+    JSValue result = JS_IsFunction(ctx, *cb) ? JS_Call(ctx, *cb, jsval ? *jsval : JS_NULL, i, argv) : JS_UNDEFINED;
 
     if(s) {
       s->dispatching = FALSE;
