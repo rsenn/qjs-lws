@@ -651,3 +651,22 @@ a4702ce - Fixed listenAcceptProtocol bug + cleaned native docs
 - API Compatibility Assessment: `doc/api-compatibility.md`
 - Bug Reports: `BUGS` file in repo root
 - Project TODO: `TODO.md` in repo root
+
+## GitHub Pages site
+
+This project's GitHub Pages site (the `gh-pages` branch) is **generated, not
+hand-maintained here**. Use the global `github-pages` skill and the shared site
+build tool in the `rsenn/rsenn` repo, at `../../../rsenn/rsenn` (relative to this repo root;
+i.e. `~/Projects/rsenn/rsenn`):
+
+- site definition, landing page, theme, favicon: `../../../rsenn/rsenn/sites/qjs-lws/`
+- generator and publisher: `../../../rsenn/rsenn/tools/site/` (see its `README.md`)
+  - build: `qjsm ../../../rsenn/rsenn/tools/site/build.js qjs-lws` (`node` works too)
+  - publish: `../../../rsenn/rsenn/tools/site/sync.sh qjs-lws` (commits locally; `--push` only after the user confirms)
+- the markdown that becomes the site's pages is **this repo's own** `README.md`,
+  `doc/` and `examples/`; a doc page appears on the site only once it is listed in
+  `nav` in `../../../rsenn/rsenn/sites/qjs-lws/site.config.js`.
+
+Do not add or extend a `tools/site/`, Pages workflow or `publish.sh` in this repo (any
+existing ones are superseded and slated for removal), and do
+not edit `gh-pages` by hand.
