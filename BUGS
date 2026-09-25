@@ -461,6 +461,33 @@
     fetchSync('https://example.com/');
     // stderr gets the two "not on no_listener list" ERR lines every time
 
+- fetch-concurrent-requests-hang-on-connection-close (lib/fetch.js:110-117):
+  several fetch() calls in flight at once to the same host hang forever when
+  the server closes the connection after each response (HTTP/1.0, or
+  Connection: close). fetch() shares one keep-alive context and sets
+  LCCSCF_PIPELINE for every keep-alive request, so the extra requests appear
+  to be queued behind the first and never sent once that connection closes
+  (server log: only the first request ever arrives). Not narrowed to a root
+  cause. Works against an HTTP/1.1 keep-alive server, and a single request
+  is fine either way. Found while testing search.js with parallel engines.
+
+    globalThis.os = await import('os');
+    import { fetch } from 'fetch.js';
+    // server: python3 -m http.server 8932   (speaks HTTP/1.0)
+    await Promise.all([1, 2, 3].map(n => fetch('http://127.0.0.1:8932/?n=' + n, { h2: false })));
+    // never resolves
+
+- fetch-h2-plain-response-body-stream-already-locked (lib/lws/protocols.js:388):
+  in tests/test-fetch.js the "H2, plain" case fetches the index page fine (200)
+  but then throws "TypeError: This stream has already been locked for
+  exclusive reading by another reader", raised from streamFromIterable()
+  (lib/lws/stream-utils.js:99) while onEstablishedClientHttp() constructs the
+  Response, and the run then hangs instead of finishing. The two HTTP/1.1
+  cases (plain, TLS) in the same file pass. Not narrowed to a root cause;
+  found once the globalThis.os fix let the suite get this far.
+
+    qjsm tests/test-fetch.js    # hangs after the H2, plain error
+
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
