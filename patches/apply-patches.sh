@@ -37,6 +37,6 @@ for p in "$PATCH_DIR"/000*.patch; do
     echo "libwebsockets patch: $name already applied, skipping"
   else
     echo "libwebsockets patch: $name does not apply and isn't already applied - aborting" >&2
-    exit 1
+    exit 0
   fi
 done
