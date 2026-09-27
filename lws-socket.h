@@ -19,7 +19,7 @@ typedef struct {
   LWSSocketType type;
   char *uri, *proto;
   void* obj;
-  BOOL client : 1, want_write : 1, redirected_to_get : 1, completed : 1, closed : 1, dispatching : 1, close_code_set : 1;
+  unsigned client : 1, want_write : 1, redirected_to_get : 1, completed : 1, closed : 1, dispatching : 1, close_code_set : 1;
   int dispatch_reason;
   JSValue headers;
   int response_code, body_pending, method;
