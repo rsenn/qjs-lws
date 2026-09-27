@@ -454,7 +454,12 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
         const char *scheme, *host, *path;
         int port;
 
-        if(!lws_parse_uri(uri, &scheme, &host, &port, &path)) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+        int parse_r = lws_parse_uri(uri, &scheme, &host, &port, &path);
+#pragma GCC diagnostic pop
+
+        if(!parse_r) {
 #endif
           ret = JS_NewObjectProto(ctx, JS_NULL);
 
@@ -1077,7 +1082,7 @@ lwsjs_log_clean(const char* line, DynBuf* dbuf, DynBuf* func) {
           ++k;
 
         if(func) {
-          dbuf_put(func, &line[i], k - i);
+          dbuf_put(func, (const uint8_t*)&line[i], k - i);
           dbuf_putc(func, '\0');
         }
 

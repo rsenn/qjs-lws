@@ -6,7 +6,7 @@
 #ifdef LWS_WITH_TLS
 
 /* struct lws_context_creation_info - server + client cert/key/CA material,
-   cipher lists, private key passwords. Every *_cert/*_private_key/*_ca
+   cipher lists, private key passwords. Every cert/private_key/ca
    property accepts either a filesystem path (string) or the raw PEM/DER
    bytes directly (ArrayBuffer/view) - see str_or_buf_property()
    (js-utils.c): lws itself auto-detects PEM vs DER for the in-memory case

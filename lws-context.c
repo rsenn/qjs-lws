@@ -383,7 +383,10 @@ client_connect_info_from_uri(JSContext* ctx, char* uri, struct lws_client_connec
 #else
   const char *scheme, *host, *path;
   int port;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
   int r = lws_parse_uri(uri, &scheme, &host, &port, &path);
+#pragma GCC diagnostic pop
 
   if(r)
     return;
