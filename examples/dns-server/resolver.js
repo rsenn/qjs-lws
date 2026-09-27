@@ -9,6 +9,7 @@
  * only allows TCP/53), it's retried over TCP against the same server - see
  * queryServer() below.
  */
+import { setTimeout, clearTimeout } from 'os';
 import { decodeMessage, buildQuery, TYPE, RCODE } from './dns-message.js';
 import { ROOT_SERVERS } from './root-hints.js';
 import { Cache } from './cache.js';

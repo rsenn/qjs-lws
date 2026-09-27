@@ -22,10 +22,14 @@
  *   DNS_PORT=5353 qjs server.js
  *   dig @127.0.0.1 -p 5353 example.com
  */
+import * as os from 'os';
 import { createServer } from 'lws';
 import { createResolver } from './resolver.js';
 import { decodeMessage, encodeMessage, typeName, RCODE } from './dns-message.js';
 import { toArrayBuffer } from './bytes.js';
+
+// The native createServer() looks up os.setReadHandler/setTimeout on globalThis, which qjsm never defines
+globalThis.os ??= os;
 
 const PORT = +(process.env.DNS_PORT ?? 53);
 
