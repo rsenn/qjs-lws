@@ -1,47 +1,16 @@
-- ws-large-message-hangs-final-fragment-unreliable
-  (libwebsockets/lib/roles/ws/ops-ws.c:946 lws_is_final_fragment(), consumed
-  by lws-protocol.c's WS receive dispatch and lib/lws/protocols.js's
-  WsProtocol/WsClientProtocol `message` callback): **HIGH PRIORITY** - a WS
-  message received by this process (either role - accepting WsProtocol *or* connecting
-  WsClientProtocol, both go through the same dispatch) that arrives split
-  across more than one native read never reaches the JS `message` handler as
-  a complete message, and the caller has no reliable way to detect or
-  reassemble it, because lws_is_final_fragment() - the only signal available
-  for "is this the last piece" - has been separately observed to report
-  `wsi->ws->final` true for *every* fragment of such a message in this build
-  (see lib/websocket.js:228-237's own prior note on this, from before this
-  session), not just the actual last one. That prior note frames it as
-  "reassembly is unreliable, frame explicitly at the app level instead" and
-  stops there - root cause was not traced further into ops-ws.c at that
-  time. This session reproduced the concrete failure mode: a real Chrome
-  tab's `ws.send()` of a JSON string at or above ~4221 bytes (a 3950-byte
-  message is fine) to an *accepting* WsProtocol on this process never
-  reaches that protocol's `message` callback at all - no error, no partial
-  delivery, nothing; the sending side's ws.send() returns normally. Getting
-  from "final is reported true for every fragment" (lib/websocket.js's
-  finding) to "the message is dropped instead of delivered piecemeal"
-  (this session's finding) needs a real trace through ops-ws.c's rx state
-  machine (wsi->ws->rx_packet_length/wsi->ws->final bookkeeping around
-  lws_ws_client_rx_sm(), ops-ws.c) against an actual multi-read receive of a
-  >4KB payload - not done yet. Investigate before relying on any WS message
-  over roughly this size in either direction; lib/rpc/'s raw/TCP transport
-  (frameMessage()/createMessageUnframer(), lib/rpc/common.js) sidesteps this
-  entirely by never trusting WS message boundaries for framing, which is
-  the fallback if this can't be fixed natively.
+- ws-deflate-final-fragment-unreliable (lws-context.c:488-499): with permessage_deflate
+  opted in, lws_is_final_fragment() reportedly tracks decompression steps rather than
+  wire frames, so every fragment of a large message may report final. Not reproduced:
+  with deflate off (the default) 4 KB to 200 KB messages, sent from a raw socket in
+  segments of 100 to 100000 bytes, all reach reassembleFragments() complete and with
+  only the last fragment final. The earlier report of messages over ~4221 bytes from
+  Chrome never arriving was not reproduced either (its repro never assigned onMsg); the
+  deflate-on case has not been tested.
 
-    // server (accepting) side:
-    import { createServer, LWSMPRO_NO_MOUNT } from 'lws.so';
-    import { WsProtocol } from './lib/lws/protocols.js';
-    let onMsg;
-    createServer({
-      port: 19999, vhostName: 'localhost',
-      mounts: [{ mountpoint: '/echo', protocol: 'echo', originProtocol: LWSMPRO_NO_MOUNT }],
-      protocols: [{ name: 'echo', ...new WsProtocol({ name: 'echo', message: (wsi, data) => onMsg?.(data) }) }],
-    });
-    // browser page connecting to ws://localhost:19999/echo, subprotocol 'echo':
-    const ws = new WebSocket('ws://localhost:19999/echo', 'echo');
-    await new Promise(r => (ws.onopen = r));
-    ws.send('x'.repeat(4221)); // never reaches onMsg above; 'x'.repeat(3950) does
+    // server: createServer({ ..., permessage_deflate: true }) with a WsProtocol whose
+    // message is wrapped in reassembleFragments(); client negotiates permessage-deflate
+    // and sends a compressed text message over 4096 bytes - check whether only the
+    // last fragment reports final
 
 - deferred-close-hangs-on-established-client-http (lws-protocol.c:~50,
   pollfd_handler's forced-service while loop; ops-h1.c:719-747,
