@@ -9,9 +9,10 @@
  * protocol-matrix coverage.
  */
 import { tests, eq, assert, assertStrictEquals } from './tinytest.js';
-import { createServer, toString, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL } from 'lws.so';
+import { createServer, toString, LWSMPRO_CALLBACK, LWS_WRITE_HTTP_FINAL, LWS_SERVER_OPTION_ONLY_RAW, LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG } from 'lws.so';
 import { fetch } from '../../lib/fetch.js';
 import { freePort } from './subprocess-utils.js';
+import * as os from 'os';
 import * as std from 'std';
 
 function echoServer(port, handler) {
@@ -130,6 +131,41 @@ await tests({
 
     eq(200, resp.status);
     eq('final-ok', await resp.text());
+
+    server.destroy();
+  },
+
+  async 'fetch(): concurrent keep-alive requests all resolve against an HTTP/1.0 server that closes after each response'() {
+    // The first request leads a pipeline queue; once its HTTP/1.0 response
+    // shows the server won't keep the connection, lws must restart the
+    // queued requests on connections of their own instead of orphaning them.
+    const port = freePort();
+    const seen = [];
+
+    const server = createServer({
+      port,
+      options: LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_FALLBACK_TO_APPLY_LISTEN_ACCEPT_CONFIG,
+      listenAcceptRole: 'raw-skt',
+      listenAcceptProtocol: 'http10',
+      protocols: [
+        {
+          name: 'http10',
+          onRawRx(wsi, data) {
+            const path = /^GET (\S+)/.exec(toString(data))?.[1];
+            seen.push(path);
+            wsi.write(`HTTP/1.0 200 OK\r\ncontent-length: ${path.length}\r\n\r\n${path}`);
+            os.setTimeout(() => wsi.close(), 20);
+          },
+        },
+      ],
+    });
+
+    const paths = ['/a', '/bb', '/ccc', '/dddd'];
+    const resps = await Promise.all(paths.map(p => fetch(`http://127.0.0.1:${port}${p}`, { h2: false })));
+
+    eq('200,200,200,200', resps.map(r => r.status).join());
+    eq(paths.join(), (await Promise.all(resps.map(r => r.text()))).join());
+    eq(paths.join(), [...seen].sort((a, b) => a.length - b.length).join());
 
     server.destroy();
   },
