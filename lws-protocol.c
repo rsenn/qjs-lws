@@ -531,25 +531,38 @@ lwsjs_callback_pollfd(struct lws* wsi, enum lws_callback_reasons reason, void* u
 #ifdef USE_EPOLL
       lws_epoll_ctl(lws, x->fd, x->events);
 #else
-      BOOL write = !!(x->events & POLLOUT);
-      PollFdClosure* pc;
+      /* lws may want POLLIN and POLLOUT at once (e.g. a client that has sent
+         its request and is both awaiting the response and asked to be
+         writeable): the iohandler table keys read and write separately, so
+         register one handler per direction rather than letting POLLOUT
+         displace POLLIN - which left such a wsi deaf to the response. */
+      BOOL want_write = !!(x->events & POLLOUT), want_read = !!(x->events & POLLIN) || !want_write;
 
-      if(!(pc = malloc(sizeof(PollFdClosure))))
-        return -1;
+      for(int dir = 0; dir < 2; dir++) {
+        BOOL write = dir == 1;
 
-      pc->fd = x->fd;
-      pc->events = x->events;
-      pc->write = write;
-      pc->lws = lws_get_context(wsi);
+        if(write ? !want_write : !want_read) {
+          if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
+            iohandler_set(lws, x->fd, JS_NULL, write);
+          continue;
+        }
 
-      JSValue fn = js_function_cclosure(ctx, pollfd_handler, 0, 0, pc, free);
+        PollFdClosure* pc;
 
-      if(reason == LWS_CALLBACK_CHANGE_MODE_POLL_FD)
-        iohandler_set(lws, x->fd, JS_NULL, !write);
+        if(!(pc = malloc(sizeof(PollFdClosure))))
+          return -1;
 
-      iohandler_set(lws, x->fd, fn, write);
+        pc->fd = x->fd;
+        pc->events = x->events;
+        pc->write = write;
+        pc->lws = lws_get_context(wsi);
 
-      JS_FreeValue(ctx, fn);
+        JSValue fn = js_function_cclosure(ctx, pollfd_handler, 0, 0, pc, free);
+
+        iohandler_set(lws, x->fd, fn, write);
+
+        JS_FreeValue(ctx, fn);
+      }
 #endif
       return 0;
     }

@@ -1,0 +1,86 @@
+From: Roman Senn <roman.l.senn@gmail.com>
+Subject: [PATCH] h1 client: restart the requests queued on a non-keepalive leader
+
+When a pipelined h1 client request learns from its response that the server
+does not keep the connection alive, the requests queued behind it are sent
+back to LRS_UNCONNECTED but nothing started their connections, so they hung
+with no error.  Attach a header table to each, which goes on to do the
+connect (as for a redirect restart), once the vhost lock is dropped.
+
+The stash they would reconnect from was freed as soon as it was copied into
+the header table; keep it for a client_pipeline request (close frees it).
+
+Made against libwebsockets 222ccba9f (main).
+
+---
+diff --git a/lib/sansio/http/client/client-http.c b/lib/sansio/http/client/client-http.c
+index 7693efef5..ae232fc2b 100644
+--- a/lib/sansio/http/client/client-http.c
++++ b/lib/sansio/http/client/client-http.c
+@@ -1482,6 +1482,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
+ 			 * to be computed outside the event macro's argument
+ 			 * list, MSVC rejects #if inside one (C5101)
+ 			 */
++			lws_dll2_owner_t restarted;
+ 			const struct lws_role_ops *rops =
+ #if defined(LWS_ROLE_H1)
+ 						   &role_ops_h1;
+@@ -1509,6 +1510,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
+ 			 */
+ 			wsi->keepalive_rejected = 1;
+ 
++			lws_dll2_owner_clear(&restarted);
+ 			lws_vhost_lock(wsi->a.vhost);
+ 			lws_start_foreach_dll_safe(struct lws_dll2 *,
+ 						   d, d1,
+@@ -1525,8 +1527,30 @@ lws_client_interpret_server_handshake(struct lws *wsi)
+ 				/* go back to "trying to connect" state */
+ 				lws_wsi_event_role(ww, LWS_WSIEV_RESTART, rops);
+ 				ww->user_space = NULL;
++
++				/* park him until we are out of the vhost lock */
++				lws_dll2_add_tail(&ww->dll2_cli_txn_queue,
++						  &restarted);
+ 			} lws_end_foreach_dll_safe(d, d1);
+ 			lws_vhost_unlock(wsi->a.vhost);
++
++			/*
++			 * Nothing else will start these: attaching a header
++			 * table to a client in LRS_UNCONNECTED goes on to do
++			 * the connect, same as for a redirect's restart.  That
++			 * can close and free him, and it takes the vhost lock
++			 * itself, so it is done here and not in the loop
++			 */
++			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
++					lws_dll2_get_head(&restarted)) {
++				struct lws *ww = lws_container_of(d, struct lws,
++						dll2_cli_txn_queue);
++
++				lws_dll2_remove(&ww->dll2_cli_txn_queue);
++				if (lws_header_table_attach(ww, 0) ==
++						LWS_AH_ATTACH_FAIL)
++					lwsl_wsi_err(ww, "failed to restart queued");
++			} lws_end_foreach_dll_safe(d, d1);
+ 		}
+ 	}
+ 
+diff --git a/lib/sansio/http/header.c b/lib/sansio/http/header.c
+index 579697f88..da4e7f4c8 100644
+--- a/lib/sansio/http/header.c
++++ b/lib/sansio/http/header.c
+@@ -1405,6 +1405,15 @@ lws_client_stash_to_headers(struct lws *wsi)
+ 			return -1;
+ 		}
+ 
++	/*
++	 * A pipelined request may be queued on another connection and then
++	 * have to restart on one of its own (the leader's server turned out
++	 * not to keep-alive): it needs the stash to reconnect from.  Close
++	 * frees it
++	 */
++	if (wsi->client_pipeline)
++		return 0;
++
+ #if defined(LWS_WITH_SOCKS5)
+ 	/* the socks leg reconnects from it; nothing else needs it now */
+ 	if (!wsi->a.vhost->socks_proxy_port)

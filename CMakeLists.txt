@@ -451,6 +451,29 @@ include_directories(
   libwebsockets/lib/plat/unix/android
   libwebsockets/lib/plat/windows
   libwebsockets/lib/roles
+  libwebsockets/lib/io
+  libwebsockets/lib/io/cgi
+  libwebsockets/lib/io/dbus
+  libwebsockets/lib/misc
+  libwebsockets/lib/sansio
+  libwebsockets/lib/sansio/h1
+  libwebsockets/lib/sansio/h2
+  libwebsockets/lib/sansio/h3
+  libwebsockets/lib/sansio/http
+  libwebsockets/lib/sansio/http/client
+  libwebsockets/lib/sansio/http/compression
+  libwebsockets/lib/sansio/http/compression/brotli
+  libwebsockets/lib/sansio/http/compression/deflate
+  libwebsockets/lib/sansio/http/server
+  libwebsockets/lib/sansio/mqtt
+  libwebsockets/lib/sansio/mqtt/client
+  libwebsockets/lib/sansio/quic
+  libwebsockets/lib/sansio/raw-proxy
+  libwebsockets/lib/sansio/raw-skt
+  libwebsockets/lib/sansio/smtp
+  libwebsockets/lib/sansio/ws
+  libwebsockets/lib/sansio/ws/ext
+  libwebsockets/lib/sansio/wt
   libwebsockets/lib/roles/cgi
   libwebsockets/lib/roles/dbus
   libwebsockets/lib/roles/h1

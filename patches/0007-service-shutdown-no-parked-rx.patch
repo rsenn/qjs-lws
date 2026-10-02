@@ -1,0 +1,34 @@
+From: Roman Senn <roman.l.senn@gmail.com>
+Subject: [PATCH] service: a half-closed wsi has no parked rx to consume
+
+A server that answers before reading the request body (eg a POST handler
+that responds straight from the HTTP callback with Connection: close) ends
+up half-closed (LCS_SHUTDOWN), waiting for the peer FIN, with the unread
+body still on its buflist. lws_wsi_can_consume_parked_rx() kept saying that
+buflist could be consumed, so lws_service_adjust_timeout() returned 0
+forever and an external-poll loop (qjs-lws) spun inside one service pass,
+starving every other wsi - including the client waiting for that response.
+
+Made against libwebsockets 222ccba9f (main).
+
+---
+diff --git a/lib/io/service.c b/lib/io/service.c
+index 732d27001..9825f6243 100644
+--- a/lib/io/service.c
++++ b/lib/io/service.c
+@@ -324,6 +324,15 @@ lws_wsi_can_consume_parked_rx(struct lws *wsi)
+ 	if (lws_is_flowcontrolled(wsi))
+ 		return 0;
+ 
++	/*
++	 * Half-closed, waiting only for the peer's FIN: whatever is parked
++	 * (eg an unread request body the response did not wait for) will
++	 * never be consumed, so offering it for service again would just
++	 * spin the event loop until the peer finally closes
++	 */
++	if (lwsi_close(wsi) == LCS_SHUTDOWN)
++		return 0;
++
+ 	switch (lwsi_state(wsi)) {
+ 	case LRS_TXN_COMPLETED:
+ 	case LRS_TXN_COMPLETING:

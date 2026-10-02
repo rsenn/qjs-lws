@@ -1,20 +1,30 @@
-diff --git a/lib/core-net/vhost.c b/lib/core-net/vhost.c
-index 55693c9bd..ec4cd393c 100644
---- a/lib/core-net/vhost.c
-+++ b/lib/core-net/vhost.c
-@@ -1390,6 +1390,15 @@ bail:
- 	return 1;
+diff --git a/lib/io/pipe/ops-pipe.c b/lib/io/pipe/ops-pipe.c
+index 5c894a91d..83c372cf8 100644
+--- a/lib/io/pipe/ops-pipe.c
++++ b/lib/io/pipe/ops-pipe.c
+@@ -310,6 +310,25 @@ lws_cancel_service(struct lws_context *context)
+ 	}
  }
  
++/*
++ * Not in any public header: the read end of tsi's event pipe, so an external
++ * event loop (qjs-lws) can poll it itself.  -1 if there is none.
++ */
 +int
 +lws_context_get_pipe_fd(struct lws_context *context, int tsi)
 +{
-+	if (tsi < 0 || tsi >= context->count_threads || !context->pt[tsi].pipe_wsi)
++	struct lws *wsi;
++
++	if (tsi < 0 || tsi >= (int)context->count_threads)
 +		return -1;
 +
-+	return context->pt[tsi].pipe_wsi->desc.sockfd;
++	wsi = context->pt[tsi].pipe_wsi;
++	if (!wsi || !wsi->io || wsi->io->desc.sockfd == LWS_SOCK_INVALID)
++		return -1;
++
++	return (int)wsi->io->desc.sockfd;
 +}
 +
- void
- lws_destroy_event_pipe(struct lws *wsi)
+ int
+ __lws_create_event_pipes(struct lws_context *context)
  {

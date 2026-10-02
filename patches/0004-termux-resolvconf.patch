@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 984907e0a..fd3c52408 100644
+index c6ee47cd9..8514ff119 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1248,6 +1248,10 @@ if (MINGW)
+@@ -1294,6 +1294,10 @@ if (MINGW)
  	add_definitions(-DWINVER=0x0601 -D_WIN32_WINNT=0x0601)
  endif()
  
@@ -14,7 +14,7 @@ index 984907e0a..fd3c52408 100644
  	source_group("Headers Private"  FILES ${HDR_PRIVATE})
  endif()
 diff --git a/lib/plat/unix/unix-resolv.c b/lib/plat/unix/unix-resolv.c
-index 49a240107..4664c300a 100644
+index 63579c6a6..5080b68f8 100644
 --- a/lib/plat/unix/unix-resolv.c
 +++ b/lib/plat/unix/unix-resolv.c
 @@ -25,6 +25,12 @@
@@ -27,15 +27,15 @@ index 49a240107..4664c300a 100644
 +#define PREFIX TERMUX_PREFIX
 +#endif
 +
- int
- lws_plat_asyncdns_get_server(struct lws_context *context, int index,
- 			     lws_sockaddr46 *sa46)
-@@ -35,7 +41,7 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
- 	ssize_t n;
- 
- 	r = (char *)context->pt[0].serv_buf;
--	fd = open("/etc/resolv.conf", LWS_O_RDONLY);
-+	fd = open(PREFIX "/etc/resolv.conf", LWS_O_RDONLY);
- 	if (fd < 0)
+ /*
+  * Shared "nameserver" line parser for /etc/resolv.conf-shaped files.
+  *
+@@ -59,7 +65,7 @@ lws_asyncdns_parse_resolv_conf(struct lws_context *context, int index,
+ 	if (!r)
  		return -1;
+ 
+-	fd = open(env && env[0] ? env : "/etc/resolv.conf", LWS_O_RDONLY);
++	fd = open(env && env[0] ? env : PREFIX "/etc/resolv.conf", LWS_O_RDONLY);
+ 	if (fd < 0)
+ 		goto bail;
  

@@ -265,7 +265,7 @@ socket_flush(LWSSocket* s) {
     s->write_buffered -= is_ws_message ? remaining : (size_t)n;
 
     if(wc->pos >= wc->len) {
-      if(wc->proto == LWS_WRITE_HTTP_FINAL && lws_http_transaction_completed(s->wsi))
+      if(!s->client && wc->proto == LWS_WRITE_HTTP_FINAL && lws_http_transaction_completed(s->wsi))
         s->completed = TRUE;
 
       list_del(&wc->link);
@@ -868,7 +868,7 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
     if(n >= 0 && !is_ws_message && (size_t)n < len) {
       if(socket_queue_write(s, stackbuf + LWS_PRE + n, len - (size_t)n, proto, NULL))
         lws_callback_on_writable(s->wsi);
-    } else if(n >= 0 && proto == LWS_WRITE_HTTP_FINAL && lws_http_transaction_completed(s->wsi)) {
+    } else if(n >= 0 && !s->client && proto == LWS_WRITE_HTTP_FINAL && lws_http_transaction_completed(s->wsi)) {
       s->completed = TRUE;
     }
 

@@ -20,15 +20,11 @@ lws_get_network_wsi()/lws_get_parent()/lws_get_child():
 - lws_get_txn_queue_depth(wsi): how many client wsi are currently
   queued behind this leader.
 ---
- include/libwebsockets/lws-misc.h | 37 ++++++++++++++++++++++++++++++++
- lib/core-net/wsi.c               | 34 +++++++++++++++++++++++++++++
- 2 files changed, 71 insertions(+)
-
 diff --git a/include/libwebsockets/lws-misc.h b/include/libwebsockets/lws-misc.h
-index e455d5de3..713e38244 100644
+index 31e7dad8c..35dec35ef 100644
 --- a/include/libwebsockets/lws-misc.h
 +++ b/include/libwebsockets/lws-misc.h
-@@ -855,6 +855,43 @@ lws_get_close_payload(struct lws *wsi);
+@@ -1271,6 +1271,43 @@ lws_get_close_payload(struct lws *wsi);
  LWS_VISIBLE LWS_EXTERN
  struct lws *lws_get_network_wsi(struct lws *wsi);
  
@@ -72,11 +68,11 @@ index e455d5de3..713e38244 100644
  /**
   * lws_set_allocator() - custom allocator support
   *
-diff --git a/lib/core-net/wsi.c b/lib/core-net/wsi.c
-index 2a358b227..0ae957cfb 100644
---- a/lib/core-net/wsi.c
-+++ b/lib/core-net/wsi.c
-@@ -133,6 +133,40 @@ struct lws *lws_get_network_wsi(struct lws *wsi) {
+diff --git a/lib/sansio/wsi.c b/lib/sansio/wsi.c
+index b549908dc..5f1df3c18 100644
+--- a/lib/sansio/wsi.c
++++ b/lib/sansio/wsi.c
+@@ -544,6 +544,40 @@ struct lws *lws_get_network_wsi(struct lws *wsi) {
  	return wsi;
  }
  
@@ -114,9 +110,6 @@ index 2a358b227..0ae957cfb 100644
 +#endif
 +}
 +
- const struct lws_protocols *lws_vhost_name_to_protocol(struct lws_vhost *vh,
- 		const char *name) {
- 	int n;
--- 
-2.43.0
-
+ /*
+  * What a read took of the bytes it was offered: the rest is parked on the
+  * wsi's buflist for the next pass, or the pass's bytes leave it.  IO's rx
