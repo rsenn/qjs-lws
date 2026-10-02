@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LWSSockAddr46 — qjs-lws</title>
-<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
-<link rel="stylesheet" href="../../assets/style.css">
+<meta name="description" content="qjs-lws — libwebsockets bindings for QuickJS. HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="stylesheet" href="../../assets/theme.css">
 <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="has-sidebar" data-root="../../">
+<body class="has-sidebar" data-site="qjs-lws" data-root="../../">
 <header class="topbar">
-  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> <span class="brand-name">qjs-lws</span></a>
   <div class="search">
     <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
   </div>
@@ -53,9 +54,9 @@ parses both IPv4 and IPv6 literals.</li>
 order).</li>
 </ol>
 <h2 id="instance-accessors"><a class="anchor" href="#instance-accessors" aria-hidden="true">#</a>Instance accessors</h2>
-<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code>family</code></td><td><code>AF_INET</code> (2) or <code>AF_INET6</code> (10), read-only</td></tr><tr><td><code>port</code></td><td>host-order port; writable</td></tr><tr><td><code>address</code></td><td>Raw <code>ArrayBuffer</code> of address bytes (4 or 16); writable (assigning a 4-byte buf sets <code>family = AF_INET</code>, a 16-byte buf sets <code>AF_INET6</code>)</td></tr><tr><td><code>host</code></td><td>Numeric-address string; writable</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Property</th><th>Description</th></tr></thead><tbody><tr><td><code id="instance-accessors-family">family</code><a class="member-anchor" href="#instance-accessors-family" aria-hidden="true">#</a></td><td><code>AF_INET</code> (2) or <code>AF_INET6</code> (10), read-only</td></tr><tr><td><code id="instance-accessors-port">port</code><a class="member-anchor" href="#instance-accessors-port" aria-hidden="true">#</a></td><td>host-order port; writable</td></tr><tr><td><code id="instance-accessors-address">address</code><a class="member-anchor" href="#instance-accessors-address" aria-hidden="true">#</a></td><td>Raw <code>ArrayBuffer</code> of address bytes (4 or 16); writable (assigning a 4-byte buf sets <code>family = AF_INET</code>, a 16-byte buf sets <code>AF_INET6</code>)</td></tr><tr><td><code id="instance-accessors-host">host</code><a class="member-anchor" href="#instance-accessors-host" aria-hidden="true">#</a></td><td>Numeric-address string; writable</td></tr></tbody></table></div>
 <h2 id="instance-methods"><a class="anchor" href="#instance-methods" aria-hidden="true">#</a>Instance methods</h2>
-<div class="tablewrap"><table><thead><tr><th>Method</th><th>Wraps</th></tr></thead><tbody><tr><td><code>toString()</code></td><td><code>[ipv6]:port</code> or <code>ipv4:port</code> formatted string</td></tr><tr><td><code>compare(other)</code></td><td><code>lws_sa46_compare_ads()</code> — <code>0</code> if equal</td></tr><tr><td><code>onNet(other, mask)</code></td><td><code>lws_sa46_on_net()</code> — true if <code>other</code> is on the same network for <code>mask</code> bits</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Method</th><th>Wraps</th></tr></thead><tbody><tr><td><code id="instance-methods-tostring">toString()</code><a class="member-anchor" href="#instance-methods-tostring" aria-hidden="true">#</a></td><td><code>[ipv6]:port</code> or <code>ipv4:port</code> formatted string</td></tr><tr><td><code id="instance-methods-compare">compare(other)</code><a class="member-anchor" href="#instance-methods-compare" aria-hidden="true">#</a></td><td><code>lws_sa46_compare_ads()</code> — <code>0</code> if equal</td></tr><tr><td><code id="instance-methods-onnet">onNet(other, mask)</code><a class="member-anchor" href="#instance-methods-onnet" aria-hidden="true">#</a></td><td><code>lws_sa46_on_net()</code> — true if <code>other</code> is on the same network for <code>mask</code> bits</td></tr></tbody></table></div>
 <h2 id="where-it-appears"><a class="anchor" href="#where-it-appears" aria-hidden="true">#</a>Where it appears</h2>
 <ul>
 <li><code>LWSSocket.peer</code> and <code>LWSSocket.local</code> return <code>LWSSockAddr46</code>.</li>
@@ -69,8 +70,8 @@ take any value convertible via the constructor.</li>
 <nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#construction">Construction</a></li><li class="lvl2"><a href="#instance-accessors">Instance accessors</a></li><li class="lvl2"><a href="#instance-methods">Instance methods</a></li><li class="lvl2"><a href="#where-it-appears">Where it appears</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
-  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
-     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+  <p>qjs-lws — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
 </footer>
 <script src="../../assets/search-index.js"></script>
 <script src="../../assets/search.js"></script>

@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API Compatibility Assessment — qjs-lws</title>
-<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
-<link rel="stylesheet" href="../assets/style.css">
+<meta name="description" content="qjs-lws — libwebsockets bindings for QuickJS. HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../assets/base.css">
+<link rel="stylesheet" href="../assets/theme.css">
 <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="has-sidebar" data-root="../">
+<body class="has-sidebar" data-site="qjs-lws" data-root="../">
 <header class="topbar">
-  <a class="brand" href="../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <a class="brand" href="../index.html"><span class="mark">{ }</span> <span class="brand-name">qjs-lws</span></a>
   <div class="search">
     <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
   </div>
@@ -611,8 +612,8 @@
 <nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#executive-summary">Executive Summary</a></li><li class="lvl2"><a href="#whatwg-fetch-api">WHATWG Fetch API</a></li><li class="lvl3"><a href="#headers-liblwsheadersjs">Headers (lib/lws/headers.js)</a></li><li class="lvl3"><a href="#body-mixin-liblwsbodyjs">Body Mixin (lib/lws/body.js)</a></li><li class="lvl3"><a href="#request-liblwsrequestjs">Request (lib/lws/request.js)</a></li><li class="lvl3"><a href="#response-liblwsresponsejs">Response (lib/lws/response.js)</a></li><li class="lvl3"><a href="#fetch-libfetchjs">fetch() (lib/fetch.js)</a></li><li class="lvl2"><a href="#whatwg-url-api">WHATWG URL API</a></li><li class="lvl3"><a href="#url-liblwsurljs">URL (lib/lws/url.js)</a></li><li class="lvl3"><a href="#urlsearchparams-liblwsurljs">URLSearchParams (lib/lws/url.js)</a></li><li class="lvl2"><a href="#whatwg-streams-api">WHATWG Streams API</a></li><li class="lvl2"><a href="#whatwg-dom-api">WHATWG DOM API</a></li><li class="lvl3"><a href="#abortcontroller--abortsignal-liblwsabortjs">AbortController / AbortSignal (lib/lws/abort.js)</a></li><li class="lvl3"><a href="#eventtarget-liblwseventsjs">EventTarget (lib/lws/events.js)</a></li><li class="lvl2"><a href="#whatwg-websocket-api">WHATWG WebSocket API</a></li><li class="lvl3"><a href="#websocket-libwebsocketjs">WebSocket (lib/websocket.js)</a></li><li class="lvl3"><a href="#websocketstream-libwebsocketstreamjs">WebSocketStream (lib/websocketstream.js)</a></li><li class="lvl2"><a href="#bunjs-server-api">Bun.js Server API</a></li><li class="lvl3"><a href="#server-object-libservejs">Server Object (lib/serve.js)</a></li><li class="lvl3"><a href="#websockethandler-options">WebSocketHandler Options</a></li><li class="lvl3"><a href="#serverwebsocket">ServerWebSocket</a></li><li class="lvl3"><a href="#serve-options">serve() Options</a></li><li class="lvl2"><a href="#bunjs-tcp-api">Bun.js TCP API</a></li><li class="lvl3"><a href="#tcpsocket-libtcpsocketjs">TCPSocket (lib/tcpsocket.js)</a></li><li class="lvl3"><a href="#tcp-listener">TCP Listener</a></li><li class="lvl2"><a href="#bunjs-udp-api">Bun.js UDP API</a></li><li class="lvl3"><a href="#udpsocket-libudpsocketjs">UDPSocket (lib/udpsocket.js)</a></li><li class="lvl2"><a href="#w3c-file-api">W3C File API</a></li><li class="lvl3"><a href="#file-liblwsmultipartjs">File (lib/lws/multipart.js)</a></li><li class="lvl3"><a href="#multipartformdata">MultipartFormData</a></li><li class="lvl2"><a href="#express-style-router-non-standard">Express-style Router (Non-standard)</a></li><li class="lvl3"><a href="#approuter-liblwsappjs">App/Router (lib/lws/app.js)</a></li><li class="lvl3"><a href="#middleware-liblwsmiddlewarejs">Middleware (lib/lws/middleware.js)</a></li><li class="lvl2"><a href="#recommendations">Recommendations</a></li><li class="lvl3"><a href="#critical-fixes-high-priority">Critical Fixes (High Priority)</a></li><li class="lvl3"><a href="#response-vs-serverresponse-untangling-completed">Response vs ServerResponse Untangling (COMPLETED)</a></li><li class="lvl3"><a href="#high-priority-improvements">High Priority Improvements</a></li><li class="lvl3"><a href="#medium-priority">Medium Priority</a></li><li class="lvl3"><a href="#low-priority">Low Priority</a></li><li class="lvl2"><a href="#conclusion">Conclusion</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
-  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
-     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+  <p>qjs-lws — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
 </footer>
 <script src="../assets/search-index.js"></script>
 <script src="../assets/search.js"></script>

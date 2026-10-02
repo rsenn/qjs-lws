@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Middleware (lib/lws/app.js) — qjs-lws</title>
-<meta name="description" content="libwebsockets bindings for QuickJS — HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
-<link rel="stylesheet" href="../../assets/style.css">
+<meta name="description" content="qjs-lws — libwebsockets bindings for QuickJS. HTTP/1.1, HTTP/2, WebSocket, raw TCP/UDP and TLS in a QuickJS module.">
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="stylesheet" href="../../assets/theme.css">
 <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
 <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body class="has-sidebar" data-root="../../">
+<body class="has-sidebar" data-site="qjs-lws" data-root="../../">
 <header class="topbar">
-  <a class="brand" href="../../index.html"><span class="mark">{ }</span> qjs-lws</a>
+  <a class="brand" href="../../index.html"><span class="mark">{ }</span> <span class="brand-name">qjs-lws</span></a>
   <div class="search">
     <input id="site-search" type="search" placeholder="Search docs… ( / )" autocomplete="off" spellcheck="false">
   </div>
@@ -155,7 +156,7 @@ restored on the way out, so nested matchers see relative paths.</p>
 <span class="t-id">app</span>.<span class="t-fn">post</span>(<span class="t-str">'/logout'</span>, <span class="t-kw">async</span> (<span class="t-id">req</span>, <span class="t-id">res</span>) <span class="t-op">=&gt;</span> { <span class="t-kw">await</span> <span class="t-id">req</span>.<span class="t-prop">session</span>.<span class="t-fn">destroy</span>(); <span class="t-id">res</span>.<span class="t-fn">json</span>({ <span class="t-id">ok</span><span class="t-op">:</span> <span class="t-atom">true</span> }); });</code></pre></div>
 <p>The <code>req.session</code> API is a plain object with non-enumerable helper
 methods attached:</p>
-<div class="tablewrap"><table><thead><tr><th>Member</th><th>Description</th></tr></thead><tbody><tr><td><code>req.session.&lt;key&gt;</code></td><td>Read/write user data. Stored under the session ID.</td></tr><tr><td><code>req.sessionID</code></td><td>Current session ID (read-only)</td></tr><tr><td><code>req.session.save()</code></td><td>Force a save even if nothing was touched</td></tr><tr><td><code>req.session.touch()</code></td><td>Extend store TTL without rewriting the value</td></tr><tr><td><code>req.session.destroy()</code></td><td>Remove from store + emit a <code>Set-Cookie</code> that clears the cookie</td></tr><tr><td><code>req.session.regenerate()</code></td><td>New SID, data preserved — use after login to defeat session-fixation</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Member</th><th>Description</th></tr></thead><tbody><tr><td><code id="sessions-liblwssessionjs-req-session-">req.session.&lt;key&gt;</code><a class="member-anchor" href="#sessions-liblwssessionjs-req-session-" aria-hidden="true">#</a></td><td>Read/write user data. Stored under the session ID.</td></tr><tr><td><code id="sessions-liblwssessionjs-req-sessionid">req.sessionID</code><a class="member-anchor" href="#sessions-liblwssessionjs-req-sessionid" aria-hidden="true">#</a></td><td>Current session ID (read-only)</td></tr><tr><td><code id="sessions-liblwssessionjs-req-session-save">req.session.save()</code><a class="member-anchor" href="#sessions-liblwssessionjs-req-session-save" aria-hidden="true">#</a></td><td>Force a save even if nothing was touched</td></tr><tr><td><code id="sessions-liblwssessionjs-req-session-touch">req.session.touch()</code><a class="member-anchor" href="#sessions-liblwssessionjs-req-session-touch" aria-hidden="true">#</a></td><td>Extend store TTL without rewriting the value</td></tr><tr><td><code id="sessions-liblwssessionjs-req-session-destroy">req.session.destroy()</code><a class="member-anchor" href="#sessions-liblwssessionjs-req-session-destroy" aria-hidden="true">#</a></td><td>Remove from store + emit a <code>Set-Cookie</code> that clears the cookie</td></tr><tr><td><code id="sessions-liblwssessionjs-req-session-regenerate">req.session.regenerate()</code><a class="member-anchor" href="#sessions-liblwssessionjs-req-session-regenerate" aria-hidden="true">#</a></td><td>New SID, data preserved — use after login to defeat session-fixation</td></tr></tbody></table></div>
 <h3 id="pluggable-store"><a class="anchor" href="#pluggable-store" aria-hidden="true">#</a>Pluggable store</h3>
 <p>Implement four methods to drop in Redis / SQLite / LMDB:</p>
 <div class="codeblock" data-lang="js"><pre><code class="language-js"><span class="t-kw">class</span> <span class="t-type">MyStore</span> {
@@ -208,8 +209,8 @@ per-request state goes on the <code>req</code> object.</li>
 <nav class="toc"><h3>On this page</h3><ul><li class="lvl2"><a href="#hello-world">Hello world</a></li><li class="lvl2"><a href="#how-a-handler-runs">How a handler runs</a></li><li class="lvl2"><a href="#the-request-object">The request object</a></li><li class="lvl2"><a href="#the-response-object">The response object</a></li><li class="lvl2"><a href="#built-in-middleware">Built-in middleware</a></li><li class="lvl2"><a href="#mounting-sub-routers">Mounting sub-routers</a></li><li class="lvl2"><a href="#sessions-liblwssessionjs">Sessions (lib/lws/session.js)</a></li><li class="lvl3"><a href="#pluggable-store">Pluggable store</a></li><li class="lvl3"><a href="#crypto-grade-random-ids">Crypto-grade random IDs</a></li><li class="lvl3"><a href="#rolling-cookies--regenerate">Rolling cookies + regenerate</a></li><li class="lvl2"><a href="#whats-not-here-yet">What's NOT here (yet)</a></li><li class="lvl2"><a href="#architecture-notes">Architecture notes</a></li></ul></nav>
 </div>
 <footer class="sitefoot">
-  <p>qjs-lws — MIT licensed. Built from the repo's own markdown by
-     <a href="https://github.com/rsenn/qjs-lws/blob/main/tools/site/build.js">tools/site/build.js</a>, running on qjsm.</p>
+  <p>qjs-lws — MIT. Built from the repo's own markdown by
+     <a href="https://github.com/rsenn/rsenn/tree/main/tools/site">rsenn/rsenn tools/site</a>.</p>
 </footer>
 <script src="../../assets/search-index.js"></script>
 <script src="../../assets/search.js"></script>

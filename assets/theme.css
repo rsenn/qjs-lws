@@ -1,0 +1,27 @@
+/* qjs-lws — web serving. Teal on cool paper, rounded and airy, a field of
+   connection dots behind the hero. */
+:root {
+  --bg:          light-dark(#fafbfc, #101217);
+  --bg-raised:   light-dark(#ffffff, #161a21);
+  --bg-sunken:   light-dark(#eef0f4, #0c0e13);
+  --bg-code:     light-dark(#f2f4f7, #161a21);
+  --fg:          light-dark(#181b21, #e3e7ee);
+  --fg-muted:    light-dark(#555b66, #969eae);
+  --fg-faint:    light-dark(#848a95, #626c80);
+  --line:        light-dark(#dde1e8, #1f2530);
+  --line-strong: light-dark(#c5cbd6, #2f3747);
+  --accent:      light-dark(#3768cd, #a9c5ff);
+  --accent-fg:   light-dark(#ffffff, #070a11);
+  --accent-soft: light-dark(#dfe5f2, #121c31);
+
+  --radius: 12px;
+  --mark-fg: var(--accent);
+  --hero-bg: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 28%, transparent) 1.2px, transparent 1.6px) 0 0 / 22px 22px,
+             radial-gradient(48rem 20rem at 85% -20%, var(--accent-soft), transparent 70%);
+  --card-shadow: 0 10px 30px -22px color-mix(in srgb, var(--accent) 70%, transparent);
+  --h2-rule: 0;
+}
+
+.doc h2 { padding-top: 0; }
+.doc h2::after { content: ""; display: block; width: 2.5rem; height: 3px; margin-top: 0.5rem; border-radius: 3px; background: var(--accent); }
+.hero { border-radius: 20px; padding-left: 2rem; padding-right: 2rem; margin-top: 1rem; }
