@@ -1,6 +1,6 @@
 /**
  * Demo/matrix script (not a unit test) for lib/cdn-loader.js: installs the
- * CDN moduleLoader() hook, then imports `preact` and
+ * CDN registerHooks() hooks, then imports `preact` and
  * `preact-render-to-string` from each of several CDNs, over both http and
  * https where a CDN actually answers on plain http, and renders a small
  * vnode tree to an HTML string with each - printing a PASS/FAIL matrix at
