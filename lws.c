@@ -426,15 +426,17 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       if(level == -1)
         level = LLL_USER;
 
-      if(ls)
-        _lws_log_cx(lwsl_wsi_get_cx(ls->wsi), lws_log_prepend_wsi, ls->wsi, level, NULL, "%s", msg);
-      else if(lws)
-        _lws_log_cx(lwsl_context_get_cx(lws->ctx), lws_log_prepend_context, lws->ctx, level, NULL, "%s", msg);
-      else
-        _lws_log(level, "%s", msg);
+      if(msg) {
+        if(ls)
+          _lws_log_cx(lwsl_wsi_get_cx(ls->wsi), lws_log_prepend_wsi, ls->wsi, level, NULL, "%s", msg);
+        else if(lws)
+          _lws_log_cx(lwsl_context_get_cx(lws->ctx), lws_log_prepend_context, lws->ctx, level, NULL, "%s", msg);
+        else
+          _lws_log(level, "%s", msg);
 
-      if(msg)
         JS_FreeCString(ctx, msg);
+      }
+
       break;
     }
 
