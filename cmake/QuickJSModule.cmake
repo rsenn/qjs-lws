@@ -1,16 +1,12 @@
 # quickjs_module_options([SHARED_DEFAULT <ON|OFF>] [STATIC_DEFAULT <ON|OFF>])
 #
-# Declares BUILD_SHARED_MODULES/BUILD_STATIC_MODULES the same way across
+# Declares BUILD_SHARED/BUILD_STATIC the same way across
 # every qjs-* project, so a single -DBUILD_SHARED_MODULES=.../
 # -DBUILD_STATIC_MODULES=... passed to the top-level quickjs/ build reaches
 # every add_subdirectory()'d qjs-* submodule unchanged (same cache-variable
 # name everywhere). Guarded by NOT DEFINED so a value already set by the
 # caller - this project's own earlier option() call, or the outer build -
-# always wins; this macro only ever supplies the fallback default. qjs-lws
-# itself declares its own BUILD_SHARED_MODULES/BUILD_STATIC_MODULES near
-# the top of its CMakeLists.txt (used well before this file is included),
-# so this macro only actually supplies defaults for a *different* project
-# that includes this file without having declared its own first.
+# always wins; this macro only ever supplies the fallback default.
 #
 # WASI/Emscripten have no dlopen()-able shared-module story, so the shared
 # default is forced off and the static default forced on there regardless
@@ -19,7 +15,8 @@ macro(quickjs_module_options)
   cmake_parse_arguments(QMO "" "SHARED_DEFAULT;STATIC_DEFAULT" "" ${ARGN})
   if(NOT DEFINED QMO_SHARED_DEFAULT)
     set(QMO_SHARED_DEFAULT ON)
-  endif(NOT DEFINED QMO_SHARED_DEFAULT)
+  endif()
+
   if(NOT DEFINED QMO_STATIC_DEFAULT)
     set(QMO_STATIC_DEFAULT OFF)
   endif(NOT DEFINED QMO_STATIC_DEFAULT)
@@ -29,13 +26,14 @@ macro(quickjs_module_options)
     set(QMO_STATIC_DEFAULT ON)
   endif(WASI OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
 
-  if(NOT DEFINED BUILD_SHARED_MODULES)
-    option(BUILD_SHARED_MODULES "Build shared QuickJS module(s) (*.so)" ${QMO_SHARED_DEFAULT})
-  endif(NOT DEFINED BUILD_SHARED_MODULES)
-  if(NOT DEFINED BUILD_STATIC_MODULES)
-    option(BUILD_STATIC_MODULES "Build static QuickJS module(s) (*.a)" ${QMO_STATIC_DEFAULT})
-  endif(NOT DEFINED BUILD_STATIC_MODULES)
-endmacro(quickjs_module_options)
+  if(NOT DEFINED BUILD_SHARED)
+    option(BUILD_SHARED "Build shared QuickJS module(s)" ${QMO_SHARED_DEFAULT})
+  endif()
+
+  if(NOT DEFINED BUILD_STATIC)
+    option(BUILD_STATIC "Build static QuickJS module(s) (*.a)" ${QMO_STATIC_DEFAULT})
+  endif(NOT DEFINED BUILD_STATIC)
+endmacro()
 
 if(NOT PRECOMPILED_MODULE_DIR)
   set(PRECOMPILED_MODULE_DIR "modules/"
@@ -51,18 +49,26 @@ function(module_path NAME OUTVAR)
   set(${OUTVAR} "${OUTNAME}" PARENT_SCOPE)
 endfunction(module_path NAME)
 
+#
+# config_module <TARGET_NAME>
+#
+# Apply the common link directory, dependencies and compile options
+# (QUICKJS_LIBRARY_DIR, QUICKJS_MODULE_DEPENDENCIES, QUICKJS_MODULE_CFLAGS) to
+# the target TARGET_NAME.
+#
 function(config_module TARGET_NAME)
   if(QUICKJS_LIBRARY_DIR)
-    set_target_properties(${TARGET_NAME} PROPERTIES LINK_DIRECTORIES
-                                                    "${QUICKJS_LIBRARY_DIR}")
-  endif(QUICKJS_LIBRARY_DIR)
+    set_target_properties(${TARGET_NAME} PROPERTIES LINK_DIRECTORIES "${QUICKJS_LIBRARY_DIR}")
+  endif()
+
   if(QUICKJS_MODULE_DEPENDENCIES)
     target_link_libraries(${TARGET_NAME} ${QUICKJS_MODULE_DEPENDENCIES})
-  endif(QUICKJS_MODULE_DEPENDENCIES)
+  endif()
+
   if(QUICKJS_MODULE_CFLAGS)
     target_compile_options(${TARGET_NAME} PRIVATE "${QUICKJS_MODULE_CFLAGS}")
   endif(QUICKJS_MODULE_CFLAGS)
-endfunction(config_module TARGET_NAME)
+endfunction()
 
 ##
 ## compile_module SOURCE
@@ -138,68 +144,75 @@ function(generate_module_header SOURCE)
   dump(SYMBOLS)
 endfunction(generate_module_header SOURCE)
 
-##
-## make_module_header SOURCE
-##
+#
+# make_module_header <SOURCE>
+#
+# Add a target that regenerates the header of the C module SOURCE by running
+# remake_module() in a cmake script.
+#
 function(make_module_header SOURCE)
   string(REGEX REPLACE "\\.tmp$" "" BASE2 "${SOURCE}")
   basename(BASE "${BASE2}" .c)
   string(REGEX REPLACE "\\.c$" ".h" HEADER "${BASE2}")
   string(REGEX REPLACE "-" "_" NAME "${BASE}")
   set(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/gen-${BASE}-header.cmake")
+  make_script("${SCRIPT}" "message(\"Generating module '${NAME}'\")\nremake_module(${SOURCE})\n"
+              "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Functions.cmake;${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake")
+  add_custom_target(${BASE}.h ALL ${CMAKE_COMMAND} -P ${SCRIPT} DEPENDS ${SOURCE} BYPRODUCTS ${HEADER}
+                    SOURCES ${SOURCE})
+endfunction()
 
-  make_script(
-    "${SCRIPT}"
-    "message(\"Generating module '${NAME}'\")\nremake_module(${SOURCE})\n"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Functions.cmake;${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake"
-  )
-
-  add_custom_target(${BASE}.h ALL ${CMAKE_COMMAND} -P ${SCRIPT}
-                    DEPENDS ${SOURCE} BYPRODUCTS ${HEADER} SOURCES ${SOURCE})
-endfunction(make_module_header SOURCE)
-
-##
-## list_definitions SOURCE OUTVAR
-##
+#
+# list_definitions <SOURCE> <OUTVAR>
+#
+# Store the names of the qjsc_* definitions in the C file SOURCE in OUTVAR,
+# leaving out the one named by the extra argument.
+#
 function(list_definitions SOURCE OUTVAR)
   file(READ "${SOURCE}" CSRC)
   string(REGEX MATCHALL "qjsc_[0-9A-Za-z_]+" SYMBOLS "${CSRC}")
   list(FILTER SYMBOLS EXCLUDE REGEX "_size$")
   string(REGEX REPLACE "qjsc_" "" SYMBOLS "${SYMBOLS}")
-  set(S "")
+  set(OUT "")
 
   foreach(DEF ${SYMBOLS})
     if(ARGN AND NOT "${DEF}" STREQUAL "${ARGN}")
-      list(APPEND S "${DEF}")
+      list(APPEND OUT "${DEF}")
     endif(ARGN AND NOT "${DEF}" STREQUAL "${ARGN}")
   endforeach(DEF ${SYMBOLS})
 
-  set("${OUTVAR}" "${S}" PARENT_SCOPE)
-endfunction(list_definitions SOURCE OUTVAR)
+  set("${OUTVAR}" "${OUT}" PARENT_SCOPE)
+endfunction()
 
-##
-## include_definitions OUTVAR
-##
+#
+# include_definitions <OUTVAR>
+#
+# Store in OUTVAR an #include line for the header of each definition name
+# given (underscores written as '-').
+#
 function(include_definitions OUTVAR)
+  #print_str("include_definitions(${OUTVAR} ${ARGN})")
   set(S "")
-
   foreach(DEF ${ARGN})
     string(STRIP "${DEF}" DEF)
     string(REGEX REPLACE "_" "-" NAME "${DEF}")
     set(S "${S}#include \"${NAME}.h\"\n")
   endforeach(DEF ${ARGN})
 
+  #print_str("include_definitions S=${S}")
   set("${OUTVAR}" "${S}" PARENT_SCOPE)
-endfunction(include_definitions OUTVAR)
+endfunction()
 
-##
-## extract_definition SOURCE OUTVAR DEF
-##
+#
+# extract_definition <SOURCE> <OUTVAR> <DEF>
+#
+# Store in OUTVAR the qjsc_<DEF> definition (the const data declaration) found
+# in the C file SOURCE.
+#
 function(extract_definition SOURCE OUTVAR DEF)
   basename(BASE "${SOURCE}" .c)
   file(READ "${SOURCE}" CSRC)
-  string(REGEX MATCHALL "const[^\n;]*qjsc_${DEF}[[_][^;]*;" DEFINITIONS
-               "${CSRC}")
+  string(REGEX MATCHALL "const[^\n;]*qjsc_${DEF}[[_][^;]*;" DEFINITIONS "${CSRC}")
   string(REPLACE "\n" "\\n" DEFINITIONS "${DEFINITIONS}")
   string(REGEX REPLACE ";\\s*;*" ";" DEFINITIONS "${DEFINITIONS}")
   string(REGEX REPLACE ";;" ";" DEFINITIONS "${DEFINITIONS}")
@@ -217,7 +230,7 @@ function(extract_definition SOURCE OUTVAR DEF)
 
   string(REGEX REPLACE "\\\\n" "\\n" S "${S}")
   set("${OUTVAR}" "${S}\n" PARENT_SCOPE)
-endfunction(extract_definition SOURCE OUTVAR DEF)
+endfunction()
 
 ##
 ## remake_module SOURCE
@@ -245,22 +258,24 @@ function(remake_module SOURCE)
 
 endfunction(remake_module SOURCE)
 
-##
-## make_script OUTPUT_FILE TEXT INCLUDES
-##
+#
+# make_script <OUTPUT_FILE> <TEXT> <INCLUDES>
+#
+# Write the cmake script OUTPUT_FILE that includes the files INCLUDES and then
+# runs TEXT.
+#
 function(make_script OUTPUT_FILE TEXT INCLUDES)
   basename(BASE "${SOURCE}" .c)
   string(REGEX REPLACE "\\.c$" ".h" HEADER "${SOURCE}")
   string(REGEX REPLACE "-" "_" NAME "${BASE}")
   set(S "cmake_policy(SET CMP0007 NEW)\n")
-
   foreach(INC ${INCLUDES})
     set(S "${S}\ninclude(${INC})\n")
-  endforeach(INC ${INCLUDES})
+  endforeach()
 
   set(S "${S}\n\n${TEXT}\n")
   file(WRITE "${OUTPUT_FILE}" "${S}")
-endfunction(make_script OUTPUT_FILE TEXT INCLUDES)
+endfunction()
 
 ##
 ## make_module FNAME
@@ -278,13 +293,13 @@ function(make_module FNAME)
   if(ARGN)
     set(SOURCES ${ARGN} #${${VNAME}_SOURCES}
                 ${COMMON_SOURCES})
-    add_unique(DEPS ${${VNAME}_DEPS})
+    set_add(DEPS ${${VNAME}_DEPS})
   else(ARGN)
     set(SOURCES quickjs-${NAME}.c #${${VNAME}_SOURCES}
                 ${COMMON_SOURCES})
-    add_unique(LIBS ${${VNAME}_LIBRARIES})
+    set_add(LIBS ${${VNAME}_LIBRARIES})
   endif(ARGN)
-  add_unique(LIBS ${COMMON_LIBRARIES})
+  set_add(LIBS ${COMMON_LIBRARIES})
 
   message(
     STATUS
@@ -292,7 +307,7 @@ function(make_module FNAME)
   )
 
   if(WASI OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
-    set(BUILD_SHARED_MODULES OFF)
+    set(BUILD_SHARED OFF)
   endif(WASI OR EMSCRIPTEN OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
 
   if(NOT WASI AND "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
@@ -303,7 +318,7 @@ function(make_module FNAME)
 
   #dump(VNAME ${VNAME}_SOURCES SOURCES)
 
-  if(BUILD_SHARED_MODULES)
+  if(BUILD_SHARED)
     #add_library(${TARGET_NAME} MODULE ${SOURCES})
     add_library(${TARGET_NAME} SHARED ${SOURCES})
 
@@ -337,7 +352,7 @@ function(make_module FNAME)
       add_dependencies(${TARGET_NAME} ${DEPS})
     endif(DEPS)
 
-  endif(BUILD_SHARED_MODULES)
+  endif(BUILD_SHARED)
 
   add_library(${TARGET_NAME}-static STATIC ${SOURCES})
 
@@ -586,3 +601,87 @@ function(write_module_file NAME S)
   module_path(${NAME} OUTFILE)
   file(WRITE "${OUTFILE}" "${S}")
 endfunction(write_module_file NAME S)
+
+#
+# get_native_modules <OUTPUT-VARIABLE>
+#
+# Names of the native modules, one per quickjs-<name>.c in the source
+# directory, with '-' written '_': quickjs-child-process.c -> child_process.
+#
+function(get_native_modules OUTVAR)
+  file(GLOB FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/quickjs-*.c")
+
+  set(NAMES "")
+  foreach(FILE ${FILES})
+    string(REGEX REPLACE "^quickjs-(.*)\\.c$" "\\1" NAME "${FILE}")
+    string(REPLACE "-" "_" NAME "${NAME}")
+    list(APPEND NAMES "${NAME}")
+  endforeach(FILE ${FILES})
+
+  list(SORT NAMES)
+  set("${OUTVAR}" "${NAMES}" PARENT_SCOPE)
+endfunction()
+
+#
+# get_compiled_modules <OUTPUT-VARIABLE>
+#
+# Names of the JS modules that can be compiled into a builtin, one per .js
+# file below lib/ without the extension: lib/fsPromises.js -> fsPromises,
+# lib/xml/read.js -> xml/read.
+#
+function(get_compiled_modules OUTVAR)
+  file(GLOB_RECURSE FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/lib" "${CMAKE_CURRENT_SOURCE_DIR}/lib/*.js")
+
+  set(NAMES "")
+  foreach(FILE ${FILES})
+    string(REGEX REPLACE "\\.js$" "" NAME "${FILE}")
+    list(APPEND NAMES "${NAME}")
+  endforeach(FILE ${FILES})
+
+  list(SORT NAMES)
+  set("${OUTVAR}" "${NAMES}" PARENT_SCOPE)
+endfunction()
+
+#
+# compile_code <RESULT-VARIABLE> <CODE>
+#
+# Try to compile the C source CODE against QuickJS and store whether it worked
+# in RESULT-VARIABLE, unless already defined.
+#
+function(compile_code RESULT_VAR CODE)
+  string(TOLOWER "${RESULT_VAR}" NAME)
+  string(REGEX REPLACE "_" "-" FILE "try-${NAME}.c")
+
+  if(NOT DEFINED "${RESULT_VAR}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${FILE}" "${CODE}")
+
+    # must match the include search order the real qjsm.c/quickjs-*.c translation units get
+    # (see include_directories(${QUICKJS_INCLUDE_DIRS}) / include_directories(${QUICKJS_INCLUDE_DIR})
+    # in CMakeLists.txt) - otherwise this probe can silently detect a different header than the one
+    # actually compiled against (js-module-loader-detection-vs-actual-headers)
+    set(_compile_code_includes "${QUICKJS_INCLUDE_DIRS}" "${QUICKJS_SOURCES_ROOT}")
+    set(_compile_code_iflags "")
+
+    foreach(_dir ${_compile_code_includes})
+      set(_compile_code_iflags "${_compile_code_iflags} -I${_dir}")
+    endforeach(_dir ${_compile_code_includes})
+
+    try_compile(
+      RESULT "${CMAKE_CURRENT_BINARY_DIR}"
+      "${CMAKE_CURRENT_BINARY_DIR}/${FILE}"
+      LINK_OPTIONS "-L${QUICKJS_LIBRARY_DIR}"
+      COMPILE_DEFINITIONS "${_compile_code_iflags}"
+      CMAKE_FLAGS
+        "-DINCLUDE_DIRECTORIES=${_compile_code_includes}" "-DLINK_DIRECTORIES=${QUICKJS_LIBRARY_DIR}" LINK_DIRECTORIES
+        "${QUICKJS_LIBRARY_DIR}"
+      LINK_LIBRARIES "${QUICKJS_LIBRARY}"
+      OUTPUT_VARIABLE OUTPUT)
+
+    set(${RESULT_VAR} "${RESULT}" PARENT_SCOPE)
+
+    if(NOT RESULT)
+      message(STATUS "Failed to compile '${FILE}'. Output:\n${OUTPUT}")
+    endif(NOT RESULT)
+
+  endif(NOT DEFINED "${RESULT_VAR}")
+endfunction()

@@ -1,5 +1,9 @@
 include(CheckLibraryExists)
 
+include(cmake/FindZlib.cmake)
+include(cmake/BuildZlib.cmake)
+
+
 macro(build_libwebsockets)
   # Accepts either the legacy positional form build_libwebsockets(<target>)
   # or build_libwebsockets(TARGET <target> PIC <ON|OFF>). PIC controls
@@ -23,6 +27,34 @@ macro(build_libwebsockets)
   endif()
 
   set(LWS_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}")
+
+  # Once zlib had to be built, ZLIB_LIBRARY points at that build, which
+  # find_zlib() would mistake for a found system zlib on the next call.
+  if(ZLIB_BUILT)
+    set(ZLIB_FOUND FALSE)
+  else(ZLIB_BUILT)
+    find_zlib()
+  endif(ZLIB_BUILT)
+
+  if(ZLIB_FOUND)
+    set(LWS_ZLIB_INCLUDE_DIRS_VALUE "${ZLIB_INCLUDE_DIR}")
+    set(LWS_ZLIB_LIBRARIES_VALUE "${ZLIB_LIBRARY}")
+  else(ZLIB_FOUND)
+    # One zlib build per libwebsockets target, since PIC may differ between them.
+    build_zlib(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
+    set(ZLIB_DEPS zlib_${TARGET})
+    set(LWS_ZLIB_INCLUDE_DIRS_VALUE "${ZLIB_INCLUDE_DIR_${TARGET}}")
+    set(LWS_ZLIB_LIBRARIES_VALUE "${ZLIB_LIBRARY_FILE_${TARGET}}")
+    # The rest of the project links ${ZLIB_LIBRARY}; point it at the built
+    # zlib (the PIC one, if any, since shared modules need it).
+    if(NOT ZLIB_BUILT OR LWS_BUILD_PIC)
+      set(ZLIB_LIBRARY "${ZLIB_LIBRARY_FILE_${TARGET}}")
+      set(ZLIB_LIBRARIES "${ZLIB_LIBRARY}")
+      set(ZLIB_INCLUDE_DIR "${ZLIB_INCLUDE_DIR_${TARGET}}")
+    endif()
+    set(ZLIB_BUILT TRUE)
+  endif(ZLIB_FOUND)
+
 
   message(STATUS "Building libwebsockets from source (${TARGET}, PIC=${LWS_BUILD_PIC})")
 
@@ -249,17 +281,22 @@ macro(build_libwebsockets)
     endif()
   endif()
 
-  if(ZLIB_LIBRARY_RELEASE)
-    set(LIBWEBSOCKETS_ARGS
-        "${LIBWEBSOCKETS_ARGS} -DLWS_ZLIB_LIBRARIES:PATH=${ZLIB_LIBRARY_RELEASE}"
-    )
-  endif(ZLIB_LIBRARY_RELEASE)
+  # Without a usable libcap for this toolchain, stop lws from picking up the
+  # host's: its find_path() adds -I/usr/include ahead of the toolchain's own
+  # headers, which breaks e.g. musl-gcc builds (host bits/errno.h).
+  if(NOT LIBCAP)
+    list(APPEND LIBWEBSOCKETS_ARGS -DLWS_WITH_LIBCAP:BOOL=OFF)
+  endif(NOT LIBCAP)
 
-  if(ZLIB_INCLUDE_DIR)
-    set(LIBWEBSOCKETS_ARGS
-        "${LIBWEBSOCKETS_ARGS} -DLWS_ZLIB_INCLUDE_DIRS:PATH=${ZLIB_INCLUDE_DIR}"
-    )
-  endif(ZLIB_INCLUDE_DIR)
+  if(LWS_ZLIB_LIBRARIES_VALUE)
+    list(APPEND LIBWEBSOCKETS_ARGS
+         "-DLWS_ZLIB_LIBRARIES:PATH=${LWS_ZLIB_LIBRARIES_VALUE}")
+  endif(LWS_ZLIB_LIBRARIES_VALUE)
+
+  if(LWS_ZLIB_INCLUDE_DIRS_VALUE)
+    list(APPEND LIBWEBSOCKETS_ARGS
+         "-DLWS_ZLIB_INCLUDE_DIRS:PATH=${LWS_ZLIB_INCLUDE_DIRS_VALUE}")
+  endif(LWS_ZLIB_INCLUDE_DIRS_VALUE)
 
   #if("${LWS_HAVE_HMAC_CTX_new}" STREQUAL "")
   #set(LWS_HAVE_HMAC_CTX_new 1 CACHE STRING "Have HMAC_CTX_new")
@@ -293,6 +330,7 @@ macro(build_libwebsockets)
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
     BINARY_DIR ${LWS_BINARY_DIR}
     PREFIX ${TARGET}
+    DEPENDS ${ZLIB_DEPS}
     CMAKE_ARGS
       -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
       "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
