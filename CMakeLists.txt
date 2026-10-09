@@ -5,6 +5,33 @@ project(qjs-lws VERSION 0.9 LANGUAGES C)
 
 message(STATUS "${PROJECT_NAME} ${PROJECT_VERSION}")
 
+# A musl toolchain must not pick up the host's (glibc) libraries and headers:
+# search for dependencies only below CMAKE_PREFIX_PATH, and have pkg-config
+# look only there too. Whatever isn't found there gets built from source.
+option(FIND_ONLY_IN_PREFIX "Only search CMAKE_PREFIX_PATH for libraries, headers and packages" OFF)
+if(CMAKE_C_COMPILER MATCHES "musl" OR FIND_ONLY_IN_PREFIX)
+  if(CMAKE_PREFIX_PATH)
+    list(APPEND CMAKE_FIND_ROOT_PATH ${CMAKE_PREFIX_PATH})
+    set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+    set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+    set(_pc_dirs "")
+    foreach(_prefix ${CMAKE_PREFIX_PATH})
+      file(GLOB _multiarch RELATIVE "${_prefix}/lib" "${_prefix}/lib/*-linux-*")
+      list(APPEND _pc_dirs "${_prefix}/lib/pkgconfig" "${_prefix}/share/pkgconfig")
+      foreach(_dir ${_multiarch})
+        list(APPEND _pc_dirs "${_prefix}/lib/${_dir}/pkgconfig")
+      endforeach(_dir)
+    endforeach(_prefix)
+    string(REPLACE ";" ":" _pc_dirs "${_pc_dirs}")
+    set(ENV{PKG_CONFIG_LIBDIR} "${_pc_dirs}")
+    message(STATUS "Searching only in: ${CMAKE_PREFIX_PATH}")
+  else(CMAKE_PREFIX_PATH)
+    message(WARNING "FIND_ONLY_IN_PREFIX/musl: CMAKE_PREFIX_PATH is empty, searching the system as usual")
+  endif(CMAKE_PREFIX_PATH)
+endif()
+
 set(DISABLE_WERROR TRUE CACHE BOOL "Disable -Werror flag")
 set(EXTRA_LIBRARIES "" CACHE STRING "Extra libraries")
 
