@@ -18,7 +18,7 @@ macro(build_brotli BINARY SUFFIX PIC)
 
   ExternalProject_Add(
     brotli_${SUFFIX}
-    URL https://github.com/google/brotli/archive/refs/tags/v1.1.0.tar.gz
+    URL https://github.com/google/brotli/archive/refs/tags/v1.2.0.tar.gz
     DOWNLOAD_DIR ${BINARY}/downloads-${SUFFIX}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     BINARY_DIR ${BINARY}/brotli-${SUFFIX}

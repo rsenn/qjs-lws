@@ -9,7 +9,7 @@ macro(build_libressl BINARY SUFFIX PIC)
 
   message("-- Building LibreSSL from source (${SUFFIX}, PIC=${PIC})")
 
-  set(LIBRESSL_VERSION 4.0.0)
+  set(LIBRESSL_VERSION 4.3.3)
   set(LIBRESSL_PREFIX_${SUFFIX} "${BINARY}/deps-${SUFFIX}")
   set(LIBRESSL_INCLUDE_DIR_${SUFFIX} "${LIBRESSL_PREFIX_${SUFFIX}}/include")
   set(LIBRESSL_LIBRARY_DIR_${SUFFIX} "${LIBRESSL_PREFIX_${SUFFIX}}/lib")
