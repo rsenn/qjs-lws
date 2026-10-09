@@ -24,6 +24,8 @@ typedef struct LWSContext {
      passed back to os.clearTimeout() as-is, never coerced to a number.
      JS_UNDEFINED means no service tick is currently scheduled. */
   JSValue service_timer_id;
+  /* Namespace of the `os` module, cached by iohandler_function(). */
+  JSValue os;
 #ifdef USE_EPOLL
   LWSEpoll* epoll;
 #endif

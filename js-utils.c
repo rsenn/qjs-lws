@@ -497,3 +497,25 @@ js_invoke_deferred(JSContext* ctx, JSValueConst obj, const char* method_name, in
 
   return chained;
 }
+
+/* Loads the named module and runs pending jobs until its load promise
+   settles; returns the module namespace, or JS_UNDEFINED if it didn't
+   fulfill, or the exception. */
+JSValue
+js_module_namespace_sync(JSContext* ctx, const char* module_name) {
+  JSRuntime* rt = JS_GetRuntime(ctx);
+  JSContext* job_ctx;
+  JSValue ns = JS_UNDEFINED, promise = JS_LoadModule(ctx, ".", module_name);
+
+  if(JS_IsException(promise))
+    return promise;
+
+  while(JS_PromiseState(ctx, promise) == JS_PROMISE_PENDING && JS_ExecutePendingJob(rt, &job_ctx) > 0) {
+  }
+
+  if(JS_PromiseState(ctx, promise) == JS_PROMISE_FULFILLED)
+    ns = JS_PromiseResult(ctx, promise);
+
+  JS_FreeValue(ctx, promise);
+  return ns;
+}

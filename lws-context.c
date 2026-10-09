@@ -694,6 +694,7 @@ context_new(JSContext* ctx) {
     /* js_mallocz() zero-fills, which isn't guaranteed to be JS_UNDEFINED's
        actual bit pattern - set it explicitly rather than relying on that. */
     lws->service_timer_id = JS_UNDEFINED;
+    lws->os = JS_UNDEFINED;
   }
 
   return lws;
@@ -711,6 +712,8 @@ context_free(JSRuntime* rt, LWSContext* lws) {
 
     service_tick_cancel(lws);
     timers_cleanup(lws);
+    JS_FreeValue(lws->js, lws->os);
+    lws->os = JS_UNDEFINED;
     JS_FreeContext(lws->js);
     lws->js = NULL;
   }

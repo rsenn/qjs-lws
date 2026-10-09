@@ -22,6 +22,7 @@ JSValue js_iterator_next(JSContext*, JSValueConst, BOOL*);
 BOOL js_has_property(JSContext*, JSValueConst, const char*);
 BOOL js_has_property2(JSContext*, JSValueConst, const char*);
 JSValue js_get_property(JSContext*, JSValueConst, const char*);
+JSValue js_module_namespace_sync(JSContext*, const char*);
 void js_error_print(JSContext*, JSValueConst);
 JSValue js_fmt_pointer(JSContext*, void*, const char*);
 JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
