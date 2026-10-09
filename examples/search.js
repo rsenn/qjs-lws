@@ -1,14 +1,10 @@
 #!/usr/bin/env qjsm
-import { fetch } from './lib/fetch.js';
+import { fetch } from '../lib/fetch.js';
 import { puts, exit, err as stderr } from 'std';
 import { LLL_USER, LLL_WARN, LLL_ERR, logLevel } from 'lws.so';
 import { Console } from 'console';
 
-//globalThis.console = new Console(stderr, { inspectOptions: {} });
-
-//logLevel((process.env.DEBUG ? LLL_USER : 0) | LLL_WARN | LLL_ERR, (l, m) => console.log(m.replace(/: \w+: /, ': ')));
-
-// SerpApi `engine` value -> query parameter name and the response key holding web results
+/* SerpApi `engine` value -> query parameter name and the response key holding web results */
 const ENGINES = {
   google: { q: 'q' },
   bing: { q: 'q' },
@@ -19,7 +15,7 @@ const ENGINES = {
   naver: { q: 'query', results: 'web_results' },
 };
 
-// fetch() keeps one shared keep-alive context, so it may only be destroyed once every engine is done
+/* fetch() keeps one shared keep-alive context, so it may only be destroyed once every engine is done */
 let ctx;
 
 async function searchEngine(engine, q, limit, apiKey, verbose) {
@@ -32,8 +28,8 @@ async function searchEngine(engine, q, limit, apiKey, verbose) {
   do {
     let url;
     if(nextLink) {
-      // Use the next page link from pagination
-      // Add api_key if not already present
+      /* Use the next page link from pagination
+         Add api_key if not already present */
       if(!nextLink.includes('api_key=')) {
         url = `${nextLink}&api_key=${encodeURIComponent(apiKey)}`;
       } else {
@@ -43,7 +39,7 @@ async function searchEngine(engine, q, limit, apiKey, verbose) {
       pageNum++;
       if(verbose) console.log(`Fetching ${engine} page ${pageNum}...`);
     } else {
-      // First page
+      /* First page */
       const qs = [
         ['engine', engine],
         [queryParam, q],
@@ -72,16 +68,16 @@ async function searchEngine(engine, q, limit, apiKey, verbose) {
     allResults = allResults.concat(results);
     positionOffset += results.length;
 
-    // Check for pagination
+    /* Check for pagination */
     nextLink = data.serpapi_pagination?.next_link || null;
 
-    // Stop if we have enough results or no more pages
+    /* Stop if we have enough results or no more pages */
   } while(nextLink && allResults.length < limit);
 
   return allResults;
 }
 
-// 1st result of every list, then the 2nd of every list, and so on
+/* 1st result of every list, then the 2nd of every list, and so on */
 function interleave(lists) {
   const merged = [];
   for(let i = 0; lists.some(l => i < l.length); i++) for(const l of lists) if(i < l.length) merged.push(l[i]);
@@ -102,7 +98,7 @@ async function main() {
   const engineNames = [];
   let args = scriptArgs.slice(1).filter(a => a !== '--json' && a !== '--plain' && a !== '--all');
 
-  // Parse -n or --limit, -e or --engine (repeatable, comma-separated)
+  /* Parse -n or --limit, -e or --engine (repeatable, comma-separated) */
   for(let i = 0; i < args.length; i++) {
     if((args[i] === '-n' || args[i] === '--limit') && args[i + 1]) {
       limit = parseInt(args[i + 1], 10);
@@ -127,7 +123,7 @@ async function main() {
 
   if(!plainOutput) console.log(`Searching: "${q}" via ${engines.join(', ')}${limit !== Infinity ? ` (limit: ${limit})` : ''}...`);
 
-  // Interleaving takes at most ceil(limit / engines) from each, so don't page any further (each page is a billed search)
+  /* Interleaving takes at most ceil(limit / engines) from each, so don't page any further (each page is a billed search) */
   const perEngine = Math.ceil(limit / engines.length);
   const outcomes = await Promise.allSettled(engines.map(e => searchEngine(e, q, perEngine, apiKey, !jsonOutput && !plainOutput)));
   const lists = [];
@@ -139,7 +135,7 @@ async function main() {
 
   let allResults = interleave(lists);
 
-  // Apply limit
+  /* Apply limit */
   if(limit !== Infinity && allResults.length > limit) {
     allResults = allResults.slice(0, limit);
   }

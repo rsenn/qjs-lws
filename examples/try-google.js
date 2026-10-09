@@ -20,14 +20,16 @@ import { err as stderr, out as stdout } from 'std';
 import { setTimeout, clearTimeout } from 'os';
 import { setInterval, clearInterval } from 'timers';
 import { atob, btoa } from 'util';
+import { existsSync, writeFileSync } from 'fs';
+import { fetch as lwsFetch } from '../lib/fetch.js';
 
-const TRACE_MISSING = true; // log every missing API access
-const TRACE_ERRORS = true; // log every thrown error
-const DUMP_DOM = true; // dump body HTML after execution
-const MAX_SCRIPT_CHARS = 500000; // skip scripts larger than this
-const MAX_RECORDS_LOGGED = 50; // cap per-phase record spam
+const TRACE_MISSING = true; /* log every missing API access */
+const TRACE_ERRORS = true; /* log every thrown error */
+const DUMP_DOM = true; /* dump body HTML after execution */
+const MAX_SCRIPT_CHARS = 500000; /* skip scripts larger than this */
+const MAX_RECORDS_LOGGED = 50; /* cap per-phase record spam */
 
-// ─── Proxy trap that logs missing property access ───
+/* --- Proxy trap that logs missing property access --- */
 function trapMissing(obj, label) {
   if(!TRACE_MISSING) return obj;
 
@@ -37,7 +39,7 @@ function trapMissing(obj, label) {
     get(target, prop, receiver) {
       if(prop in target || typeof prop === 'symbol') {
         const val = Reflect.get(target, prop, receiver);
-        // Recursively trap nested objects
+        /* Recursively trap nested objects */
         if(val && typeof val === 'object' && typeof prop === 'string' && !accessed.has(prop)) {
           accessed.add(prop);
           return trapMissing(val, `${label}.${prop}`);
@@ -56,7 +58,7 @@ function trapMissing(obj, label) {
   });
 }
 
-// ─── Summarise a batch of MutationRecords into readable lines ───
+/* --- Summarise a batch of MutationRecords into readable lines --- */
 function summariseRecords(records, phaseLabel) {
   if(!records.length) {
     console.log(`    [MO] ${phaseLabel}: (no DOM mutations)`);
@@ -65,7 +67,7 @@ function summariseRecords(records, phaseLabel) {
 
   console.log(`    [MO] ${phaseLabel}: ${records.length} record(s)`);
 
-  // Bucket by type for compact output
+  /* Bucket by type for compact output */
   const buckets = { childList: [], attributes: [], characterData: [] };
   for(const r of records) {
     const b = buckets[r.type];
@@ -101,16 +103,16 @@ function summariseRecords(records, phaseLabel) {
   }
 }
 
-// Flush microtask queue so MutationObserver callbacks fire before we
-// call takeRecords(). One zero-delay setTimeout round-trip is enough
-// for the 'dom' module's internal queue.
+/* Flush microtask queue so MutationObserver callbacks fire before we
+   call takeRecords(). One zero-delay setTimeout round-trip is enough
+   for the 'dom' module's internal queue. */
 function flushMicrotasks() {
   return new Promise(r => setTimeout(r, 0));
 }
 
-// ─── Build the window/document/navigator shims ───
+/* --- Build the window/document/navigator shims --- */
 function buildShims(doc) {
-  // Performance API
+  /* Performance API */
   const perfStart = Date.now();
   const performance = {
     now: () => Date.now() - perfStart,
@@ -121,7 +123,7 @@ function buildShims(doc) {
     getEntriesByName: () => [],
   };
 
-  // Navigator
+  /* Navigator */
   const navigator = trapMissing(
     {
       userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -156,7 +158,7 @@ function buildShims(doc) {
     'navigator',
   );
 
-  // Location
+  /* Location */
   const location = trapMissing(
     {
       href: 'https://www.google.com/search?q=browser+console.log+css&hl=de',
@@ -177,7 +179,7 @@ function buildShims(doc) {
     'location',
   );
 
-  // History
+  /* History */
   const history = {
     replaceState: () => {},
     pushState: () => {},
@@ -185,7 +187,7 @@ function buildShims(doc) {
     length: 1,
   };
 
-  // Screen
+  /* Screen */
   const screen = {
     width: 1920,
     height: 1080,
@@ -195,7 +197,7 @@ function buildShims(doc) {
     pixelDepth: 24,
   };
 
-  // Storage stubs
+  /* Storage stubs */
   function makeStorage() {
     const store = new Map();
     return {
@@ -210,7 +212,7 @@ function buildShims(doc) {
     };
   }
 
-  // TrustedTypes shim (Google's code checks for this)
+  /* TrustedTypes shim (Google's code checks for this) */
   const trustedTypes = {
     createPolicy: (name, rules) => ({
       name,
@@ -220,7 +222,7 @@ function buildShims(doc) {
     }),
   };
 
-  // Event stubs
+  /* Event stubs */
   class EventStub {
     constructor(type, opts = {}) {
       this.type = type;
@@ -239,7 +241,7 @@ function buildShims(doc) {
     initCustomEvent() {}
   }
 
-  // Minimal addEventListener/removeEventListener on document/documentElement
+  /* Minimal addEventListener/removeEventListener on document/documentElement */
   const eventListeners = new Map();
 
   function addEventListener(type, handler, opts) {
@@ -270,7 +272,7 @@ function buildShims(doc) {
     return !event.defaultPrevented;
   }
 
-  // XMLHttpRequest stub
+  /* XMLHttpRequest stub */
   class XMLHttpRequest {
     constructor() {
       this.readyState = 0;
@@ -289,7 +291,7 @@ function buildShims(doc) {
     }
     setRequestHeader() {}
     send(body) {
-      // Simulate immediate completion
+      /* Simulate immediate completion */
       this.readyState = 4;
       this.status = 200;
       this.responseText = '{}';
@@ -308,7 +310,7 @@ function buildShims(doc) {
     removeEventListener() {}
   }
 
-  // fetch() stub
+  /* fetch() stub */
   function fetchStub(url, opts) {
     return Promise.resolve({
       ok: true,
@@ -322,7 +324,7 @@ function buildShims(doc) {
     });
   }
 
-  // ─── Intercepted Timers ───
+  /* --- Intercepted Timers --- */
   const interceptedSetTimeout = (callback, delay, ...args) => {
     console.log(`[TIMER] setTimeout set with delay ${delay}ms`);
     const wrappedCallback = (...cbArgs) => {
@@ -349,7 +351,7 @@ function buildShims(doc) {
     return setInterval(wrappedCallback, delay, ...args);
   };
 
-  // Build the window object
+  /* Build the window object */
   const win = {
     document: doc,
     location,
@@ -361,17 +363,17 @@ function buildShims(doc) {
     sessionStorage: makeStorage(),
     trustedTypes,
 
-    // Timers (intercepted)
+    /* Timers (intercepted) */
     setTimeout: interceptedSetTimeout,
     clearTimeout,
     setInterval: interceptedSetInterval,
     clearInterval,
 
-    // Encoding
+    /* Encoding */
     btoa,
     atob,
 
-    // Console
+    /* Console */
     console: trapMissing(
       {
         log: (...args) => console.log('[PAGE]', ...args),
@@ -393,25 +395,25 @@ function buildShims(doc) {
       'console',
     ),
 
-    // DOM events on window
+    /* DOM events on window */
     addEventListener,
     removeEventListener,
     dispatchEvent,
 
-    // XMLHttpRequest
+    /* XMLHttpRequest */
     XMLHttpRequest,
     fetch: fetchStub,
 
-    // Common globals
-    self: undefined, // will be set below
-    window: undefined, // will be set below
+    /* Common globals */
+    self: undefined, /* will be set below */
+    window: undefined, /* will be set below */
     globalThis: undefined,
     parent: undefined,
     top: undefined,
     frames: undefined,
     opener: null,
 
-    // Misc
+    /* Misc */
     innerWidth: 1920,
     innerHeight: 1080,
     outerWidth: 1920,
@@ -426,7 +428,7 @@ function buildShims(doc) {
     length: 0,
     status: '',
 
-    // Promise
+    /* Promise */
     Promise,
     Symbol,
     Map,
@@ -450,7 +452,7 @@ function buildShims(doc) {
     Infinity,
     undefined,
 
-    // Encoding
+    /* Encoding */
     TextEncoder: class {
       encode(s) {
         return new Uint8Array([...s].map(c => c.charCodeAt(0)));
@@ -470,7 +472,7 @@ function buildShims(doc) {
             }
           },
 
-    // Blob/File
+    /* Blob/File */
     Blob: class {
       constructor(parts, opts) {
         this.parts = parts;
@@ -491,7 +493,7 @@ function buildShims(doc) {
       }
     },
 
-    // Crypto
+    /* Crypto */
     crypto: {
       getRandomValues: arr => {
         for(let i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 256);
@@ -500,29 +502,29 @@ function buildShims(doc) {
       subtle: undefined,
     },
 
-    // Image constructor (Google creates img elements)
+    /* Image constructor (Google creates img elements) */
     Image: function(width, height) {
       return doc.createElement('img');
     },
 
-    // Real MutationObserver from 'dom' — NOT the shim.
+    /* Real MutationObserver from 'dom' — NOT the shim. */
     MutationObserver,
 
-    // CustomEvent
+    /* CustomEvent */
     CustomEvent: EventStub,
     Event: EventStub,
     UIEvent: EventStub,
     MouseEvent: EventStub,
     KeyboardEvent: EventStub,
 
-    // requestAnimationFrame
+    /* requestAnimationFrame */
     requestAnimationFrame: cb => win.setTimeout(cb, 16),
     cancelAnimationFrame: id => clearTimeout(id),
 
-    // queueMicrotask
+    /* queueMicrotask */
     queueMicrotask: typeof queueMicrotask !== 'undefined' ? queueMicrotask : fn => Promise.resolve().then(fn),
 
-    // getComputedStyle stub
+    /* getComputedStyle stub */
     getComputedStyle: () =>
       new Proxy(
         {},
@@ -537,7 +539,7 @@ function buildShims(doc) {
         },
       ),
 
-    // matchMedia
+    /* matchMedia */
     matchMedia: query => ({
       matches: false,
       media: query,
@@ -547,10 +549,10 @@ function buildShims(doc) {
       removeListener: () => {},
     }),
 
-    // getSelection
+    /* getSelection */
     getSelection: () => ({ rangeCount: 0, toString: () => '' }),
 
-    // open/close/print
+    /* open/close/print */
     open: () => null,
     close: () => {},
     print: () => {},
@@ -560,11 +562,11 @@ function buildShims(doc) {
     scrollTo: () => {},
     scrollBy: () => {},
 
-    // eval
+    /* eval */
     eval,
   };
 
-  // Self-references
+  /* Self-references */
   win.self = win;
   win.window = win;
   win.globalThis = win;
@@ -575,11 +577,44 @@ function buildShims(doc) {
   return win;
 }
 
-// ─── Main ───
+/* out.html is the page Google serves for the search URL the shims pretend
+   to be at (see `location` in buildShims()), fetched without running any
+   of its JavaScript. Download it if it's not there yet. */
+const OUT_HTML = 'out.html';
+const SEARCH_URL = 'https://www.google.com/search?q=browser+console.log+css&hl=de';
+
+async function ensureOutHtml() {
+  if(existsSync(OUT_HTML)) return;
+
+  console.log(`[0] ${OUT_HTML} not found, fetching ${SEARCH_URL}...`);
+
+  let ctx;
+  try {
+    const response = await lwsFetch(SEARCH_URL, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'de-CH,de;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+      pctx: c => (ctx = c),
+    });
+    const html = await response.text();
+
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    writeFileSync(OUT_HTML, html);
+    console.log(`    saved ${html.length} bytes to ${OUT_HTML}`);
+  } finally {
+    ctx?.destroy();
+  }
+}
+
+/* --- Main --- */
 async function main() {
   console.log('=== Google JS Execution PoC ===\n');
 
-  // 1. Parse out.html
+  await ensureOutHtml();
+
+  /* 1. Parse out.html */
   console.log('[1] Parsing out.html...');
   const parser = new Parser();
 
@@ -595,11 +630,11 @@ async function main() {
     return;
   }
 
-  // 2. Build shims
+  /* 2. Build shims */
   console.log('\n[2] Building window/navigator shims...');
   const win = buildShims(doc);
 
-  // 3. Install globals
+  /* 3. Install globals */
   console.log('\n[3] Installing globals...');
   globalThis.document = doc;
   globalThis.window = win;
@@ -633,14 +668,14 @@ async function main() {
   globalThis.setInterval = win.setInterval;
   globalThis.clearInterval = win.clearInterval;
 
-  // 3b. Attach a real MutationObserver to document.documentElement (with subtree).
-  //     We collect every record into `mutationLog` tagged with the phase that
-  //     was running when it fired, so we can drain + summarise per phase below.
+  /* 3b. Attach a real MutationObserver to document.documentElement (with subtree).
+         We collect every record into `mutationLog` tagged with the phase that
+         was running when it fired, so we can drain + summarise per phase below. */
   let currentPhase = 'init';
-  const mutationLog = []; // array of { phase, records[] }
+  const mutationLog = []; /* array of { phase, records[] } */
   const observer = new MutationObserver(records => {
-    // Batch records for the current phase. If we're already accumulating for
-    // this phase, extend the existing bucket; otherwise start a new one.
+    /* Batch records for the current phase. If we're already accumulating for
+       this phase, extend the existing bucket; otherwise start a new one. */
     const last = mutationLog[mutationLog.length - 1];
     if(last && last.phase === currentPhase) {
       last.records.push(...records);
@@ -661,7 +696,7 @@ async function main() {
 
   os.kill(os.getpid(), os.SIGUSR1);
 
-  // Helper: flush microtasks + drain any pending records, then summarise.
+  /* Helper: flush microtasks + drain any pending records, then summarise. */
   async function reportMutations(label) {
     await flushMicrotasks();
     const extra = observer.takeRecords();
@@ -670,13 +705,13 @@ async function main() {
       if(last && last.phase === currentPhase) last.records.push(...extra);
       else mutationLog.push({ phase: currentPhase, records: [...extra] });
     }
-    // Print only the buckets tagged with this phase.
+    /* Print only the buckets tagged with this phase. */
     const phaseBuckets = mutationLog.filter(b => b.phase === currentPhase);
     const all = phaseBuckets.flatMap(b => b.records);
     summariseRecords(all, label);
   }
 
-  // 4. Extract and execute scripts
+  /* 4. Extract and execute scripts */
   console.log('\n[4] Executing <script> elements...\n');
   const scripts = [...doc.querySelectorAll('script')];
   let executed = 0,
@@ -699,26 +734,26 @@ async function main() {
       continue;
     }
 
-    // Strip HTML comment wrappers and CDATA sections that are valid in <script> tags
-    // but cause parse errors when eval'd directly
+    /* Strip HTML comment wrappers and CDATA sections that are valid in <script> tags
+       but cause parse errors when eval'd directly */
     code = code
-      .replace(/^\s*<!--\s*\n?/, '') // strip leading <!--
-      .replace(/\n?\s*(\/\/)?-->\s*$/, '') // strip trailing --> or //-->
-      .replace(/^\s*\/\/<!\[CDATA\[\s*\n?/, '') // strip leading //<![CDATA[
-      .replace(/\n?\s*\/\/\]\]>\s*$/, ''); // strip trailing //]]>
+      .replace(/^\s*<!--\s*\n?/, '') /* strip leading <!-- */
+      .replace(/\n?\s*(\/\/)?-->\s*$/, '') /* strip trailing --> or //--> */
+      .replace(/^\s*\/\/<!\[CDATA\[\s*\n?/, '') /* strip leading //<![CDATA[ */
+      .replace(/\n?\s*\/\/\]\]>\s*$/, ''); /* strip trailing //]]> */
 
     console.log(`  Script[${i}]: ${code.length} chars, first 80: ${code.slice(0, 80).replace(/\n/g, '\\n')}...`);
 
     currentPhase = `script[${i}]`;
 
     try {
-      // Use indirect eval to run in global scope
+      /* Use indirect eval to run in global scope */
       (0, eval)(code);
       executed++;
       console.log(`    ✓ executed successfully`);
     } catch(e) {
       errors++;
-      // SyntaxError often indicates anti-bot code with intentionally invalid JS
+      /* SyntaxError often indicates anti-bot code with intentionally invalid JS */
       if(e instanceof SyntaxError) {
         console.log(`    ⚠ skipped (syntax error - likely anti-bot code)`);
       } else {
@@ -735,7 +770,7 @@ async function main() {
 
   console.log(`\n  Executed: ${executed}, Errors: ${errors}, Skipped: ${scripts.length - executed - errors}`);
 
-  // 5. Fire DOMContentLoaded and load events
+  /* 5. Fire DOMContentLoaded and load events */
   console.log('\n[5] Firing DOMContentLoaded and load events...');
 
   currentPhase = 'DOMContentLoaded';
@@ -758,12 +793,12 @@ async function main() {
   }
   await reportMutations('after load');
 
-  // Wait a bit for async operations
+  /* Wait a bit for async operations */
   currentPhase = 'async-settle';
   await new Promise(r => setTimeout(r, 200));
   await reportMutations('after 200ms settle');
 
-  // 6. Dump the resulting DOM
+  /* 6. Dump the resulting DOM */
   if(DUMP_DOM) {
     console.log('\n[6] Resulting DOM state:');
     console.log(`    <${doc.documentElement?.tagName}>`);
@@ -776,7 +811,7 @@ async function main() {
       console.log(`    <body> first 500 chars:`);
       console.log(`    ${html.slice(0, 500)}`);
 
-      // Count elements by tag
+      /* Count elements by tag */
       const tags = {};
       try {
         for(const el of doc.querySelectorAll('*')) {
@@ -793,7 +828,7 @@ async function main() {
         console.log(`    (querySelectorAll failed: ${e.message})`);
       }
 
-      // Look for search result links
+      /* Look for search result links */
       console.log(`\n    Looking for search results (a[href] with /url?...):`);
       let found = 0;
       try {
@@ -814,7 +849,7 @@ async function main() {
     }
   }
 
-  // 7. Mutation summary across the whole run
+  /* 7. Mutation summary across the whole run */
   console.log('\n=== Mutation summary ===');
   const totals = { childList: 0, attributes: 0, characterData: 0, other: 0 };
   let totalRecords = 0;
@@ -831,7 +866,7 @@ async function main() {
   console.log(`  characterData:${totals.characterData}`);
   console.log(`  other:        ${totals.other}`);
 
-  // Per-phase totals
+  /* Per-phase totals */
   const phaseTotals = {};
   for(const bucket of mutationLog) {
     phaseTotals[bucket.phase] = (phaseTotals[bucket.phase] ?? 0) + bucket.records.length;
@@ -845,13 +880,13 @@ async function main() {
 
   observer.disconnect();
 
-  // 8. Final summary
+  /* 8. Final summary */
   console.log('\n=== Summary ===');
   console.log(`Scripts executed: ${executed}/${scripts.length}`);
   console.log(`Errors: ${errors}`);
   console.log(`Body child count: ${doc.body?.children?.length ?? 0}`);
 
-  // Check if google object was populated
+  /* Check if google object was populated */
   if(typeof google !== 'undefined') {
     console.log(`window.google keys: ${Object.keys(google).join(', ')}`);
   }

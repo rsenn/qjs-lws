@@ -12,8 +12,8 @@
  *   - WebSocketStream from lib/websocketstream.js for CDP communication
  */
 
-import { fetch } from './lib/fetch.js';
-import { WebSocketStream } from './lib/websocketstream.js';
+import { fetch } from '../lib/fetch.js';
+import { WebSocketStream } from '../lib/websocketstream.js';
 import { TextDecoder } from 'textcode';
 import * as std from 'std';
 import * as os from 'os';

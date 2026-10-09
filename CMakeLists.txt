@@ -952,7 +952,7 @@ install(PROGRAMS examples/ollama-repl/repl.js
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
         RENAME ollama-repl)
 
-set(SRC_JS "${CMAKE_CURRENT_SOURCE_DIR}/search.js")
+set(SRC_JS "${CMAKE_CURRENT_SOURCE_DIR}/examples/search.js")
 set(BIN_JS "${CMAKE_CURRENT_BINARY_DIR}/search.js")
 
 # Define a build-time command that triggers only when the source is newer than the binary

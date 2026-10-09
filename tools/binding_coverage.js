@@ -1,57 +1,57 @@
-// Reports how much of libwebsockets' API is actually pulled in by the
-// qjs-lws native module.
-//
-// qjs-lws is a plain C module (not C++), so unlike a mangled-symbol based
-// coverage tool, this one works directly off plain nm symbol names - no
-// demangling, no class/constructor inference.
-//
-// Method:
-//   - `nm -A --undefined` on qjs-lws's own object files (*.o, before they're
-//     linked into lws.so) lists every symbol qjs-lws's C code *references*
-//     but doesn't itself define - i.e. everything it imports, from
-//     libwebsockets and elsewhere (libc, quickjs, ...).
-//   - `nm -A --defined-only` on a candidate library (typically
-//     libwebsockets.a) lists every symbol it *exports*. Only uppercase-typed
-//     symbols are global/external (nm convention: lowercase = local to the
-//     object file, e.g. `t`/`r`/`d` for static functions/data); lowercase
-//     ones are dropped since qjs-lws could never have linked against them.
-//   - A library symbol counts as "implemented" if its exact name appears in
-//     qjs-lws's imported-symbol set. Symbols are further split into
-//     functions (nm type T/W) and data (everything else global: D/B/R/G/S/...)
-//     for the report, purely for readability - the matching itself doesn't
-//     care about the split.
-//   - By default, exported symbols are further restricted to libwebsockets'
-//     public API: a symbol only counts (in either direction - as "total" or
-//     as "implemented") if its name shows up somewhere under
-//     libwebsockets/include/. This is intentionally a dumb text scan (`grep
-//     -rhoE` for identifier-shaped tokens across the public headers, no
-//     preprocessing/parsing), not a real declaration parser - it's a coarse
-//     "does this name appear anywhere in the public headers" filter, which
-//     is enough to drop internal-only symbols (e.g. role_ops_h1, only
-//     declared in a private-lib-*.h that qjs-lws reaches by directly
-//     #including libwebsockets .c files as static plugins) without needing
-//     to actually parse C declarations. The same scan records which
-//     header(s) mention each name, and each symbol in the report carries
-//     the first one (sorted) as its "header" field - grep is coarse, so
-//     this is "a header that mentions this name", not a verified
-//     declaration site.
-//
-// Usage:
-//   qjs binding_coverage.js [options]
-//
-// Options:
-//   --objects=DIR        directory of qjs-lws *.o files to scan for imports
-//                         (default: build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir)
-//   --obj-pattern=RE      regex matching object filenames inside --objects (default: \.o$)
-//   --lib=PATH            a single library (.a or .so) to scan for exported symbols (repeatable)
-//   --lib-dir=DIR         a directory of libraries to scan (repeatable)
-//   --lib-pattern=RE      regex matching library filenames inside --lib-dir (default: \.(a|so)$)
-//   --public-headers=DIR  header tree to scan for the public-API filter (default: libwebsockets/include)
-//   --no-public-only      disable the public-API filter; count every exported symbol
-//   --json=PATH           JSON report output path (default: ./binding_coverage.json)
-//   --out=PATH            human-readable report output path (default: stdout)
-//   --verbose             list missing symbols even for 0%-bound libraries
-//                         (JSON output always contains the full per-symbol lists)
+/* Reports how much of libwebsockets' API is actually pulled in by the
+   qjs-lws native module. 
+
+   qjs-lws is a plain C module (not C++), so unlike a mangled-symbol based
+   coverage tool, this one works directly off plain nm symbol names - no
+   demangling, no class/constructor inference. 
+
+   Method:
+     - `nm -A --undefined` on qjs-lws's own object files (*.o, before they're
+       linked into lws.so) lists every symbol qjs-lws's C code *references*
+       but doesn't itself define - i.e. everything it imports, from
+       libwebsockets and elsewhere (libc, quickjs, ...).
+     - `nm -A --defined-only` on a candidate library (typically
+       libwebsockets.a) lists every symbol it *exports*. Only uppercase-typed
+       symbols are global/external (nm convention: lowercase = local to the
+       object file, e.g. `t`/`r`/`d` for static functions/data); lowercase
+       ones are dropped since qjs-lws could never have linked against them.
+     - A library symbol counts as "implemented" if its exact name appears in
+       qjs-lws's imported-symbol set. Symbols are further split into
+       functions (nm type T/W) and data (everything else global: D/B/R/G/S/...)
+       for the report, purely for readability - the matching itself doesn't
+       care about the split.
+     - By default, exported symbols are further restricted to libwebsockets'
+       public API: a symbol only counts (in either direction - as "total" or
+       as "implemented") if its name shows up somewhere under
+       libwebsockets/include/. This is intentionally a dumb text scan (`grep
+       -rhoE` for identifier-shaped tokens across the public headers, no
+       preprocessing/parsing), not a real declaration parser - it's a coarse
+       "does this name appear anywhere in the public headers" filter, which
+       is enough to drop internal-only symbols (e.g. role_ops_h1, only
+       declared in a private-lib-*.h that qjs-lws reaches by directly
+       #including libwebsockets .c files as static plugins) without needing
+       to actually parse C declarations. The same scan records which
+       header(s) mention each name, and each symbol in the report carries
+       the first one (sorted) as its "header" field - grep is coarse, so
+       this is "a header that mentions this name", not a verified
+       declaration site. 
+
+   Usage:
+     qjs tools/binding_coverage.js [options] 
+
+   Options:
+     --objects=DIR        directory of qjs-lws *.o files to scan for imports
+                           (default: build/x86_64-linux-debug/CMakeFiles/qjs-lws.dir)
+     --obj-pattern=RE      regex matching object filenames inside --objects (default: \.o$)
+     --lib=PATH            a single library (.a or .so) to scan for exported symbols (repeatable)
+     --lib-dir=DIR         a directory of libraries to scan (repeatable)
+     --lib-pattern=RE      regex matching library filenames inside --lib-dir (default: \.(a|so)$)
+     --public-headers=DIR  header tree to scan for the public-API filter (default: libwebsockets/include)
+     --no-public-only      disable the public-API filter; count every exported symbol
+     --json=PATH           JSON report output path (default: ./binding_coverage.json)
+     --out=PATH            human-readable report output path (default: stdout)
+     --verbose             list missing symbols even for 0%-bound libraries
+                           (JSON output always contains the full per-symbol lists) */
 
 import * as std from 'std';
 import * as os from 'os';
@@ -148,11 +148,11 @@ function listFiles(dir, pattern) {
     .map(n => `${dir}/${n}`);
 }
 
-// Parses one line of `nm -A ...` output. -A prefixes every line with the
-// containing file (and, for archives, "archive:member.o" both before the
-// colon), so the layout is "<file(s)>:[address] <type> <name>" - undefined
-// symbols have no address, just spaces where it'd be. We only need the type
-// and name, which are always the last two whitespace-separated fields.
+/* Parses one line of `nm -A ...` output. -A prefixes every line with the
+   containing file (and, for archives, "archive:member.o" both before the
+   colon), so the layout is "<file(s)>:[address] <type> <name>" - undefined
+   symbols have no address, just spaces where it'd be. We only need the type
+   and name, which are always the last two whitespace-separated fields. */
 function parseNmLine(line) {
   const parts = line.trim().split(/\s+/);
   if(parts.length < 2) return null;
@@ -162,7 +162,7 @@ function parseNmLine(line) {
   return { type, name };
 }
 
-// Undefined (imported) plain symbol names referenced across a set of object files.
+/* Undefined (imported) plain symbol names referenced across a set of object files. */
 function getUndefinedSymbols(objPaths) {
   const out = run(`nm -A --undefined ${objPaths.map(shQuote).join(' ')}`);
   const set = new Set();
@@ -173,11 +173,11 @@ function getUndefinedSymbols(objPaths) {
   return set;
 }
 
-// Exported (global, defined) plain symbol names of a library, split into
-// functions (T/W) and data (any other uppercase/global type). Lowercase
-// types (local-to-object-file symbols) are dropped - nothing outside that
-// object file, including qjs-lws, can ever reference them. If headerMap is
-// given and filterToPublic is true, symbols not found in it are dropped too.
+/* Exported (global, defined) plain symbol names of a library, split into
+   functions (T/W) and data (any other uppercase/global type). Lowercase
+   types (local-to-object-file symbols) are dropped - nothing outside that
+   object file, including qjs-lws, can ever reference them. If headerMap is
+   given and filterToPublic is true, symbols not found in it are dropped too. */
 function getExportedSymbols(libPath, headerMap, filterToPublic) {
   const out = run(`nm -A --defined-only ${shQuote(libPath)}`);
   const functions = new Map();
@@ -185,23 +185,23 @@ function getExportedSymbols(libPath, headerMap, filterToPublic) {
   for(const line of out.split('\n')) {
     const sym = parseNmLine(line);
     if(!sym) continue;
-    if(!/^[A-Z]$/.test(sym.type)) continue; // local symbol, not exported
+    if(!/^[A-Z]$/.test(sym.type)) continue; /* local symbol, not exported */
     const headers = headerMap ? headerMap.get(sym.name) || null : null;
-    if(filterToPublic && !headers) continue; // not in the public headers
+    if(filterToPublic && !headers) continue; /* not in the public headers */
     const bucket = sym.type === 'T' || sym.type === 'W' ? functions : data;
     if(!bucket.has(sym.name)) bucket.set(sym.name, { type: sym.type, headers });
   }
   return { functions, data };
 }
 
-// Very coarse "which header(s) declare this name" map: for every
-// identifier-shaped token that occurs anywhere under a header tree, the set
-// of header files it occurs in. Not a declaration parser - just a grep - so
-// it can't distinguish a real declaration from a macro body, a comment, or
-// a parameter name, but that's fine here: it's only ever used to check
-// whether an already-known exported symbol name shows up in the public
-// headers at all (and where), and a name qjs-lws could plausibly bind
-// against necessarily appears literally as a token wherever it's declared.
+/* Very coarse "which header(s) declare this name" map: for every
+   identifier-shaped token that occurs anywhere under a header tree, the set
+   of header files it occurs in. Not a declaration parser - just a grep - so
+   it can't distinguish a real declaration from a macro body, a comment, or
+   a parameter name, but that's fine here: it's only ever used to check
+   whether an already-known exported symbol name shows up in the public
+   headers at all (and where), and a name qjs-lws could plausibly bind
+   against necessarily appears literally as a token wherever it's declared. */
 function scanPublicApiHeaders(headerDir) {
   const out = run(`grep -rnoE '[A-Za-z_][A-Za-z0-9_]*' ${shQuote(headerDir)} --include='*.h'`);
   const map = new Map();

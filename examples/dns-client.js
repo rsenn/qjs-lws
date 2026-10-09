@@ -1,6 +1,7 @@
-import { UDPSocketStream } from './lib/udpsocketstream.js';
-import { TYPE, decodeMessage, buildQuery } from './examples/dns-server/dns-message.js';
-import { toArrayBuffer } from './examples/dns-server/bytes.js';
+import { exit } from 'std';
+import { UDPSocketStream } from '../lib/udpsocketstream.js';
+import { TYPE, decodeMessage, buildQuery } from './dns-server/dns-message.js';
+import { toArrayBuffer } from './dns-server/bytes.js';
 
 // DNS Resolver using UDPSocketStream
 async function resolve(domain) {
@@ -38,10 +39,27 @@ async function resolve(domain) {
   return null;
 }
 
-// Example usage
-try {
-  const result = await resolve(scriptArgs[1] ?? 'transistorisiert.ch');
-  console.log('DNS Answer:', result);
-} catch(error) {
-  console.error('DNS Resolve Error:', error);
+async function main(...args) {
+  if(args.length == 0) {
+    console.error(`Usage: ${scriptArgs[0]} <domain>...`);
+    return 1;
+  }
+
+  let status = 0;
+
+  for(const domain of args) {
+    try {
+      const result = await resolve(domain);
+      console.log(`DNS Answer for ${domain}:`, result);
+    } catch(error) {
+      console.error(`DNS Resolve Error for ${domain}:`, error);
+      status = 1;
+    }
+  }
+
+  return status;
 }
+
+main(...scriptArgs.slice(1)).then(status => {
+  if(status) exit(status);
+});

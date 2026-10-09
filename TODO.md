@@ -194,4 +194,4 @@ Open Items).
 - Root-level `tests/test-{app,client,fetch,keepalive,middleware,serve,websocket}.js`
   are not wired into `DO_TESTS` (only `tests/unittests/test-*.js` are).
 - 19% of libwebsockets' public C API was bound (162/847) when last measured;
-  the figure is stale, regenerate it with `binding_coverage.js`.
+  the figure is stale, regenerate it with `tools/binding_coverage.js`.
