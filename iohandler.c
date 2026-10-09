@@ -1,5 +1,7 @@
 #include "iohandler.h"
 #include "js-utils.h"
+#include "lws.h"
+#include <list.h>
 
 typedef struct {
   struct list_head link;

@@ -3,8 +3,6 @@
 
 #include <quickjs.h>
 #include <cutils.h>
-#include <list.h>
-#include "lws.h"
 #include "lws-context.h"
 
 void iohandler_set(LWSContext*, int fd, JSValueConst handler, BOOL write);

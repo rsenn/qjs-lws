@@ -3,6 +3,7 @@
 #include "lws-context.h"
 #include "lws-sockaddr46.h"
 #include "lws-tls.h"
+#include "lws.h"
 #include "js-utils.h"
 #include "iohandler.h"
 #include <assert.h>
