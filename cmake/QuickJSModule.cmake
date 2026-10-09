@@ -151,7 +151,7 @@ function(make_module_header SOURCE)
   make_script(
     "${SCRIPT}"
     "message(\"Generating module '${NAME}'\")\nremake_module(${SOURCE})\n"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake;${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Functions.cmake;${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake"
   )
 
   add_custom_target(${BASE}.h ALL ${CMAKE_COMMAND} -P ${SCRIPT}

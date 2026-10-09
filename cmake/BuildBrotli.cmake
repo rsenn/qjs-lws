@@ -1,5 +1,5 @@
 macro(build_brotli)
-  message("-- Building BROTLI from source")
+  message(STATUS "Building BROTLI from source")
 
   include(ExternalProject)
 

@@ -1,5 +1,5 @@
 macro(build_mbedtls)
-  message("-- Building MBEDTLS from source")
+  message(STATUS "Building MBEDTLS from source")
 
   include(ExternalProject)
 

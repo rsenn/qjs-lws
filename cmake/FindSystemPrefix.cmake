@@ -22,7 +22,7 @@ function(find_resolv_conf)
     if(EXISTS "${PATH}")
       set(RESOLV_CONF "${PATH}" CACHE FILEPATH "Location of resolv.conf")
       break()
-    endif(EXISTS "${${VAR}}")
+    endif(EXISTS "${PATH}")
   endforeach(PATH ${ARGN})
   
   set(RESOLV_CONF "${RESOLV_CONF}" PARENT_SCOPE)

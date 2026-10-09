@@ -1,5 +1,5 @@
 macro(build_libressl)
-  message("-- Building LIBRESSL from source")
+  message(STATUS "Building LIBRESSL from source")
 
   include(ExternalProject)
 

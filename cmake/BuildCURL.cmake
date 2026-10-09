@@ -1,7 +1,7 @@
 macro(build_curl)
   set(BUILD_CURL TRUE CACHE BOOL "Build curl from source")
   # set(LIBCURL_NO_SHARED libcurl CACHE STRING "Build static libcurl")
-  message("-- Building CURL from source")
+  message(STATUS "Building CURL from source")
   include(ExternalProject)
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/curl/CMakeLists.txt")
     set(CURL_REPO "")

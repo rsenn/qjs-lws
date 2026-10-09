@@ -3,7 +3,7 @@ project(qjs-lws VERSION 0.9 LANGUAGES C)
 
 #cmake_policy(SET CMP0007 OLD)
 
-message("Building project [1;31m${PROJECT_NAME}[0m")
+message(STATUS "${PROJECT_NAME} ${PROJECT_VERSION}")
 
 set(DISABLE_WERROR TRUE CACHE BOOL "Disable -Werror flag")
 set(EXTRA_LIBRARIES "" CACHE STRING "Extra libraries")
@@ -64,7 +64,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}
                     ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/lib)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseMultiArch.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/functions.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Functions.cmake)
 
 #set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "PIC code")
 #set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
@@ -295,6 +295,13 @@ if(BUILD_LIBWEBSOCKETS)
           "-I${BROTLI_INCLUDE_DIR} ${LIBWEBSOCKETS_C_FLAGS}")
     endif(BUILD_BROTLI)
   endif(WITH_BROTLI)
+
+  # Patch the vendored libwebsockets before it is built and before the
+  # compat checks further down probe it; patches that don't apply cleanly
+  # are skipped whole.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ApplyPatches.cmake)
+  apply_patches("${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets"
+                "${CMAKE_CURRENT_SOURCE_DIR}/patches")
 
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildLibwebsockets.cmake)
 
@@ -748,12 +755,12 @@ include(CheckLibraryExists)
 
 #string(REGEX REPLACE "\\n" ";"  OPENSSL_LIBRARIES "${OPENSSL_LIBRARIES}")
 #dump(OPENSSL_LIBRARIES)
-message("OPENSSL_LIBRARIES: ${OPENSSL_LIBRARIES}")
+message(VERBOSE "OPENSSL_LIBRARIES: ${OPENSSL_LIBRARIES}")
 set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_LIBRARIES}")
 list(POP_FRONT CMAKE_REQUIRED_LIBRARIES OPENSSL_LIBRARY)
-message("CMAKE_REQUIRED_LIBRARIES: ${CMAKE_REQUIRED_LIBRARIES}")
+message(VERBOSE "CMAKE_REQUIRED_LIBRARIES: ${CMAKE_REQUIRED_LIBRARIES}")
 set(CMAKE_REQUIRED_LINK_DIRECTORIES "${OPENSSL_LIBRARY_DIR}")
-message("CMAKE_REQUIRED_LINK_DIRECTORIES: ${CMAKE_REQUIRED_LINK_DIRECTORIES}")
+message(VERBOSE "CMAKE_REQUIRED_LINK_DIRECTORIES: ${CMAKE_REQUIRED_LINK_DIRECTORIES}")
 
 #dump(OPENSSL_LIBRARY)
 if(NOT HAVE_X509_self_signed)
@@ -762,7 +769,7 @@ endif(NOT HAVE_X509_self_signed)
 check_function_exists(X509_self_signed HAVE_X509_self_signed)
 if(NOT HAVE_X509_self_signed)
   list(POP_FRONT CMAKE_REQUIRED_LIBRARIES CRYPTO_LIBRARY)
-  message("CRYPTO_LIBRARY: ${CRYPTO_LIBRARY}")
+  message(VERBOSE "CRYPTO_LIBRARY: ${CRYPTO_LIBRARY}")
   check_library_exists("${CRYPTO_LIBRARY}" X509_self_signed
                        "${OPENSSL_LIBRARY_DIR}" HAVE_X509_self_signed2)
 endif(NOT HAVE_X509_self_signed)
@@ -780,33 +787,66 @@ unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
 # failing to compile.
 include(CheckCSourceCompiles)
 
-macro(CHECK_LWS_FUNCTION FUNC VAR)
-  set(CMAKE_REQUIRED_LIBRARIES
-      "${LIBWEBSOCKETS_LIBRARIES};${MBEDTLS_LIBRARIES};${OPENSSL_LIBRARIES};${BROTLI_LIBRARIES};${ZLIB_LIBRARY}")
-  list(POP_FRONT CMAKE_REQUIRED_LIBRARIES LIBWEBSOCKETS_LIBRARY)
-  set(CMAKE_REQUIRED_LINK_DIRECTORIES
-      "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR};${BROTLI_LIBRARY_DIR}")
-  check_library_exists("${LIBWEBSOCKETS_LIBRARY}" ${FUNC}
-                       "${LIBWEBSOCKETS_LIBRARY_DIR}" ${VAR})
-  unset(CMAKE_REQUIRED_LIBRARIES)
-  unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
+# An in-tree libwebsockets is only built at build time, after this runs, so
+# there is no library or generated lws_config.h to link/compile a probe
+# against yet - and a failed probe stays cached as failed.  Look the symbol
+# up in the (already patched) vendored public headers instead.
+if(BUILD_LIBWEBSOCKETS)
+  file(GLOB LWS_PUBLIC_HEADERS
+       "${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/include/libwebsockets/*.h")
+  set(LWS_PUBLIC_API "")
+  foreach(HEADER ${LWS_PUBLIC_HEADERS})
+    file(READ "${HEADER}" HEADER_TEXT)
+    string(APPEND LWS_PUBLIC_API "${HEADER_TEXT}\n")
+  endforeach(HEADER)
+endif(BUILD_LIBWEBSOCKETS)
+
+macro(CHECK_LWS_SYMBOL NAME VAR)
+  if(LWS_PUBLIC_API MATCHES "(^|[^A-Za-z0-9_])${NAME}([^A-Za-z0-9_]|$)")
+    set(${VAR} TRUE CACHE INTERNAL "libwebsockets has ${NAME}")
+  else()
+    set(${VAR} FALSE CACHE INTERNAL "libwebsockets has ${NAME}")
+  endif()
   if(${VAR})
     add_definitions(-D${VAR})
   endif(${VAR})
+endmacro(CHECK_LWS_SYMBOL NAME VAR)
+
+macro(CHECK_LWS_FUNCTION FUNC VAR)
+  if(BUILD_LIBWEBSOCKETS)
+    check_lws_symbol(${FUNC} ${VAR})
+  else()
+    set(CMAKE_REQUIRED_LIBRARIES
+        "${LIBWEBSOCKETS_LIBRARIES};${MBEDTLS_LIBRARIES};${OPENSSL_LIBRARIES};${BROTLI_LIBRARIES};${ZLIB_LIBRARY}")
+    list(POP_FRONT CMAKE_REQUIRED_LIBRARIES LIBWEBSOCKETS_LIBRARY)
+    set(CMAKE_REQUIRED_LINK_DIRECTORIES
+        "${LIBWEBSOCKETS_LIBRARY_DIR};${OPENSSL_LIBRARY_DIR};${MBEDTLS_LIBRARY_DIR};${BROTLI_LIBRARY_DIR}")
+    check_library_exists("${LIBWEBSOCKETS_LIBRARY}" ${FUNC}
+                         "${LIBWEBSOCKETS_LIBRARY_DIR}" ${VAR})
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
+    if(${VAR})
+      add_definitions(-D${VAR})
+    endif(${VAR})
+  endif()
 endmacro(CHECK_LWS_FUNCTION FUNC VAR)
 
 macro(CHECK_LWS_CONSTANT EXPR VAR)
-  set(CMAKE_REQUIRED_INCLUDES
-      "${LIBWEBSOCKETS_INCLUDE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/include;${OPENSSL_INCLUDE_DIR};${MBEDTLS_INCLUDE_DIR}")
-  set(CMAKE_REQUIRED_DEFINITIONS "-D_GNU_SOURCE")
-  check_c_source_compiles(
-    "#include <libwebsockets.h>\nint main(void) { return (int)(${EXPR}); }\n"
-    ${VAR})
-  unset(CMAKE_REQUIRED_INCLUDES)
-  unset(CMAKE_REQUIRED_DEFINITIONS)
-  if(${VAR})
-    add_definitions(-D${VAR})
-  endif(${VAR})
+  if(BUILD_LIBWEBSOCKETS)
+    check_lws_symbol(${EXPR} ${VAR})
+  else()
+    set(CMAKE_REQUIRED_INCLUDES
+        "${LIBWEBSOCKETS_INCLUDE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets/include;${OPENSSL_INCLUDE_DIR};${MBEDTLS_INCLUDE_DIR}")
+    set(CMAKE_REQUIRED_DEFINITIONS "-D_GNU_SOURCE")
+    check_c_source_compiles(
+      "#include <libwebsockets.h>\nint main(void) { return (int)(${EXPR}); }\n"
+      ${VAR})
+    unset(CMAKE_REQUIRED_INCLUDES)
+    unset(CMAKE_REQUIRED_DEFINITIONS)
+    if(${VAR})
+      add_definitions(-D${VAR})
+    endif(${VAR})
+  endif()
 endmacro(CHECK_LWS_CONSTANT EXPR VAR)
 
 # lws_parse_uri_create() only exists since libwebsockets v5.x; older v4.x
@@ -855,35 +895,35 @@ foreach(
 endforeach(FEATURE)
 
 if(LWS_COMPAT_MISSING)
-  message(WARNING
-    "Building against a libwebsockets missing: ${LWS_COMPAT_MISSING} - "
-    "the corresponding JS API will be degraded or unavailable. Upgrade "
-    "libwebsockets for full functionality.")
+  string(REPLACE "HAVE_LWS_" "" LWS_COMPAT_MISSING_NAMES "${LWS_COMPAT_MISSING}")
+  string(TOLOWER "${LWS_COMPAT_MISSING_NAMES}" LWS_COMPAT_MISSING_NAMES)
+  string(REPLACE ";" "\n    " LWS_COMPAT_MISSING_NAMES "${LWS_COMPAT_MISSING_NAMES}")
+  message(WARNING "libwebsockets is missing features, the matching JS API "
+                  "is degraded or unavailable (upgrade for full "
+                  "functionality):\n    ${LWS_COMPAT_MISSING_NAMES}")
 endif(LWS_COMPAT_MISSING)
 
-message(
-  "Library directories:\n\
-  libwebsockets - ${LIBWEBSOCKETS_LIBRARY_DIR}\n\
-  mbedtls - ${MBEDTLS_LIBRARY_DIR}\n\
-  curl - ${CURL_LIBRARY_DIR}\n\
-  openssl - ${OPENSSL_LIBRARY_DIR}\n\
-")
-
-message(
-  "Include directories:\n\
-  libwebsockets - ${LIBWEBSOCKETS_INCLUDE_DIR}\n\
-  mbedtls - ${MBEDTLS_INCLUDE_DIR}\n\
-  curl - ${CURL_INCLUDE_DIR}\n\
-  openssl - ${OPENSSL_INCLUDE_DIR}\n\
-")
-
-message(
-  "Libraries:\n\
-  libwebsockets - ${LIBWEBSOCKETS_LIBRARIES}\n\
-  mbedtls - ${MBEDTLS_LIBRARIES}\n\
-  curl - ${CURL_LIBRARY}\n\
-  openssl - ${OPENSSL_SSL_LIBRARY} ${OPENSSL_CRYPTO_LIBRARY}\n\
-")
+string(REPLACE ";" " " LWS_LIBRARIES_STR "${LIBWEBSOCKETS_LIBRARIES}")
+message_table("libwebsockets"
+  "library dir" "${LIBWEBSOCKETS_LIBRARY_DIR}"
+  "include dir" "${LIBWEBSOCKETS_INCLUDE_DIR}"
+  "libraries" "${LWS_LIBRARIES_STR}")
+message_table("OpenSSL"
+  "library dir" "${OPENSSL_LIBRARY_DIR}"
+  "include dir" "${OPENSSL_INCLUDE_DIR}"
+  "ssl" "${OPENSSL_SSL_LIBRARY}"
+  "crypto" "${OPENSSL_CRYPTO_LIBRARY}")
+if(MBEDTLS_LIBRARIES)
+message_table("MbedTLS"
+  "library dir" "${MBEDTLS_LIBRARY_DIR}"
+  "include dir" "${MBEDTLS_INCLUDE_DIR}"
+  "libraries" "${MBEDTLS_LIBRARIES}")
+endif(MBEDTLS_LIBRARIES)
+if(CURL_LIBRARY)
+message_table("curl"
+  "library" "${CURL_LIBRARY}"
+  "include dir" "${CURL_INCLUDE_DIR}")
+endif(CURL_LIBRARY)
 
 if(NOT QUICKJS_C_MODULE_DIR)
   set(QUICKJS_C_MODULE_DIR

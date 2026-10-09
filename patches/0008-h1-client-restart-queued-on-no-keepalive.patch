@@ -7,10 +7,10 @@ back to LRS_UNCONNECTED but nothing started their connections, so they hung
 with no error.  Attach a header table to each, which goes on to do the
 connect (as for a redirect restart), once the vhost lock is dropped.
 
-The stash they would reconnect from was freed as soon as it was copied into
-the header table; keep it for a client_pipeline request (close frees it).
+(The stash they reconnect from is no longer freed on copy, so that half of
+the original patch is now upstream.)
 
-Made against libwebsockets 222ccba9f (main).
+Made against libwebsockets f1650e3e7 (main).
 
 ---
 diff --git a/lib/sansio/http/client/client-http.c b/lib/sansio/http/client/client-http.c
@@ -64,23 +64,3 @@ index 7693efef5..ae232fc2b 100644
  		}
  	}
  
-diff --git a/lib/sansio/http/header.c b/lib/sansio/http/header.c
-index 579697f88..da4e7f4c8 100644
---- a/lib/sansio/http/header.c
-+++ b/lib/sansio/http/header.c
-@@ -1405,6 +1405,15 @@ lws_client_stash_to_headers(struct lws *wsi)
- 			return -1;
- 		}
- 
-+	/*
-+	 * A pipelined request may be queued on another connection and then
-+	 * have to restart on one of its own (the leader's server turned out
-+	 * not to keep-alive): it needs the stash to reconnect from.  Close
-+	 * frees it
-+	 */
-+	if (wsi->client_pipeline)
-+		return 0;
-+
- #if defined(LWS_WITH_SOCKS5)
- 	/* the socks leg reconnects from it; nothing else needs it now */
- 	if (!wsi->a.vhost->socks_proxy_port)

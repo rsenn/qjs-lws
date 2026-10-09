@@ -1,28 +1,18 @@
 diff --git a/lib/io/pipe/ops-pipe.c b/lib/io/pipe/ops-pipe.c
-index 5c894a91d..83c372cf8 100644
 --- a/lib/io/pipe/ops-pipe.c
 +++ b/lib/io/pipe/ops-pipe.c
-@@ -310,6 +310,25 @@ lws_cancel_service(struct lws_context *context)
- 	}
+@@ -331,6 +331,16 @@
+ 	return pt->pipe_wsi->io->desc.sockfd;
  }
  
 +/*
-+ * Not in any public header: the read end of tsi's event pipe, so an external
-+ * event loop (qjs-lws) can poll it itself.  -1 if there is none.
++ * Not in any public header: lws_service_wake_fd() as the plain int qjs-lws
++ * polls with.  -1 if there is none.
 + */
 +int
 +lws_context_get_pipe_fd(struct lws_context *context, int tsi)
 +{
-+	struct lws *wsi;
-+
-+	if (tsi < 0 || tsi >= (int)context->count_threads)
-+		return -1;
-+
-+	wsi = context->pt[tsi].pipe_wsi;
-+	if (!wsi || !wsi->io || wsi->io->desc.sockfd == LWS_SOCK_INVALID)
-+		return -1;
-+
-+	return (int)wsi->io->desc.sockfd;
++	return (int)lws_service_wake_fd(context, tsi);
 +}
 +
  int

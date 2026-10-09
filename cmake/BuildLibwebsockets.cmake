@@ -24,7 +24,7 @@ macro(build_libwebsockets)
 
   set(LWS_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}")
 
-  message("-- Building LIBWEBSOCKETS from source (target=${TARGET}, PIC=${LWS_BUILD_PIC})")
+  message(STATUS "Building libwebsockets from source (${TARGET}, PIC=${LWS_BUILD_PIC})")
 
   if(NOT DEFINED LIBWEBSOCKETS_C_FLAGS)
     message(
@@ -285,7 +285,7 @@ macro(build_libwebsockets)
 
   string(REGEX REPLACE "[ \t\n]" "\n\t" ARGS "${LIBWEBSOCKETS_ARGS}")
   string(REGEX REPLACE ";-D" "\n\t-D" ARGS "${ARGS}")
-  message("libwebsockets configuration arguments:\n\t${ARGS}")
+  message(VERBOSE "libwebsockets configuration arguments:\n\t${ARGS}")
   string(REGEX REPLACE "[ ]" ";" LIBWEBSOCKETS_ARGS "${LIBWEBSOCKETS_ARGS}")
 
   ExternalProject_Add(
@@ -293,10 +293,6 @@ macro(build_libwebsockets)
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
     BINARY_DIR ${LWS_BINARY_DIR}
     PREFIX ${TARGET}
-    PATCH_COMMAND
-      sh ${CMAKE_CURRENT_SOURCE_DIR}/patches/apply-patches.sh
-      ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
-      ${CMAKE_CURRENT_SOURCE_DIR}/patches
     CMAKE_ARGS
       -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
       "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
