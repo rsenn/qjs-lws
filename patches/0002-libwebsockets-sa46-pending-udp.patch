@@ -1,0 +1,50 @@
+From 491585a618f9a2b4f4e25197bd366902f7c1a793 Mon Sep 17 00:00:00 2001
+From: Roman Senn <roman.l.senn@gmail.com>
+Date: Tue, 28 Jul 2026 19:21:42 +0200
+Subject: [PATCH] Populate wsi->udp->sa46 from sa46_peer on UDP client adopt
+
+lws_create_adopt_udp2() (core-net/adopt.c) resolves the peer address
+into a local `s->dest`, then tries `if (wsi->udp) wsi->udp->sa46 =
+s->dest;` before falling back to the always-set `wsi->sa46_peer =
+s->dest;`. For a client (connect()ing) UDP wsi, `wsi->udp` does not
+exist yet at that point - it's allocated later, in
+rops_adoption_bind_raw_skt() below, as part of
+lws_adopt_descriptor_vhost2() - so that assignment is always a no-op
+and wsi->udp->sa46 is left zeroed (AF_UNSPEC) by the memset() that
+follows its allocation.
+
+Later writes on that wsi (lws_ssl_capable_write_no_ssl(), in
+core-net/output.c) call sendto() using sa46_sockaddr(&wsi->udp->sa46)
+as the destination - passing that zeroed sockaddr to sendto() on an
+already-connected socket, which glibc rejects with EINVAL instead of
+using the connected peer.
+
+Pick up the already-correct wsi->sa46_peer right after wsi->udp is
+allocated, so sendto() gets a real destination.
+---
+ lib/roles/raw-skt/ops-raw-skt.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/lib/roles/raw-skt/ops-raw-skt.c b/lib/roles/raw-skt/ops-raw-skt.c
+index add7f654b..6130f113d 100644
+--- a/lib/roles/raw-skt/ops-raw-skt.c
++++ b/lib/roles/raw-skt/ops-raw-skt.c
+@@ -293,6 +293,16 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
+ 		if (!wsi->udp)
+ 			return 0;
+ 		memset(wsi->udp, 0, sizeof(*wsi->udp));
++
++		/*
++		 * For a udp client wsi that just connect()ed, the peer
++		 * address was already resolved into wsi->sa46_peer (see
++		 * lws_create_adopt_udp2() in adopt.c) before this wsi->udp
++		 * existed to receive it directly.  Pick it up here so
++		 * sendto() has a real destination instead of an all-zero
++		 * AF_UNSPEC sockaddr.
++		 */
++		wsi->udp->sa46 = wsi->udp->sa46_pending = wsi->sa46_peer;
+ 	}
+ #endif
+
+--
+2.43.0

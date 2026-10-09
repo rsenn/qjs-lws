@@ -1,0 +1,52 @@
+From 333e242fe86743d56f26413b4b45eeff094ca08a Mon Sep 17 00:00:00 2001
+From: Roman Senn <roman.l.senn@gmail.com>
+Date: Fri, 31 Jul 2026 20:36:23 +0200
+Subject: [PATCH] Fix ACME SNI cert creation to use EVP_PKEY_Q_keygen path
+ correctly
+
+lws_tls_acme_sni_cert_create() always went through the legacy RSA_new()
++ EVP_PKEY_assign_RSA() path and referenced vhost->tls.ss->rsa, but
+that field only exists in struct lws_tls_ss_pieces when
+LWS_HAVE_EVP_PKEY_Q_KEYGEN is *not* defined. On a modern OpenSSL where
+EVP_PKEY_Q_keygen() is available, this fails to compile.
+---
+ lib/tls/openssl/openssl-server.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/lib/tls/openssl/openssl-server.c b/lib/tls/openssl/openssl-server.c
+index f786be784..51d1c065f 100644
+--- a/lib/tls/openssl/openssl-server.c
++++ b/lib/tls/openssl/openssl-server.c
+@@ -941,6 +941,10 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
+ 	X509_gmtime_adj(X509_get_notBefore(vhost->tls.ss->x509), 0);
+ 	X509_gmtime_adj(X509_get_notAfter(vhost->tls.ss->x509), 3600);
+ 
++#if defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
++	if (lws_tls_openssl_rsa_new_key(&vhost->tls.ss->pkey, 4096))
++		goto bail0;
++#else
+ 	vhost->tls.ss->pkey = EVP_PKEY_new();
+ 	if (!vhost->tls.ss->pkey)
+ 		goto bail0;
+@@ -950,6 +954,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
+ 
+ 	if (!EVP_PKEY_assign_RSA(vhost->tls.ss->pkey, vhost->tls.ss->rsa))
+ 		goto bail2;
++#endif
+ 
+ 	X509_set_pubkey(vhost->tls.ss->x509, vhost->tls.ss->pkey);
+ 
+@@ -1028,8 +1033,10 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
+ 	return 0;
+ 
+ bail2:
++#if !defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
+ 	RSA_free(vhost->tls.ss->rsa);
+ bail1:
++#endif
+ 	EVP_PKEY_free(vhost->tls.ss->pkey);
+ bail0:
+ 	X509_free(vhost->tls.ss->x509);
+-- 
+2.43.0
+
