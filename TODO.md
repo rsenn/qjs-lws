@@ -95,31 +95,38 @@ in the relevant spec.
 
 ## Open Items
 
-### Remaining Spec Violations (see BUGS file)
-- Server methods partially implemented (11 stubs added, need lws context integration)
-- WebSocketHandler options partially implemented (10 stubs added, ping/pong wired)
-- UDPSocket methods partially implemented (10 stubs added, need lws multicast/socket option support)
+Spec violations are tracked individually in `BUGS`; this lists the larger
+gaps. The earlier WHATWG Fetch fixes (Response.status, Body.bytes/formData,
+clone() checks, sorted Headers iteration) and the Bun `Server` basics
+(`timeout`, `ref`/`unref`, `subscriberCount`, `requestIP`) and WebSocket
+`idleTimeout`/`ping`/`pong`/`drain` handlers are done.
+
+### Bun.serve() (`lib/serve.js`)
+- `server.closeIdleConnections()` returns 0, `server.reload()` is a no-op and
+  `server.fetch()` answers 501: all three are admitted stubs.
+- `websocket` options `perMessageDeflate`, `maxPayloadLength`,
+  `backpressureLimit`, `closeOnBackpressureLimit`, `sendPings` and
+  `publishToSelf` are accepted but have no effect (BUGS:
+  serve-websocket-options-silently-ignored).
+
+### UDPSocket (`lib/udpsocket.js`)
+- All socket-option methods are no-ops that return `this`: `setBroadcast`,
+  `setTTL`, `setMulticastTTL`, `setMulticastLoopback`, `setMulticastInterface`,
+  `addMembership`, `dropMembership`. Needs the native module to expose
+  `setsockopt` (SO_BROADCAST, IP_TTL, IP_ADD/DROP_MEMBERSHIP,
+  IP_MULTICAST_TTL/LOOP/IF) on the wsi's socket; the JS side is then ~80 lines.
+
+### Build system (`CMakeLists.txt`, `cmake/`)
+- The musl build (`build/x86_64-linux-musl/`) still links the host's
+  `libgnutls.so` and `libquickjs.so`; only zlib, libcap, LibreSSL and brotli
+  are found-or-built per toolchain (`BuildLibwebsockets.cmake`).
+- `FindLibreSSL.cmake` is unused and broken (refers to a `libressl` target that
+  never exists, calls `rpath_append`); a system LibreSSL is only picked up when
+  it is the OpenSSL that `CMakeLists.txt` finds.
 
 ## Thin Layer Compatibility Strategy
 
-The goal is to maximize compatibility with scripts written for WHATWG standards, browsers, Bun, and Deno without adding significant bloat to `lib/`. The strategy focuses on:
-
-### High-Impact, Low-Cost Additions
-
-1. **UDPSocket Socket Options** (lib/udpsocket.js)
-   - Add `setBroadcast(flag)` - enable broadcast (Node/Bun/Deno)
-   - Add `setTTL(ttl)` - IP TTL (Node/Bun/Deno)
-   - Add `setMulticastTTL(ttl)` - multicast TTL (Node/Bun/Deno)
-   - Add `setMulticastLoopback(flag)` - multicast loopback (Node/Bun/Deno)
-   - Cost: ~50 lines, enables multicast/broadcast patterns
-
-### Medium-Impact Additions (Requires Native Support)
-
-2. **UDPSocket Multicast** (lib/udpsocket.js)
-   - Add `addMembership(multicastAddress, interfaceAddress?)` (Node/Bun/Deno)
-   - Add `dropMembership(multicastAddress, interfaceAddress?)` (Node/Bun/Deno)
-   - Requires: expose lws multicast socket options to JS
-   - Cost: ~30 lines JS + native changes
+The goal is to maximize compatibility with scripts written for WHATWG standards, browsers, Bun, and Deno without adding significant bloat to `lib/`.
 
 ### Compatibility Patterns to Support
 
@@ -165,24 +172,26 @@ socket.bind(8080);
 
 ### Implementation Priority
 
-**Phase 2** (Medium compatibility gain, requires native support):
-1. UDPSocket multicast (addMembership, dropMembership)
+**Next** (needs native support): UDPSocket socket options and multicast (see
+Open Items).
 
-**Phase 3** (Low priority, niche use cases):
-2. TCPSocket pause/resume (Node.js streams compatibility)
-3. TCPSocket ref/unref (Node.js process lifecycle)
-4. UDPSocket connect/disconnect (Node.js connected UDP sockets)
-5. WebSocket binaryType 'blob' (currently only 'arraybuffer')
+**Low priority, niche use cases:**
+1. TCPSocket pause/resume (Node.js streams compatibility)
+2. TCPSocket ref/unref (Node.js process lifecycle; `Bun.listen()`'s server
+   handle already has `ref`/`unref`, the socket itself does not)
+3. UDPSocket connect/disconnect (Node.js connected UDP sockets)
+4. WebSocket binaryType 'blob' (currently only 'arraybuffer')
 
 ---
 
 ## Footnote: current repo state
 
-- `lwsjs_callback_protocol()` in `lws-protocol.c` is a ~460-line function;
+- `lwsjs_callback_protocol()` in `lws-protocol.c` is a ~470-line function;
   per-reason marshaller functions would make new reasons safer to add.
 - `HttpClientProtocol.connect()` buffers the full request body to know
   `content-length` before sending (no chunked-encoding path).
 - `lib/lws/mimetypes.js` extra list is dev-specific (`.sublime-project` etc).
 - Root-level `tests/test-{app,client,fetch,keepalive,middleware,serve,websocket}.js`
   are not wired into `DO_TESTS` (only `tests/unittests/test-*.js` are).
-- 19% of libwebsockets' public C API is bound (162/847, see `binding_coverage.json`).
+- 19% of libwebsockets' public C API was bound (162/847) when last measured;
+  the figure is stale, regenerate it with `binding_coverage.js`.

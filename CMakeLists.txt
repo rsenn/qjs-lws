@@ -271,32 +271,8 @@ if(BUILD_LIBWEBSOCKETS)
 
   endif(WITH_SSL AND NOT WITH_MBEDTLS)
 
-  if(WITH_BROTLI)
-    option(BUILD_BROTLI "in-tree build of brotli" OFF)
-
-    if(NOT BUILD_BROTLI)
-      include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindBrotli.cmake)
-
-      find_brotli()
-    endif(NOT BUILD_BROTLI)
-
-    if(NOT BROTLI_FOUND)
-      set(BUILD_BROTLI ON)
-    endif(NOT BROTLI_FOUND)
-
-    if(BUILD_BROTLI)
-      include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildBrotli.cmake)
-
-      set(BROTLI_DEBUG OFF)
-      set(BROTLI_C_FLAGS "${CMAKE_C_FLAGS}")
-      set(BROTLI_TARGET_NAME libbrotli)
-
-      build_brotli()
-      list(APPEND LIBWEBSOCKETS_DEPS ${BROTLI_TARGET_NAME})
-      set(LIBWEBSOCKETS_C_FLAGS
-          "-I${BROTLI_INCLUDE_DIR} ${LIBWEBSOCKETS_C_FLAGS}")
-    endif(BUILD_BROTLI)
-  endif(WITH_BROTLI)
+  # brotli is found or built per libwebsockets target in build_libwebsockets()
+  option(BUILD_BROTLI "in-tree build of brotli" OFF)
 
   # Patch the vendored libwebsockets before it is built and before the
   # compat checks further down probe it; patches that don't apply cleanly
@@ -344,9 +320,6 @@ if(BUILD_LIBWEBSOCKETS)
       #ExternalProject_Add_StepDependencies(${LWS_TARGET} configure libmbedtls)
       #add_dependencies(libwebsockets libmbedtls)
     endif(TARGET libmbedtls)
-    if(TARGET libbrotli)
-      ExternalProject_Add_StepDependencies(${LWS_TARGET} configure libbrotli)
-    endif(TARGET libbrotli)
   endforeach(LWS_TARGET)
 else(BUILD_LIBWEBSOCKETS)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindBrotli.cmake)

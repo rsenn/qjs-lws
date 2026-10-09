@@ -2,6 +2,20 @@ include(CheckLibraryExists)
 
 include(cmake/FindZlib.cmake)
 include(cmake/BuildZlib.cmake)
+include(cmake/FindLibCap.cmake)
+include(cmake/BuildLibCap.cmake)
+include(cmake/FindBrotli.cmake)
+include(cmake/BuildBrotli.cmake)
+include(cmake/BuildLibreSSL.cmake)
+
+# ON: always build libcap from source; AUTO: use the system libcap if there is
+# a usable one, else build lws without it; OFF: build lws without libcap.
+set(BUILD_LIBCAP AUTO CACHE STRING "Build libcap from source (AUTO, ON, OFF)")
+set_property(CACHE BUILD_LIBCAP PROPERTY STRINGS AUTO ON OFF)
+string(TOUPPER "${BUILD_LIBCAP}" BUILD_LIBCAP)
+if(NOT BUILD_LIBCAP MATCHES "^(AUTO|ON|OFF)$")
+  message(FATAL_ERROR "BUILD_LIBCAP must be AUTO, ON or OFF (is '${BUILD_LIBCAP}')")
+endif()
 
 
 macro(build_libwebsockets)
@@ -80,12 +94,151 @@ macro(build_libwebsockets)
     ${LWS_BINARY_DIR}/include)
 
   set(LIBWEBSOCKETS_FOUND ON CACHE BOOL "found libwebsockets")
-  check_library_exists(cap cap_init "" LIBCAP)
-  if(LIBCAP)
-    set(LIBCAP_LIBRARY cap)
-  endif(LIBCAP)
+  unset(LIBCAP_DEPS)
+  set(LIBCAP_FOUND FALSE)
+  if(BUILD_LIBCAP STREQUAL "ON")
+    # One libcap build per libwebsockets target, since PIC may differ between them.
+    build_libcap(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
+    set(LIBCAP_DEPS libcap_${TARGET})
+    set(LIBCAP_FOUND TRUE)
+    set(LWS_LIBCAP_INCLUDE_DIR_VALUE "${LIBCAP_INCLUDE_DIR_${TARGET}}")
+    set(LWS_LIBCAP_LIBRARY_VALUE "${LIBCAP_LIBRARY_FILE_${TARGET}}")
+  elseif(BUILD_LIBCAP STREQUAL "AUTO")
+    find_libcap()
+    if(LIBCAP_FOUND)
+      set(LWS_LIBCAP_INCLUDE_DIR_VALUE "${LIBCAP_INCLUDE_DIR}")
+      set(LWS_LIBCAP_LIBRARY_VALUE "${LIBCAP_LIBRARY}")
+    endif(LIBCAP_FOUND)
+  endif()
 
-  set(LIBWEBSOCKETS_LIBRARIES "brotlienc;brotlidec;${LIBCAP_LIBRARY}")
+  # Variables the OpenSSL/brotli handling below may override with a built copy.
+  # Remember what the caller had, so each build_libwebsockets() call (PIC and
+  # non-PIC) starts from that and decides on its own whether to build.
+  set(LWS_DEP_VARS
+      OPENSSL_LIBRARIES OPENSSL_INCLUDE_DIR OPENSSL_INCLUDE_DIRS
+      OPENSSL_LIBRARY_DIR OPENSSL_ROOT_DIR OPENSSL_LIBRARY BROTLI_LIBRARIES
+      BROTLI_INCLUDE_DIR)
+  foreach(v ${LWS_DEP_VARS})
+    if(NOT LWS_DEP_VARS_STASHED)
+      if(DEFINED ${v})
+        set(LWS_ORIG_${v} "${${v}}")
+        set(LWS_ORIG_${v}_DEFINED TRUE)
+      else()
+        set(LWS_ORIG_${v}_DEFINED FALSE)
+      endif()
+    elseif(LWS_ORIG_${v}_DEFINED)
+      set(${v} "${LWS_ORIG_${v}}")
+    else()
+      unset(${v})
+    endif()
+  endforeach(v)
+  set(LWS_DEP_VARS_STASHED TRUE)
+
+  unset(SSL_DEPS)
+  unset(BROTLI_DEPS)
+  set(LWS_C_FLAGS_FULL "${LIBWEBSOCKETS_C_FLAGS}")
+  set(LWS_BROTLI_LIBRARIES_VALUE "brotlienc;brotlidec")
+
+  # Toolchains with their own libc headers (musl-gcc) don't see the kernel's
+  # linux/ and asm/ headers that libwebsockets includes. Make them reachable,
+  # but only after the toolchain's own directories.
+  include(CheckIncludeFile)
+  check_include_file(linux/if_packet.h LWS_HAVE_KERNEL_HEADERS)
+  if(NOT LWS_HAVE_KERNEL_HEADERS)
+    file(GLOB LWS_KERNEL_INCLUDE_DIRS /usr/include /usr/include/*-linux-gnu)
+    foreach(d ${LWS_KERNEL_INCLUDE_DIRS})
+      if(IS_DIRECTORY "${d}/linux" OR IS_DIRECTORY "${d}/asm")
+        string(APPEND LWS_C_FLAGS_FULL " -idirafter ${d}")
+        # the modules include libwebsockets' private headers too
+        if(NOT LWS_KERNEL_INCLUDES_ADDED)
+          add_compile_options("SHELL:-idirafter ${d}")
+        endif()
+      endif()
+    endforeach(d)
+    set(LWS_KERNEL_INCLUDES_ADDED TRUE)
+  endif(NOT LWS_HAVE_KERNEL_HEADERS)
+
+  # A TLS library the toolchain can use, else build LibreSSL.
+  if(WITH_SSL AND NOT WITH_MBEDTLS AND NOT WITH_WOLFSSL)
+    include(CheckCSourceCompiles)
+    set(old_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES}")
+    set(old_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES}")
+    set(old_REQUIRED_LINK_OPTIONS "${CMAKE_REQUIRED_LINK_OPTIONS}")
+    set(CMAKE_REQUIRED_INCLUDES "${OPENSSL_INCLUDE_DIR}")
+    set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_LIBRARIES}")
+    if(OPENSSL_LIBRARY_DIR)
+      set(CMAKE_REQUIRED_LINK_OPTIONS "-L${OPENSSL_LIBRARY_DIR}")
+    endif(OPENSSL_LIBRARY_DIR)
+    unset(LWS_OPENSSL_WORKS CACHE)
+    # Linking alone can't tell a glibc libssl.so from one the toolchain's libc
+    # can load (e.g. musl-gcc against the host's), so run it when possible.
+    set(LWS_OPENSSL_TEST_SOURCE
+        "#include <openssl/ssl.h>
+         int main(void) { SSL_CTX *c = SSL_CTX_new(TLS_method()); SSL_CTX_free(c); return 0; }")
+    if(CMAKE_CROSSCOMPILING)
+      check_c_source_compiles("${LWS_OPENSSL_TEST_SOURCE}" LWS_OPENSSL_WORKS)
+    else(CMAKE_CROSSCOMPILING)
+      include(CheckCSourceRuns)
+      check_c_source_runs("${LWS_OPENSSL_TEST_SOURCE}" LWS_OPENSSL_WORKS)
+    endif(CMAKE_CROSSCOMPILING)
+    set(CMAKE_REQUIRED_INCLUDES "${old_REQUIRED_INCLUDES}")
+    set(CMAKE_REQUIRED_LIBRARIES "${old_REQUIRED_LIBRARIES}")
+    set(CMAKE_REQUIRED_LINK_OPTIONS "${old_REQUIRED_LINK_OPTIONS}")
+
+    if(NOT LWS_OPENSSL_WORKS)
+      # One build per libwebsockets target, since PIC may differ between them.
+      build_libressl(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
+      set(SSL_DEPS libressl_${TARGET})
+      set(OPENSSL_LIBRARIES "${LIBRESSL_LIBRARIES_${TARGET}}")
+      set(OPENSSL_INCLUDE_DIR "${LIBRESSL_INCLUDE_DIR_${TARGET}}")
+      set(OPENSSL_INCLUDE_DIRS "${LIBRESSL_INCLUDE_DIR_${TARGET}}")
+      set(OPENSSL_LIBRARY_DIR "${LIBRESSL_LIBRARY_DIR_${TARGET}}")
+      set(OPENSSL_ROOT_DIR "${LIBRESSL_PREFIX_${TARGET}}")
+      set(OPENSSL_LIBRARY "")
+    endif(NOT LWS_OPENSSL_WORKS)
+  endif(WITH_SSL AND NOT WITH_MBEDTLS AND NOT WITH_WOLFSSL)
+
+  if(WITH_BROTLI)
+    set(BROTLI_FOUND FALSE)
+    if(NOT BUILD_BROTLI)
+      find_brotli()
+    endif(NOT BUILD_BROTLI)
+
+    if(BROTLI_FOUND)
+      set(old_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES}")
+      set(old_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES}")
+      set(CMAKE_REQUIRED_INCLUDES "${BROTLI_INCLUDE_DIR}")
+      set(CMAKE_REQUIRED_LIBRARIES "${BROTLI_LIBRARIES}")
+      unset(LWS_BROTLI_WORKS CACHE)
+      check_c_source_compiles(
+        "#include <brotli/encode.h>
+         int main(void) { return BrotliEncoderVersion() == 0; }"
+        LWS_BROTLI_WORKS)
+      set(CMAKE_REQUIRED_INCLUDES "${old_REQUIRED_INCLUDES}")
+      set(CMAKE_REQUIRED_LIBRARIES "${old_REQUIRED_LIBRARIES}")
+      if(NOT LWS_BROTLI_WORKS)
+        set(BROTLI_FOUND FALSE)
+      endif(NOT LWS_BROTLI_WORKS)
+    endif(BROTLI_FOUND)
+
+    if(BROTLI_FOUND)
+      if(BROTLI_INCLUDE_DIR AND NOT BROTLI_INCLUDE_DIR STREQUAL "/usr/include")
+        string(APPEND LWS_C_FLAGS_FULL " -I${BROTLI_INCLUDE_DIR}")
+      endif()
+    else(BROTLI_FOUND)
+      build_brotli(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
+      set(BROTLI_DEPS brotli_${TARGET})
+      set(BROTLI_LIBRARIES "${BROTLI_LIBRARIES_${TARGET}}")
+      set(BROTLI_INCLUDE_DIR "${BROTLI_INCLUDE_DIR_${TARGET}}")
+      set(LWS_BROTLI_LIBRARIES_VALUE "${BROTLI_LIBRARIES_${TARGET}}")
+      string(APPEND LWS_C_FLAGS_FULL " -I${BROTLI_INCLUDE_DIR}")
+    endif(BROTLI_FOUND)
+  endif(WITH_BROTLI)
+
+  set(LIBWEBSOCKETS_LIBRARIES "${LWS_BROTLI_LIBRARIES_VALUE}")
+  if(LIBCAP_FOUND)
+    list(APPEND LIBWEBSOCKETS_LIBRARIES "${LWS_LIBCAP_LIBRARY_VALUE}")
+  endif(LIBCAP_FOUND)
   if(OPENSSL_LIBRARIES)
     set(LIBWEBSOCKETS_LIBRARIES
         "${OPENSSL_LIBRARIES};${LIBWEBSOCKETS_LIBRARIES}")
@@ -281,12 +434,16 @@ macro(build_libwebsockets)
     endif()
   endif()
 
-  # Without a usable libcap for this toolchain, stop lws from picking up the
+  # Without a libcap usable by this toolchain, stop lws from picking up the
   # host's: its find_path() adds -I/usr/include ahead of the toolchain's own
   # headers, which breaks e.g. musl-gcc builds (host bits/errno.h).
-  if(NOT LIBCAP)
+  if(LIBCAP_FOUND)
+    list(APPEND LIBWEBSOCKETS_ARGS -DLWS_WITH_LIBCAP:BOOL=ON
+         "-DLIBCAP_INCLUDE_DIRS:PATH=${LWS_LIBCAP_INCLUDE_DIR_VALUE}"
+         "-DLIBCAP_LIBRARIES:FILEPATH=${LWS_LIBCAP_LIBRARY_VALUE}")
+  else(LIBCAP_FOUND)
     list(APPEND LIBWEBSOCKETS_ARGS -DLWS_WITH_LIBCAP:BOOL=OFF)
-  endif(NOT LIBCAP)
+  endif(LIBCAP_FOUND)
 
   if(LWS_ZLIB_LIBRARIES_VALUE)
     list(APPEND LIBWEBSOCKETS_ARGS
@@ -330,11 +487,11 @@ macro(build_libwebsockets)
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libwebsockets
     BINARY_DIR ${LWS_BINARY_DIR}
     PREFIX ${TARGET}
-    DEPENDS ${ZLIB_DEPS}
+    DEPENDS ${ZLIB_DEPS} ${LIBCAP_DEPS} ${SSL_DEPS} ${BROTLI_DEPS}
     CMAKE_ARGS
       -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
       "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
-      "-DCMAKE_C_FLAGS:STRING=${LIBWEBSOCKETS_C_FLAGS}"
+      "-DCMAKE_C_FLAGS:STRING=${LWS_C_FLAGS_FULL}"
       #"-DCMAKE_C_FLAGS:STRING=${LIBWEBSOCKETS_C_FLAGS} -DSSL_CTRL_SET_TLSEXT_HOSTNAME"
       "-DCMAKE_VERBOSE_MAKEFILE:BOOL=${CMAKE_VERBOSE_MAKEFILE}"
       "-DCMAKE_INSTALL_RPATH:STRING=${MBEDTLS_LIBRARY_DIR}"
@@ -478,5 +635,25 @@ macro(build_libwebsockets)
   if(ARGN)
     ExternalProject_Add_StepDependencies("${TARGET}" build ${ARGN})
   endif(ARGN)
+
+  # What the rest of the project links against must be the PIC variant, which
+  # the shared module needs, even though the non-PIC build runs last.
+  foreach(v ${LWS_DEP_VARS})
+    if(LWS_BUILD_PIC)
+      if(DEFINED ${v})
+        set(LWS_PIC_${v} "${${v}}")
+        set(LWS_PIC_${v}_DEFINED TRUE)
+      else()
+        set(LWS_PIC_${v}_DEFINED FALSE)
+      endif()
+      set(LWS_HAVE_PIC_DEPS TRUE)
+    elseif(LWS_HAVE_PIC_DEPS)
+      if(LWS_PIC_${v}_DEFINED)
+        set(${v} "${LWS_PIC_${v}}")
+      else()
+        unset(${v})
+      endif()
+    endif()
+  endforeach(v)
 
 endmacro(build_libwebsockets)

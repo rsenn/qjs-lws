@@ -445,3 +445,12 @@
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
 
+
+- find-libressl-references-nonexistent-target (cmake/FindLibreSSL.cmake:104):
+  find_libressl() calls get_target_property() on a target named libressl
+  that it never creates (it only defines libcrypto, libssl and libtls) and
+  calls rpath_append() with the undefined LIBRARY_PATH instead of
+  LIBRARY_DIR. Found by reading the file while wiring LibreSSL into
+  build_libwebsockets(), which therefore does not use it.
+
+    not practically reproducible in plain JS
