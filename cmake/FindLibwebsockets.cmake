@@ -1,5 +1,4 @@
 macro(find_libwebsockets)
-
   if(NOT LIBWEBSOCKETS_FOUND)
     unset(LIBWEBSOCKETS_INCLUDE_DIR CACHE)
     unset(LIBWEBSOCKETS_LIBRARY_DIR CACHE)
@@ -98,4 +97,4 @@ macro(find_libwebsockets)
 
   endif(NOT LIBWEBSOCKETS_FOUND)
 
-endmacro(find_libwebsockets)
+endmacro()

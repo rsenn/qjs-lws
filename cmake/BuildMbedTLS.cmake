@@ -140,4 +140,4 @@ macro(build_mbedtls)
   message(STATUS "MbedTLS library directory: ${MBEDTLS_LIBRARY_DIR}")
   message(STATUS "MbedTLS include directory: ${MBEDTLS_INCLUDE_DIR}")
 
-endmacro(build_mbedtls)
+endmacro()

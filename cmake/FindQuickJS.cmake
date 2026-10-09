@@ -169,7 +169,7 @@ macro(find_quickjs)
 
   set(CUTILS_H ${CMAKE_CURRENT_SOURCE_DIR}/../cutils.h)
   set(QUICKJS_H ${CMAKE_CURRENT_SOURCE_DIR}/../quickjs.h)
-endmacro(find_quickjs)
+endmacro()
 
 macro(configure_quickjs)
   if(NOT QUICKJS_PREFIX)
@@ -216,7 +216,7 @@ macro(configure_quickjs)
   endif(NOT QUICKJS_CONFIGURATION_SHOWN)
 
   configure_quickjs_module_path()
-endmacro(configure_quickjs)
+endmacro()
 
 macro(configure_quickjs_module_path)
   set(MODULE_PATH "")
@@ -234,6 +234,6 @@ macro(configure_quickjs_module_path)
   set(QUICKJS_MODULE_PATH "${MODULE_PATH}" CACHE PATH
                                                  "QuickJS modules search path")
 
-endmacro(configure_quickjs_module_path)
+endmacro()
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Functions.cmake)

@@ -122,4 +122,4 @@ macro(find_libressl)
     unset(LIBRESSL_TLS_LIBRARY CACHE)
   endif(LIBRESSL_FOUND)
 
-endmacro(find_libressl)
+endmacro()

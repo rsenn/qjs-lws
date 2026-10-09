@@ -17,6 +17,13 @@ if(NOT BUILD_LIBCAP MATCHES "^(AUTO|ON|OFF)$")
   message(FATAL_ERROR "BUILD_LIBCAP must be AUTO, ON or OFF (is '${BUILD_LIBCAP}')")
 endif()
 
+set(BUILD_BROTLI AUTO CACHE STRING "Build brotli from source (AUTO, ON, OFF)")
+set_property(CACHE BUILD_BROTLI PROPERTY STRINGS AUTO ON OFF)
+string(TOUPPER "${BUILD_BROTLI}" BUILD_BROTLI)
+if(NOT BUILD_BROTLI MATCHES "^(AUTO|ON|OFF)$")
+  message(FATAL_ERROR "BUILD_BROTLI must be AUTO, ON or OFF (is '${BUILD_BROTLI}')")
+endif()
+
 
 macro(build_libwebsockets)
   # Accepts either the legacy positional form build_libwebsockets(<target>)
@@ -103,12 +110,20 @@ macro(build_libwebsockets)
     set(LIBCAP_FOUND TRUE)
     set(LWS_LIBCAP_INCLUDE_DIR_VALUE "${LIBCAP_INCLUDE_DIR_${TARGET}}")
     set(LWS_LIBCAP_LIBRARY_VALUE "${LIBCAP_LIBRARY_FILE_${TARGET}}")
-  elseif(BUILD_LIBCAP STREQUAL "AUTO")
+  else()
     find_libcap()
+
     if(LIBCAP_FOUND)
       set(LWS_LIBCAP_INCLUDE_DIR_VALUE "${LIBCAP_INCLUDE_DIR}")
       set(LWS_LIBCAP_LIBRARY_VALUE "${LIBCAP_LIBRARY}")
-    endif(LIBCAP_FOUND)
+    elseif(BUILD_LIBCAP STREQUAL "AUTO")
+       # One libcap build per libwebsockets target, since PIC may differ between them.
+      build_libcap(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
+      set(LIBCAP_DEPS libcap_${TARGET})
+      set(LIBCAP_FOUND TRUE)
+      set(LWS_LIBCAP_INCLUDE_DIR_VALUE "${LIBCAP_INCLUDE_DIR_${TARGET}}")
+      set(LWS_LIBCAP_LIBRARY_VALUE "${LIBCAP_LIBRARY_FILE_${TARGET}}")
+    endif()
   endif()
 
   # Variables the OpenSSL/brotli handling below may override with a built copy.
@@ -656,4 +671,4 @@ macro(build_libwebsockets)
     endif()
   endforeach(v)
 
-endmacro(build_libwebsockets)
+endmacro()

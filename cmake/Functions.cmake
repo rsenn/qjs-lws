@@ -20,7 +20,11 @@ function(add_cflags ADD)
   string(REGEX REPLACE "^;+" "" FLAGS "${FLAGS}")
   list(REMOVE_DUPLICATES FLAGS)
   if(NOT ADD IN_LIST FLAGS)
-    list(APPEND RESULT ${ADD})
+    if(RESULT STREQUAL "")
+      set(RESULT "${ADD}")
+    else()
+      string(APPEND RESULT " ${ADD}")
+    endif()
   endif()
 
   if(OUTPUT_VAR)
@@ -451,6 +455,41 @@ function(relative_paths OUTPUT_VAR BASE_DIRECTORY)
   if(OUTPUT_VAR)
     set("${OUTPUT_VAR}" "${RESULT}" PARENT_SCOPE)
   endif()
+endfunction()
+
+#
+# display_paths <OUTPUT-VAR> [PATHS...]
+#
+# Store PATHS in OUTPUT-VAR in the form they are shown in the configure
+# output: <BUILD>/rest/of/path within CMAKE_CURRENT_BINARY_DIR, relative to
+# CMAKE_CURRENT_SOURCE_DIR within that, otherwise as given. The build
+# directory is tested first since it usually lies inside the source tree.
+#
+function(display_paths OUTPUT_VAR)
+  set(RESULT "")
+  foreach(P ${ARGN})
+    set(VALUE "${P}")
+
+    if(IS_ABSOLUTE "${P}")
+      cmake_path(IS_PREFIX CMAKE_CURRENT_BINARY_DIR "${P}" NORMALIZE IN_BUILD)
+      cmake_path(IS_PREFIX CMAKE_CURRENT_SOURCE_DIR "${P}" NORMALIZE IN_SOURCE)
+
+      if(IN_BUILD)
+        relative_paths(VALUE "${CMAKE_CURRENT_BINARY_DIR}" "${P}")
+        if(VALUE STREQUAL ".")
+          set(VALUE "<BUILD>")
+        else()
+          set(VALUE "<BUILD>/${VALUE}")
+        endif()
+      elseif(IN_SOURCE)
+        relative_paths(VALUE "${CMAKE_CURRENT_SOURCE_DIR}" "${P}")
+      endif()
+    endif()
+
+    list(APPEND RESULT "${VALUE}")
+  endforeach()
+
+  set("${OUTPUT_VAR}" "${RESULT}" PARENT_SCOPE)
 endfunction()
 
 #
@@ -886,7 +925,8 @@ endfunction()
 # message_table <TITLE> [KEY VALUE]...
 #
 # One status line for TITLE, then the rows aligned under it; rows with an
-# empty value are left out, a list value goes one item to a line.
+# empty value are left out, a list value goes one item to a line, a NOTFOUND
+# value is shown as (not found).
 #
 #   -- QuickJS
 #   --   interpreter  /usr/local/bin/qjs
@@ -922,6 +962,9 @@ function(message_table TITLE)
 
       set(FIRST TRUE)
       foreach(ITEM ${VALUE})
+        if(ITEM MATCHES "NOTFOUND")
+          set(ITEM "(not found)")
+        endif()
         if(FIRST)
           message(STATUS "  ${KEY}  ${ITEM}")
           set(FIRST FALSE)

@@ -376,7 +376,8 @@ endmacro()
 # message_table <TITLE> [KEY VALUE]...
 #
 # One status line for TITLE, then the rows aligned under it; rows with an
-# empty value are left out, a list value goes one item to a line.
+# empty value are left out, a list value goes one item to a line, a NOTFOUND
+# value is shown as (not found).
 #
 #   -- QuickJS
 #   --   interpreter  /usr/local/bin/qjs
@@ -411,6 +412,9 @@ function(message_table TITLE)
       set(FIRST TRUE)
 
       foreach(ITEM ${VALUE})
+        if(ITEM MATCHES "NOTFOUND")
+          set(ITEM "(not found)")
+        endif()
         if(FIRST)
           message(STATUS "  ${KEY}  ${ITEM}")
           set(FIRST FALSE)

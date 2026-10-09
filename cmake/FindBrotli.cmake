@@ -69,4 +69,4 @@ macro(find_brotli)
         CACHE PATH "Brotli library dir")
   endif(NOT BROTLI_LIBRARY_DIR AND BROTLICOMMON_LIBRARY_DIRS)
 
-endmacro(find_brotli)
+endmacro()

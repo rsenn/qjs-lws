@@ -22,6 +22,8 @@ function(check_cflag FLAG OUTPUT_VAR)
   if(RESULT)
     message(CHECK_PASS "supported")
     add_cflags("${FLAG}" "${VAR_NAME}")
+    # add_cflags() sets VAR_NAME in this function's scope; pass it on
+    set("${VAR_NAME}" "${${VAR_NAME}}" PARENT_SCOPE)
   else()
     message(CHECK_FAIL "not supported")
   endif()

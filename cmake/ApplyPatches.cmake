@@ -63,7 +63,7 @@ function(apply_patches SOURCE_DIR PATCH_DIR)
       list(APPEND ROWS "rejected" "${NAME}")
     endforeach()
     if(ROWS)
-      message_table("libwebsockets patches" ${ROWS})
+      message_table("Patching libwebsockets" ${ROWS})
     endif()
   endif()
 

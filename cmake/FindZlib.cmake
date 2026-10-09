@@ -1,4 +1,5 @@
 macro(find_zlib)
+  message(STATUS "Finding zlib library...")
   include(CheckLibraryExists)
   check_library_exists(z deflate "${ZLIB_LIBRARY_DIR}" HAVE_ZLIB)
   set(old_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES}")

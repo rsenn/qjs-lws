@@ -6,6 +6,7 @@
 # LIBCAP_LIBRARY.
 macro(find_libcap)
   include(CheckCSourceCompiles)
+  message(STATUS "Finding libcap library...")
 
   set(LIBCAP_FOUND FALSE)
 

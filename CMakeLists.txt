@@ -35,28 +35,21 @@ endif()
 set(DISABLE_WERROR TRUE CACHE BOOL "Disable -Werror flag")
 set(EXTRA_LIBRARIES "" CACHE STRING "Extra libraries")
 
-macro(PLUGIN DEF NAME ENABLED)
+macro(plugin DEF NAME ENABLED)
   option(PLUGIN_${DEF} "Enable ${NAME} plugin" ${ENABLED})
   if(${PLUGIN_${DEF}})
     add_definitions(-DPLUGIN_PROTOCOL_${DEF}=1)
   endif(${PLUGIN_${DEF}})
-endmacro(PLUGIN DEF NAME ENABLED)
+endmacro()
 
-#option(BUILD_SHARED_LIBWEBSOCKETS "Shared building of dependency libraries" OFF)
 option(BUILD_LIBWEBSOCKETS "in-tree build of libwebsockets" ON)
 option(DO_TESTS "Perform tests" ON)
-option(USE_CURL "Use curl for fetch()" OFF)
-if(USE_CURL)
-  option(BUILD_CURL "Build curl library" ${LOCAL_CURL})
-endif(USE_CURL)
-option(BUILD_MINIMAL_EXAMPLES "Build minimal-examples" OFF)
+#option(BUILD_MINIMAL_EXAMPLES "Build minimal-examples" OFF)
 option(BUILD_SHARED "Build the shared module (lws.so)" ON)
 option(BUILD_STATIC "Also build a static module (lws.a) alongside the shared module" OFF)
 option(DEBUG_OUTPUT "Output debug messages" OFF)
-option(
-  USE_EPOLL
-  "Use Linux epoll(7) for lws socket polling instead of quickjs-libc os.setReadHandler/setWriteHandler"
-  OFF)
+option(USE_EPOLL "Use Linux epoll(7) for lws socket polling instead of quickjs-libc os.setReadHandler/setWriteHandler" OFF)
+
 if(USE_EPOLL)
   add_definitions(-DUSE_EPOLL)
 endif(USE_EPOLL)
@@ -71,13 +64,13 @@ else()
   set(DEADDROP_AVAILABLE OFF)
   message(WARNING "protocol_deaddrop plugin source not found (needs a newer libwebsockets) - disabling PLUGIN_DEADDROP")
 endif()
+
 plugin(DEADDROP deaddrop ${DEADDROP_AVAILABLE})
 plugin(RAW_PROXY raw-proxy ON)
 plugin(FULLTEXT_DEMO protocol_fulltext_demo OFF)
 plugin(LWS_STATUS protocol_lws_status ON)
 plugin(LWS_ACME_CLIENT acme-client OFF)
 plugin(LWS_SSHD_DEMO protocol_lws_sshd_demo OFF)
-#plugin(POST_DEMO protocol_post_demo OFF)
 plugin(DUMB_INCREMENT protocol_dumb_increment OFF)
 plugin(MIRROR protocol_lws_mirror ON)
 plugin(LWS_RAW_SSHD ssh-base OFF)
@@ -95,9 +88,6 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Functions.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Compat.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Checks.cmake)
 
-#set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "PIC code")
-#set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
-
 if(UNIX AND NOT APPLE)
   include(GNUInstallDirs)
 elseif(NOT DEFINED CMAKE_INSTALL_LIBDIR)
@@ -107,11 +97,6 @@ endif()
 
 include(CheckFunctionExists)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildCURL.cmake)
-if(USE_CURL AND NOT BUILD_CURL)
-  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindCURL.cmake)
-endif(USE_CURL AND NOT BUILD_CURL)
-
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSystemPrefix.cmake)
 
 find_system_prefix()
@@ -143,43 +128,7 @@ if(WIN32 OR MINGW)
   set(SOCKET_LIBRARIES mswsock ws2_32)
 endif(WIN32 OR MINGW)
 
-if(USE_CURL)
-  if(BUILD_CURL)
-    set(LOCAL_CURL ON)
-  else(BUILD_CURL)
-    set(LOCAL_CURL OFF)
-  endif(BUILD_CURL)
-
-  if(NOT BUILD_CURL)
-    find_curl()
-  endif(NOT BUILD_CURL)
-
-  if(NOT CURL_FOUND OR BUILD_CURL)
-    build_curl()
-  endif()
-  message(STATUS "CURL library: ${CURL_LIBRARY}")
-
-  set(CURL_LIBRARY "${CURL_LIBRARY}" CACHE PATH "curl library")
-
-  add_definitions(-DUSE_CURL)
-endif(USE_CURL)
-
-include(CheckCCompilerFlag)
-
-check_c_compiler_flag("-O0" OPT_C_OPT_NONE)
-if(OPT_C_OPT_NONE)
-  if(NOT "${CMAKE_C_FLAGS_DEBUG}" MATCHES "-O0")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0"
-        CACHE STRING "C compiler options")
-  endif(NOT "${CMAKE_C_FLAGS_DEBUG}" MATCHES "-O0")
-endif(OPT_C_OPT_NONE)
-check_c_compiler_flag("-ggdb" OPT_C_G_GDB)
-if(OPT_C_G_GDB)
-  if(NOT "${CMAKE_C_FLAGS_DEBUG}" MATCHES "-ggdb")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -ggdb"
-        CACHE STRING "C compiler options")
-  endif(NOT "${CMAKE_C_FLAGS_DEBUG}" MATCHES "-ggdb")
-endif(OPT_C_G_GDB)
+compiler_flags_debug()
 
 include(CheckTypeSize)
 
@@ -189,9 +138,7 @@ if(MSYS OR MINGW OR CYGWIN OR WIN32 OR WIN64)
     set(CMAKE_EXTRA_INCLUDE_FILES winsock2.h)
     add_definitions(-DHAVE_WINSOCK2_H)
     check_type_size("struct pollfd" HAVE_STRUCT_POLLFD)
-    #message("HAVE_STRUCT_POLLFD: ${HAVE_STRUCT_POLLFD}")
     check_type_size(WSAPOLLFD HAVE_WSAPOLLFD)
-    #message("HAVE_WSAPOLLFD: ${HAVE_WSAPOLLFD}")
   endif()
 endif()
 
@@ -200,7 +147,7 @@ if(NOT BUILD_LIBWEBSOCKETS)
   find_libwebsockets()
   include_directories(${LIBWEBSOCKETS_INCLUDE_DIR} ${OPENSSL_INCLUDE_DIR})
   link_libraries(${LIBWEBSOCKETS_LIBRARIES} ${BROTLI_LIBRARIES} ${ZLIB_LIBRARY}
-                 ${CURL_LIBRARY} ${OPENSSL_LIBRARIES})
+                 ${OPENSSL_LIBRARIES})
 endif(NOT BUILD_LIBWEBSOCKETS)
 
 if(NOT LIBWEBSOCKETS_FOUND)
@@ -208,7 +155,6 @@ if(NOT LIBWEBSOCKETS_FOUND)
 endif(NOT LIBWEBSOCKETS_FOUND)
 
 if(BUILD_LIBWEBSOCKETS)
-
   option(WITH_HTTP2 "Use HTTP/2" ON)
   option(WITH_SSL "Use SSL" ON)
   option(WITH_MBEDTLS "Use MbedTLS replacement for OpenSSL" OFF)
@@ -279,23 +225,10 @@ if(BUILD_LIBWEBSOCKETS)
       set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include"
           CACHE FILEPATH "OpenSSL include directory")
     endif(NOT OPENSSL_INCLUDE_DIR)
-    #list(FILTER OPENSSL_LIBRARIES EXCLUDE REGEX "^$")
 
-    #string(REGEX REPLACE "^;$" "" OPENSSL_LIBRARIES "${OPENSSL_LIBRARIES}")
     if(NOT OPENSSL_LIBRARIES)
       set(OPENSSL_LIBRARIES "ssl;crypto" CACHE STRING "OpenSSL libraries")
     endif(NOT OPENSSL_LIBRARIES)
-
-    #find_package(OpenSSL REQUIRED)
-    # include(FindOpenSSL)
-    #[[if(NOT PKG_CONFIG_FOUND)
-        include(FindPkgConfig)
-      endif(NOT PKG_CONFIG_FOUND)
-      pkg_check_modules(OPENSSL openssl)
-      #
-      #pkg_search_module(OPENSSL openssl)
-]]
-
   endif(WITH_SSL AND NOT WITH_MBEDTLS)
 
   # brotli is found or built per libwebsockets target in build_libwebsockets()
@@ -368,11 +301,8 @@ endif(BUILD_LIBWEBSOCKETS)
 if(OPENSSL_INCLUDE_DIR AND NOT OPENSSL_LIBRARY_DIR)
   string(REGEX REPLACE "/include" "/lib" OPENSSL_LIBRARY_DIR
                        "${OPENSSL_INCLUDE_DIR}")
-
-  #set(CMAKE_INSTALL_RPATH "${OPENSSL_LIBRARY_DIR}")
 endif()
 
-#if(OPENSSL_LIBRARIES AND NOT OPENSSL_LIBRARY_DIR)
 if(OPENSSL_LIBRARIES MATCHES "/lib/.*")
   string(REGEX REPLACE "/lib/.*" "/lib" OPENSSL_LIBRARY_DIR
                        "${OPENSSL_LIBRARIES}")
@@ -380,8 +310,6 @@ endif(OPENSSL_LIBRARIES MATCHES "/lib/.*")
 
 set(OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARY_DIR}"
     CACHE PATH "OpenSSL library directory")
-#set(CMAKE_INSTALL_RPATH "${OPENSSL_LIBRARY_DIR}")
-#endif()
 if(OPENSSL_LIBRARY_DIR)
   rpath_append(CMAKE_INSTALL_RPATH "${OPENSSL_LIBRARY_DIR}")
 endif(OPENSSL_LIBRARY_DIR)
@@ -398,11 +326,6 @@ endif(HAVE_STRLCPY)
 if(HAVE_POLL)
   add_definitions(-DHAVE_POLL)
 endif(HAVE_POLL)
-
-if(USE_CURL)
-  link_directories(${CURL_LIBRARY_DIR})
-  include_directories(${CURL_INCLUDE_DIR})
-endif(USE_CURL)
 
 link_directories(${QUICKJS_LIBRARY_DIR} ${OPENSSL_LIBRARY_DIR}
                  ${MBEDTLS_LIBRARY_DIR})
@@ -539,9 +462,6 @@ include_directories(
 
 file(GLOB JS_BINDINGS_SOURCES iohandler.[ch] js-utils.[ch] lws*.[ch])
 
-#list(APPEND JS_BINDINGS_SOURCES )
-
-list(FILTER JS_BINDINGS_SOURCES EXCLUDE REGEX "precompiled*")
 list(FILTER JS_BINDINGS_SOURCES EXCLUDE REGEX ".*-plugin-.*")
 if(NOT USE_EPOLL)
   list(FILTER JS_BINDINGS_SOURCES EXCLUDE REGEX ".*epoll.*")
@@ -550,26 +470,8 @@ endif(NOT USE_EPOLL)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 string(ASCII 27 ESC)
 
-function(DUMP_TARGET TARGET)
-  foreach(
-    PROP
-    BINARY_DIR
-    BUILD_RPATH
-    COMPILE_DEFINITIONS
-    COMPILE_FLAGS
-    INCLUDE_DIRECTORIES
-    INTERFACE_LINK_DIRECTORIES
-    INTERFACE_LINK_LIBRARIES
-    LINK_DIRECTORIES
-    LINK_LIBRARIES
-    MANUALLY_ADDED_DEPENDENCIES
-    NAME
-    OUTPUT_NAME
-    PCH_WARN_INVALID
-    POSITION_INDEPENDENT_CODE
-    SOURCE_DIR
-    SOURCES
-    TYPE)
+function(dump_target TARGET)
+  foreach(PROP BINARY_DIR BUILD_RPATH COMPILE_DEFINITIONS COMPILE_FLAGS INCLUDE_DIRECTORIES INTERFACE_LINK_DIRECTORIES INTERFACE_LINK_LIBRARIES LINK_DIRECTORIES LINK_LIBRARIES MANUALLY_ADDED_DEPENDENCIES NAME OUTPUT_NAME PCH_WARN_INVALID POSITION_INDEPENDENT_CODE SOURCE_DIR SOURCES TYPE)
     get_target_property(VALUE "${TARGET}" "${PROP}")
     if(VALUE)
       message(
@@ -577,7 +479,7 @@ function(DUMP_TARGET TARGET)
       )
     endif(VALUE)
   endforeach()
-endfunction(DUMP_TARGET TARGET)
+endfunction()
 
 check_includes(alloca.h)
 check_library_exists(iphlpapi GetNetworkParams "" HAVE_GETNETWORKPARAMS)
@@ -590,12 +492,9 @@ if(BUILD_SHARED)
     add_library(qjs-lws SHARED ${JS_BINDINGS_SOURCES})
   endif(WIN32)
 
-  #add_dependencies(qjs-lws modules/precompiled.c)
-
   target_include_directories(qjs-lws PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/modules)
 endif(BUILD_SHARED)
 
-#add_dependencies(qjs-lws minnet.c)
 if(HAVE_GETNETWORKPARAMS)
   list(APPEND EXTRA_LIBRARIES iphlpapi)
 endif(HAVE_GETNETWORKPARAMS)
@@ -615,8 +514,6 @@ if(BUILD_SHARED)
   endif()
 endif(BUILD_SHARED)
 
-#set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-rpath=${CMAKE_INSTALL_RPATH}:${CURL_LIBRARY_DIR}")
-
 if(OPENSSL_SSL_LIBRARY AND OPENSSL_CRYPTO_LIBRARY)
   if(NOT OPENSSL_LIBRARIES)
     set(OPENSSL_LIBRARIES "${OPENSSL_SSL_LIBRARY};${OPENSSL_CRYPTO_LIBRARY}"
@@ -624,14 +521,9 @@ if(OPENSSL_SSL_LIBRARY AND OPENSSL_CRYPTO_LIBRARY)
   endif(NOT OPENSSL_LIBRARIES)
 endif(OPENSSL_SSL_LIBRARY AND OPENSSL_CRYPTO_LIBRARY)
 
-if(BUILD_SHARED AND USE_CURL)
-  target_include_directories(qjs-lws PRIVATE ${CURL_INCLUDE_DIR})
-  target_link_libraries(qjs-lws ${CURL_LIBRARY})
-endif()
-
 list(APPEND OPENSSL_LIBRARIES pthread dl)
 
-macro(TARGET_LINK TARGET)
+macro(target_link TARGET)
   find_package(GnuTLS QUIET)
   if(GNUTLS_FOUND)
     set(GNUTLS_LINK_LIBS ${GNUTLS_LIBRARIES})
@@ -722,7 +614,7 @@ set(QUICKJS_${UNAME}_LIBRARIES \"${QUICKJS_${UNAME}_LIBRARIES}\")
 set(QUICKJS_${UNAME}_LINK_FLAGS \"${QUICKJS_${UNAME}_LINK_FLAGS}\")
 ")
   endif()
-endmacro(TARGET_LINK TARGET)
+endmacro()
 
 if(BUILD_SHARED)
   set(LIBWEBSOCKETS_INCLUDE_DIR "${websockets_shared_LWS_INCLUDE_DIR}")
@@ -742,11 +634,6 @@ if(BUILD_STATIC)
     add_dependencies(qjs-lws-static libwebsockets)
   endif()
 
-  if(USE_CURL)
-    target_include_directories(qjs-lws-static PRIVATE ${CURL_INCLUDE_DIR})
-    target_link_libraries(qjs-lws-static ${CURL_LIBRARY})
-  endif(USE_CURL)
-
   set(LIBWEBSOCKETS_INCLUDE_DIR "${websockets_static_LWS_INCLUDE_DIR}")
   set(LIBWEBSOCKETS_LIBRARY_DIR "${websockets_static_LWS_LIBRARY_DIR}")
   set(LIBWEBSOCKETS_LIBRARIES "${websockets_static_LWS_LIBRARIES}")
@@ -755,31 +642,26 @@ endif(BUILD_STATIC)
 
 include(CheckLibraryExists)
 
-#string(REGEX REPLACE "\\n" ";"  OPENSSL_LIBRARIES "${OPENSSL_LIBRARIES}")
-#dump(OPENSSL_LIBRARIES)
-message(VERBOSE "OPENSSL_LIBRARIES: ${OPENSSL_LIBRARIES}")
+#message(VERBOSE "OPENSSL_LIBRARIES: ${OPENSSL_LIBRARIES}")
 set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_LIBRARIES}")
 list(POP_FRONT CMAKE_REQUIRED_LIBRARIES OPENSSL_LIBRARY)
-message(VERBOSE "CMAKE_REQUIRED_LIBRARIES: ${CMAKE_REQUIRED_LIBRARIES}")
+#message(VERBOSE "CMAKE_REQUIRED_LIBRARIES: ${CMAKE_REQUIRED_LIBRARIES}")
 set(CMAKE_REQUIRED_LINK_DIRECTORIES "${OPENSSL_LIBRARY_DIR}")
-message(VERBOSE "CMAKE_REQUIRED_LINK_DIRECTORIES: ${CMAKE_REQUIRED_LINK_DIRECTORIES}")
+#message(VERBOSE "CMAKE_REQUIRED_LINK_DIRECTORIES: ${CMAKE_REQUIRED_LINK_DIRECTORIES}")
 
-#dump(OPENSSL_LIBRARY)
 if(NOT HAVE_X509_self_signed)
   unset(HAVE_X509_self_signed)
 endif(NOT HAVE_X509_self_signed)
 check_function_exists(X509_self_signed HAVE_X509_self_signed)
 if(NOT HAVE_X509_self_signed)
   list(POP_FRONT CMAKE_REQUIRED_LIBRARIES CRYPTO_LIBRARY)
-  message(VERBOSE "CRYPTO_LIBRARY: ${CRYPTO_LIBRARY}")
+  #message(VERBOSE "CRYPTO_LIBRARY: ${CRYPTO_LIBRARY}")
   check_library_exists("${CRYPTO_LIBRARY}" X509_self_signed
                        "${OPENSSL_LIBRARY_DIR}" HAVE_X509_self_signed2)
 endif(NOT HAVE_X509_self_signed)
 
 unset(CMAKE_REQUIRED_LIBRARIES)
 unset(CMAKE_REQUIRED_LINK_DIRECTORIES)
-#dump(X509_self_signed)
-#dump(X509_self_signed2)
 
 # Some JS API surface depends on libwebsockets functions/constants that
 # only exist in newer libwebsockets (or, for the txn-queue introspection
@@ -803,7 +685,7 @@ if(BUILD_LIBWEBSOCKETS)
   endforeach(HEADER)
 endif(BUILD_LIBWEBSOCKETS)
 
-macro(CHECK_LWS_SYMBOL NAME VAR)
+macro(check_lws_symbol NAME VAR)
   if(LWS_PUBLIC_API MATCHES "(^|[^A-Za-z0-9_])${NAME}([^A-Za-z0-9_]|$)")
     set(${VAR} TRUE CACHE INTERNAL "libwebsockets has ${NAME}")
   else()
@@ -812,9 +694,9 @@ macro(CHECK_LWS_SYMBOL NAME VAR)
   if(${VAR})
     add_definitions(-D${VAR})
   endif(${VAR})
-endmacro(CHECK_LWS_SYMBOL NAME VAR)
+endmacro()
 
-macro(CHECK_LWS_FUNCTION FUNC VAR)
+macro(check_lws_function FUNC VAR)
   if(BUILD_LIBWEBSOCKETS)
     check_lws_symbol(${FUNC} ${VAR})
   else()
@@ -831,9 +713,9 @@ macro(CHECK_LWS_FUNCTION FUNC VAR)
       add_definitions(-D${VAR})
     endif(${VAR})
   endif()
-endmacro(CHECK_LWS_FUNCTION FUNC VAR)
+endmacro()
 
-macro(CHECK_LWS_CONSTANT EXPR VAR)
+macro(check_lws_constant EXPR VAR)
   if(BUILD_LIBWEBSOCKETS)
     check_lws_symbol(${EXPR} ${VAR})
   else()
@@ -849,7 +731,7 @@ macro(CHECK_LWS_CONSTANT EXPR VAR)
       add_definitions(-D${VAR})
     endif(${VAR})
   endif()
-endmacro(CHECK_LWS_CONSTANT EXPR VAR)
+endmacro()
 
 # lws_parse_uri_create() only exists since libwebsockets v5.x; older v4.x
 # only has the deprecated lws_parse_uri().
@@ -905,27 +787,28 @@ if(LWS_COMPAT_MISSING)
                   "functionality):\n    ${LWS_COMPAT_MISSING_NAMES}")
 endif(LWS_COMPAT_MISSING)
 
-string(REPLACE ";" " " LWS_LIBRARIES_STR "${LIBWEBSOCKETS_LIBRARIES}")
+display_paths(LWS_LIBRARIES_STR ${LIBWEBSOCKETS_LIBRARIES})
+display_paths(LWS_LIBRARY_DIR_STR "${LIBWEBSOCKETS_LIBRARY_DIR}")
+display_paths(LWS_INCLUDE_DIR_STR "${LIBWEBSOCKETS_INCLUDE_DIR}")
+display_paths(OPENSSL_LIBRARY_DIR_STR "${OPENSSL_LIBRARY_DIR}")
+display_paths(OPENSSL_INCLUDE_DIR_STR "${OPENSSL_INCLUDE_DIR}")
 message_table("libwebsockets"
-  "library dir" "${LIBWEBSOCKETS_LIBRARY_DIR}"
-  "include dir" "${LIBWEBSOCKETS_INCLUDE_DIR}"
+  "library dir" "${LWS_LIBRARY_DIR_STR}"
+  "include dir" "${LWS_INCLUDE_DIR_STR}"
   "libraries" "${LWS_LIBRARIES_STR}")
 message_table("OpenSSL"
-  "library dir" "${OPENSSL_LIBRARY_DIR}"
-  "include dir" "${OPENSSL_INCLUDE_DIR}"
+  "library dir" "${OPENSSL_LIBRARY_DIR_STR}"
+  "include dir" "${OPENSSL_INCLUDE_DIR_STR}"
   "ssl" "${OPENSSL_SSL_LIBRARY}"
   "crypto" "${OPENSSL_CRYPTO_LIBRARY}")
 if(MBEDTLS_LIBRARIES)
+display_paths(MBEDTLS_LIBRARY_DIR_STR "${MBEDTLS_LIBRARY_DIR}")
+display_paths(MBEDTLS_INCLUDE_DIR_STR "${MBEDTLS_INCLUDE_DIR}")
 message_table("MbedTLS"
-  "library dir" "${MBEDTLS_LIBRARY_DIR}"
-  "include dir" "${MBEDTLS_INCLUDE_DIR}"
+  "library dir" "${MBEDTLS_LIBRARY_DIR_STR}"
+  "include dir" "${MBEDTLS_INCLUDE_DIR_STR}"
   "libraries" "${MBEDTLS_LIBRARIES}")
 endif(MBEDTLS_LIBRARIES)
-if(CURL_LIBRARY)
-message_table("curl"
-  "library" "${CURL_LIBRARY}"
-  "include dir" "${CURL_INCLUDE_DIR}")
-endif(CURL_LIBRARY)
 
 if(NOT QUICKJS_C_MODULE_DIR)
   set(QUICKJS_C_MODULE_DIR
@@ -1013,11 +896,7 @@ file(GLOB TESTS tests/unittests/test-*.js)
 relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
-
-#generate_precompiled_js(precompiled.js)
-#compile_module(precompiled.js -D lws.so)
-#generate_precompiled_h(precompiled.h)
-
+ 
 if(DO_TESTS)
   include(CTest)
 

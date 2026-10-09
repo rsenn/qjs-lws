@@ -35,10 +35,6 @@ macro(quickjs_module_options)
   endif(NOT DEFINED BUILD_STATIC)
 endmacro()
 
-if(NOT PRECOMPILED_MODULE_DIR)
-  set(PRECOMPILED_MODULE_DIR "modules/"
-      CACHE PATH "subdirectory of build directory for precompiled .js modules")
-endif(NOT PRECOMPILED_MODULE_DIR)
 
 function(module_path NAME OUTVAR)
   cmake_path(SET OUTNAME "${CMAKE_CURRENT_BINARY_DIR}")
@@ -47,7 +43,7 @@ function(module_path NAME OUTVAR)
   cmake_path(APPEND OUTNAME "${NAME}")
 
   set(${OUTVAR} "${OUTNAME}" PARENT_SCOPE)
-endfunction(module_path NAME)
+endfunction()
 
 #
 # config_module <TARGET_NAME>
@@ -98,7 +94,7 @@ function(compile_module SOURCE)
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     COMMENT "Generate ${OUTFILE} from ${INFILE} using qjs compiler"
     SOURCES "${INFILE}")
-endfunction(compile_module SOURCE)
+endfunction()
 
 ##
 ## generate_module_header SOURCE
@@ -142,7 +138,7 @@ function(generate_module_header SOURCE)
   file(WRITE "${OUTFILE}.h" "${S}")
 
   dump(SYMBOLS)
-endfunction(generate_module_header SOURCE)
+endfunction()
 
 #
 # make_module_header <SOURCE>
@@ -256,7 +252,7 @@ function(remake_module SOURCE)
   file(WRITE "${OUTFILE}.c" "#include \"${OUTFILE}.h\"\n\n${DEF}")
   generate_module_header(${SOURCE} ${DEFLIST})
 
-endfunction(remake_module SOURCE)
+endfunction()
 
 #
 # make_script <OUTPUT_FILE> <TEXT> <INCLUDES>
@@ -397,210 +393,12 @@ if(NOT LIBRARY_SUFFIX)
 endif(NOT LIBRARY_SUFFIX)
 
 ##
-## generate_precompiled NAME
-##
-## parses a JS script with import statements and collects all identifiers from them
-##
-function(parse_jsimports FILENAME OUTVAR)
-  file(READ "${FILENAME}" DATA)
-  string(REGEX REPLACE "[\n;]+" ";" LINES "${DATA}")
-  list(FILTER LINES INCLUDE REGEX "import.*")
-
-  unset(IMPORTS)
-
-  foreach(LINE ${LINES})
-    string(REGEX REPLACE ".*{\\s*" "" LINE "${LINE}")
-    string(REGEX REPLACE "\\s*}[^\\n]*from\\s* ['\"`]" ";" LINE "${LINE}")
-    string(REGEX REPLACE "['\"`]\\s*;\?\\s*" "" LINE "${LINE}")
-
-    list(GET LINE 0 IDS)
-    list(GET LINE 1 MODULE)
-
-    string(REGEX REPLACE "[ \t]+" "" IDS "${IDS}")
-
-    #message("Import module: ${MODULE}, specifiers: ${IDS}")
-
-    list(APPEND IMPORTS "${MODULE}:${IDS}")
-  endforeach()
-
-  #message("Imports:\n${IMPORTS}")
-  #dump(IMPORTS)
-
-  set(${OUTVAR} "${IMPORTS}" PARENT_SCOPE)
-endfunction(parse_jsimports FILENAME OUTVAR)
-
-##
-## generate_precompiled NAME
-##
-## parses a JS script with import statements and collects all identifiers from them
-##
-function(get_jsimport_specifiers IMPORTS OUTVAR)
-  string(REGEX REPLACE "\.[^: ;]*:" "," SPECIFIERS "${IMPORTS}")
-  string(REPLACE "," ";" SPECIFIERS "${SPECIFIERS}")
-
-  list(FILTER SPECIFIERS INCLUDE REGEX "[A-Za-z0-9_]+")
-
-  set(${OUTVAR} "${SPECIFIERS}" PARENT_SCOPE)
-endfunction(get_jsimport_specifiers IMPORTS OUTVAR)
-
-##
-## generate_precompiled NAME
-##
-## parses a JS script with import statements and collects all identifiers from them
-##
-function(generate_precompiled_js NAME)
-  module_path("${NAME}" OUTPUT_FILE)
-
-  set(INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.cmake")
-
-  string(REGEX REPLACE "[^A-Za-z0-9_]" "_" CMAKE_FILE "generate_${NAME}")
-
-  file(RELATIVE_PATH IN "${CMAKE_CURRENT_BINARY_DIR}" "${INPUT_FILE}")
-  file(RELATIVE_PATH OUT "${CMAKE_CURRENT_BINARY_DIR}" "${OUTPUT_FILE}")
-  file(RELATIVE_PATH INCLUDEDIR "${CMAKE_CURRENT_BINARY_DIR}"
-       "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-
-  file(RELATIVE_PATH LIBDIR "${CMAKE_CURRENT_BINARY_DIR}/modules"
-       "${CMAKE_CURRENT_SOURCE_DIR}/lib")
-  file(CREATE_LINK "${LIBDIR}" "${CMAKE_CURRENT_BINARY_DIR}/modules/lib"
-       COPY_ON_ERROR SYMBOLIC)
-
-  file(
-    GENERATE
-    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_FILE}.cmake"
-    CONTENT
-      "include(${INCLUDEDIR}/QuickJSModule.cmake)
-
-parse_jsimports(${IN} JSIMPORTS)
-get_jsimport_specifiers(\"\${JSIMPORTS}\" SPECIFIERS)
-
-string(REGEX REPLACE \";\" \",\\n  \" EXPORTS \"\${SPECIFIERS}\")
-configure_file(
-  ${IN}
-  ${OUT}
-  @ONLY
-)")
-
-  add_custom_command(
-    OUTPUT "${NAME}"
-    BYPRODUCTS "${OUT}"
-    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    DEPENDS "${INPUT_FILE}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake"
-            SOURCES "${NAME}.cmake" #VERBATIM
-  )
-
-  add_custom_target(
-    "${NAME}" ALL
-    BYPRODUCTS "${OUT}"
-    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
-    DEPENDS "${INPUT_FILE}"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_js.cmake"
-    SOURCES "${NAME}.cmake" #VERBATIM
-  )
-endfunction(generate_precompiled_js NAME)
-
-##
-## generate_precompiled NAME
-##
-## parses a JS script with import statements and collects all identifiers from them
-##
-function(generate_precompiled_h NAME)
-  module_path("${NAME}" OUTPUT_FILE)
-
-  string(REGEX REPLACE "\.h$" ".c" C_FILE "${NAME}")
-  module_path("${C_FILE}" INPUT_FILE)
-
-  string(REGEX REPLACE "[^A-Za-z0-9_]" "_" CMAKE_FILE "generate_${NAME}")
-
-  file(RELATIVE_PATH INCLUDEDIR "${CMAKE_CURRENT_BINARY_DIR}"
-       "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-  file(RELATIVE_PATH OUT "${CMAKE_CURRENT_BINARY_DIR}" "${OUTPUT_FILE}")
-  file(RELATIVE_PATH IN "${CMAKE_CURRENT_BINARY_DIR}" "${INPUT_FILE}")
-
-  file(
-    GENERATE
-    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_FILE}.cmake"
-    CONTENT
-      "include(${INCLUDEDIR}/QuickJSModule.cmake)\n
-parse_precompiled_symbols(${C_FILE} LWSJS_LIBS)
-generate_precompiled_header(X LWSJS_H \"\${LWSJS_LIBS}\")
-write_module_file(${NAME} \"\${LWSJS_H}\")")
-
-  #message("generate_precompiled_h ${NAME}")
-
-  add_custom_command(
-    OUTPUT "${NAME}"
-    BYPRODUCTS "${OUT}"
-    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
-    DEPENDS "${INPUT_FILE}"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake"
-            SOURCES "${INPUT_FILE}" #VERBATIM
-  )
-  add_custom_target(
-    "${NAME}" ALL
-    BYPRODUCTS "${OUT}"
-    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_FILE}.cmake"
-    DEPENDS "${INPUT_FILE}"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "Generate ${OUT} from ${IN} using generate_precompiled_h.cmake"
-    SOURCES "${INPUT_FILE}" #VERBATIM
-  )
-endfunction(generate_precompiled_h NAME)
-
-##
-## parse_precompiled_symbols NAME OUTPUT
-##
-## parses a C source generated by qjsc and gets all bytecode block identifiers
-##
-function(parse_precompiled_symbols NAME OUTVAR)
-  module_path("${NAME}" FILE)
-
-  if(EXISTS "${FILE}")
-    file(READ "${FILE}" PRECOMP_C)
-    string(REGEX REPLACE "[^A-Za-z0-9_]+" ";" SYMBOLS "${PRECOMP_C}")
-
-    list(FILTER SYMBOLS INCLUDE REGEX ".*jsc.*")
-    list(FILTER SYMBOLS EXCLUDE REGEX ".*_size$")
-    string(REGEX REPLACE "qjsc_" "" SYMBOLS "${SYMBOLS}")
-
-    set(${OUTVAR} "${SYMBOLS}" PARENT_SCOPE)
-  endif()
-endfunction(parse_precompiled_symbols NAME OUTVAR)
-
-##
-## generate_precompiled_header MACRO OUTVAR MODULE...
-##
-## generates a header for the #define/#include/#undef preprocessor iteration trick
-##
-function(generate_precompiled_header MACRO OUTVAR)
-  message("generate_precompiled_header ${NAME} ${MACRO}")
-
-  if(MACRO STREQUAL "")
-    set(MACRO "X")
-  endif()
-
-  set(S "")
-  set(I 0)
-
-  foreach(MODULE ${ARGN})
-    set(S "${S}${MACRO}(${MODULE}, ${I})\n")
-    math(EXPR I "1 + ${I}")
-  endforeach()
-
-  set(${OUTVAR} "${S}" PARENT_SCOPE)
-endfunction(generate_precompiled_header MACRO OUTVAR)
-
-##
 ## write_module_file NAME S
 ##
 function(write_module_file NAME S)
   module_path(${NAME} OUTFILE)
   file(WRITE "${OUTFILE}" "${S}")
-endfunction(write_module_file NAME S)
+endfunction()
 
 #
 # get_native_modules <OUTPUT-VARIABLE>

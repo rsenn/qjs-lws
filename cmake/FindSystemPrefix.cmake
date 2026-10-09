@@ -15,7 +15,7 @@ function(find_system_prefix)
   endforeach(VAR ${VARS})
   
   set(SYSTEM_PREFIX "${SYSTEM_PREFIX}" PARENT_SCOPE)
-endfunction(find_system_prefix)
+endfunction()
 
 function(find_resolv_conf)
   foreach(PATH ${ARGN})
@@ -26,4 +26,4 @@ function(find_resolv_conf)
   endforeach(PATH ${ARGN})
   
   set(RESOLV_CONF "${RESOLV_CONF}" PARENT_SCOPE)
-endfunction(find_resolv_conf)
+endfunction()
