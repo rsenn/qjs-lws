@@ -42,6 +42,7 @@ void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);
 
 int lwsjs_init(JSContext*, JSModuleDef*);
 JSModuleDef* js_init_module(JSContext*, const char*);
+JSModuleDef* js_init_module_lws(JSContext*, const char*);
 
 /* Bounded, NUL-terminated string append: copies as much of `src` as fits
    before `end` (always leaving room for the terminator), and always
