@@ -97,6 +97,8 @@ endif()
 
 include(CheckFunctionExists)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindQuickJS.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
+quickjs_module_options()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSystemPrefix.cmake)
 
 find_system_prefix()
@@ -588,6 +590,8 @@ macro(target_link TARGET)
   # see quickjs-native-bindings skill, section 21, for the convention this
   # follows (QUICKJS_<UNAME>_LIBRARIES/LINK_FLAGS, reference: qjs-ffi).
   if(TARGET_TYPE STREQUAL "STATIC_LIBRARY" AND VNAME)
+    hide_static_symbols(${TARGET} js_init_module_${VNAME})
+
     string(TOUPPER "${VNAME}" UNAME)
     string(REPLACE "-" "_" UNAME "${UNAME}")
 

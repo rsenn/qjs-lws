@@ -33,7 +33,87 @@ macro(quickjs_module_options)
   if(NOT DEFINED BUILD_STATIC)
     option(BUILD_STATIC "Build static QuickJS module(s) (*.a)" ${QMO_STATIC_DEFAULT})
   endif(NOT DEFINED BUILD_STATIC)
+
+  if(NOT DEFINED HIDE_STATIC_SYMBOLS)
+    option(HIDE_STATIC_SYMBOLS "Static QuickJS module(s) export only js_init_module_<name>" ON)
+  endif(NOT DEFINED HIDE_STATIC_SYMBOLS)
 endmacro()
+
+#
+# hide_static_symbols <STATIC-TARGET> <INIT-SYMBOL> [KEEP <symbol>...]
+#
+# After STATIC-TARGET is built, replace its archive by one object in which the strong global
+# definitions are local, but INIT-SYMBOL and the KEEP symbols:
+#
+#   cc -r -nostdlib -o merged.o -Wl,--whole-archive foo.a    // calls between files resolved
+#   nm -g --defined-only merged.o                            // strong T D B R C symbols ...
+#   objcopy --localize-symbols=list merged.o                 // ... made local
+#   ar qc foo.a merged.o
+#
+# Several modules, or a module and libmodules.a, can then be linked into one executable
+# although each carries its own copy of the same helpers (js_error_print, ...). Undefined
+# references (quickjs, libc, the wrapped library) and weak/unique definitions (C++ inline
+# functions, DW.ref.*) stay as they are, other objects of the final link resolve them.
+# Does nothing, with a status message, when HIDE_STATIC_SYMBOLS is OFF or there is no objcopy.
+#
+function(hide_static_symbols TARGET INIT_SYMBOL)
+  cmake_parse_arguments(HSS "" "" "KEEP" ${ARGN})
+
+  if(NOT HIDE_STATIC_SYMBOLS)
+    return()
+  endif()
+
+  if(NOT CMAKE_OBJCOPY OR NOT CMAKE_NM OR APPLE OR MSVC OR WASI OR EMSCRIPTEN
+     OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
+    message(STATUS "hide_static_symbols: ${TARGET} keeps all its symbols (no objcopy/nm for this platform)")
+    return()
+  endif()
+
+  if(CMAKE_C_COMPILER)
+    set(_hss_cc "${CMAKE_C_COMPILER}")
+    separate_arguments(_hss_flags NATIVE_COMMAND "${CMAKE_C_FLAGS}")
+  else()
+    set(_hss_cc "${CMAKE_CXX_COMPILER}")
+    separate_arguments(_hss_flags NATIVE_COMMAND "${CMAKE_CXX_FLAGS}")
+  endif()
+
+  set(_hss_dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${TARGET}-hide")
+  file(MAKE_DIRECTORY "${_hss_dir}")
+
+  # run by cmake -P after the build: the archive is $ARCHIVE
+  file(
+    WRITE "${_hss_dir}/hide.cmake"
+    "cmake_minimum_required(VERSION 3.20)
+set(KEEP \"${INIT_SYMBOL};${HSS_KEEP}\")
+execute_process(COMMAND \"${_hss_cc}\" ${_hss_flags} -r -nostdlib -o \"${_hss_dir}/merged.o\"
+                -Wl,--whole-archive \"\${ARCHIVE}\" -Wl,--no-whole-archive RESULT_VARIABLE R)
+if(R)
+  message(FATAL_ERROR \"hide_static_symbols: ld -r failed for \${ARCHIVE}\")
+endif()
+execute_process(COMMAND \"${CMAKE_NM}\" -g --defined-only \"${_hss_dir}/merged.o\" OUTPUT_VARIABLE OUT)
+string(REPLACE \"\\n\" \";\" LINES \"\${OUT}\")
+set(LOCAL \"\")
+foreach(L \${LINES})
+  if(L MATCHES \"^[0-9a-fA-F]+ [TDBRCSG] (.+)$\" AND NOT CMAKE_MATCH_1 IN_LIST KEEP)
+    string(APPEND LOCAL \"\${CMAKE_MATCH_1}\\n\")
+  endif()
+endforeach()
+file(WRITE \"${_hss_dir}/local.txt\" \"\${LOCAL}\")
+execute_process(COMMAND \"${CMAKE_OBJCOPY}\" --localize-symbols=${_hss_dir}/local.txt \"${_hss_dir}/merged.o\" RESULT_VARIABLE R)
+if(R)
+  message(FATAL_ERROR \"hide_static_symbols: objcopy failed for \${ARCHIVE}\")
+endif()
+file(REMOVE \"\${ARCHIVE}\")
+execute_process(COMMAND \"${CMAKE_AR}\" qc \"\${ARCHIVE}\" \"${_hss_dir}/merged.o\")
+execute_process(COMMAND \"${CMAKE_RANLIB}\" \"\${ARCHIVE}\")
+")
+
+  add_custom_command(
+    TARGET ${TARGET} POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" "-DARCHIVE=$<TARGET_FILE:${TARGET}>" -P "${_hss_dir}/hide.cmake"
+    COMMENT "Hiding all symbols of ${TARGET} but ${INIT_SYMBOL}"
+    VERBATIM)
+endfunction()
 
 #
 # compile_code <RESULT-VARIABLE> <CODE>
@@ -270,6 +350,8 @@ function(make_module FNAME)
       add_dependencies(${STATIC_TARGET_NAME} ${STATIC_DEPS})
     endif(STATIC_DEPS)
 
+    hide_static_symbols(${STATIC_TARGET_NAME} js_init_module_${VNAME} KEEP ${${VNAME}_EXPORT_SYMBOLS})
+
     list(APPEND STATIC_MODULE_TARGETS "${STATIC_TARGET_NAME}")
     list(APPEND STATIC_MODULE_NAMES "${NAME}")
     set(STATIC_MODULE_TARGETS "${STATIC_MODULE_TARGETS}" PARENT_SCOPE)
@@ -312,6 +394,10 @@ function(make_module FNAME)
     endforeach()
     set(_module_cmake_libs "${_module_cmake_resolved}")
     list(TRANSFORM _module_cmake_libs REPLACE "^qjs-" "")
+    # a C++ module linked into a C executable (qjsm) needs the C++ runtime
+    if(SOURCES MATCHES "\\.(cpp|cc|cxx)(;|$)" AND NOT "stdc++" IN_LIST _module_cmake_libs)
+      list(APPEND _module_cmake_libs stdc++)
+    endif()
     get_target_property(_module_cmake_lib_path "${STATIC_TARGET_NAME}" ARCHIVE_OUTPUT_DIRECTORY)
     if(NOT _module_cmake_lib_path)
       set(_module_cmake_lib_path "${CMAKE_CURRENT_BINARY_DIR}")

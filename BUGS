@@ -454,3 +454,18 @@ See doc/api-compatibility.md for full compatibility assessment with code example
   build_libwebsockets(), which therefore does not use it.
 
     not practically reproducible in plain JS
+
+- test-context-features-hangs-after-last-test (tests/unittests/test-context-features.js:1):
+  all tests print OK but the process never exits (ctest times out at 60s
+  on x86_64-linux-gnu), so a context or socket created by the last
+  resolve() tests is probably left alive. Found running ctest; cause not
+  yet investigated.
+
+    qjsm tests/unittests/test-context-features.js  (run from the build dir; does not terminate)
+
+- test-ws-hangs-after-ws-close (tests/unittests/test-ws.js:1):
+  the suite never finishes (ctest timeout at 60s); the log ends right
+  after CLIENT_CLOSED of a ws client, so a later test or the loop teardown
+  is stuck. Found running ctest; cause not yet investigated.
+
+    qjsm tests/unittests/test-ws.js  (run from the build dir; does not terminate)
