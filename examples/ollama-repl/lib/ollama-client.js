@@ -49,6 +49,12 @@ const DEFAULT_TIMEOUT_SECS = 15 * 60;
    debug.log) - this used to be `scriptArgs[0] + '.log'` (i.e. "repl.js.log"
    in practice), which matched neither its sibling clients nor what
    README.md documents for this exact file. */
+/* Ollama's own default is 4096 - far too small for tool-using coding
+   sessions; qwen3.5:4b supports 256k, 16k keeps the KV cache modest. */
+const DEFAULT_NUM_CTX = 16384;
+/* Low: tool calls and exact-text edits want repeatable output, not variety
+   (a 4B model at the default 0.8 mangles anchors and copies wrongly). */
+const DEFAULT_TEMPERATURE = 0.2;
 const DEBUG_LOG_PATH = 'ollama-repl-debug.log';
 
 export class OllamaClient {
@@ -76,8 +82,10 @@ export class OllamaClient {
    */
   #timeoutMs;
 
-  constructor({ host = 'localhost', port = 11434, model, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false } = {}) {
+  constructor({ host = 'localhost', port = 11434, model, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false, numCtx = DEFAULT_NUM_CTX, temperature = DEFAULT_TEMPERATURE } = {}) {
     this.host = host;
+    this.temperature = temperature;
+    this.numCtx = numCtx;
     this.port = port;
     this.model = model;
     this.#timeoutMs = timeoutSecs * 1000;
@@ -249,6 +257,15 @@ export class OllamaClient {
     return { content: message?.content ?? '', toolCalls: toolCalls?.length ? toolCalls : undefined };
   }
 
+  /* done_reason "length" means the prompt filled the context window (the
+     reply is cut off or empty) - Ollama's default num_ctx is only 4096
+     tokens, which a project scan plus a few attached files already
+     exceeds, and it truncates silently. Fail loudly instead. */
+  #checkTruncated(data) {
+    if(data.done_reason === 'length')
+      throw new Error(`reply cut off: context window full (num_ctx=${this.numCtx}, prompt was ${data.prompt_eval_count ?? '?'} tokens) - raise --num-ctx, or /reset`);
+  }
+
   /**
    * POSTs one non-streaming `/api/chat` request over the kept-alive
    * connection. `messages`/`options` follow this project's shared
@@ -259,13 +276,15 @@ export class OllamaClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chat(messages, { think = false, tools, toolChoice, ...options } = {}) {
-    const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: false, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
+    const payload = { ...options, options: { num_ctx: this.numCtx, temperature: this.temperature }, model: this.model, messages: this.#toMessages(messages), stream: false, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
 
     const resp = await this.#post(payload);
     const data = await resp.json();
     this.#logger.body(data);
 
     if(!data?.message) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
+
+    this.#checkTruncated(data);
 
     const result = this.#toResult(data.message);
     if(!result.content && !result.toolCalls) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
@@ -293,7 +312,7 @@ export class OllamaClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chatStream(messages, { think = false, tools, toolChoice, ...options } = {}, onToken) {
-    const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: true, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
+    const payload = { ...options, options: { num_ctx: this.numCtx, temperature: this.temperature }, model: this.model, messages: this.#toMessages(messages), stream: true, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
 
     const resp = await this.#post(payload);
     const reader = resp.body.getReader();
@@ -331,6 +350,8 @@ export class OllamaClient {
         }
 
         if(chunk.done) {
+          this.#checkTruncated(chunk);
+
           // Ollama's own payload-level "done" can arrive before the HTTP
           // response stream itself is fully drained (e.g. a trailing
           // chunked-encoding terminator still in flight) - returning

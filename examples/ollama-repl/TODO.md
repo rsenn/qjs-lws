@@ -1,5 +1,84 @@
 # TODO
 
+## Coding-work assessment with qwen3.5:4b (2026-10-20)
+
+Task used: `ollama-repl --provider ollama --model qwen3.5:4b --stream` in a
+copy of ~/Sources/shish: "add a 1-2 line documentation comment in front of
+every function declaration in lib/path.h, inferring its purpose from
+lib/path/<function-name>.c" (25 declarations).
+
+Findings, in the order they bit:
+
+1. **Context window.** Ollama defaults to `num_ctx` 4096. The old system
+   prompt + project scan + attached files was already ~4000 tokens, so
+   the second round returned `done_reason: "length"` with empty content,
+   which the REPL swallowed - the session just went back to the prompt
+   after the first `read_file`. Fixed: client sends `options.num_ctx`
+   (default 16384, `--num-ctx`) and throws on `done_reason: "length"`;
+   old tool results are elided when the history outgrows the window
+   (`elideOldToolResults()`).
+2. **No way to edit.** The only write path was "reply with a File: block
+   containing the whole new file" - hopeless for a 4B model on an
+   85-line header. Added `insert_above`, `edit_file` (exact, unique
+   match; WARNING listing lines an edit removed), `write_file`, `grep`,
+   `read_file` start/end; paths confined to the root; `/undo`, `/diff`.
+3. **Prompt.** ~1.5k tokens of QuickJS-binding instructions went to every
+   project; now only appended when README/CMakeLists/package.json mention
+   QuickJS. New prompt is short, task-agnostic, tool-oriented. The project
+   scan caps README/CLAUDE.md/AGENTS.md at 3000 and CMakeLists.txt at 1500
+   chars (shish's CMakeLists.txt alone was 16 KB).
+4. **MAX_TOOL_ROUNDS = 4** was far too low for any multi-edit job;
+   now `--max-rounds` (40).
+5. **Repetition in one context fails.** Doing 25 declarations in a single
+   conversation: it skipped reading most of the .c files and invented
+   behaviour, rewrote signatures, duplicated or *deleted* neighbouring
+   declarations when it "inserted" with edit_file (path_parentlen and
+   path_dirlen vanished in one run). Fix: `for_each` / `/each` - one short
+   fresh conversation per item. Result: all 25 documented in 40-60 s,
+   comments accurate (they mostly condense the doc block already in the
+   .c file).
+6. **Least privilege per batch item.** Comment-only tasks get no
+   `edit_file`/`write_file`/`run_command` in the sub-conversations
+   (`omitToolsFor()`), so a mistake can at worst add a misplaced comment.
+7. **Temperature.** Default sampling mangled anchors/copied blocks; 0.2
+   (`--temperature`) was visibly better (one clean run in 40 s vs 3-5 min
+   runs with duplicated declarations at the default).
+8. Smaller things fixed on the way: a tool that throws (missing `path`)
+   used to abort the whole turn - now reported to the model as an error
+   string; `ask_user` is not offered inside batch items.
+
+Still open / ideas, roughly by value:
+
+- **The model does not always pick `for_each`.** One of two runs of the
+  plain prompt did all 25 edits itself with `edit_file` and deleted three
+  declarations (the new WARNING in the edit_file result is untested against
+  it). Options: a harness-side nudge - if the prompt matches
+  /every|each|all .* (function|file)/ and the model starts editing without
+  `for_each`, reject the first edit with "use for_each"; or run the item
+  extraction in the harness (`/each`-style) for prompts that name a header.
+- **Verify after edit.** Nothing checks that the file still compiles or
+  that only comment lines were added. A per-task check hook (e.g. for a
+  comment-only task: `git diff` has no removed lines and no added
+  non-comment lines -> else auto-`/undo` that item and retry) would turn
+  the remaining ~1-in-5 sloppy items into retries.
+- **Comment length.** Items still sometimes paste the whole multi-line doc
+  block of the .c file although "1-2 lines" was asked. A `max_lines`
+  check on `insert_above` could reject with a message.
+- **Misplaced inserts.** `insert_above` anchors on a substring; an anchor
+  that is a prefix of two lines is rejected, but a model that anchors on
+  the wrong (neighbouring) declaration is accepted. Could verify that the
+  anchor line contains the item name in `for_each` runs.
+- `think: true` for the planning round only (read the header, choose the
+  items) and `think: false` for sub-items - not tried.
+- `ask_user`/`[y/N]` at EOF of piped stdin ends the session without an
+  answer (see piped mode below).
+- Larger refactors (rename across files) are untested: needs `grep` ->
+  `for_each(files)` and a build/test step via `run_command`.
+- Not tried: the other two providers on this task; qwen2.5-coder as the
+  originally targeted model.
+- The old items 1-5 below were written before any of this and are mostly
+  about the binding demo; keep, but read them against the above.
+
 ## Assessment (2026-08-04, updated 2026-08-30)
 
 `repl.js`'s tool loop was rewritten (2026-08-30) to drive real provider-

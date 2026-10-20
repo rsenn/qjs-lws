@@ -165,6 +165,7 @@ against any of the three clients. `API.md` has a full round-trip example.
 
 ```sh
 qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
+        [--num-ctx N] [--temperature T] [--max-rounds N] [--yes]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -174,6 +175,30 @@ just `ollama-repl [...]` from `bin/`.
 
 `--root` is the project directory file references and writes are resolved
 against - defaults to the current directory.
+
+`--num-ctx` (default 16384) is the context window asked of Ollama - its own
+default is 4096 tokens, which the project scan plus a couple of attached
+files already fills, and it then truncates silently (empty reply,
+`done_reason: "length"`; the client now reports that as an error).
+`--temperature` (default 0.2) keeps edits repeatable. `--max-rounds`
+(default 40) caps tool-calling rounds per prompt. `--yes` runs
+`run_command` without asking.
+
+## Coding work
+
+Tools the model has: `list_directory`, `read_file` (optional line range),
+`grep`, `insert_above`, `edit_file`, `write_file` (all confined to the
+project root; `/undo` restores what the last prompt changed, `/diff` shows
+`git diff`), `for_each`, `run_command`, `ask_user`.
+
+Repetitive jobs ("a comment above every function in lib/path.h, from
+lib/path/<name>.c") work best split up: `for_each` (or `/each` by hand)
+runs the same task once per item, each in its own short conversation.
+By hand:
+
+```
+/each grep -o 'path_[a-z_]*(' lib/path.h | tr -d '(' | sort -u :: In lib/path.h add a 1-2 line comment directly above the declaration of {}, saying what it does. Infer that from lib/path/{}.c (read it first). Change nothing else.
+```
 
 `--failsafe` strips out all of the REPL's own scaffolding: no system
 prompt, no automatic project scan, no file-ref attachment, no
@@ -222,6 +247,9 @@ printf 'what does lib/run-command.js do?\n/status\n' | qjsm repl.js --stream > o
 
 ## REPL commands
 
+- `/undo` - restore every file the model changed while handling the last prompt
+- `/diff` - `git diff` of the project
+- `/each <cmd> :: <task>` - run `<task>` once per output line of `<cmd>` (`{}` = the item), each in a fresh conversation
 - `/reset` - clear the conversation history (keeps the initial project scan)
 - `/clear` - wipe the conversation history completely, including the
   initial project scan

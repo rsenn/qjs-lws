@@ -47,14 +47,14 @@
  *     also prints lws's own ERR/WARN/USER lines straight to the terminal,
  *     independent of `TRAFFIC`.
  */
-import { exit, out as stdout, err as stderr } from 'std';
+import { exit, loadFile, out as stdout, err as stderr } from 'std';
 import { clearTimeout, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
-import { TOOLS, executeTool } from './lib/tool-requests.js';
+import { TOOLS, executeTool, resetJournal, undoJournal } from './lib/tool-requests.js';
 import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
 import { fileMode, SKIP_DIRS } from './lib/match.js';
 import { ChatREPL } from './lib/chat-repl.js';
@@ -69,10 +69,10 @@ import { piped, dim, red, green } from './lib/ansi.js';
    runToolLoop() below) - a tool-call round costs a real network round trip
    to the model, so this caps both latency and (if the model gets stuck
    re-requesting) runaway cost, not just literal infinite loops. */
-const MAX_TOOL_ROUNDS = 4;
+const DEFAULT_MAX_ROUNDS = 40;
 
 function parseArgs(argv) {
-  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false };
+  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -84,9 +84,16 @@ function parseArgs(argv) {
     else if(arg === '--stream') opts.stream = true;
     else if(arg === '-x' || arg === '--debug') opts.debug = true;
     else if(arg === '--failsafe') opts.failsafe = true;
+    else if(arg === '--num-ctx') opts.numCtx = +argv[++i];
+    else if(arg === '--temperature') opts.temperature = +argv[++i];
+    else if(arg === '--max-rounds') opts.maxRounds = +argv[++i];
+    else if(arg === '--yes' || arg === '-y') opts.yes = true;
     else if(arg === '--help' || arg === '-h') {
       console.log(
-        'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe]\n' +
+        'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--num-ctx N] [--temperature T] [--max-rounds N] [--yes]\n' +
+          '  --num-ctx N      context window requested from Ollama (default 16384; Ollama itself defaults to 4096).\n' +
+          '  --max-rounds N   tool-calling rounds per prompt (default 40).\n' +
+          '  --yes/-y         run_command without asking (unattended agents).\n' +
           '  -x/--debug logs raw request/response JSON to <provider>-repl-debug.log (same as setting DEBUG=1).\n' +
           '  TRAFFIC=<path> (env var, not a flag) additionally logs native socket-level RX/TX traffic to that file.',
       );
@@ -104,13 +111,56 @@ function parseArgs(argv) {
   return opts;
 }
 
-const SYSTEM_PROMPT = `You are a coding assistant working inside a local project tree, similar to
-Claude Code: verify against the actual codebase instead of guessing, and
-ground answers in what you've actually seen using the tools available to
-you (list_directory/read_file/run_command/ask_user), not assumption. Use
-them liberally and before answering, not after - a wrong answer grounded
-in nothing costs more than the extra round trip. Ask the user (ask_user)
-if something genuinely can't be resolved by looking, rather than guessing.
+const SYSTEM_PROMPT = `You are a coding assistant that maintains and refactors the code in the
+current project directory, like Claude Code. You act through tools: you do
+not just describe changes, you make them.
+
+Tools: list_directory, read_file (optionally start/end lines), grep,
+insert_above (add lines above an existing line), edit_file (replace exact
+existing text), write_file (new files),
+for_each (same task over a list of items), run_command (shell; the user
+approves it), ask_user.
+
+How to work:
+- Look before you change anything: read_file the file you will edit and
+  any file whose contents you need to know. Never guess what code does -
+  read it. Attached files in the user's message are already read.
+- Change files with insert_above (adding lines, e.g. a comment above a
+  function) or edit_file (replacing text), in small steps, one change per
+  call, with anchor/old_string copied exactly from what you just read.
+
+- A job that repeats over many things is ALWAYS a for_each call, never
+  something you do yourself one by one: you only list the items and
+  write the task once, for_each does the work. Example - "document every
+  function in lib/foo.h from lib/foo/<name>.c": read lib/foo.h (if not
+  attached), then call for_each(items=["foo_a", "foo_b", ...], task="In
+  lib/foo.h add a 1-2 line comment above the declaration of {item}, based
+  on what its source lib/foo/{item}.c does").
+- Make only the change that was asked for. Keep the existing code and
+  its style as it is: same indentation, same comment style as the
+  neighbouring code, no reformatting, no renaming.
+- If an edit_file call returns an error, read the file again and retry
+  with corrected text.
+- When finished, check with run_command (\`git diff\`, build, tests) if
+  that is possible, then reply with a short summary of what you changed.
+  Do not paste the whole file into your reply.
+- Ask the user (ask_user) only if something genuinely cannot be found out
+  by looking.
+
+Attached file contents in the user's messages look like:
+
+File: path/to/file.ext
+\`\`\`language
+...current contents...
+\`\`\`
+(imports/includes: ../lib/foo.js - read_file any of these you actually need)
+
+The project's top-level layout and README are given below, gathered when
+the session started.`;
+
+/* Only appended for QuickJS projects (see main()) - it is noise, and costs
+   context a small model needs, anywhere else. */
+const QJS_NOTES = `
 
 This project runs on QuickJS (qjs/qjsm), not Node.js - don't assume Node's
 globals, module system ("require", "node_modules"), or built-ins ("path",
@@ -125,45 +175,6 @@ with no extra dependency (quickjs.md, one read_file away, is the
 reference). This only constrains code meant to run inside qjs/qjsm itself
 - write ordinary browser-side JS when that's what's actually being asked
 for.
-
-Attached file contents in the user's messages look like:
-
-File: path/to/file.ext
-\`\`\`language
-...current contents...
-\`\`\`
-(imports/includes: ../lib/foo.js - read_file any of these you actually need)
-
-Only when explicitly asked to create, write, or modify a file, reply with
-a block in that same format - "File: path" then a fenced code block with
-the complete new file contents - for each file you actually want to
-change; a "File:" block anywhere in your reply gets written to disk
-automatically, overwriting what's there. Don't use it for ordinary
-conversation - plain text is fine for that. Label any other code snippet
-you write the same way (a real filename, matching extension) unless it's
-obviously not meant to be saved; anything left unlabeled is auto-saved
-anyway, so a real name is just more useful than an invented one. Before
-writing a "File:" block for a file that already exists, read_file it
-first if you haven't already this session - ground the rewrite in its
-current contents rather than assumption.
-
-run_command runs a real shell script in the project root, not just a
-single fixed command - multi-line, pipes, \`find\`/\`xargs\`/\`grep\`/\`head\`/
-\`tail\`, \`cat <<EOF > file\` heredocs to write out a throwaway test file,
-whatever the task needs (you'll be asked to approve each script first).
-Use it for git (status/diff/log, to see what's actually changed or
-already there) and for testing: write a small script and run it with
-\`qjsm\` (or \`qjs\` for module-free snippets) to check a QuickJS/C-binding
-API call actually works, or a syntax idea actually runs, before writing
-it into a real file - much cheaper than writing a whole file and hoping.
-
-The project's top-level layout and README/CMakeLists.txt are already
-given below, gathered automatically at session start - read that first.
-For anything else - a subdirectory, a specific file, a sibling "qjs-*"
-project, the QuickJS C API (quickjs.h) or qjs-modules' JS built-ins
-(fs.js/console.js/process.js/util.js under /usr/local/lib/quickjs/) -
-read_file/list_directory it rather than guessing at its contents; naming
-a header or built-in by name attaches the real file automatically.
 
 Writing a new native (C) QuickJS binding is a common request here - when
 one of examples/fib.c, examples/point.c, and the quickjs-binding-api.md
@@ -183,10 +194,28 @@ this project's own build (that pulls in libwebsockets and a multi-minute
 link for something that needs none of it):
 \`gcc -shared -fPIC -I<quickjs-source-dir> -o binding.so binding.c
 -DJS_SHARED_LIBRARY [-lwhatever]\`, then \`qjsm -e '<smoke test importing
-./binding.so>'\` - before presenting it as done, don't just describe code
-that should work.`;
+./binding.so>'\` - before presenting it as done, don't just describe code that should work.`;
 
 /** @returns {{ text: string, attached: string[] }} */
+/* Least privilege for a batch item: a task that is only about adding comments
+   gets insert_above but not edit_file/write_file. Measured with qwen3.5:4b:
+   given edit_file it "inserts" by replacing a multi-line span and silently
+   drops or duplicates the declarations in it (path_parentlen/path_dirlen
+   vanished from a header); insert_above cannot destroy anything. */
+function omitToolsFor(task) {
+  const commentOnly = /\b(comment|document|documentation)\b/i.test(task) && !/\b(replace|rename|change|fix|remove|delete|refactor|rewrite|update|convert)\b/i.test(task);
+  return commentOnly ? ['edit_file', 'write_file', 'run_command'] : [];
+}
+
+/** True if the project's top-level build files mention QuickJS. */
+function isQuickJsProject(root) {
+  for(const f of ['CMakeLists.txt', 'README.md', 'package.json']) {
+    const text = loadFile(root === '.' ? f : `${root}/${f}`);
+    if(text && /quickjs|qjsm?\b/i.test(text)) return true;
+  }
+  return false;
+}
+
 function attachFiles(prompt, root, fileExchange) {
   const { files, skipped } = extractFileRefs(prompt, root);
 
@@ -295,8 +324,8 @@ function startSpinner(label = 'Thinking') {
 async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   //console.log('chatRound');
   const t0 = Date.now();
-  const stopSpinner = piped ? () => {} : startSpinner();
-  const cogitated = () => console.log(dim(`Cogitated for ${((Date.now() - t0) / 1000).toFixed(1)}s`) + '\n');
+  const stopSpinner = piped || opts.quiet ? () => {} : startSpinner();
+  const cogitated = () => opts.quiet || console.log(dim(`Cogitated for ${((Date.now() - t0) / 1000).toFixed(1)}s`) + '\n');
 
   abortRef.current = () => client.abort();
 
@@ -333,12 +362,31 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
 
     const result = await client.chat(messages, chatOptions);
     stopSpinner();
-    if(result.content) console.log(`\n${opts.provider}> ${result.content}\n`);
+    if(result.content && !opts.quiet) console.log(`\n${opts.provider}> ${result.content}\n`);
     cogitated();
     return result;
   } finally {
     abortRef.current = null;
     stopSpinner();
+  }
+}
+
+/* Keeps the conversation inside the context window: old tool results (file
+   reads, grep output) are what grows it, and the model has already acted on
+   them - once the history outgrows ~2.5 chars/token of `numCtx` minus room
+   for the tool schemas and the reply, the oldest results are replaced by a
+   one-line stub, oldest first, until it fits again. */
+function elideOldToolResults(messages, numCtx) {
+  const budget = numCtx * 2.5 - 8000;
+  let total = totalChars(messages);
+
+  for(const m of messages) {
+    if(total <= budget) return;
+    if(m.role !== 'tool' || m.content.length < 200) continue;
+
+    const stub = `(output elided to save context: ${m.content.length} chars - run the tool again if needed)`;
+    total -= m.content.length - stub.length;
+    m.content = stub;
   }
 }
 
@@ -357,20 +405,23 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
  *
  * @returns {Promise<string>} the final reply shown to the user
  */
-async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef) {
+async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach) {
+  const tools = (forEach ? TOOLS : TOOLS.filter(t => t.name !== 'for_each' && t.name !== 'ask_user')).filter(t => !opts.omitTools?.includes(t.name));
+
   for(let round = 0; ; round++) {
-    const final = round >= MAX_TOOL_ROUNDS - 1;
-    const result = await chatRound(client, messages, opts, abortRef, final ? { toolChoice: 'none' } : { tools: TOOLS });
+    const final = round >= opts.maxRounds - 1;
+    elideOldToolResults(messages, opts.numCtx);
+    const result = await chatRound(client, messages, opts, abortRef, final ? { toolChoice: 'none' } : { tools });
 
     messages.push({ role: 'assistant', content: result.content, ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}) });
     log.reply(result.content);
 
     if(!result.toolCalls?.length) return result.content;
 
-    console.log(dim(`(${result.toolCalls.map(tc => `${tc.name}(${JSON.stringify(tc.args)})`).join(' | ')})`));
+    if(!opts.quiet) console.log(dim(result.toolCalls.map(tc => `(${tc.name} ${JSON.stringify(tc.args).slice(0, 160)})`).join('\n')));
 
     for(const tc of result.toolCalls) {
-      const output = await executeTool(tc.name, tc.args, opts.root, confirmRun, askUser);
+      const output = await executeTool(tc.name, tc.args, opts.root, confirmRun, askUser, forEach);
       log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
       messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
     }
@@ -434,13 +485,14 @@ async function gatherProjectContext(root) {
     .map(({ name, isDir }) => (isDir ? `${name}/` : name))
     .join('\n');
 
+  /* Capped per file: a small model's context is precious, and the full
+     text is one read_file away. */
   const reads = [];
 
-  const [readmeStat] = stat(root === '.' ? 'README.md' : `${root}/README.md`);
-  if(readmeStat) reads.push(`README.md\n${await executeTool('read_file', { path: 'README.md' }, root)}`);
-
-  const [cmakeStat] = stat(root === '.' ? 'CMakeLists.txt' : `${root}/CMakeLists.txt`);
-  if(cmakeStat) reads.push(`CMakeLists.txt\n${await executeTool('read_file', { path: 'CMakeLists.txt' }, root)}`);
+  for(const [name, cap] of [['README.md', 3000], ['CLAUDE.md', 3000], ['AGENTS.md', 3000], ['CMakeLists.txt', 1500]]) {
+    const text = loadFile(root === '.' ? name : `${root}/${name}`);
+    if(text) reads.push(`${name}${text.length > cap ? ` (first ${cap} of ${text.length} chars)` : ''}\n${text.slice(0, cap)}`);
+  }
 
   return `Project layout (top-level only):\n${layout || '(empty)'}${reads.length ? `\n\n${reads.join('\n\n')}` : ''}`;
 }
@@ -469,6 +521,9 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /exit, /quit    - quit
 /help           - this text
 /run <command>  - run a shell command yourself, right now (no model round trip, no approval prompt - it's you asking, not the model)
+/undo           - restore every file the model changed during the last prompt
+/diff           - git diff of the project (what has been changed so far)
+/each <cmd> :: <task> - run <task> once per output line of <cmd> ({} = the item), each in a fresh conversation
 /binding <text> - force-attach the native-binding reference (fib.c/point.c/cheat sheet) for this prompt, even if it doesn't sound like a binding request
 /status         - show model/connection/session info
 /files          - dump this session's file exchange (sent, received, diffs)
@@ -493,7 +548,7 @@ async function main() {
   const store = new SessionStore(opts.model);
   const saved = store.load();
 
-  const messages = saved ? saved.messages : opts.failsafe ? [] : [{ role: 'system', content: SYSTEM_PROMPT }];
+  const messages = saved ? saved.messages : opts.failsafe ? [] : [{ role: 'system', content: SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') }];
   const saveSession = () => store.save(messages, baseMessageCount);
 
   const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : opts.provider === 'openai' ? 'api.openai.com' : `${opts.host}:${opts.port}`;
@@ -532,15 +587,80 @@ async function main() {
      instead of quitting, when there's actually something to cancel. */
   const abortRef = { current: null };
 
+  const confirmRun = opts.yes ? undefined : cmd => repl.confirm(`Run this command?\n  ${cmd}`);
+  const askUser = question => repl.ask(question);
+
+  /* Runs `task` once per item, each in its own fresh two-message
+     conversation (system prompt + the task for that one item) - a small
+     model is far more reliable on "do this one thing" than on "do this to
+     all 20 things" in one ever-growing context. Backs both the /each
+     command and the model's own for_each tool. */
+  const forEach = async (items, task) => {
+    const sub = { ...opts, stream: false, quiet: true, maxRounds: Math.min(opts.maxRounds, 12), omitTools: omitToolsFor(task) };
+    const hasSlot = /\{item\}|\{\}/.test(task);
+    const results = [];
+
+    for(const [i, item] of items.entries()) {
+      console.log(`[${i + 1}/${items.length}] ${item}`);
+
+      const text = hasSlot ? task.replaceAll('{item}', item).replaceAll('{}', item) : `${task}\n\nItem: ${item}`;
+      const subMessages = [
+        { role: 'system', content: SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') },
+        { role: 'user', content: `${text}\n\n(This is one item of a batch: do only this item, and nothing else in the file. Make exactly the change asked for, as short as asked, in your own words - do not copy whole comment blocks from other files. Then reply with one short line saying what you did.)` },
+      ];
+
+      try {
+        const reply = await runToolLoop(client, subMessages, sub, log, confirmRun, askUser, abortRef);
+        const summary = (reply || '(no reply)').trim().split('\n')[0].slice(0, 200);
+        console.log(dim(`  ${summary}`));
+        results.push(`${item}: ${summary}`);
+      } catch(e) {
+        console.log(red(`  error: ${e.message}`));
+        results.push(`${item}: error: ${e.message}`);
+      }
+    }
+
+    return results.join('\n');
+  };
+
   const repl = new ChatREPL(
     'you',
     async line => {
       const prompt = line.trim();
       if(!prompt) return;
 
+      if(!prompt.startsWith('/') || prompt.startsWith('/each ') || prompt.startsWith('/binding ')) resetJournal();
+
+      /* /each <shell command listing the items, one per line> :: <task, {} = the item> */
+      if(prompt.startsWith('/each ')) {
+        const [listCmd, task] = prompt.slice('/each '.length).split(/\s+::\s+/);
+        if(!listCmd || !task) return void console.log('usage: /each <command that prints one item per line> :: <task, with {} where the item goes>');
+
+        const { output, status } = await runCommand(listCmd, { cwd: opts.root });
+        const items = output.split('\n').map(l => l.trim()).filter(Boolean);
+        if(status !== 0 || !items.length) return void console.log(`(no items: exit ${status})\n${output}`);
+
+        const summary = await forEach(items, task);
+        messages.push({ role: 'user', content: `(ran /each over ${items.length} items: ${task})` }, { role: 'assistant', content: summary });
+        saveSession();
+        return;
+      }
+
       //console.log('ChatREPL', prompt);
 
       if(prompt === '/exit' || prompt === '/quit') return repl.exit(0);
+
+      if(prompt === '/undo') {
+        const undone = undoJournal();
+        console.log(undone.length ? `(restored: ${undone.join(', ')})` : '(nothing to undo - no file was changed by the last prompt)');
+        return;
+      }
+
+      if(prompt === '/diff') {
+        const { output } = await runCommand('git diff --stat && git diff', { cwd: opts.root });
+        console.log(output || '(no changes)');
+        return;
+      }
 
       if(prompt === '/reset') {
         messages.length = baseMessageCount;
@@ -653,12 +773,9 @@ async function main() {
       const turnStart = messages.length;
       messages.push({ role: 'user', content: finalText });
 
-      const confirmRun = cmd => repl.confirm(`Run this command?\n  ${cmd}`);
-      const askUser = question => repl.ask(question);
-
       let reply;
       try {
-        reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef);
+        reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
       } catch(e) {
         console.log(red(`error: ${e.message}`));
         messages.length = turnStart; // don't leave a dangling/partial turn behind
