@@ -19,6 +19,7 @@
 import { readdir, S_IFDIR } from 'os';
 import { fileMode } from './match.js';
 import { REPL } from 'repl';
+import { red, yellow } from './ansi.js';
 
 /* Bright white (not bold-as-in-JS-syntax-colors - just the one plain,
    readable color) instead of the base REPL's live JS-syntax highlighting
@@ -60,7 +61,7 @@ export class ChatREPL extends REPL {
     this.#root = root;
     this.#onAbort = onAbort;
     this.showColors = false;
-    this.ps1 = BRIGHT_WHITE + this.ps1;
+    if(!this.piped) this.ps1 = BRIGHT_WHITE + this.ps1;
     this.inspectOptions.maxStringLength = Infinity;
     this.historyLoad(); // also registers historySave() as a cleanup handler
   }
@@ -175,9 +176,10 @@ export class ChatREPL extends REPL {
 
   #run(expr) {
     this.#busy = true;
+    this.pipeBusy = true; // piped: hold EOF/the next line back until this settles
 
     this.onLine(expr)
-      .catch(err => console.log(`\x1b[31merror: ${err.message}\x1b[0m`))
+      .catch(err => console.log(red(`error: ${err.message}`)))
       .then(() => {
         this.#busy = false;
 
@@ -204,8 +206,8 @@ export class ChatREPL extends REPL {
     let answered = false;
 
     return new Promise(resolve => {
-      this.ps1 = '\x1b[33m[y/N]\x1b[0m ';
-      console.log(`\x1b[33m${promptText}\x1b[0m`);
+      this.ps1 = yellow('[y/N]') + ' ';
+      console.log(yellow(promptText));
 
       const cb = answer => {
         /* Same batched-bytes situation as handleCmd()'s own reset (see its
@@ -235,6 +237,7 @@ export class ChatREPL extends REPL {
         if(!answered) {
           answered = true;
           this.ps1 = savedPs1;
+          this.pipeBusy = true;
           resolve(/^y(es)?$/i.test((answer ?? '').trim()));
         } else if(answer) {
           this.handleCmd(answer);
@@ -242,6 +245,7 @@ export class ChatREPL extends REPL {
       };
 
       this.readlineStart('', cb);
+      this.#awaitPipedAnswer();
     });
   }
 
@@ -259,8 +263,8 @@ export class ChatREPL extends REPL {
     let answered = false;
 
     return new Promise(resolve => {
-      this.ps1 = '\x1b[33m(answer)> \x1b[0m';
-      console.log(`\x1b[33m${promptText}\x1b[0m`);
+      this.ps1 = yellow('(answer)>') + ' ';
+      console.log(yellow(promptText));
 
       const cb = answer => {
         this.cmd = '';
@@ -271,6 +275,7 @@ export class ChatREPL extends REPL {
         if(!answered) {
           answered = true;
           this.ps1 = savedPs1;
+          this.pipeBusy = true;
           resolve((answer ?? '').trim());
         } else if(answer) {
           this.handleCmd(answer);
@@ -278,6 +283,17 @@ export class ChatREPL extends REPL {
       };
 
       this.readlineStart('', cb);
+      this.#awaitPipedAnswer();
     });
+  }
+
+  /* Piped: the line being handled holds pipeBusy, so the next input line
+     would wait behind the very question it is meant to answer. Release it
+     for the one-off callback (which re-takes it on the first answer). */
+  #awaitPipedAnswer() {
+    if(!this.piped) return;
+
+    this.pipeBusy = false;
+    this.pipeDrain();
   }
 }

@@ -63,6 +63,7 @@ import { SessionStore } from './lib/session-store.js';
 import { SentFiles } from './lib/sent-files.js';
 import { FileExchange } from './lib/file-exchange.js';
 import { runCommand } from './lib/run-command.js';
+import { piped, dim, red, green } from './lib/ansi.js';
 
 /* Bounds the tool-calling loop (see TOOLS/lib/tool-requests.js and
    runToolLoop() below) - a tool-call round costs a real network round trip
@@ -94,7 +95,7 @@ function parseArgs(argv) {
   }
 
   if(opts.provider !== 'ollama' && opts.provider !== 'gemini' && opts.provider !== 'openai') {
-    console.log(`\x1b[31merror: --provider must be "ollama", "gemini" or "openai", got "${opts.provider}"\x1b[0m`);
+    console.log(red(`error: --provider must be "ollama", "gemini" or "openai", got "${opts.provider}"`));
     exit(1);
   }
 
@@ -189,12 +190,12 @@ that should work.`;
 function attachFiles(prompt, root, fileExchange) {
   const { files, skipped } = extractFileRefs(prompt, root);
 
-  if(skipped.length) console.log(`\x1b[2m(skipped, too large or unreadable: ${skipped.join(', ')})\x1b[0m`);
+  if(skipped.length) console.log(dim(`(skipped, too large or unreadable: ${skipped.join(', ')})`));
   if(!files.length) return { text: prompt, attached: [] };
 
   const attached = files.map(f => f.path);
 
-  console.log(`\x1b[2m(attached: ${attached.join(', ')})\x1b[0m`);
+  console.log(dim(`(attached: ${attached.join(', ')})`));
   fileExchange.recordSent(attached);
 
   return { text: `${prompt}\n\n${formatFileBlocks(files)}`, attached };
@@ -204,8 +205,8 @@ function attachFiles(prompt, root, fileExchange) {
 async function applyFileBlocks(reply, root, sentFiles, fileExchange) {
   const { written, rejected } = await saveAllBlocks(reply, { root, sentFiles, fileExchange });
 
-  for(const path of written) console.log(`\x1b[32mmodified: ${path}\x1b[0m`);
-  for(const path of rejected) console.log(`\x1b[31mrefused to write (unsafe path): ${path}\x1b[0m`);
+  for(const path of written) console.log(green(`modified: ${path}`));
+  for(const path of rejected) console.log(red(`refused to write (unsafe path): ${path}`));
 
   return written;
 }
@@ -294,8 +295,8 @@ function startSpinner(label = 'Thinking') {
 async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   //console.log('chatRound');
   const t0 = Date.now();
-  const stopSpinner = startSpinner();
-  const cogitated = () => console.log(`\x1b[2mCogitated for ${((Date.now() - t0) / 1000).toFixed(1)}s\x1b[0m\n`);
+  const stopSpinner = piped ? () => {} : startSpinner();
+  const cogitated = () => console.log(dim(`Cogitated for ${((Date.now() - t0) / 1000).toFixed(1)}s`) + '\n');
 
   abortRef.current = () => client.abort();
 
@@ -366,7 +367,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
     if(!result.toolCalls?.length) return result.content;
 
-    console.log(`\x1b[2m(${result.toolCalls.map(tc => `${tc.name}(${JSON.stringify(tc.args)})`).join(' | ')})\x1b[0m`);
+    console.log(dim(`(${result.toolCalls.map(tc => `${tc.name}(${JSON.stringify(tc.args)})`).join(' | ')})`));
 
     for(const tc of result.toolCalls) {
       const output = await executeTool(tc.name, tc.args, opts.root, confirmRun, askUser);
@@ -482,7 +483,7 @@ async function main() {
   try {
     client = opts.provider === 'gemini' ? new GeminiClient(opts) : opts.provider === 'openai' ? new OpenAIClient(opts) : new OllamaClient(opts);
   } catch(e) {
-    console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
+    console.log(red(`error: ${e.message}`));
     exit(1);
   }
 
@@ -503,9 +504,9 @@ async function main() {
   console.log(`History persists (^R to search, up/down to recall).`);
 
   if(saved) {
-    console.log(`\x1b[2m(resumed session from ${store.path}: ${messages.length} messages)\x1b[0m`);
+    console.log(dim(`(resumed session from ${store.path}: ${messages.length} messages)`));
   } else if(!opts.failsafe) {
-    console.log(`\x1b[2m(scanning project layout...)\x1b[0m`);
+    console.log(dim(`(scanning project layout...)`));
 
     const projectContext = await gatherProjectContext(opts.root);
 
@@ -618,7 +619,7 @@ async function main() {
         try {
           ({ content: reply } = await chatRound(client, messages, opts, abortRef));
         } catch(e) {
-          console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
+          console.log(red(`error: ${e.message}`));
           messages.length = turnStart; // don't leave a dangling/partial turn behind
           return;
         }
@@ -644,7 +645,7 @@ async function main() {
       if(forceBinding || looksLikeBindingPrompt(effectivePrompt)) {
         const { text: bindingText, attached: bindingAttached } = bindingContext(opts.root);
         if(bindingText) {
-          console.log(`\x1b[2m(attached binding reference: ${bindingAttached.join(', ')})\x1b[0m`);
+          console.log(dim(`(attached binding reference: ${bindingAttached.join(', ')})`));
           finalText = `${finalText}\n\n${bindingText}`;
         }
       }
@@ -659,7 +660,7 @@ async function main() {
       try {
         reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef);
       } catch(e) {
-        console.log(`\x1b[31merror: ${e.message}\x1b[0m`);
+        console.log(red(`error: ${e.message}`));
         messages.length = turnStart; // don't leave a dangling/partial turn behind
         return;
       }

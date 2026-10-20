@@ -256,6 +256,14 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- Piped mode (2026-10-20): `ChatREPL`/`repl.js` follow the base REPL's
+  line mode when stdout is not a tty (`lib/ansi.js`: no escapes, no
+  spinner; `pipeBusy` held while a line is handled, released for
+  `confirm()`/`ask()` answers). Verified with a mock Ollama server
+  (`run_command` approval answered over the pipe, EOF waits for the
+  running turn); not yet verified against a real model. Not done: a
+  `--yes` flag to auto-approve `run_command` for unattended agents.
+
 - Session persistence and `/clear` (2026-08-17): the conversation
   (`messages`, plus the `/reset` baseline `baseMessageCount`) is now saved
   to `<model>.json` (`lib/session-store.js`) after every completed turn

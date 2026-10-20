@@ -199,6 +199,27 @@ Three separate logs, not one - each answers a different question:
   under suspicion. Setting `DEBUG` also prints lws's own error/warning
   lines straight to the terminal, independent of `TRAFFIC`.
 
+## Driving it from a script, LLM or agent (piped mode)
+
+When stdout is not a tty, the underlying qjs-modules `REPL` runs in line
+mode (needs a `repl` module with "Piped mode", qjs-modules `doc/js/repl.md`),
+and ollama-repl follows it: no escape sequences or colors, no spinner, no
+raw tty mode. A controller writes one command or prompt per line and reads
+the output up to the next `you> ` prompt, which is printed exactly once
+each time the REPL is ready for input:
+
+```sh
+printf 'what does lib/run-command.js do?\n/status\n' | qjsm repl.js --stream > out.txt
+```
+
+- lines run strictly in order; EOF on stdin ends the session only after
+  the last line (including a running model request) has finished
+- the model's `run_command` approval (`[y/N]`) and `ask_user` (`(answer)>`)
+  questions read their answer from the next input line, so a controller
+  sees the question, then sends `y`/`n` or the answer text
+- `/exit`, Ctrl-D equivalents and `SIGINT` all end the session; the
+  session log and saved session are written on the way out
+
 ## REPL commands
 
 - `/reset` - clear the conversation history (keeps the initial project scan)
