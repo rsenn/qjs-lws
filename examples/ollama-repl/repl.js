@@ -19,7 +19,7 @@
  * Run (Ollama must already be running locally with the model pulled; for
  * `--provider gemini`, GEMINI_API_KEY must be exported instead, and for
  * `--provider openai`, OPENAI_API_KEY):
- *   qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host localhost] [--port 11434] [--root .]
+ *   qjsm repl.js [--provider ollama|gemini|openai] [--model NAME|list] [--host localhost] [--port 11434] [--root .]
  * Or, once installed (see CMakeLists.txt - installs to bin/ollama-repl,
  * lib/ollama-client.js's cross-tree imports rewritten to the installed
  * `lws/*.js` module path):
@@ -91,6 +91,7 @@ function parseArgs(argv) {
     else if(arg === '--help' || arg === '-h') {
       console.log(
         'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--num-ctx N] [--temperature T] [--max-rounds N] [--yes]\n' +
+          '  --model list     list the available chat models and exit (gemini only for now).\n' +
           '  --num-ctx N      context window requested from Ollama (default 16384; Ollama itself defaults to 4096).\n' +
           '  --max-rounds N   tool-calling rounds per prompt (default 40).\n' +
           '  --yes/-y         run_command without asking (unattended agents).\n' +
@@ -540,6 +541,23 @@ async function main() {
   } catch(e) {
     console.log(red(`error: ${e.message}`));
     exit(1);
+  }
+
+  if(opts.model === 'list') {
+    if(opts.provider !== 'gemini') {
+      console.log(red(`error: --model list is only implemented for --provider gemini (not ${opts.provider})`));
+      exit(1);
+    }
+
+    try {
+      for(const m of await client.listModels()) console.log(`${m.name.padEnd(44)} ${String(m.inputTokenLimit ?? '').padStart(8)} in ${String(m.outputTokenLimit ?? '').padStart(6)} out  ${m.displayName ?? ''}`);
+    } catch(e) {
+      console.log(red(`error: ${e.message}`));
+      exit(1);
+    }
+
+    client.destroy();
+    exit(0);
   }
 
   const log = new SessionLog(`${opts.model.replaceAll(':', '-')}.log`);

@@ -176,6 +176,10 @@ just `ollama-repl [...]` from `bin/`.
 `--root` is the project directory file references and writes are resolved
 against - defaults to the current directory.
 
+`--model list` prints the chat-capable models the API key can use (name,
+token limits, display name) and exits - implemented for `--provider gemini`
+only so far.
+
 `--num-ctx` (default 16384) is the context window asked of Ollama - its own
 default is 4096 tokens, which the project scan plus a couple of attached
 files already fills, and it then truncates silently (empty reply,

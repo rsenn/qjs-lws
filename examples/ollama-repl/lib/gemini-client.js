@@ -142,7 +142,7 @@ export class GeminiClient {
 
       const parts = [];
       if(content) parts.push({ text: content });
-      for(const tc of toolCalls ?? []) parts.push({ functionCall: { name: tc.name, args: tc.args } });
+      for(const tc of toolCalls ?? []) parts.push({ functionCall: { name: tc.name, args: tc.args }, ...(tc.thoughtSignature ? { thoughtSignature: tc.thoughtSignature } : {}) });
 
       contents.push({ role: role === 'assistant' ? 'model' : 'user', parts });
     }
@@ -160,8 +160,6 @@ export class GeminiClient {
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(pathSuffix, messages, { tools, toolChoice, ...options }) {
-    puts('\x1b[1;35m\n#post\x1b[0m\n');
-
     const { contents, systemInstruction } = this.#toContents(messages);
 
     const payload = {
@@ -278,9 +276,40 @@ export class GeminiClient {
       .filter(p => p.text != null)
       .map(p => p.text)
       .join('');
-    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({ id: `${p.functionCall.name}#${i}`, name: p.functionCall.name, args: p.functionCall.args ?? {} }));
+    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({ id: `${p.functionCall.name}#${i}`, name: p.functionCall.name, args: p.functionCall.args ?? {}, ...(p.thoughtSignature ? { thoughtSignature: p.thoughtSignature } : {}) }));
 
     return { content, toolCalls: toolCalls.length ? toolCalls : undefined };
+  }
+
+  /**
+   * Lists the models the API key can use (`GET /v1beta/models`, all pages)
+   * that support `generateContent`, i.e. the ones usable for chat.
+   *
+   * @returns {Promise<{name: string, displayName: string, inputTokenLimit: number, outputTokenLimit: number}[]>}
+   */
+  async listModels() {
+    const out = [];
+    const headers = { 'x-goog-api-key': this.#apiKey };
+    let pageToken;
+
+    do {
+      const url = `${API_BASE.replace(/\/models$/, '')}/models?pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+
+      this.#logger.request('GET', url, headers);
+
+      const { req, wsi } = await this.#adapter.connect(this.#ctx, url, { method: 'GET', headers, alpn: 'http/1.1' });
+      const resp = await this.#awaitResponse(req, wsi);
+      const data = await resp.json().catch(() => null);
+
+      if(resp.status < 200 || resp.status >= 300) throw new Error(`Gemini HTTP ${resp.status}: ${data?.error?.message ?? JSON.stringify(data)}`);
+
+      for(const m of data.models ?? [])
+        if(m.supportedGenerationMethods?.includes('generateContent')) out.push({ ...m, name: m.name.replace(/^models\//, '') });
+
+      pageToken = data.nextPageToken;
+    } while(pageToken);
+
+    return out;
   }
 
   /**
@@ -290,7 +319,6 @@ export class GeminiClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chat(messages, options = {}) {
-    puts('\x1b[1;35m\nchat\x1b[0m\n');
     const resp = await this.#post('generateContent', messages, options);
     const data = await resp.json();
     this.#logger.body(data);
@@ -317,7 +345,6 @@ export class GeminiClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chatStream(messages, options = {}, onToken) {
-    puts('\x1b[1;35m\nchatStream\x1b[0m\n');
     const resp = await this.#post('streamGenerateContent?alt=sse', messages, options);
     const reader = resp.body.getReader();
 

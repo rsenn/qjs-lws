@@ -90,6 +90,11 @@ shapes layered onto the existing `{ role, content }` one:
   (`` `${name}#${index}` ``) purely as a local handle for matching a call to
   the `tool` message that answers it in *your* code - it is never sent over
   either wire protocol, since neither API has anywhere to put it.
+- `toolCalls[].thoughtSignature` (Gemini 3 models only) is an opaque token
+  the API attaches to a `functionCall` part; it must be echoed back on that
+  same part in the next request or the API answers HTTP 400 "Function call
+  is missing a thought_signature". `GeminiClient` stores it on the
+  tool call and sends it back; keep the `toolCalls` objects as returned.
 - `tool` message `content` may be a plain string (the common case) or an
   object; `GeminiClient` wraps a string as `{ result: content }` to satisfy
   `functionResponse.response`'s object requirement, `OllamaClient`

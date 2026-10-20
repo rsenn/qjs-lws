@@ -76,6 +76,11 @@ Still open / ideas, roughly by value:
   `for_each(files)` and a build/test step via `run_command`.
 - Not tried: the other two providers on this task; qwen2.5-coder as the
   originally targeted model.
+- Unlabeled fenced code blocks in a reply are still auto-saved as
+  `<model>-output-N.txt` (applyFileBlocks()) - seen with gemini-3.5-flash
+  answering "what does a.txt say" with a ``` block; now that the model
+  edits through tools this fallback mostly creates junk files in the
+  project. Consider dropping it (keep explicit `File:` blocks only).
 - The old items 1-5 below were written before any of this and are mostly
   about the binding demo; keep, but read them against the above.
 
