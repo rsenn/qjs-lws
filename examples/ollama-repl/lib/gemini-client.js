@@ -33,6 +33,9 @@ import { getenv, puts } from 'std';
 import { setTimeout, clearTimeout } from 'os';
 
 const DEFAULT_MODEL = 'gemini-flash-latest';
+/* transient failures worth retrying, and the pauses between attempts */
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+const RETRY_DELAYS_S = [3, 6, 12, 24, 40];
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /* Same rationale as OllamaClient's own DEFAULT_TIMEOUT_SECS: lws's 15s
@@ -159,7 +162,23 @@ export class GeminiClient {
   }
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
-  async #post(pathSuffix, messages, { tools, toolChoice, ...options }) {
+  async #post(pathSuffix, messages, options) {
+    for(let attempt = 0; ; attempt++) {
+      try {
+        return await this.#postOnce(pathSuffix, messages, options);
+      } catch(e) {
+        /* "high demand" (503), rate limit (429) and the like are transient:
+           back off and retry instead of failing the whole turn */
+        if(!RETRY_STATUS.has(e.status) || attempt >= RETRY_DELAYS_S.length) throw e;
+
+        const secs = RETRY_DELAYS_S[attempt];
+        console.log(`(Gemini HTTP ${e.status}: ${e.apiMessage ?? 'busy'} - retrying in ${secs}s, ${attempt + 1}/${RETRY_DELAYS_S.length})`);
+        await new Promise(resolve => setTimeout(resolve, secs * 1000));
+      }
+    }
+  }
+
+  async #postOnce(pathSuffix, messages, { tools, toolChoice, ...options }) {
     const { contents, systemInstruction } = this.#toContents(messages);
 
     const payload = {
@@ -208,7 +227,15 @@ export class GeminiClient {
       const headers = {};
       resp.headers?.forEach((v, k) => (headers[k] = v));
       const body = await resp.text().catch(() => '');
-      throw new Error(`Gemini HTTP ${resp.status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+      let apiMessage;
+      try {
+        apiMessage = JSON.parse(body)?.error?.message;
+      } catch(e) {}
+
+      const err = new Error(`Gemini HTTP ${resp.status}${apiMessage ? `: ${apiMessage}` : ''}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+      err.status = resp.status;
+      err.apiMessage = apiMessage;
+      throw err;
     }
 
     return resp;

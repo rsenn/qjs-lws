@@ -83,7 +83,12 @@ function stripPunctuation(token) {
 export function extractFileRefs(text, root = '.') {
   const candidates = new Set();
 
-  for(const raw of text.match(TOKEN_RE) ?? []) {
+  /* "lib/path/<function-name>.c" / "lib/{name}.c" are templates, not paths:
+     without this the directory part ("lib/path/") alone was picked up and
+     four arbitrary files from it attached. */
+  const scanned = text.replace(/\S*[<{][^>}\s]*[>}]\S*/g, ' ');
+
+  for(const raw of scanned.match(TOKEN_RE) ?? []) {
     const token = stripPunctuation(raw);
     if(looksLikePath(token)) candidates.add(token);
   }

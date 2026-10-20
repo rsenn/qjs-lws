@@ -94,6 +94,9 @@ const journal = new Map();
 export const resetJournal = () => journal.clear();
 export const journalPaths = () => [...journal.keys()];
 
+/* number of file writes so far - a loop that wants to know whether *it* changed anything compares before/after */
+export let writeCount = 0;
+
 export function undoJournal() {
   const paths = journalPaths();
 
@@ -107,6 +110,7 @@ export function undoJournal() {
 }
 
 function writeFile(full, content, record = true) {
+  writeCount++;
   if(record && !journal.has(full)) journal.set(full, fileMode(full) === S_IFREG ? loadFile(full) : null);
 
   const f = fopen(full, 'w');
@@ -118,6 +122,19 @@ function writeFile(full, content, record = true) {
 
 const shellQuote = s => `'${String(s).replaceAll("'", "'\\''")}'`;
 
+/** "Did you mean" lines for a text that was not found: the lines of `content` containing the longest identifier of `text`. */
+function nearLines(content, text) {
+  const callee = text.match(/([A-Za-z_]\w*)\s*\(/)?.[1];
+  const ids = [...new Set([callee, ...(text.match(/[A-Za-z_]\w{3,}/g) ?? []).sort((a, b) => b.length - a.length)].filter(Boolean))];
+
+  for(const id of ids) {
+    const lines = content.split('\n').filter(l => l.includes(id));
+    if(lines.length) return `\nLines of the file containing "${id}":\n${lines.slice(0, 4).join('\n')}\nCopy the text to match from these (this tool edits the file given as path, not the file you read the function from).`;
+  }
+
+  return '';
+}
+
 /** Inserts `text` as new line(s) directly above the (unique) line containing `anchor`. */
 function insertAbove({ path, anchor, text }, root) {
   const full = writablePath(path, root);
@@ -126,10 +143,21 @@ function insertAbove({ path, anchor, text }, root) {
   if(fileMode(full) !== S_IFREG) return `error: ${path} not found`;
 
   const content = loadFile(full);
-  const at = content.indexOf(anchor);
+  let at = content.indexOf(anchor);
 
-  if(at === -1) return `error: anchor not found in ${path} - it must match the file exactly; read_file the relevant lines again`;
-  if(content.indexOf(anchor, at + 1) !== -1) return `error: anchor occurs more than once in ${path} - use more of the line to make it unique`;
+  /* Models anchor on the function's *definition* line copied from the .c file
+     ("size_t path_rel(char* out, ...) {") when asked to document its
+     declaration in the .h. If the exact text is not there but exactly one
+     line has "<name>(" for the name the anchor is about, that is the line. */
+  if(at === -1) {
+    const name = anchor.match(/([A-Za-z_]\w*)\s*\(/)?.[1];
+    const re = name && new RegExp(`^[^#\\s/*].*\\b${name}\\s*\\(`, 'gm');
+    const hits = re ? [...content.matchAll(re)] : [];
+    if(hits.length === 1) at = hits[0].index;
+  }
+
+  if(at === -1) return `error: anchor not found in ${path} - it must match a line of that file exactly.${nearLines(content, anchor)}`;
+  if(content.indexOf(anchor, at + 1) !== -1 && content.indexOf(anchor) === at) return `error: anchor occurs more than once in ${path} - use more of the line to make it unique`;
 
   const lineStart = content.lastIndexOf('\n', at - 1) + 1;
   const insert = text.endsWith('\n') ? text : text + '\n';
@@ -150,7 +178,7 @@ function editFile({ path, old_string: oldStr, new_string: newStr }, root) {
   const content = loadFile(full);
   const first = content.indexOf(oldStr);
 
-  if(first === -1) return `error: old_string not found in ${path} - it must match the file exactly (whitespace included); read_file the relevant lines again`;
+  if(first === -1) return `error: old_string not found in ${path} - it must match the file exactly (whitespace included).${nearLines(content, oldStr)}`;
 
   if(content.indexOf(oldStr, first + 1) !== -1) return `error: old_string occurs more than once in ${path} - include more surrounding lines so it is unique`;
 

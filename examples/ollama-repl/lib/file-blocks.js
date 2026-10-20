@@ -159,9 +159,12 @@ export async function saveFileBlocks(blocks, root = '.', fileExchange) {
  * didn't follow the "File:" convention for it. Every path actually
  * written (named or auto-named) is registered with `sentFiles.add()`.
  */
-export async function saveAllBlocks(reply, { root = '.', sentFiles, fileExchange } = {}) {
+export async function saveAllBlocks(reply, { root = '.', sentFiles, fileExchange, anonymous: saveAnonymous = false } = {}) {
   const named = extractFileBlocks(reply);
-  const anonymous = extractAnonymousBlocks(reply).map(({ lang, content }) => ({
+  /* Unlabeled code blocks are only saved on request: now that the model
+     edits through tools, they are mostly examples/answers, and saving them
+     littered the project with <model>-output-N.txt files. */
+  const anonymous = (saveAnonymous ? extractAnonymousBlocks(reply) : []).map(({ lang, content }) => ({
     path: sentFiles.nextOutputPath(extensionFor(lang)),
     content,
   }));

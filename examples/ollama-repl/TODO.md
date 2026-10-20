@@ -76,13 +76,68 @@ Still open / ideas, roughly by value:
   `for_each(files)` and a build/test step via `run_command`.
 - Not tried: the other two providers on this task; qwen2.5-coder as the
   originally targeted model.
-- Unlabeled fenced code blocks in a reply are still auto-saved as
-  `<model>-output-N.txt` (applyFileBlocks()) - seen with gemini-3.5-flash
-  answering "what does a.txt say" with a ``` block; now that the model
-  edits through tools this fallback mostly creates junk files in the
-  project. Consider dropping it (keep explicit `File:` blocks only).
 - The old items 1-5 below were written before any of this and are mostly
   about the binding demo; keep, but read them against the above.
+
+## Second round: qwen2.5-coder and Gemini (2026-10-20)
+
+Same task (25 declarations in lib/path.h), same scorer (declarations lost /
+duplicated, lines removed, non-comment lines added, declarations preceded by
+a comment).
+
+qwen2.5-coder (7.6B) findings and what was done:
+
+1. It ignores Ollama's `<tool_call>` format and writes the call as text -
+   a ```json fenced `{"name": ..., "arguments": ...}`, or only the bare
+   arguments object (`{"items": [...], "task": "..."}`). Ollama then
+   returns plain content, no `tool_calls`. `lib/text-tool-calls.js` parses
+   those (fenced, `<tool_call>`, bare, arguments-only matched by a tool's
+   required keys); applied to every provider when no structured call came.
+2. It answers a change request in prose - plans, or prints the "updated"
+   file - without touching anything. `runToolLoop()` now nudges (at most
+   twice) when the prompt asks for a change and *this loop* has written
+   nothing; and prompts containing every/each/all get a hint appended
+   telling it to call for_each with ALL items the request names.
+3. The "lib/path/<function-name>.c" template in the prompt made
+   `extractFileRefs()` attach four arbitrary files of lib/path/ (the
+   directory part alone matched) - the model then took those four as its
+   item list. Templates (`<...>`, `{...}`) are now ignored when scanning.
+4. In a batch item it anchors `insert_above` on the *definition* line from
+   the .c file ("size_t path_rel(...) {"), which is not in the .h. The tool
+   now resolves an anchor that is not found but names exactly one
+   `name(` line, and failed lookups answer with the file's lines containing
+   the identifier. After a tool error it sometimes emits a bare
+   `<tool_response>` as its whole reply; a batch item that wrote nothing is
+   retried once with a fresh conversation.
+5. Result: 17-20 of 25 declarations documented per run, ~100-140 s, no
+   declaration lost or duplicated in any run (3 runs before the retry,
+   2 after). qwen3.5:4b regression check: 25/25 in both runs, ~115 s (one
+   run duplicated a declaration line). Remaining qwen2.5-coder failures:
+   comments inserted above a neighbouring declaration (31 comments added
+   for 25 declarations in one run), and items that end with a text
+   `run_command` call although that tool is withheld for comment-only tasks.
+
+Gemini:
+
+6. Free-tier API keys have a hard daily quota - **20 generate requests per
+   model per day** ("limit: 20, model: gemini-3.6-flash"; gemini-3.5-flash
+   shares gemini-3.6-flash's bucket), `gemini-3.1-pro` has limit 0, and
+   gemini-2.5-* answer 404 "no longer available to new users". A for_each
+   over 25 items needs 50+ requests, so it cannot finish on the free tier of
+   a flash model; the benchmark runs of this session used the quota up.
+   gemini-3.5-flash-lite / gemini-3.1-flash-lite still answered.
+7. "High demand" 503s and multi-minute latency (a one-line request took
+   115 s on gemini-3.8-flash, 92 s on 3.7-flash). `GeminiClient` now retries
+   429/5xx with backoff (3, 6, 12, 24, 40 s) and the HTTP error message is
+   short (API message first, headers/body after it).
+   A full run on gemini-3.5-flash-lite then failed: 503 "high demand" on
+   the first tool round outlasted all 5 retries (~85 s) and aborted the turn
+   (0 of 25, nothing damaged). Retrying longer, or skipping a busy item and
+   carrying on, would help.
+8. Not done: `thinkingConfig.thinkingLevel` ("low" is accepted by
+   gemini-3.8-flash, "minimal" is not) as a client option; for_each could
+   pack several items per request to save quota; pick the model from
+   `--model list` plus a quota probe.
 
 ## Assessment (2026-08-04, updated 2026-08-30)
 

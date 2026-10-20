@@ -54,7 +54,7 @@ import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
-import { TOOLS, executeTool, resetJournal, undoJournal } from './lib/tool-requests.js';
+import { TOOLS, executeTool, resetJournal, undoJournal, writeCount } from './lib/tool-requests.js';
 import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
 import { fileMode, SKIP_DIRS } from './lib/match.js';
 import { ChatREPL } from './lib/chat-repl.js';
@@ -63,6 +63,7 @@ import { SessionStore } from './lib/session-store.js';
 import { SentFiles } from './lib/sent-files.js';
 import { FileExchange } from './lib/file-exchange.js';
 import { runCommand } from './lib/run-command.js';
+import { extractTextToolCalls } from './lib/text-tool-calls.js';
 import { piped, dim, red, green } from './lib/ansi.js';
 
 /* Bounds the tool-calling loop (see TOOLS/lib/tool-requests.js and
@@ -198,6 +199,14 @@ link for something that needs none of it):
 ./binding.so>'\` - before presenting it as done, don't just describe code that should work.`;
 
 /** @returns {{ text: string, attached: string[] }} */
+const NUDGE = `You have not changed anything yet. Do not print file contents or code in your reply - make the change with a tool call now: for_each if the job repeats over many things, otherwise insert_above or edit_file (read_file first if you need to see the code).`;
+
+/** True if the conversation's latest user request (not a nudge) asks to modify code or files. */
+function asksForChange(messages) {
+  const users = messages.filter(m => m.role === 'user' && m.content !== NUDGE);
+  return /\b(add|insert|change|fix|refactor|rename|remove|delete|write|create|update|implement|replace|document|comment|convert|rewrite)\b/i.test(users[users.length - 1]?.content ?? '');
+}
+
 /* Least privilege for a batch item: a task that is only about adding comments
    gets insert_above but not edit_file/write_file. Measured with qwen3.5:4b:
    given edit_file it "inserts" by replacing a multi-line span and silently
@@ -409,15 +418,35 @@ function elideOldToolResults(messages, numCtx) {
 async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach) {
   const tools = (forEach ? TOOLS : TOOLS.filter(t => t.name !== 'for_each' && t.name !== 'ask_user')).filter(t => !opts.omitTools?.includes(t.name));
 
+  let nudges = 0;
+  const writesAtStart = writeCount; // this loop's own changes, not an earlier item's
+
   for(let round = 0; ; round++) {
     const final = round >= opts.maxRounds - 1;
     elideOldToolResults(messages, opts.numCtx);
     const result = await chatRound(client, messages, opts, abortRef, final ? { toolChoice: 'none' } : { tools });
 
+    /* models that write the call as text (qwen2.5-coder) - see lib/text-tool-calls.js */
+    if(!result.toolCalls?.length && !final) {
+      const text = extractTextToolCalls(result.content, tools);
+      if(text.toolCalls) Object.assign(result, text);
+    }
+
     messages.push({ role: 'assistant', content: result.content, ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}) });
     log.reply(result.content);
 
-    if(!result.toolCalls?.length) return result.content;
+    if(!result.toolCalls?.length) {
+      /* A change was asked for, but the model answered in prose (typically by
+         printing the "updated" file) without touching anything - qwen2.5-coder
+         does this. Send it back to work, twice at most. */
+      if(!final && nudges < 2 && writeCount === writesAtStart && asksForChange(messages)) {
+        nudges++;
+        messages.push({ role: 'user', content: NUDGE });
+        continue;
+      }
+
+      return result.content;
+    }
 
     if(!opts.quiet) console.log(dim(result.toolCalls.map(tc => `(${tc.name} ${JSON.stringify(tc.args).slice(0, 160)})`).join('\n')));
 
@@ -628,7 +657,17 @@ async function main() {
       ];
 
       try {
-        const reply = await runToolLoop(client, subMessages, sub, log, confirmRun, askUser, abortRef);
+        let writes = writeCount;
+        let reply = await runToolLoop(client, subMessages, sub, log, confirmRun, askUser, abortRef);
+
+        /* nothing was written: a fresh conversation gets a second try (a
+           small model's failures here are mostly one-off, not systematic) */
+        if(writeCount === writes && asksForChange(subMessages)) {
+          console.log(dim('  (no change made - retrying once)'));
+          subMessages.length = 2;
+          reply = await runToolLoop(client, subMessages, sub, log, confirmRun, askUser, abortRef);
+        }
+
         const summary = (reply || '(no reply)').trim().split('\n')[0].slice(0, 200);
         console.log(dim(`  ${summary}`));
         results.push(`${item}: ${summary}`);
@@ -787,6 +826,10 @@ async function main() {
           finalText = `${finalText}\n\n${bindingText}`;
         }
       }
+
+      /* a small model told only "every function" tends to narrate a plan or
+         start doing them one by one in a single context - say how to do it */
+      if(/\b(every|each|all)\b/i.test(effectivePrompt)) finalText += '\n\n(This job repeats over many things: list ALL of the items the request names (e.g. every function declared in the header - not only the files attached above) and call for_each once - do not do them yourself one by one, and do not just describe a plan.)';
 
       const turnStart = messages.length;
       messages.push({ role: 'user', content: finalText });
