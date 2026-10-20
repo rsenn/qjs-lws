@@ -33,6 +33,7 @@ import { LWSContext /* … */ } from 'lws';
 | [native/raw-tcp.md](native/raw-tcp.md)       | Raw TCP server / client |
 | [native/constants.md](native/constants.md)   | Enumerated constants exported by the module |
 | [js/helpers.md](js/helpers.md)       | JS helpers shipped under `lib/` (fetch, serve, WebSocket, TCPSocket) |
+| [js/logging.md](js/logging.md)   | Log formatting: `human`, `curl`-style and NDJSON output, `LOGFMT` |
 | [js/bun.md](js/bun.md)               | `serve()`'s Bun-compatible API surface in detail: `server.upgrade()`, WS pub/sub, chunked streaming, and their real constraints |
 | [native/examples.md](native/examples.md)     | Twelve copy-paste examples covering every role |
 | [building.md](building.md)     | Build instructions and CMake options |
