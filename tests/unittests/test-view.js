@@ -27,9 +27,9 @@ function throws(fn, name) {
 
 /* runs fn(wsi, view) in the client handshake of a GET against an in-process server and
    resolves with what the server saw of the x-view-* request headers */
-async function handshake(fn) {
+async function handshake(fn, onhttp) {
   const port = freePort();
-  let ctx, extra, resolve, reject;
+  let ctx, extra, extra2, resolve, reject;
   const done = new Promise((res, rej) => ((resolve = res), (reject = rej)));
 
   const server = createServer({
@@ -40,6 +40,11 @@ async function handshake(fn) {
       {
         name: 'http',
         onHttp(wsi) {
+          try {
+            if(onhttp) extra2 = onhttp(wsi);
+          } catch(e) {
+            reject(e);
+          }
           resolve({ ...wsi.headers });
         },
       },
@@ -74,7 +79,7 @@ async function handshake(fn) {
     server.destroy();
   }
 
-  return { seen, extra };
+  return { seen, extra, extra2 };
 }
 
 await tests({
@@ -85,7 +90,7 @@ await tests({
       assert(!(v instanceof ArrayBuffer));
       eq(View.prototype, Object.getPrototypeOf(v));
       eq(8, v.avail);
-      assert(!('written' in v));
+      assert(!('length' in v));
       assert(!('reset' in v));
     }
   },
@@ -99,21 +104,33 @@ await tests({
       eq(Buffer.prototype, Object.getPrototypeOf(v));
       eq(View.prototype, Object.getPrototypeOf(Buffer.prototype));
       eq(6, v.avail);
-      eq(6, v.capacity);
-      eq(0, v.written);
+      eq(6, v.span);
+      eq(0, v.length);
     }
   },
 
   'View: (buffer, offset, length) defaults and sources'() {
     const b = new ArrayBuffer(8);
+    eq(8, new View(b).avail);
     eq(6, new View(b, 2).avail);
     eq(3, new View(b, 2, 3).avail);
     eq(0, new View(b, 8).avail);
     eq(0, new View(b, 8, 0).avail);
+    eq(8, new View(b, undefined).avail);
+    eq(6, new View(b, undefined, 6).avail);
     eq(4, new View(new Uint8Array(b, 4)).avail);
     eq(4, new View(new DataView(b, 4)).avail);
     eq(2, new View(new Uint8Array(b, 4), 1, 2).avail);
-    eq(2, new View(b, undefined, 2).avail);
+    eq(3, new View(new Uint8Array(b, 4), 1).avail);
+
+    /* View(buf, offset, size) is View(toPointer(buf) + offset, toPointer(buf) + offset + (size ?? byteLength - offset), buf) */
+    const t = new Uint8Array(b, 4);
+    eq(t, new View(t).parent);
+    eq(b, new View(b, 2).parent);
+    eq(Number(toPointer(t)), Number(new View(t).pointer));
+    eq(Number(toPointer(b)) + 2, Number(View(b, 2, 3).pointer));
+    eq(Number(toPointer(t)) + 1, Number(View(t, 1).pointer));
+    eq(Number(toPointer(b)) + 5, Number(View(t, 1).pointer));
   },
 
   'Buffer: skip(), reset(), pointer'() {
@@ -121,11 +138,11 @@ await tests({
       v = new Buffer(b, 2, 4);
 
     eq(v, v.write('ab') && v.skip(1));
-    eq(3, v.written);
+    eq(3, v.length);
     eq(1, v.avail);
     eq(0, v.skip(99).avail);
     eq(v, v.reset());
-    eq(0, v.written);
+    eq(0, v.length);
     eq(4, v.avail);
     v.write('hi');
     eq(toPointer(b) + 4, Number(v.pointer));
@@ -148,7 +165,54 @@ await tests({
     o.write('héllo');
     eq('héllo', o.toString());
     eq(6, o.toArrayBuffer().byteLength);
-    eq(o.toArrayBuffer().byteLength, o.written);
+    eq(o.toArrayBuffer().byteLength, o.length);
+  },
+
+  'Buffer: readable and writable are Views aliasing the two halves'() {
+    const b = new Buffer(16),
+      r = b.readable,
+      w = b.writable;
+
+    for(const h of [r, w]) {
+      assert(h instanceof View);
+      assert(!(h instanceof Buffer));
+      eq(b, h.parent);
+    }
+    eq(0, r.avail);
+    eq(16, w.avail);
+
+    /* writing through the Buffer or its writable half grows what can be read */
+    eq(5, write('hello', b));
+    eq(5, r.avail);
+    eq(11, w.avail);
+    eq(5, b.length);
+    eq(2, w.write('!!'));
+    eq(7, r.avail);
+    eq('hello!!', b.toString());
+    eq(Number(r.pointer) + 7, Number(w.pointer));
+
+    /* reading: skipping on the readable half consumes, there is no original start to go back to */
+    eq(r, r.skip(2));
+    eq(5, r.avail);
+    eq(5, b.length);
+    eq('llo!!', b.toString());
+    eq('108,108,111,33,33', bytes(b.toArrayBuffer()));
+    eq(14, b.span);
+    eq(b, b.reset());
+    eq(0, b.length);
+    eq(0, r.avail);
+    eq(14, w.avail);
+
+    /* each access is a new object over the same memory */
+    assert(b.readable !== r);
+    eq(Number(b.readable.pointer), Number(r.pointer));
+
+    /* the halves keep the Buffer alive */
+    let h = new Buffer(8).writable;
+    std.gc();
+    eq(8, h.avail);
+    eq(3, h.write('abc'));
+    eq(3, h.parent.length);
   },
 
   'Buffer: Buffer(size) and Buffer() own LWS_PRE + size, writable and detachable'() {
@@ -157,11 +221,11 @@ await tests({
 
     assert(v instanceof Buffer);
     eq(4096, v.avail);
-    eq(4096, v.capacity);
-    eq(0, v.written);
+    eq(4096, v.span);
+    eq(0, v.length);
     assert(d.avail >= 256 && d.avail < 4096, d.avail);
     eq(5, write('hello', v));
-    eq(5, v.written);
+    eq(5, v.length);
     eq(4091, v.avail);
     eq(d.avail, new Buffer(undefined).avail);
     eq(0, new Buffer(0).avail);
@@ -178,6 +242,36 @@ await tests({
     throws(() => new View('string'), 'TypeError');
   },
 
+  'View: View(p, end) over raw addresses'() {
+    const b = new ArrayBuffer(8);
+    const p = toPointer(b);
+    const v = new View(p + 2, p + 6);
+
+    assert(v instanceof View);
+    eq(4, v.avail);
+    eq(Number(p + 2), Number(v.pointer));
+    eq(4, write('abcdef', v));
+    eq('0,0,97,98,99,100,0,0', bytes(b));
+    eq(0, View(BigInt(p), BigInt(p)).avail);
+
+    /* View(p, end, parent): parent is kept alive as .parent */
+    throws(() => new View(0, 8, {}), 'RangeError');
+
+    let parent = new ArrayBuffer(8);
+    let c = new View(toPointer(parent), toPointer(parent) + 8, parent);
+    parent = null;
+    std.gc();
+    eq(8, c.parent.byteLength);
+    eq(8, write('12345678', c));
+    eq('49,50,51,52,53,54,55,56', bytes(c.parent));
+    eq(undefined, new View(p, p + 4).parent);
+
+    throws(() => new View(p), 'TypeError');
+    throws(() => new View(p, 'x'), 'TypeError');
+    throws(() => new View(p + 4, p), 'RangeError');
+    throws(() => new View(0, 8), 'RangeError');
+  },
+
   'View: bad arguments'() {
     throws(() => new Buffer(-1), 'RangeError');
     throws(() => new Buffer(2 ** 40), 'RangeError');
@@ -188,15 +282,19 @@ await tests({
     throws(() => new View(b, -1), 'RangeError');
     throws(() => new View(b, 2, 7), 'RangeError');
     throws(() => new View(b, 0, -1), 'RangeError');
+    throws(() => new View(new Uint8Array(b, 4), 5), 'RangeError');
+    throws(() => new View(new Uint8Array(b, 4), 1, 4), 'RangeError');
+    throws(() => new Buffer(b, 2, 7), 'RangeError');
+    throws(() => new Buffer(b, 0, -1), 'RangeError');
   },
 
-  'Buffer: write(), avail, written, capacity, detach'() {
+  'Buffer: write(), avail, length, span, detach'() {
     const b = new ArrayBuffer(8);
     const v = new Buffer(b, 2, 4);
 
     eq(2, v.write('ab'));
-    eq(2, v.written);
-    eq(4, v.capacity);
+    eq(2, v.length);
+    eq(4, v.span);
     eq(2, v.avail);
     eq(3, v.write(new Uint8Array([99, 100, 101]).buffer) + 1 /* clamped to 2 */);
     eq(0, v.avail);
@@ -262,7 +360,7 @@ await tests({
   'lws.write(): bad destination'() {
     throws(() => write('x'), 'TypeError');
     throws(() => write('x', 'str'), 'TypeError');
-    throws(() => write('x', new ArrayBuffer(8)), 'InternalError');
+    throws(() => write('x', new ArrayBuffer(8)), 'TypeError');
     throws(() => write('x', {}, 0), 'TypeError');
   },
 
@@ -279,7 +377,7 @@ await tests({
 
       /* the real handshake buffer, through the view lws handed us */
       wsi.addHeader('x-view-c', 'three', view);
-      return { n1, n2, n3, n4, o: o[0], written: v.written, a: text(a, o[0]), c: text(c, v.written) };
+      return { n1, n2, n3, n4, o: o[0], written: v.length, a: text(a, o[0]), c: text(c, v.length) };
     });
 
     eq(r.extra.n1, r.extra.n2);
@@ -323,7 +421,7 @@ await tests({
       } catch(e) {
         e2 = e.name;
       }
-      return { e1, e2, o: o[0], written: v.written };
+      return { e1, e2, o: o[0], written: v.length };
     });
 
     eq('InternalError', r.extra.e1);
@@ -340,11 +438,37 @@ await tests({
         v = new Buffer(c);
       wsi.addHeader(WSI_TOKEN_HTTP_CONTENT_TYPE, 'text/plain', a, o);
       wsi.addHeader(WSI_TOKEN_HTTP_CONTENT_TYPE, 'text/plain', v);
-      return { a: text(a, o[0]), c: text(c, v.written) };
+      return { a: text(a, o[0]), c: text(c, v.length) };
     });
 
     eq(r.extra.a, r.extra.c);
     assert(/^content-type:/i.test(r.extra.a), r.extra.a);
+  },
+
+  async 'callback view: usable inside the callback, detached once it returned'() {
+    const r = await handshake((wsi, view) => {
+      assert(view instanceof View);
+      assert(view.avail > 0);
+      return { view, inside: view.avail };
+    });
+
+    assert(r.extra.inside > 0);
+    throws(() => r.extra.view.avail, 'TypeError');
+    throws(() => write('x', r.extra.view), 'TypeError');
+  },
+
+  'View and Buffer are classes, not ArrayBuffers'() {
+    const v = new View(new ArrayBuffer(4)),
+      b = new Buffer(4);
+
+    assert(!(v instanceof ArrayBuffer));
+    assert(!ArrayBuffer.isView(v));
+    eq('[object LWSView]', Object.prototype.toString.call(v));
+    eq('[object LWSBuffer]', Object.prototype.toString.call(b));
+    throws(() => View.prototype.avail, 'TypeError');
+    throws(() => Buffer.prototype.length, 'TypeError');
+    throws(() => Buffer.prototype.length.call(v), 'TypeError');
+    eq(4, Object.getOwnPropertyDescriptor(View.prototype, 'avail').get.call(b));
   },
 
   async 'addHeader(): bad arguments'() {
@@ -361,7 +485,7 @@ await tests({
       return res;
     });
 
-    eq('TypeError,TypeError,TypeError,TypeError,InternalError', r.extra.join());
+    eq('TypeError,TypeError,TypeError,TypeError,TypeError', r.extra.join());
   },
 
   async 'clientHttpMultipart(): both forms, or a no-op outside multipart'() {
@@ -372,7 +496,7 @@ await tests({
         v = new Buffer(c);
       const n1 = wsi.clientHttpMultipart('field', 'file.txt', 'text/plain', a, o);
       const n2 = wsi.clientHttpMultipart('field', 'file.txt', 'text/plain', v);
-      return { n1, n2, o: o[0], written: v.written, a: text(a, o[0]), c: text(c, v.written) };
+      return { n1, n2, o: o[0], written: v.length, a: text(a, o[0]), c: text(c, v.length) };
     });
 
     /* not a multipart request: lws-socket.c returns undefined before touching the buffer */
@@ -422,9 +546,9 @@ await tests({
               r.d = text(d, r.number);
 
               r.o = o[0];
-              r.written = v.written;
+              r.written = v.length;
               r.a = text(a, o[0]);
-              r.c = text(c, v.written);
+              r.c = text(c, v.length);
               resolve(r);
             } catch(e) {
               reject(e);
@@ -461,5 +585,64 @@ await tests({
     assert(r.a.includes('name="field"'), r.a);
     assert(r.a.includes('filename="a.txt"'), r.a);
     assert(r.a.includes('text/plain'), r.a);
+  },
+
+  async 'respond(): into a View | Buffer or (ArrayBuffer, [offset]) writes the same status line and headers'() {
+    const r = await handshake(
+      () => {},
+      wsi => {
+        const out = {};
+        const a = new ArrayBuffer(512),
+          o = [0],
+          c = new ArrayBuffer(512),
+          v = new Buffer(c),
+          d = new ArrayBuffer(512),
+          e = new Buffer(d);
+
+        out.n1 = wsi.respond(200, { 'content-type': 'text/plain', 'x-multi': ['a', 'b'] }, a, o);
+        out.n2 = wsi.respond(200, { 'content-type': 'text/plain', 'x-multi': ['a', 'b'] }, v);
+        out.n3 = wsi.respond(200, 'body', { 'content-type': 'text/plain', 'x-multi': ['a', 'b'] }, e);
+        out.o = o[0];
+        out.a = text(a, o[0]);
+        out.c = text(c, v.length);
+        out.vlen = v.length;
+        out.d = text(d, e.length);
+
+        /* number offset, nothing written back */
+        const f = new ArrayBuffer(512);
+        out.n4 = wsi.respond(404, {}, f, 100);
+        out.f = text(f.slice(100), out.n4);
+
+        /* too small a range throws and leaves the cursor */
+        const small = new Buffer(8);
+        try {
+          wsi.respond(200, { 'x-long': 'a long header value that does not fit' }, small);
+        } catch(e) {
+          out.small = e.name;
+        }
+        out.smallLen = small.length;
+        return out;
+      }
+    );
+
+    const x = r.extra2;
+    eq(x.n1, x.n2);
+    eq(x.o, x.n1);
+    eq(x.vlen, x.n2);
+    eq(x.a, x.c);
+    assert(/^HTTP\/1\.1 200 OK\r\n/.test(x.a), x.a);
+    assert(x.a.includes('content-type: text/plain'), x.a);
+    assert(x.a.includes('x-multi: a') && x.a.includes('x-multi: b'), x.a);
+    assert(x.a.endsWith('\r\n\r\n'), x.a);
+
+    /* with a body argument the body lands behind the headers, content-length announces it */
+    assert(x.d.startsWith(x.a.slice(0, 15)), x.d);
+    assert(x.d.endsWith('\r\n\r\nbody'), x.d);
+    assert(/content-length: 4\r\n/i.test(x.d), x.d);
+    eq(x.d.length, x.n3);
+
+    assert(/^HTTP\/1\.1 404 /.test(x.f), x.f);
+    eq('InternalError', x.small);
+    eq(0, x.smallLen);
   },
 });

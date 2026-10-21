@@ -92,13 +92,20 @@ write(srcStringOrBuf, view)                      // view: a View (see below) or 
                                                  // onAddHeaders / onProcessHtml /
                                                  // onClientAppendHandshakeHeader; appends at its
                                                  // cursor, clamped to the room left, advances it
-View(buffer [, offset [, length]])               // new or plain call: pure wrapped range over
-                                                 // buffer[offset, offset+length): .write(strOrBuf),
-                                                 // .skip(n), .avail, .pointer, .detach(); keeps buffer alive
-Buffer([size] | buffer [, offset [, length]])    // a View that also knows where it started: adds
-                                                 // .written, .capacity, .reset(), .toArrayBuffer(),
-                                                 // .toString(). size: owns LWS_PRE + size (default
-                                                 // LWS_RECOMMENDED_MIN_HEADER_SPACE), range starts at +LWS_PRE
+View(buffer [, offset [, size]]) | View(p, end [, parent])  // new or plain call: pure wrapped range,
+                                                 // .write(strOrBuf), .skip(n), .avail, .pointer, .detach().
+                                                 // View(buf, offset, size) is View(toPointer(buf) + offset,
+                                                 // toPointer(buf) + offset + (size ?? byteLength - offset), buf):
+                                                 // buf is ArrayBuffer | TypedArray | DataView, kept alive as
+                                                 // .parent. View(p, end, parent): raw addresses (Number |
+                                                 // BigInt), parent (optional) kept as .parent
+Buffer([size] | buffer [, offset [, length]])    // a View (the writable half) plus a read cursor: adds
+                                                 // .length (bytes written, not yet read), .span (end - start), .reset()
+                                                 // (drop what is unread), .toArrayBuffer() / .toString() (the unread
+                                                 // bytes), .readable and .writable: Views aliasing [start, p) and
+                                                 // [p, end), .parent is the Buffer; readable.skip(n) consumes.
+                                                 // size: owns LWS_PRE + size (default LWS_RECOMMENDED_MIN_HEADER_SPACE),
+                                                 // the range starts at +LWS_PRE
 ```
 
 ### Address / interface helpers

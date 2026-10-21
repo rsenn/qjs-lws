@@ -899,7 +899,9 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
   int64_t len = -1;
   int code = -1, header_arg = -1;
   BOOL is_str = FALSE;
-  struct lwsjs_view* view = NULL;
+  struct lwsjs_view local, *view = NULL;
+  uint8_t* vstart = NULL;
+  int dst_arg = -1;
 
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
@@ -928,28 +930,32 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       }
     }
 
-    if(!view && JS_IsObject(argv[i])) {
-      if(header_arg != -1) {
-        if(!(view = lwsjs_view_data2(ctx, argv[i]))) {
-          if(is_str)
-            JS_FreeCString(ctx, (const char*)ptr);
-          return JS_EXCEPTION;
-        }
-        continue;
+    if(JS_IsObject(argv[i])) {
+      /* the output range comes last: a wrapped View | Buffer, or an ArrayBuffer and its offset
+         (an ArrayBuffer is only the body when no body was seen yet, see above) */
+      if(lwsjs_view_data(ctx, argv[i]) || ((ptr || header_arg != -1) && get_buffer(ctx, 1, &argv[i], &tmp_len))) {
+        dst_arg = i;
+        break;
       }
 
-      if((view = lwsjs_view_data(ctx, argv[i])))
+      if(header_arg == -1) {
+        header_arg = i;
         continue;
-
-      header_arg = i;
-      continue;
+      }
     }
 
     break;
   }
 
+  if(dst_arg != -1 && !(vstart = lwsjs_view_args(ctx, &view, &local, argc - dst_arg, argv + dst_arg))) {
+    if(is_str)
+      JS_FreeCString(ctx, (const char*)ptr);
+
+    return JS_EXCEPTION;
+  }
+
   const size_t space = LWS_RECOMMENDED_MIN_HEADER_SPACE + 32;
-  uint8_t* const start = view ? view->p : alloca(LWS_PRE + space) + LWS_PRE;
+  uint8_t* const start = view ? vstart : alloca(LWS_PRE + space) + LWS_PRE;
   uint8_t *const end = view ? view->end : start + space, *p = start;
 
   if(lws_add_http_common_headers(s->wsi, code, NULL, len > 0 ? (uint64_t)len : LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end)) {
@@ -1018,12 +1024,12 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
 #ifdef HAVE_LWS_FINALIZE_WRITE_HTTP_HEADER_FLAGS
     BOOL will_have_body = (ptr && len > 0) || !list_empty(&s->write_queue);
-    err = lws_finalize_write_http_header_flags(s->wsi, start, &p, end, LWS_WRITE_HTTP_HEADERS | (will_have_body ? 0 : LWS_WRITE_H2_STREAM_END)) ? -1 : lws_ptr_diff(p, start);
+    err = lws_finalize_write_http_header_flags(s->wsi, start, &p, end, LWS_WRITE_HTTP_HEADERS | (will_have_body ? 0 : LWS_WRITE_H2_STREAM_END)) ? -1 : 0;
 #else
     /* No flags control on this libwebsockets - a bodyless response under
        h2/h3 won't carry END_STREAM and the client will hang waiting for a
        body that never comes (see the comment above); h1 is unaffected. */
-    err = lws_finalize_write_http_header(s->wsi, start, &p, end) ? -1 : lws_ptr_diff(p, start);
+    err = lws_finalize_write_http_header(s->wsi, start, &p, end) ? -1 : 0;
 #endif
   }
 
@@ -1093,6 +1099,15 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
   if(is_str)
     JS_FreeCString(ctx, (const char*)ptr);
+
+  /* into a View | Buffer: its cursor moves past what was written, into (ArrayBuffer, [offset]):
+     the new offset goes back to the array */
+  if(view) {
+    view->p = p;
+
+    if(argc - dst_arg >= 2)
+      lwsjs_view_commit(ctx, argv + dst_arg, view);
+  }
 
   return js_new_size(ctx, written);
 }

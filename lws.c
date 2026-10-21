@@ -512,7 +512,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       uint8_t* buf;
       const char* str = 0;
 
-      if(!(buf = JS_GetArrayBuffer(ctx, &len, argv[0])) && !(str = JS_ToCStringLen(ctx, &len, argv[0]))) {
+      if(!(buf = get_buffer(ctx, 1, argv, &len)) && !(str = JS_ToCStringLen(ctx, &len, argv[0]))) {
         ret = JS_ThrowTypeError(ctx, "argument 1 must be ArrayBuffer or String");
         break;
       }

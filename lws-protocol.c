@@ -983,7 +983,7 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
        * compare buffer_index with j, not i: every branch that sets it pushes
        * at least one more arg afterward, so buffer_index is always below i. */
       if(buffer_index == j)
-        JS_DetachArrayBuffer(ctx, argv[j]);
+        lwsjs_view_detach(ctx, argv[j]);
       JS_FreeValue(ctx, argv[j]);
     }
 
