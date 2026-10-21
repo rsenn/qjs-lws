@@ -146,16 +146,20 @@ onReceiveClientHttp(wsi) {
 }
 ```
 
-### `addHeader(name | tokenIndex, value, buf, [len_array])`
+### `addHeader(name | tokenIndex, value, args | buf, [len_array])`
 
-Adds an outgoing HTTP header into a working `ArrayBuffer`. The
+With three arguments, the third is the callback-scoped `args` view
+(`struct lws_process_html_args`: `p`, `len`, `max_len`) handed to
+`onAddHeaders` / `onClientAppendHandshakeHeader`; the header is appended
+at `p + len` and `len` is updated. Otherwise it adds an outgoing HTTP header into a working `ArrayBuffer`. The
 fourth argument is an array `[n]` whose `[0]` element tracks the
 current write offset; the binding updates it in place. Used from
-`onClientAppendHandshakeHeader` / `onAddHeaders`:
+`onClientAppendHandshakeHeader` (`onAddHeaders` receives an `args` view
+instead of `buf`; see `http-server.md`):
 
 ```js
-onAddHeaders(wsi, buf, len) {
-  wsi.addHeader('test', 'blah', buf, len);    // len is [0] → updated
+onClientAppendHandshakeHeader(wsi, args) {
+  wsi.addHeader('test', 'blah', args);    // args.len updated in place
 }
 ```
 

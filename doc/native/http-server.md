@@ -119,17 +119,20 @@ const spaByWsi = new WeakMap();
 
 ## Adding response headers from a hook
 
-`onAddHeaders(wsi, buf, len)` runs *after* `respond()` reserves the
+`onAddHeaders(wsi, args)` runs *after* `respond()` reserves the
 common headers and lets you append more:
 
 ```js
-onAddHeaders(wsi, buf, len) {
-  wsi.addHeader('x-served-by', 'qjs-lws', buf, len);
+onAddHeaders(wsi, args) {
+  wsi.addHeader('x-served-by', 'qjs-lws', args);
 }
 ```
 
-`buf` is the working ArrayBuffer; `len` is a `[offset]` tuple kept
-up to date by `addHeader`.
+`args` is an ArrayBuffer view of the native `struct lws_process_html_args`
+(`p`, `len`, `max_len`). `lws.write(data, args)` appends `data` after the
+current length (clamped to `max_len`) and updates it in place; lws then
+moves its header pointer on by that many bytes. `args` is detached once
+the callback returns - do not keep it.
 
 ## Static-file mounts and rewriting HTML
 
@@ -145,9 +148,9 @@ createServer({
 });
 ```
 
-`onProcessHtml(wsi, buf, len)` can rewrite chunks of HTML being
-served from disk; you write the transformed bytes back into `buf`
-and update `len[0]`.
+`onProcessHtml(wsi, args)` sees chunks of HTML being served from disk
+through the same `args` view; `lws.write(data, args)` appends to the
+chunk and grows its length, which lws then sends from the unchanged `p`.
 
 ## Returning HTTP errors
 

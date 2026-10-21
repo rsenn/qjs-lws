@@ -85,9 +85,9 @@ passed to each `LWS_CALLBACK_*` reason. A short summary:
 | `WS_PEER_INITIATED_CLOSE` | `(code, reasonString)` |
 | `CLIENT_HTTP_REDIRECT` | `(url, status)` |
 | `ESTABLISHED_CLIENT_HTTP` | `(responseCode)` |
-| `ADD_HEADERS` / `PROCESS_HTML` | `(buf, lenArray)` — write into `buf`, update `lenArray[0]` |
-| `CHECK_ACCESS_RIGHTS` | `(uri, authMask)` — `uri` is a read-only `ArrayBuffer` of the request path, `authMask` is the mount's `authentication_mode` bitmask (not a buffer length, despite sharing the same native struct as the two reasons above) |
-| `CLIENT_APPEND_HANDSHAKE_HEADER` | `(buf, lenArray)` — write headers with `wsi.addHeader(...)` |
+| `ADD_HEADERS` / `PROCESS_HTML` | `(args)` — `lws.write(data, args)` appends to the buffer and updates the length in `args` itself (`args` is detached when the callback returns) |
+| `CHECK_ACCESS_RIGHTS` | `(uri, authMask)` — `uri` is the request path as a string (percent-decoded, `..`/`.`/`//` resolved, query excluded; invalid UTF-8 becomes U+FFFD), `authMask` is the mount's `authentication_mode` bitmask (not a buffer length, despite sharing the same native struct as the two reasons above) |
+| `CLIENT_APPEND_HANDSHAKE_HEADER` | `(args)` — append header lines with `lws.write(data, args)` (`args` as for `ADD_HEADERS`) |
 | `RAW_RX` / `MQTT_CLIENT_RX` | `(data, len)` |
 | `CLIENT_CONNECTION_ERROR` | `(message, errno)` |
 | `CONNECTING` | `(int32 hintOrFd)` |

@@ -42,7 +42,7 @@ documents the JS arguments after `wsi`.
 | `LWS_CALLBACK_CLIENT_RECEIVE_PONG`       | `onClientReceivePong`        | `(data, len)` |
 | `LWS_CALLBACK_CLIENT_WRITEABLE`          | `onClientWriteable`          | `()` |
 | `LWS_CALLBACK_CLIENT_CLOSED`             | `onClientClosed`             | `()` |
-| `LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER` | `onClientAppendHandshakeHeader` | `(buf, lenArray)` |
+| `LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER` | `onClientAppendHandshakeHeader` | `(args)` — same callback-scoped `args` view as `onAddHeaders`; append with `lws.write(data, args)` |
 | `LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED` | `onClientConfirmExtensionSupported` | `(name)` |
 | `LWS_CALLBACK_WS_CLIENT_BIND_PROTOCOL`   | `onWsClientBindProtocol`     | `()` |
 | `LWS_CALLBACK_WS_CLIENT_DROP_PROTOCOL`   | `onWsClientDropProtocol`     | `()` |
@@ -66,9 +66,9 @@ first, final }` descriptor — use it to reassemble big frames.
 | `LWS_CALLBACK_HTTP_PMO`                   | `onHttpPmo`               | `(data, len)` |
 | `LWS_CALLBACK_FILTER_NETWORK_CONNECTION`  | `onFilterNetworkConnection` | `(sslPtr)` |
 | `LWS_CALLBACK_FILTER_HTTP_CONNECTION`     | `onFilterHttpConnection`  | `(urlString)` |
-| `LWS_CALLBACK_CHECK_ACCESS_RIGHTS`        | `onCheckAccessRights`     | `(uri, authMask)` — `uri` is a read-only `ArrayBuffer`, `authMask` the mount's `authentication_mode` bitmask (not a length) |
-| `LWS_CALLBACK_ADD_HEADERS`                | `onAddHeaders`            | `(buf, lenArray)` |
-| `LWS_CALLBACK_PROCESS_HTML`               | `onProcessHtml`           | `(buf, lenArray)` |
+| `LWS_CALLBACK_CHECK_ACCESS_RIGHTS`        | `onCheckAccessRights`     | `(uri, authMask)` — `uri` is the request path as a string (percent-decoded, query excluded), `authMask` the mount's `authentication_mode` bitmask (not a length) |
+| `LWS_CALLBACK_ADD_HEADERS`                | `onAddHeaders`            | `(args)` — see `onProcessHtml` |
+| `LWS_CALLBACK_PROCESS_HTML`               | `onProcessHtml`           | `(args)` — `args` is a callback-scoped `ArrayBuffer` view of the leading `p`/`len`/`max_len` of `struct lws_process_html_args`; append output with `lws.write(data, args)`; detached when the callback returns |
 | `LWS_CALLBACK_CLOSED_HTTP`                | `onClosedHttp`            | `()` |
 | `LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED` | `onServerNewClientInstantiated` | `()` |
 | `LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION` | `onVerifyBasicAuthorization` | `(authString)` |

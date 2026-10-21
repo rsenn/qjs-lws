@@ -153,9 +153,9 @@ await tests({
         protocols: [
           {
             name: 'http',
-            onClientAppendHandshakeHeader(wsi, buf, len) {
-              wsi.addHeader('content-type', 'text/plain', buf, len);
-              wsi.addHeader('content-length', String(toArrayBuffer(payload).byteLength), buf, len);
+            onClientAppendHandshakeHeader(wsi, args) {
+              wsi.addHeader('content-type', 'text/plain', args);
+              wsi.addHeader('content-length', String(toArrayBuffer(payload).byteLength), args);
               if(!wsi.redirectedToGet && wsi.method === 'POST') wsi.bodyPending = 1;
             },
             onClientHttpWriteable(wsi) {

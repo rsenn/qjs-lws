@@ -64,11 +64,16 @@ service_tick(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv
 
 void
 service_tick_schedule(LWSContext* lws, int delay_ms) {
-  JSValue glob = JS_GetGlobalObject(lws->js);
-  JSValue os = JS_GetPropertyStr(lws->js, glob, "os");
-  JS_FreeValue(lws->js, glob);
+  JSValue os = js_module_namespace_sync(lws->js, "os");
+
+  if(JS_IsException(os))
+    return;
+
   JSValue fn = JS_GetPropertyStr(lws->js, os, "setTimeout");
   JS_FreeValue(lws->js, os);
+
+  if(JS_IsException(fn))
+    return;
 
   JSValue cb = js_function_cclosure(lws->js, (CClosureFunc*)service_tick, 0, 0, lws, NULL);
   JSValue args[2] = {cb, JS_NewInt32(lws->js, delay_ms)};
@@ -90,11 +95,16 @@ service_tick_cancel(LWSContext* lws) {
   if(JS_IsUndefined(lws->service_timer_id) || !lws->js)
     return;
 
-  JSValue glob = JS_GetGlobalObject(lws->js);
-  JSValue os = JS_GetPropertyStr(lws->js, glob, "os");
-  JS_FreeValue(lws->js, glob);
+  JSValue os = js_module_namespace_sync(lws->js, "os");
+
+  if(JS_IsException(os))
+    return;
+
   JSValue fn = JS_GetPropertyStr(lws->js, os, "clearTimeout");
   JS_FreeValue(lws->js, os);
+
+  if(JS_IsException(fn))
+    return;
 
   JSValue ret = JS_Call(lws->js, fn, JS_NULL, 1, &lws->service_timer_id);
 
@@ -121,18 +131,11 @@ retry_bo_from_retryobj(JSContext* ctx, JSValueConst retry_obj) {
 
   if(JS_IsObject(retry_obj)) {
     JSValue table_val = js_get_property(ctx, retry_obj, "retry_ms_table");
-    uint32_t* table = NULL;
-    uint32_t count = 0;
+    uint32_t count = 0, *table = NULL;
 
-    if(JS_IsArray(ctx, table_val)) {
-      JSValue len_val = JS_GetPropertyStr(ctx, table_val, "length");
-      JS_ToUint32(ctx, &count, len_val);
-      JS_FreeValue(ctx, len_val);
-
-      if(count > 0 && (table = js_mallocz(ctx, sizeof(uint32_t) * count)))
-        for(uint32_t i = 0; i < count; i++)
-          table[i] = to_int32free(ctx, JS_GetPropertyUint32(ctx, table_val, i));
-    }
+    if(js_array_length(ctx, table_val, &count) && count > 0 && (table = js_mallocz(ctx, sizeof(uint32_t) * count)))
+      for(uint32_t i = 0; i < count; i++)
+        table[i] = to_int32free(ctx, JS_GetPropertyUint32(ctx, table_val, i));
 
     JS_FreeValue(ctx, table_val);
 
@@ -553,7 +556,7 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
 
 #ifdef LWS_WITH_SYS_ASYNC_DNS
   value = js_get_property(ctx, obj, "async_dns_servers");
-  ci->async_dns_servers = (const char**)to_stringarrayfree(ctx, value);
+  ci->async_dns_servers = JS_IsObject(value) ? (const char**)to_stringarrayfree(ctx, value) : NULL;
 
 #ifdef DEBUG_OUTPUT
   if(ci->async_dns_servers && ci->async_dns_servers[0]) {

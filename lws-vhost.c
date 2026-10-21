@@ -40,24 +40,21 @@ struct lws_protocol_vhost_options*
 lwsjs_vhost_options_from(JSContext* ctx, JSValueConst value) {
   struct lws_protocol_vhost_options *vho = 0, **ptr = &vho, *tmp;
   JSValue first = JS_UNDEFINED;
+  uint32_t len = 0;
 
-  if(JS_IsArray(ctx, value) && ((first = JS_GetPropertyUint32(ctx, value, 0)), JS_IsObject(first))) {
-    int32_t len = to_int32free(ctx, JS_GetPropertyStr(ctx, value, "length"));
+  if(js_array_length(ctx, value, &len) && len > 0 && ((first = JS_GetPropertyUint32(ctx, value, 0)), JS_IsObject(first))) {
+    for(uint32_t i = 0; i < len; i++) {
+      JSValue option = JS_GetPropertyUint32(ctx, value, i);
 
-    if(len > 0) {
-      for(int32_t i = 0; i < len; i++) {
-        JSValue option = JS_GetPropertyUint32(ctx, value, i);
+      if((*ptr = tmp = lwsjs_vhost_option_from(ctx, option)))
+        do
+          ptr = (struct lws_protocol_vhost_options**)&(*ptr)->next;
+        while(*ptr);
 
-        if((*ptr = tmp = lwsjs_vhost_option_from(ctx, option)))
-          do
-            ptr = (struct lws_protocol_vhost_options**)&(*ptr)->next;
-          while(*ptr);
+      JS_FreeValue(ctx, option);
 
-        JS_FreeValue(ctx, option);
-
-        if(!tmp)
-          break;
-      }
+      if(!tmp)
+        break;
     }
   } else if(JS_IsObject(value)) {
     vho = lwsjs_vhost_option_from(ctx, value);

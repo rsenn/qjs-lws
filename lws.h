@@ -36,7 +36,8 @@ size_t lwsjs_utoa(char*, size_t, unsigned long);
 void lwsjs_log_user(struct lws*, const char*, size_t);
 void lwsjs_log_user_line(struct lws*, const char*, size_t, const void*, size_t);
 
-int lwsjs_html_process_args(JSContext*, struct lws_process_html_args*, int, JSValueConst[]);
+#include "lws-buffer.h"
+
 int lwsjs_spa_init(JSContext*, JSModuleDef*);
 void lwsjs_get_lws_callbacks(JSContext*, JSValueConst, JSValue[], size_t);
 

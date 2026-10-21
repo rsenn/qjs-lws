@@ -1,4 +1,5 @@
 #include "lws.h"
+#include "quickjs.h"
 #include "js-utils.h"
 #ifdef HAVE_ALLOCA_H
 #include <alloca.h>
@@ -12,6 +13,71 @@ js_function_prototype(JSContext* ctx) {
   JSValue ret = JS_GetPrototype(ctx, fn);
   JS_FreeValue(ctx, fn);
   return ret;
+}
+
+JSValue
+js_global_prototype(JSContext* ctx, const char* name) {
+  JSValue ctor = global_get(ctx, name);
+  JSValue proto = JS_GetPropertyStr(ctx, ctor, "prototype");
+  JS_FreeValue(ctx, ctor);
+  return proto;
+}
+
+JSValue
+js_typedarray_prototype(JSContext* ctx) {
+  JSValue proto = js_global_prototype(ctx, "Uint8Array");
+  JSValue ret = JS_GetPrototype(ctx, proto);
+  JS_FreeValue(ctx, proto);
+  return ret;
+}
+
+BOOL
+js_has_prototype(JSContext* ctx, JSValueConst arg, JSValueConst proto) {
+  JSValue obj = JS_DupValue(ctx, arg);
+  BOOL ret = FALSE;
+
+  while(JS_IsObject(obj)) {
+    JSValue tmp = JS_GetPrototype(ctx, obj);
+    JS_FreeValue(ctx, obj);
+    obj = tmp;
+
+    if(js_object_same(obj, proto)) {
+      ret = TRUE;
+      break;
+    }
+  }
+
+  JS_FreeValue(ctx, obj);
+  return ret;
+}
+
+BOOL
+js_is_typedarray(JSContext* ctx, JSValueConst obj) {
+  JSValue proto = js_typedarray_prototype(ctx);
+  BOOL result = js_has_prototype(ctx, obj, proto);
+  JS_FreeValue(ctx, proto);
+  return result;
+}
+
+BOOL
+js_is_arraybuffer(JSContext* ctx, JSValueConst obj) {
+  JSValue proto = js_global_prototype(ctx, "ArrayBuffer");
+  BOOL result = js_has_prototype(ctx, obj, proto);
+  JS_FreeValue(ctx, proto);
+  return result;
+}
+
+BOOL
+js_is_view(JSContext* ctx, JSValueConst obj) {
+  BOOL result = js_is_typedarray(ctx, obj);
+
+  if(!result) {
+    JSValue proto = js_global_prototype(ctx, "DataView");
+    result = js_has_prototype(ctx, obj, proto);
+    JS_FreeValue(ctx, proto);
+  }
+
+  return result;
 }
 
 JSValue
@@ -131,6 +197,117 @@ js_fmt_pointer(JSContext* ctx, void* ptr, const char* str) {
   char buf[64];
   snprintf(buf, sizeof(buf), "%s%p", str ? str : "", ptr);
   return JS_NewString(ctx, buf);
+}
+
+JSValue
+js_new_size(JSContext* ctx, size_t u) {
+#if SIZE_MAX == UINT32_MAX
+  return JS_NewUint32(ctx, u);
+#else
+  return js_new_uint64(ctx, u);
+#endif
+}
+
+int
+js_to_size(JSContext* ctx, size_t* szp, JSValueConst value) {
+#if SIZE_MAX == UINT32_MAX
+  uint32_t sz;
+
+  if(JS_ToUint32(ctx, &sz, value))
+    return -1;
+#else
+  const char* str;
+  uint64_t sz;
+
+  if(!(str = JS_ToCString(ctx, value)))
+    return -1;
+
+  if(str[0] == '-') {
+    int64_t ssz = strtoll(&str[1], NULL, 10);
+    sz = ssz;
+  } else
+    sz = strtoull(str, NULL, 10);
+
+  JS_FreeCString(ctx, str);
+#endif
+
+  if(szp)
+    *szp = sz;
+
+  return 0;
+}
+
+JSValue
+js_new_uint64(JSContext* ctx, uint64_t u) {
+  if(u <= 9007199254740991ULL)
+    return JS_NewInt64(ctx, (int64_t)u);
+
+  return JS_NewBigUint64(ctx, u);
+}
+
+JSValue
+js_new_int64(JSContext* ctx, int64_t u) {
+  if(u <= 9007199254740991LL && u >= -9007199254740991LL)
+    return JS_NewInt64(ctx, u);
+
+  return JS_NewBigInt64(ctx, u);
+}
+
+/* the JS value for a native pointer, as bun:ffi hands it out.
+ *
+ *   NULL            null
+ *   up to 2^53 - 1  a Number, exact (user-space addresses on 64-bit
+ *                   Linux and Windows are below 2^47)
+ *   above           an unsigned BigInt
+ */
+JSValue
+js_new_pointer(JSContext* ctx, void* ptr) {
+  if(ptr == NULL)
+    return JS_NULL;
+
+  return js_new_size(ctx, (uintptr_t)ptr);
+}
+
+int
+js_to_pointer(JSContext* ctx, void* pptr, JSValueConst value) {
+  size_t i;
+
+  if(JS_IsNull(value))
+    i = 0;
+  else if(!(JS_IsNumber(value) || JS_IsBigInt(ctx, value)) || js_to_size(ctx, &i, value))
+    return -1;
+
+  if(pptr)
+    *(void**)pptr = (void*)(intptr_t)i;
+
+  return 0;
+}
+
+/* js_array_length: tells whether value is an Array, and reads its length.
+ *
+ *   [1, 2, 3]   returns TRUE, *lenp is 3
+ *   { length: 3 }, "abc", null   returns FALSE, *lenp is left alone
+ *
+ * never throws: returns TRUE for an Array, FALSE otherwise. */
+BOOL
+js_array_length(JSContext* ctx, JSValueConst array, uint32_t* plen) {
+  BOOL ret = FALSE;
+
+  if(JS_IsObject(array)) {
+    JSValue prop = JS_GetPropertyStr(ctx, array, "length");
+    uint32_t len;
+
+    if(!JS_IsException(prop) && !JS_ToUint32(ctx, &len, prop)) {
+      if(plen)
+        *plen = len;
+
+      ret = TRUE;
+    }
+
+    JS_FreeValue(ctx, prop);
+  }
+
+  return ret;
 }
 
 JSValue*
@@ -263,13 +440,14 @@ get_offset_length(JSContext* ctx, int argc, JSValueConst argv[], size_t maxlen, 
 JSValue
 get_typedarray_buffer(JSContext* ctx, JSValueConst value, size_t* p_offset, size_t* p_length) {
   size_t offset, bytes, bytes_per_element;
-  JSValue buffer = JS_GetTypedArrayBuffer(ctx, value, &offset, &bytes, &bytes_per_element);
+  JSValue buffer;
   int ret = 0;
 
-  if(JS_IsException(buffer)) {
+  if(!js_is_typedarray(ctx, value) || (ret = JS_IsException((buffer = JS_GetTypedArrayBuffer(ctx, value, &offset, &bytes, &bytes_per_element))))) {
     /* JS_GetTypedArrayBuffer threw; discard the exception so the caller can
      * treat this as a silent "not a typed array" probe. */
-    JS_FreeValue(ctx, JS_GetException(ctx));
+    if(ret)
+      JS_FreeValue(ctx, JS_GetException(ctx));
 
     /* DataView is a distinct QuickJS class, not a TypedArray, so
        JS_GetTypedArrayBuffer() never recognizes it and there's no
@@ -284,10 +462,8 @@ get_typedarray_buffer(JSContext* ctx, JSValueConst value, size_t* p_offset, size
     }
 
     if(JS_IsObject(buffer)) {
-      JSValue v = JS_GetPropertyStr(ctx, value, "byteOffset");
-      offset = to_uint32free(ctx, v);
-      v = JS_GetPropertyStr(ctx, value, "byteLength");
-      bytes = to_uint32free(ctx, v);
+      offset = to_uint32free(ctx, JS_GetPropertyStr(ctx, value, "byteOffset"));
+      bytes = to_uint32free(ctx, JS_GetPropertyStr(ctx, value, "byteLength"));
     } else {
       JS_FreeValue(ctx, buffer);
       buffer = JS_DupValue(ctx, value);
@@ -343,6 +519,49 @@ get_buffer(JSContext* ctx, int argc, JSValueConst argv[], size_t* lenp) {
 
   JS_FreeValue(ctx, buffer);
   return ptr;
+}
+
+static void
+js_arraybuffer_freestr(JSRuntime* rt, void* opaque, void* ptr) {
+  JSValue value = JS_MKPTR(JS_TAG_STRING, opaque);
+
+  JS_FreeValueRT(rt, value);
+}
+
+static void
+js_arraybuffer_freeobj(JSRuntime* rt, void* opaque, void* ptr) {
+  JSValue value = JS_MKPTR(JS_TAG_OBJECT, opaque);
+
+  JS_FreeValueRT(rt, value);
+}
+
+JSValue
+js_arraybuffer_view(JSContext* ctx, JSValueConst obj, size_t ofs, size_t len) {
+  uint8_t* ptr;
+  size_t size;
+
+  if(!(ptr = JS_GetArrayBuffer(ctx, &size, obj)))
+    return JS_EXCEPTION;
+
+  if(ofs > size)
+    return JS_ThrowRangeError(ctx, "offset bigger than buffer size");
+
+  if(ofs + len > size)
+    return JS_ThrowRangeError(ctx, "array buffer view ends past buffer");
+
+  return JS_NewArrayBuffer(ctx, ptr + ofs, len, js_arraybuffer_freeobj, JS_VALUE_GET_PTR(JS_DupValue(ctx, obj)), FALSE);
+}
+
+JSValue
+js_arraybuffer_ref(JSContext* ctx, JSValueConst obj, void* ptr, size_t len) {
+  return JS_NewArrayBuffer(ctx,
+                           ptr,
+                           len,
+                           JS_IsObject(obj)   ? js_arraybuffer_freeobj
+                           : JS_IsString(obj) ? js_arraybuffer_freestr
+                                              : 0,
+                           (JS_IsObject(obj) || JS_IsString(obj)) ? obj_ptr(ctx, obj) : NULL,
+                           FALSE);
 }
 
 typedef struct {
@@ -510,8 +729,7 @@ js_module_namespace_sync(JSContext* ctx, const char* module_name) {
   if(JS_IsException(promise))
     return promise;
 
-  while(JS_PromiseState(ctx, promise) == JS_PROMISE_PENDING && JS_ExecutePendingJob(rt, &job_ctx) > 0) {
-  }
+  while(JS_PromiseState(ctx, promise) == JS_PROMISE_PENDING && JS_ExecutePendingJob(rt, &job_ctx) > 0) {}
 
   if(JS_PromiseState(ctx, promise) == JS_PROMISE_FULFILLED)
     ns = JS_PromiseResult(ctx, promise);

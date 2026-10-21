@@ -17,6 +17,14 @@
 typedef JSValue CClosureFunc(JSContext*, JSValueConst, int, JSValueConst[], int, void*);
 
 JSValue js_function_prototype(JSContext*);
+JSValue js_global_prototype(JSContext*, const char*);
+JSValue js_typedarray_prototype(JSContext*);
+BOOL js_has_prototype(JSContext* ctx, JSValueConst arg, JSValueConst proto);
+BOOL js_is_arraybuffer(JSContext*, JSValueConst);
+BOOL js_is_typedarray(JSContext*, JSValueConst);
+BOOL js_is_view(JSContext*, JSValueConst);
+JSValue js_arraybuffer_view(JSContext*, JSValueConst, size_t ofs, size_t len);
+JSValue js_arraybuffer_ref(JSContext*, JSValueConst, void* ptr, size_t len);
 JSValue js_iterator_get(JSContext*, JSValueConst);
 JSValue js_iterator_next(JSContext*, JSValueConst, BOOL*);
 BOOL js_has_property(JSContext*, JSValueConst, const char*);
@@ -25,14 +33,30 @@ JSValue js_get_property(JSContext*, JSValueConst, const char*);
 JSValue js_module_namespace_sync(JSContext*, const char*);
 void js_error_print(JSContext*, JSValueConst);
 JSValue js_fmt_pointer(JSContext*, void*, const char*);
+JSValue js_new_size(JSContext*, size_t);
+JSValue js_new_uint64(JSContext*, uint64_t);
+JSValue js_new_int64(JSContext*, int64_t);
+JSValue js_new_pointer(JSContext*, void*);
+int js_to_size(JSContext*, size_t*, JSValueConst);
+int js_to_pointer(JSContext*, void*, JSValueConst value);
+BOOL js_array_length(JSContext*, JSValueConst, uint32_t*);
 JSValue* to_valuearray(JSContext*, JSValueConst, size_t*);
 char** to_stringarray(JSContext*, JSValueConst);
 JSValue from_stringarray(JSContext* ctx, const char* const* strs);
 void str_or_buf_property(const char**, const void**, unsigned int*, JSContext*, JSValueConst, const char*);
 size_t get_offset_length(JSContext*, int, JSValueConst[], size_t, size_t*);
+JSValue get_typedarray_buffer(JSContext*, JSValueConst, size_t* p_offset, size_t* p_length);
 void* get_buffer(JSContext*, int, JSValueConst[], size_t*);
-JSValue js_function_cclosure(JSContext*, CClosureFunc*, int, int, void*, void (*opaque_finalize)(void*));
+JSValue js_function_cclosure(JSContext*, CClosureFunc*, int length, int magic, void* opaque, void (*opaque_finalize)(void*));
 JSValue js_invoke_deferred(JSContext*, JSValueConst obj, const char* method_name, int argc, JSValueConst argv[]);
+
+static inline BOOL
+js_object_same(JSValueConst a, JSValueConst b) {
+  if(!JS_IsObject(a) || !JS_IsObject(b))
+    return FALSE;
+
+  return JS_VALUE_GET_PTR(a) == JS_VALUE_GET_PTR(b);
+}
 
 static inline BOOL
 is_nullish(JSValueConst val) {
@@ -71,6 +95,7 @@ static inline uint32_t
 to_uint32free_default(JSContext* ctx, JSValueConst val, uint32_t def) {
   if(JS_IsNumber(val))
     return to_uint32free(ctx, val);
+
   JS_FreeValue(ctx, val);
   return def;
 }
@@ -78,7 +103,7 @@ to_uint32free_default(JSContext* ctx, JSValueConst val, uint32_t def) {
 static inline int64_t
 to_int64(JSContext* ctx, JSValueConst val) {
   int64_t i = -1;
-  JS_ToInt64(ctx, &i, val);
+  JS_ToInt64Ext(ctx, &i, val);
   return i;
 }
 
@@ -89,6 +114,19 @@ to_int64free(JSContext* ctx, JSValueConst val) {
   return i;
 }
 
+static inline size_t
+to_size(JSContext* ctx, JSValueConst val) {
+  size_t i = -1;
+  js_to_size(ctx, &i, val);
+  return i;
+}
+
+static inline size_t
+to_sizefree(JSContext* ctx, JSValueConst val) {
+  size_t i = to_size(ctx, val);
+  JS_FreeValue(ctx, val);
+  return i;
+}
 static inline char*
 to_string(JSContext* ctx, JSValueConst value) {
   if(is_nullish(value))

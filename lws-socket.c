@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 
 #include "libwebsockets/lib/core/private-lib-core.h"
+#include "quickjs.h"
 
 JSClassID lwsjs_socket_class_id;
 static JSValue lwsjs_socket_proto, lwsjs_socket_ctor;
@@ -723,21 +724,6 @@ lwsjs_socket_headers(JSContext* ctx, struct lws* wsi, char** pproto) {
   return ret;
 }
 
-static LWSSocket*
-lwsjs_socket_method_data(JSContext* ctx, JSValueConst this_val, const char* method) {
-  LWSSocket* s;
-
-  if(!(s = lwsjs_socket_data2(ctx, this_val)))
-    return NULL;
-
-  if(!s->wsi) {
-    JS_ThrowInternalError(ctx, "%s: s->wsi == NULL", method);
-    return NULL;
-  }
-
-  return s;
-}
-
 /* wsi.wantWrite([fn]) - with a callback `fn`, queues it as its own entry in
    s->write_queue (socket_queue_callback() above) so it fires in FIFO order
    relative to whatever wsi.write() calls were already queued, instead of
@@ -750,7 +736,7 @@ static JSValue
 lwsjs_socket_want_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   LWSSocket* s;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   if(argc > 0) {
@@ -783,7 +769,7 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   size_t size = 0, len = 0;
   lws_sockaddr46* sa = 0;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   if(JS_IsString(argv[i])) {
@@ -908,33 +894,63 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
 static JSValue
 lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   LWSSocket* s;
-  uint8_t result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE], *p = (uint8_t*)result + LWS_PRE, *start = p;
-  uint8_t *end = p + sizeof(result) - LWS_PRE - 1, *ptr = NULL;
+  uint8_t* ptr = NULL;
   size_t tmp_len, written = 0;
   int64_t len = -1;
-  int code = -1;
-  int header_arg = -1;
+  int code = -1, header_arg = -1;
   BOOL is_str = FALSE;
+  struct lwsjs_view* view = NULL;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   for(int i = 0; i < argc; ++i) {
-    if(code == -1 && JS_IsNumber(argv[i])) {
+    if(code == -1 && header_arg == -1 && ptr == NULL && JS_IsNumber(argv[i])) {
       code = to_int32(ctx, argv[i]);
-    } else if(len == -1 && JS_IsNumber(argv[i])) {
-      len = to_int64(ctx, argv[i]);
-    } else if(!ptr && (ptr = JS_GetArrayBuffer(ctx, &tmp_len, argv[i]))) {
-      len = len == -1 ? (int64_t)tmp_len : len;
-    } else if(!ptr && JS_IsString(argv[i]) && (ptr = (uint8_t*)JS_ToCStringLen(ctx, &tmp_len, argv[i]))) {
-      len = len == -1 ? (int64_t)tmp_len : len;
-      is_str = TRUE;
-    } else if(header_arg == -1 && JS_IsObject(argv[i])) {
-      header_arg = i;
-    } else {
-      break;
+      continue;
     }
+
+    if(len == -1 && (JS_IsNumber(argv[i]) || JS_IsBigInt(ctx, argv[i]))) {
+      len = to_int64(ctx, argv[i]);
+      continue;
+    }
+
+    if(!ptr && header_arg == -1) {
+      if(JS_IsObject(argv[i]) && (ptr = get_buffer(ctx, 1, &argv[i], &tmp_len))) {
+        len = len == -1 ? (int64_t)tmp_len : len;
+        continue;
+      }
+
+      if(JS_IsString(argv[i]) && (ptr = (uint8_t*)JS_ToCStringLen(ctx, &tmp_len, argv[i]))) {
+        len = len == -1 ? (int64_t)tmp_len : len;
+        is_str = TRUE;
+        continue;
+      }
+    }
+
+    if(!view && JS_IsObject(argv[i])) {
+      if(header_arg != -1) {
+        if(!(view = lwsjs_view_data2(ctx, argv[i]))) {
+          if(is_str)
+            JS_FreeCString(ctx, (const char*)ptr);
+          return JS_EXCEPTION;
+        }
+        continue;
+      }
+
+      if((view = lwsjs_view_data(ctx, argv[i])))
+        continue;
+
+      header_arg = i;
+      continue;
+    }
+
+    break;
   }
+
+  const size_t space = LWS_RECOMMENDED_MIN_HEADER_SPACE + 32;
+  uint8_t* const start = view ? view->p : alloca(LWS_PRE + space) + LWS_PRE;
+  uint8_t *const end = view ? view->end : start + space, *p = start;
 
   if(lws_add_http_common_headers(s->wsi, code, NULL, len > 0 ? (uint64_t)len : LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end)) {
     if(is_str)
@@ -947,27 +963,23 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
   uint32_t tab_len;
 
   if(header_arg != -1 && !JS_GetOwnPropertyNames(ctx, &tab, &tab_len, argv[header_arg], JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)) {
-
     for(uint32_t j = 0; j < tab_len; j++) {
-      JSValue key = JS_AtomToValue(ctx, tab[j].atom);
-      const char* name = JS_ToCString(ctx, key);
-      JS_FreeValue(ctx, key);
-
+      const void* name = JS_AtomToCString(ctx, tab[j].atom);
       JSValue value = JS_GetProperty(ctx, argv[header_arg], tab[j].atom);
 
       /* Array values emit one header line per element. Needed for
          Set-Cookie (RFC 6265 forbids comma-folding) and accepted
          generally so callers can pass a list under any name. */
-      if(JS_IsArray(ctx, value)) {
-        uint32_t n_elems = to_uint32free(ctx, JS_GetPropertyStr(ctx, value, "length"));
+      uint32_t nelem = 0;
+      size_t vlen;
+      const void* vstr;
 
-        for(uint32_t k = 0; k < n_elems; k++) {
+      if(js_array_length(ctx, value, &nelem)) {
+        for(uint32_t k = 0; k < nelem; k++) {
           JSValue elem = JS_GetPropertyUint32(ctx, value, k);
-          size_t vlen;
-          const char* vstr = JS_ToCStringLen(ctx, &vlen, elem);
 
-          if(vstr) {
-            if(lws_add_http_header_by_name(s->wsi, (const uint8_t*)name, (const uint8_t*)vstr, vlen, &p, end))
+          if((vstr = JS_ToCStringLen(ctx, &vlen, elem))) {
+            if(lws_add_http_header_by_name(s->wsi, name, vstr, vlen, &p, end))
               JS_ThrowInternalError(ctx, "lws_add_http_header_by_name");
 
             JS_FreeCString(ctx, vstr);
@@ -975,16 +987,11 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
           JS_FreeValue(ctx, elem);
         }
-      } else {
-        size_t vlen;
-        const char* vstr = JS_ToCStringLen(ctx, &vlen, value);
+      } else if((vstr = JS_ToCStringLen(ctx, &vlen, value))) {
+        if(lws_add_http_header_by_name(s->wsi, name, vstr, vlen, &p, end))
+          JS_ThrowInternalError(ctx, "lws_add_http_header_by_name");
 
-        if(vstr) {
-          if(lws_add_http_header_by_name(s->wsi, (const uint8_t*)name, (const uint8_t*)vstr, vlen, &p, end))
-            JS_ThrowInternalError(ctx, "lws_add_http_header_by_name");
-
-          JS_FreeCString(ctx, vstr);
-        }
+        JS_FreeCString(ctx, vstr);
       }
 
       JS_FreeValue(ctx, value);
@@ -995,34 +1002,40 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     js_free(ctx, tab);
   }
 
-  /* A response that will never have a body (no body argument here, and
-     nothing already queued via a prior wsi.write() for this transaction)
-     MUST be finalized with LWS_WRITE_H2_STREAM_END, or under h2/h3 the
-     HEADERS frame goes out without END_STREAM: the stream never
-     completes, the client waits forever for a body that's never coming,
-     and lws has no timeout watching for it (see lws-write.h's own doc
-     comment on lws_finalize_write_http_header_flags()). h1 is unaffected
-     either way - the flag only matters to the h2/h3 write path. */
+  int err;
+
+  if(view) {
+    err = lws_finalize_http_header(s->wsi, &p, end);
+  } else {
+    /* A response that will never have a body (no body argument here, and
+       nothing already queued via a prior wsi.write() for this transaction)
+       MUST be finalized with LWS_WRITE_H2_STREAM_END, or under h2/h3 the
+       HEADERS frame goes out without END_STREAM: the stream never
+       completes, the client waits forever for a body that's never coming,
+       and lws has no timeout watching for it (see lws-write.h's own doc
+       comment on lws_finalize_write_http_header_flags()). h1 is unaffected
+       either way - the flag only matters to the h2/h3 write path. */
+
 #ifdef HAVE_LWS_FINALIZE_WRITE_HTTP_HEADER_FLAGS
-  BOOL will_have_body = (ptr && len > 0) || !list_empty(&s->write_queue);
-  int n = lws_finalize_write_http_header_flags(s->wsi, start, &p, end, LWS_WRITE_HTTP_HEADERS | (will_have_body ? 0 : LWS_WRITE_H2_STREAM_END)) ? -1 : (int)lws_ptr_diff_size_t(p, start);
+    BOOL will_have_body = (ptr && len > 0) || !list_empty(&s->write_queue);
+    err = lws_finalize_write_http_header_flags(s->wsi, start, &p, end, LWS_WRITE_HTTP_HEADERS | (will_have_body ? 0 : LWS_WRITE_H2_STREAM_END)) ? -1 : lws_ptr_diff(p, start);
 #else
-  /* No flags control on this libwebsockets - a bodyless response under
-     h2/h3 won't carry END_STREAM and the client will hang waiting for a
-     body that never comes (see the comment above); h1 is unaffected. */
-  int n = lws_finalize_write_http_header(s->wsi, start, &p, end) ? -1 : (int)lws_ptr_diff_size_t(p, start);
+    /* No flags control on this libwebsockets - a bodyless response under
+       h2/h3 won't carry END_STREAM and the client will hang waiting for a
+       body that never comes (see the comment above); h1 is unaffected. */
+    err = lws_finalize_write_http_header(s->wsi, start, &p, end) ? -1 : lws_ptr_diff(p, start);
 #endif
+  }
 
-  DEBUG_WSI(s->wsi, "wrote headers (%d)", n);
-
-  if(n < 0) {
+  if(err) {
     if(is_str)
       JS_FreeCString(ctx, (const char*)ptr);
 
-    return JS_ThrowInternalError(ctx, "lws_write");
+    return JS_ThrowInternalError(ctx, "lws_finalize_http_header returned %d", err);
   }
 
-  written += n;
+  written = lws_ptr_diff_size_t(p, start);
+  DEBUG_WSI(s->wsi, "wrote headers (%d)", written);
 
   /* No explicit lws_http_transaction_completed() call here for the
      headers-only case, on purpose: respond() is always called synchronously
@@ -1039,31 +1052,49 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
      the transaction itself. */
 
   if(ptr && len > 0) {
-    /* Queued rather than lws_write()'d directly: this must not jump ahead
-       of anything the caller already queued via wsi.write() before calling
-       respond() (see BUGS-adjacent discussion - a premature wsi.write()
-       used to leave its chunk stranded in write_queue forever, since
-       nothing here ever drained it), and reusing socket_queue_write()/
-       socket_flush() gets the same partial-write retry and
-       HTTP_WRITE_CHUNK_MAX splitting every other body write already has,
-       instead of this one single unbounded, unretried lws_write() call.
-       socket_flush() does its own TX traffic logging for whatever it
-       actually sends, so there's nothing to log here directly. */
-    WriteChunk* wc = socket_queue_write(s, ptr, (size_t)len, LWS_WRITE_HTTP_FINAL, NULL);
+    if(view) {
+      if((len = MIN(len, lws_ptr_diff_size_t(end, p))) > 0) {
+        memcpy(p, ptr, len);
+        p += len;
+        written += len;
+      }
+    } else {
+      /* Queued rather than lws_write()'d directly: this must not jump ahead
+         of anything the caller already queued via wsi.write() before calling
+         respond() (see BUGS-adjacent discussion - a premature wsi.write()
+         used to leave its chunk stranded in write_queue forever, since
+         nothing here ever drained it), and reusing socket_queue_write()/
+         socket_flush() gets the same partial-write retry and
+         HTTP_WRITE_CHUNK_MAX splitting every other body write already has,
+         instead of this one single unbounded, unretried lws_write() call.
+         socket_flush() does its own TX traffic logging for whatever it
+         actually sends, so there's nothing to log here directly. */
+      WriteChunk* wc = socket_queue_write(s, ptr, (size_t)len, LWS_WRITE_HTTP_FINAL, NULL);
 
-    if(is_str)
-      JS_FreeCString(ctx, (const char*)ptr);
+      if(is_str) {
+        JS_FreeCString(ctx, (const char*)ptr);
+        is_str = FALSE;
+      }
 
-    if(!wc)
-      return JS_ThrowOutOfMemory(ctx);
+      if(!wc)
+        return JS_ThrowOutOfMemory(ctx);
 
-    written += (size_t)len;
+      written += (size_t)len;
 
-    socket_flush(s);
-  } else if(is_str)
+      /* flush now only when lws just invited a write, else wait for WRITEABLE */
+      if(s->dispatching && is_writeable_reason(s->dispatch_reason))
+        socket_flush(s);
+      else
+        lws_callback_on_writable(s->wsi);
+    }
+
+    DEBUG_WSI(s->wsi, "wrote body (%" PRId64 ")", len);
+  }
+
+  if(is_str)
     JS_FreeCString(ctx, (const char*)ptr);
 
-  return JS_NewUint32(ctx, written);
+  return js_new_size(ctx, written);
 }
 
 /* wsi.transactionCompleted() - manual escape hatch for a handler that
@@ -1078,7 +1109,7 @@ lwsjs_socket_transaction_completed(JSContext* ctx, JSValueConst this_val, int ar
   LWSSocket* s;
   BOOL close_now;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   if((close_now = lws_http_transaction_completed(s->wsi) ? TRUE : FALSE))
@@ -1096,7 +1127,7 @@ static JSValue
 lwsjs_socket_long_poll_rxonly(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   LWSSocket* s;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   return JS_NewBool(ctx, lws_h2_client_stream_long_poll_rxonly(s->wsi) == 0);
@@ -1234,7 +1265,7 @@ lwsjs_socket_http_client_read(JSContext* ctx, JSValueConst this_val, int argc, J
   uint8_t *p, *q;
   int l, result;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   if((q = p = get_buffer(ctx, argc, argv, &n))) {
@@ -1251,57 +1282,54 @@ lwsjs_socket_http_client_read(JSContext* ctx, JSValueConst this_val, int argc, J
 static JSValue
 lwsjs_socket_add_header(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   LWSSocket* s;
-  const char *name = 0, *value;
-  size_t vlen, blen;
-  unsigned char *buf, *ptr;
-  int64_t len = 0;
+  const void *name = 0, *value;
+  size_t vlen;
   enum lws_token_indexes token = -1;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
-  if(JS_IsNumber(argv[0])) {
+  if(argc > 0 && JS_IsNumber(argv[0])) {
     token = to_int32(ctx, argv[0]);
-  } else if(!(name = JS_ToCString(ctx, argv[0]))) {
+  } else if(argc == 0 || !(name = JS_ToCString(ctx, argv[0]))) {
     return JS_ThrowTypeError(ctx, "argument 1 must be name");
   }
 
-  if(!(value = JS_ToCStringLen(ctx, &vlen, argv[1]))) {
+  if(argc < 2 || !(value = JS_ToCStringLen(ctx, &vlen, argv[1]))) {
     JS_FreeCString(ctx, name);
     return JS_ThrowTypeError(ctx, "argument 2 must be value");
   }
 
-  if(!(buf = JS_GetArrayBuffer(ctx, &blen, argv[2]))) {
+  struct lwsjs_view local, *v;
+  uint8_t* start;
+
+  if(!(start = lwsjs_view_args(ctx, &v, &local, argc - 2, argv + 2))) {
     JS_FreeCString(ctx, name);
     JS_FreeCString(ctx, value);
-    return JS_ThrowTypeError(ctx, "argument 3 must be ArrayBuffer");
+    return JS_EXCEPTION;
   }
 
-  len = to_int64free(ctx, JS_GetPropertyUint32(ctx, argv[3], 0));
-  len = CLAMP(len, 0, (int64_t)blen);
-
-  ptr = buf + len;
-
-  int r = name ? lws_add_http_header_by_name(s->wsi, (const unsigned char*)name, (const unsigned char*)value, vlen, &ptr, buf + blen)
-               : lws_add_http_header_by_token(s->wsi, token, (const unsigned char*)value, vlen, &ptr, buf + blen);
-
-  JS_SetPropertyUint32(ctx, argv[3], 0, JS_NewUint32(ctx, ptr - buf));
+  int r = name ? lws_add_http_header_by_name(s->wsi, name, value, vlen, &v->p, v->end) : lws_add_http_header_by_token(s->wsi, token, value, vlen, &v->p, v->end);
 
   JS_FreeCString(ctx, name);
   JS_FreeCString(ctx, value);
 
-  return JS_NewInt32(ctx, r);
+  if(r)
+    return JS_ThrowInternalError(ctx, "lws_add_http_header_by_* failed");
+
+  if(argc > 3)
+    lwsjs_view_commit(ctx, argv + 2, v);
+
+  return js_new_size(ctx, lwsjs_view_len(v, start));
 }
 
 static JSValue
 lwsjs_socket_client_http_multipart(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   LWSSocket* s;
   JSValue ret = JS_UNDEFINED;
-  struct lws_process_html_args a = {0};
   const char *name = 0, *filename = 0, *content_type = 0;
-  int i = 0;
 
-  if(!(s = lwsjs_socket_method_data(ctx, this_val, __func__)))
+  if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
   if(!s->wsi->http.multipart)
@@ -1316,27 +1344,25 @@ lwsjs_socket_client_http_multipart(JSContext* ctx, JSValueConst this_val, int ar
   if(argc > 2 && !is_nullish(argv[2]))
     content_type = JS_ToCString(ctx, argv[2]);
 
-  if(argc > 3)
-    i = lwsjs_html_process_args(ctx, &a, argc - 3, argv + 3);
+  struct lwsjs_view local, *v;
+  uint8_t* start;
 
-  struct lws_process_html_args b = a;
-
-  b.p += b.len;
-  b.max_len -= b.len;
-
-  struct lws_process_html_args c = b;
-
-  if(lws_client_http_multipart(s->wsi, name, filename, content_type, &b.p, b.p + b.max_len)) {
-    ret = JS_ThrowRangeError(ctx, "lws_client_http_multipart: does not fit into buffer of len %d", a.max_len);
+  if(!(start = lwsjs_view_args(ctx, &v, &local, argc - 3, argv + 3))) {
+    ret = JS_EXCEPTION;
   } else {
-    ptrdiff_t n = b.p - c.p;
+    size_t room = v->end - v->p;
+    char* cp = (char*)v->p;
 
-    a.len += n;
+    if(lws_client_http_multipart(s->wsi, name, filename, content_type, &cp, (char*)v->end)) {
+      ret = JS_ThrowRangeError(ctx, "lws_client_http_multipart: does not fit into buffer of len %zu", room);
+    } else {
+      v->p = (uint8_t*)cp;
 
-    if(argc > 4 && JS_IsObject(argv[4]))
-      JS_SetPropertyUint32(ctx, argv[4], 0, JS_NewUint32(ctx, a.len));
+      if(argc > 4)
+        lwsjs_view_commit(ctx, argv + 3, v);
 
-    ret = JS_NewUint32(ctx, n);
+      ret = js_new_size(ctx, lwsjs_view_len(v, start));
+    }
   }
 
   if(name)

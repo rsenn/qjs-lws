@@ -96,7 +96,7 @@ lwsjs_mounts_from(JSContext* ctx, JSValueConst value) {
   const struct lws_http_mount *m = 0, **ptr = &m, *tmp;
   uint32_t len;
 
-  if(JS_IsArray(ctx, value) && (len = to_uint32free(ctx, JS_GetPropertyStr(ctx, value, "length"))) > 0) {
+  if(js_array_length(ctx, value, &len) && len > 0) {
     if(!(m = js_malloc(ctx, sizeof(struct lws_http_mount))))
       return NULL;
 

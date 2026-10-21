@@ -183,9 +183,9 @@ function makePlainApiProtocol() {
     // lib/lws/protocols.js's HttpClientProtocol itself uses (see its
     // onClientAppendHandshakeHeader/onClientHttpWriteable), just written
     // out directly instead of going through that adapter.
-    onClientAppendHandshakeHeader(wsi, buf, len) {
-      wsi.addHeader('content-type', 'application/json', buf, len);
-      wsi.addHeader('content-length', REQUEST_BODY_LENGTH, buf, len);
+    onClientAppendHandshakeHeader(wsi, args) {
+      wsi.addHeader('content-type', 'application/json', args);
+      wsi.addHeader('content-length', REQUEST_BODY_LENGTH, args);
       wsi.bodyPending = 1;
     },
     onClientHttpWriteable(wsi) {

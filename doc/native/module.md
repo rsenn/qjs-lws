@@ -81,12 +81,24 @@ parseUri(uri)              // parses into struct lws_client_connect_info (intern
 
 ```js
 toString(arraybuffer [, offset [, length]])     // → JS string
-toArrayBuffer(stringOrBuf [, offset [, length]]) // → ArrayBuffer
-toPointer(arraybuffer)                          // → "0x…" string of the buffer's address
+toArrayBuffer(address, length)                    // → ArrayBuffer
+toArrayBuffer(stringOrView [, offset [, length]]) // → ArrayBuffer
+toPointer(arraybuffer)                            // → Number | BigInt the buffer's address
 write(srcStringOrBuf, dstArrayBuffer [, offset]) // memcpy-into-buffer helper
                                                  // returns bytes written;
                                                  // if `offset` is an array [n],
                                                  // n is incremented by bytes written
+write(srcStringOrBuf, view)                      // view: a View (see below) or the one handed to
+                                                 // onAddHeaders / onProcessHtml /
+                                                 // onClientAppendHandshakeHeader; appends at its
+                                                 // cursor, clamped to the room left, advances it
+View(buffer [, offset [, length]])               // new or plain call: pure wrapped range over
+                                                 // buffer[offset, offset+length): .write(strOrBuf),
+                                                 // .skip(n), .avail, .pointer, .detach(); keeps buffer alive
+Buffer([size] | buffer [, offset [, length]])    // a View that also knows where it started: adds
+                                                 // .written, .capacity, .reset(), .toArrayBuffer(),
+                                                 // .toString(). size: owns LWS_PRE + size (default
+                                                 // LWS_RECOMMENDED_MIN_HEADER_SPACE), range starts at +LWS_PRE
 ```
 
 ### Address / interface helpers

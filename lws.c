@@ -1,11 +1,14 @@
+#include "libwebsockets.h"
 #include "lws-socket.h"
 #include "lws-context.h"
 #include "lws-sockaddr46.h"
 #include "lws-vhost.h"
 #include "lws-tls.h"
 #include "lws-protocol.h"
+#include "lws-buffer.h"
 #include "lws.h"
 #include "js-utils.h"
+#include "quickjs.h"
 #include <quickjs-libc.h>
 #include <termios.h>
 #include <sys/ioctl.h>
@@ -198,28 +201,6 @@ lossy_utf8_decode(JSContext* ctx, const uint8_t* p, size_t n) {
   return ret;
 }
 
-int
-lwsjs_html_process_args(JSContext* ctx, struct lws_process_html_args* pha, int argc, JSValueConst argv[]) {
-  size_t len;
-  uint8_t* buf;
-  int ret = 1;
-
-  if(argc == 0 || !(buf = JS_GetArrayBuffer(ctx, &len, argv[0])))
-    return 0;
-
-  pha->p = (char*)buf;
-  pha->len = 0;
-  pha->max_len = len;
-  pha->final = pha->chunked = 0;
-
-  if(argc > 1) {
-    pha->len = to_int32free(ctx, JS_IsObject(argv[1]) ? JS_GetPropertyUint32(ctx, argv[1], 0) : JS_DupValue(ctx, argv[1]));
-    ++ret;
-  }
-
-  return ret;
-}
-
 enum {
   FUNCTION_GET_LOG_LEVEL_NAME = 0,
   FUNCTION_GET_LOG_LEVEL_COLOUR,
@@ -231,6 +212,7 @@ enum {
   FUNCTION_VISIBLE,
   FUNCTION_TO_STRING,
   FUNCTION_TO_POINTER,
+  FUNCTION_BYTE_LENGTH,
   FUNCTION_TO_ARRAYBUFFER,
   FUNCTION_LOGLEVEL,
   FUNCTION_WRITE,
@@ -266,9 +248,9 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
     case FUNCTION_GET_CALLBACK_NAME: {
       int32_t reason = to_int32(ctx, argv[0]);
-      const char* name = lwsjs_callback_name(reason);
+      const char* name;
 
-      if(name) {
+      if((name = lwsjs_callback_name(reason))) {
         char buf[strlen(name) + 1];
         lwsjs_camelize(buf, sizeof(buf), name);
         buf[0] = toupper(buf[0]);
@@ -280,11 +262,13 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     }
 
     case FUNCTION_GET_CALLBACK_NUMBER: {
-      const char* name = JS_ToCString(ctx, argv[0]);
+      const char* name;
 
-      enum lws_callback_reasons reason = lwsjs_callback_find(name);
+      if((name = JS_ToCString(ctx, argv[0]))) {
+        ret = JS_NewInt32(ctx, lwsjs_callback_find(name));
+        JS_FreeCString(ctx, name);
+      }
 
-      ret = JS_NewInt32(ctx, reason);
       break;
     }
 
@@ -295,11 +279,13 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
         const char* str = (const char*)lws_token_to_string(ti);
         size_t i;
 
-        for(i = 0; str[i]; i++)
-          if(str[i] == ' ' || str[i] == ':')
-            break;
+        if((str = (const char*)lws_token_to_string(ti))) {
+          for(i = 0; str[i]; i++)
+            if(str[i] == ' ' || str[i] == ':')
+              break;
 
-        ret = JS_NewStringLen(ctx, str, i);
+          ret = JS_NewStringLen(ctx, str, i);
+        }
       }
 
       break;
@@ -310,9 +296,8 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       int32_t level = -1;
       LWSSocket* ls = NULL;
       LWSContext* lws = NULL;
-      int i;
 
-      for(i = 0; i < argc; ++i) {
+      for(int i = 0; i < argc; ++i) {
         if(argc > 1 && level == -1 && JS_IsNumber(argv[i]))
           level = to_int32(ctx, argv[i]);
         else if(argc > 1 && ls == NULL && (ls = JS_GetOpaque(argv[i], lwsjs_socket_class_id)))
@@ -441,40 +426,59 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     }
 
     case FUNCTION_TO_POINTER: {
-      size_t n;
       uint8_t* p;
 
-      if((p = get_buffer(ctx, argc, argv, &n))) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%p", p);
-        ret = JS_NewString(ctx, buf);
-      }
+      if((p = get_buffer(ctx, argc, argv, NULL)))
+        ret = js_new_pointer(ctx, p);
+      else
+        ret = JS_ThrowTypeError(ctx, "ArrayBuffer | TypedArray | DataView expected");
+
+      break;
+    }
+
+    case FUNCTION_BYTE_LENGTH: {
+      size_t n;
+      const char* s = NULL;
+
+      if(get_buffer(ctx, argc, argv, &n) || (s = JS_ToCStringLen(ctx, &n, argv[0])))
+        ret = js_new_uint64(ctx, n);
+
+      if(s)
+        JS_FreeCString(ctx, s);
 
       break;
     }
 
     case FUNCTION_TO_ARRAYBUFFER: {
-      size_t maxlen, len, ofs;
-      uint8_t* ptr;
+      size_t maxlen = SIZE_MAX, ofs = 0, len = 0, buflen;
       const char* s;
+      uint8_t* ptr;
+      int64_t i;
+      JSValue buffer = argc > 0 && JS_IsObject(argv[0]) ? get_typedarray_buffer(ctx, argv[0], &ofs, &maxlen) : JS_UNDEFINED;
 
-      if((ptr = JS_GetArrayBuffer(ctx, &maxlen, argv[0]))) {
-        ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
-
-        if(ofs == 0 && maxlen == len)
-          ret = JS_DupValue(ctx, argv[0]);
-        else
-          ret = JS_NewArrayBufferCopy(ctx, ptr + ofs, len);
-      } else if((s = JS_ToCStringLen(ctx, &maxlen, argv[0]))) {
+      if(argc > 1 && !js_to_pointer(ctx, &ptr, argv[0]) && !JS_ToInt64Ext(ctx, &i, argv[1])) {
+        ret = js_arraybuffer_ref(ctx, argc > 2 ? argv[2] : JS_UNDEFINED, ptr, i);
+      } else if(JS_IsString(argv[0]) && (s = JS_ToCStringLen(ctx, &maxlen, argv[0]))) {
         ofs = get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
 
         ret = JS_NewArrayBufferCopy(ctx, (const uint8_t*)s + ofs, len);
 
         JS_FreeCString(ctx, s);
+      } else if((ptr = JS_GetArrayBuffer(ctx, &buflen, buffer))) {
+        ofs = MIN(buflen, ofs);
+        ptr += ofs;
+
+        maxlen = MIN((buflen - ofs), maxlen);
+
+        ofs += argc > 1 ? get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len) : 0;
+
+        if(ofs == 0 && buflen == len)
+          ret = JS_DupValue(ctx, buffer);
+        else
+          ret = js_arraybuffer_view(ctx, buffer, ofs, len);
       }
 
-      if(ptr == 0)
-        JS_GetException(ctx);
+      JS_FreeValue(ctx, buffer);
       break;
     }
 
@@ -513,26 +517,44 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
         break;
       }
 
-      buf = (uint8_t*)str;
+      if(str)
+        buf = (uint8_t*)str;
 
-      struct lws_process_html_args a = {0};
-      int i = lwsjs_html_process_args(ctx, &a, argc - 1, argv + 1);
+      struct lwsjs_view legacy, *view;
+      uint8_t* dst = 0;
+      size_t dlen, n;
 
-      struct lws_process_html_args b = a;
-      b.p += b.len;
-      b.max_len -= b.len;
+      if(argc < 2) {
+        ret = JS_ThrowTypeError(ctx, "argument 2 must be struct lwsjs_view | TypedArray | DataView | ArrayBuffer");
+      } else if(argc == 2) {
+        /* destination is a struct lwsjs_view: p is advanced past what was written */
+        if(!(view = lwsjs_view_data2(ctx, argv[1])))
+          ret = JS_EXCEPTION;
+      } else if((dst = get_buffer(ctx, 1, argv + 1, &dlen))) {
+        /* (buf, offset): offset is a number or an array whose [0] is updated */
+        int64_t ofs = to_int64free(ctx, JS_IsObject(argv[2]) ? JS_GetPropertyUint32(ctx, argv[2], 0) : JS_DupValue(ctx, argv[2]));
 
-      int n = MIN((int)len, b.max_len);
+        view = &legacy;
+        lwsjs_view_buf(view, dst, dlen);
+        view->p += CLAMP(ofs, 0, (int64_t)dlen);
+      } else {
+        ret = JS_ThrowTypeError(ctx, "argument 2 must be TypedArray | DataView | ArrayBuffer");
+      }
 
-      if(n >= 0)
-        memcpy(b.p, buf, n);
+      if(JS_IsUndefined(ret)) {
+        if(!view->p || view->end < view->p) {
+          ret = JS_ThrowRangeError(ctx, "struct lwsjs_view has invalid range");
+        } else {
+          n = MIN(len, (size_t)(view->end - view->p));
+          memcpy(view->p, buf, n);
+          view->p += n;
 
-      a.len += n;
+          if(argc > 2 && JS_IsObject(argv[2]))
+            JS_SetPropertyUint32(ctx, argv[2], 0, js_new_size(ctx, view->p - (uint8_t*)dst));
 
-      if(argc > 2 && JS_IsObject(argv[2]))
-        JS_SetPropertyUint32(ctx, argv[2], 0, JS_NewUint32(ctx, a.len));
-
-      ret = JS_NewUint32(ctx, n);
+          ret = js_new_size(ctx, n);
+        }
+      }
 
       if(str)
         JS_FreeCString(ctx, str);
@@ -544,11 +566,10 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       size_t n;
       uint8_t buf[6], *p = buf;
 
-      if(argc > 1) {
+      if(argc > 1)
         if((p = get_buffer(ctx, argc - 1, argv + 1, &n)))
           if(n < 6)
             return JS_ThrowRangeError(ctx, "ArrayBuffer must be at least 6 bytes");
-      }
 
       const char* mac = JS_ToCString(ctx, argv[0]);
       int r = lws_parse_mac(mac, p);
@@ -566,11 +587,10 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       size_t n;
       uint8_t buf[16], *p = buf;
 
-      if(argc > 1) {
+      if(argc > 1)
         if((p = get_buffer(ctx, argc - 1, argv + 1, &n)))
           if(n < 16)
             return JS_ThrowRangeError(ctx, "ArrayBuffer must be at least 16 bytes");
-      }
 
       const char* addr = JS_ToCString(ctx, argv[0]);
       int r = lws_parse_numeric_address(addr, p, 16);
@@ -597,6 +617,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
           argv++;
         }
       }
+
       int r = lws_write_numeric_address(in, len, out, sizeof(out));
 
       ret = JS_NewStringLen(ctx, out, r);
@@ -609,11 +630,10 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       size_t n;
       uint8_t buf[size], *p = buf;
 
-      if(argc > 2) {
+      if(argc > 2)
         if((p = get_buffer(ctx, argc - 2, argv + 2, &n)))
           if(n < size)
             return JS_ThrowRangeError(ctx, "ArrayBuffer must be at least %zu bytes", size);
-      }
 
       const char* iface = JS_ToCString(ctx, argv[1]);
       int r = lws_interface_to_sa(ipv6, iface, (void*)p, size);
@@ -660,6 +680,7 @@ static const JSCFunctionListEntry lws_funcs[] = {
     JS_CFUNC_MAGIC_DEF("toString", 1, lwsjs_functions, FUNCTION_TO_STRING),
     JS_CFUNC_MAGIC_DEF("toArrayBuffer", 1, lwsjs_functions, FUNCTION_TO_ARRAYBUFFER),
     JS_CFUNC_MAGIC_DEF("toPointer", 1, lwsjs_functions, FUNCTION_TO_POINTER),
+    JS_CFUNC_MAGIC_DEF("byteLength", 1, lwsjs_functions, FUNCTION_BYTE_LENGTH),
     JS_CFUNC_MAGIC_DEF("write", 2, lwsjs_functions, FUNCTION_WRITE),
     JS_CFUNC_MAGIC_DEF("parseMac", 1, lwsjs_functions, FUNCTION_PARSE_MAC),
     JS_CFUNC_MAGIC_DEF("parseNumericAddress", 1, lwsjs_functions, FUNCTION_PARSE_NUMERIC_ADDRESS),
@@ -1194,6 +1215,7 @@ lwsjs_init(JSContext* ctx, JSModuleDef* m) {
   lwsjs_socket_init(ctx, m);
   lwsjs_spa_init(ctx, m);
   lwsjs_sockaddr46_init(ctx, m);
+  lwsjs_buffer_init(ctx, m);
 #ifdef LWS_WITH_TLS
   lwsjs_tls_certverify_init(ctx, m);
 #endif
@@ -1223,6 +1245,8 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
   JSModuleDef* m;
 
   if((m = JS_NewCModule(ctx, module_name, lwsjs_init))) {
+    JS_AddModuleExport(ctx, m, "View");
+    JS_AddModuleExport(ctx, m, "Buffer");
     JS_AddModuleExport(ctx, m, "LWSContext");
     JS_AddModuleExport(ctx, m, "createServer");
     JS_AddModuleExport(ctx, m, "LWSVhost");
