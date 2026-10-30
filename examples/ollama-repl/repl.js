@@ -47,7 +47,7 @@
  *     also prints lws's own ERR/WARN/USER lines straight to the terminal,
  *     independent of `TRAFFIC`.
  */
-import { exit, loadFile, out as stdout, err as stderr } from 'std';
+import { exit, loadFile, popen, out as stdout, err as stderr } from 'std';
 import { clearTimeout, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
@@ -92,7 +92,7 @@ function parseArgs(argv) {
     else if(arg === '--help' || arg === '-h') {
       console.log(
         'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--num-ctx N] [--temperature T] [--max-rounds N] [--yes]\n' +
-          '  --model list     list the available chat models and exit (gemini only for now).\n' +
+          '  --model list     list the available chat models and exit (gemini; ollama via `ollama list`).\n' +
           '  --num-ctx N      context window requested from Ollama (default 16384; Ollama itself defaults to 4096).\n' +
           '  --max-rounds N   tool-calling rounds per prompt (default 40).\n' +
           '  --yes/-y         run_command without asking (unattended agents).\n' +
@@ -555,6 +555,13 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /diff           - git diff of the project (what has been changed so far)
 /each <cmd> :: <task> - run <task> once per output line of <cmd> ({} = the item), each in a fresh conversation
 /binding <text> - force-attach the native-binding reference (fib.c/point.c/cheat sheet) for this prompt, even if it doesn't sound like a binding request
+/model          - show the provider/model/endpoint in use
+/tools          - list the tools the model can call
+/system         - print the system prompt
+/system default [N[-M]] - (re)set it to the default prompt, or only its lines N..M
+/system <text>, /system +<text>, /system file <path>, /system off - replace, append, load from a file, or remove it
+/stream [on|off] - show or set token streaming
+/js <code>      - evaluate JavaScript in the REPL
 /status         - show model/connection/session info
 /files          - dump this session's file exchange (sent, received, diffs)
 /context        - inspect the full context about to be sent to the model (system prompt + project scan + conversation) - raw, inspect()-colored, with -x; a one-line-per-message summary without it
@@ -573,8 +580,21 @@ async function main() {
   }
 
   if(opts.model === 'list') {
+    if(opts.provider === 'ollama') {
+      const pipe = popen('ollama list', 'r');
+      if(!pipe) {
+        console.log(red('error: cannot run "ollama list"'));
+        exit(1);
+      }
+
+      stdout.puts(pipe.readAsString());
+      stdout.flush();
+      client.destroy();
+      exit(pipe.close() === 0 ? 0 : 1);
+    }
+
     if(opts.provider !== 'gemini') {
-      console.log(red(`error: --model list is only implemented for --provider gemini (not ${opts.provider})`));
+      console.log(red(`error: --model list is only implemented for --provider gemini and ollama (not ${opts.provider})`));
       exit(1);
     }
 
@@ -681,7 +701,7 @@ async function main() {
   };
 
   const repl = new ChatREPL(
-    'you',
+    opts.model,
     async line => {
       const prompt = line.trim();
       if(!prompt) return;
@@ -750,6 +770,57 @@ async function main() {
             `uptime:   ${uptimeS}s`,
           ].join('\n'),
         );
+        return;
+      }
+
+      if(prompt === '/model') {
+        console.log(`${opts.provider}/${opts.model} @ ${endpoint}`);
+        return;
+      }
+
+      if(prompt === '/tools') {
+        console.log(TOOLS.map(t => `${(t.function?.name ?? t.name).padEnd(14)} ${(t.function?.description ?? t.description ?? '').split('\n')[0]}`).join('\n'));
+        return;
+      }
+
+      if(prompt === '/system' || prompt.startsWith('/system ')) {
+        const arg = prompt.slice('/system'.length).trim();
+        const has = messages[0]?.role === 'system';
+        const defaultPrompt = SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '');
+
+        if(!arg) return void console.log(has ? messages[0].content : '(no system prompt)');
+
+        let text;
+        let m;
+        if(arg === 'off') text = null;
+        else if((m = /^default(?:\s+(\d+)(?:-(\d+))?)?$/.exec(arg))) {
+          /* optionally only lines start[-end] (1-based) of the default prompt */
+          const lines = defaultPrompt.split('\n');
+          text = m[1] ? lines.slice(m[1] - 1, m[2] ? +m[2] : +m[1]).join('\n') : defaultPrompt;
+        } else if(arg.startsWith('file ')) {
+          text = loadFile(arg.slice(5).trim());
+          if(text === null) return void console.log(red(`error: cannot read ${arg.slice(5).trim()}`));
+        } else if(arg.startsWith('+')) text = (has ? messages[0].content + '\n' : '') + arg.slice(1).trim();
+        else text = arg;
+
+        if(has) {
+          if(text === null) {
+            messages.shift();
+            baseMessageCount = Math.max(0, baseMessageCount - 1);
+          } else messages[0].content = text;
+        } else if(text !== null) {
+          messages.unshift({ role: 'system', content: text });
+          baseMessageCount++;
+        }
+
+        saveSession();
+        console.log(text === null ? '(system prompt removed)' : `(system prompt set: ${text.length} chars)`);
+        return;
+      }
+
+      if(prompt === '/stream' || prompt === '/stream on' || prompt === '/stream off') {
+        if(prompt !== '/stream') opts.stream = prompt.endsWith('on');
+        console.log(`streaming: ${opts.stream ? 'on' : 'off'}`);
         return;
       }
 

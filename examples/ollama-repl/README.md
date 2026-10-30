@@ -177,8 +177,9 @@ just `ollama-repl [...]` from `bin/`.
 against - defaults to the current directory.
 
 `--model list` prints the chat-capable models the API key can use (name,
-token limits, display name) and exits - implemented for `--provider gemini`
-only so far.
+token limits, display name) and exits with `--provider gemini`; with
+`--provider ollama` it prints the output of `ollama list`. Not implemented
+for `--provider openai`.
 
 `--num-ctx` (default 16384) is the context window asked of Ollama - its own
 default is 4096 tokens, which the project scan plus a couple of attached
@@ -234,7 +235,7 @@ When stdout is not a tty, the underlying qjs-modules `REPL` runs in line
 mode (needs a `repl` module with "Piped mode", qjs-modules `doc/js/repl.md`),
 and ollama-repl follows it: no escape sequences or colors, no spinner, no
 raw tty mode. A controller writes one command or prompt per line and reads
-the output up to the next `you> ` prompt, which is printed exactly once
+the output up to the next `<model>> ` prompt, which is printed exactly once
 each time the REPL is ready for input:
 
 ```sh
@@ -263,6 +264,17 @@ printf 'what does lib/run-command.js do?\n/status\n' | qjsm repl.js --stream > o
   round trip, no approval prompt (that's only for the model's own `RUN:`
   requests - see above)
 - `/status` - model/connection/session info
+- `/model`, `/tools`, `/stream [on|off]` - show the model in use, list the model's tools, show or toggle streaming
+- `/system` - print the system prompt. It can also be changed mid-session
+  (`/clear` removes it along with everything else; `--failsafe` starts
+  without one, but still never gives the model tools):
+  - `/system default` - set it to the full default prompt
+  - `/system default N-M` (or `N`) - only lines N..M of the default prompt
+  - `/system <text>` - replace it; `/system +<text>` appends a line
+  - `/system file <path>` - load it from a file
+  - `/system off` - remove it
+
+  `/reset` keeps whatever system prompt is set.
 - `/files` - dump this session's file exchange (sent, received, diffs)
 - `/context` - inspect the full context about to be sent to the model
   (system prompt + project scan + conversation) - a one-line-per-message

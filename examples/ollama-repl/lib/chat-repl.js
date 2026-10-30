@@ -16,7 +16,8 @@
  * entirely - confirmed working (including a fix below for a related
  * batching bug) against a real interactive run.
  */
-import { readdir, S_IFDIR } from 'os';
+import { isatty, readdir, S_IFDIR } from 'os';
+import { in as stdin } from 'std';
 import { fileMode } from './match.js';
 import { REPL } from 'repl';
 import { red, yellow } from './ansi.js';
@@ -61,6 +62,9 @@ export class ChatREPL extends REPL {
     this.#root = root;
     this.#onAbort = onAbort;
     this.showColors = false;
+    /* line editing only when input is a terminal: the base REPL decides
+       from stdout alone, but a script feeding stdin needs piped mode too */
+    this.piped ||= !isatty(stdin.fileno());
     if(!this.piped) this.ps1 = BRIGHT_WHITE + this.ps1;
     this.inspectOptions.maxStringLength = Infinity;
     this.historyLoad(); // also registers historySave() as a cleanup handler
