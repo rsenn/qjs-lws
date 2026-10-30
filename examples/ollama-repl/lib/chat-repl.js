@@ -80,6 +80,11 @@ export class ChatREPL extends REPL {
     this.historyLoad(); // also registers historySave() as a cleanup handler
   }
 
+  /** New prompt text (the model name) after a /model switch. */
+  setPromptName(name) {
+    this.ps1 = (this.piped ? '' : BRIGHT_WHITE) + name + '> ';
+  }
+
   /**
    * Base REPL's own Ctrl-C (see /usr/local/lib/quickjs/repl.js's
    * sigintHandler()) just forwards to readline, which without a request

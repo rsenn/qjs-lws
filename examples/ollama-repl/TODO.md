@@ -395,6 +395,7 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- `/model NAME` (2026-10-30): switch model in a running session, conversation kept; session file and log stay named after the starting model.
 - Session names (2026-10-30): `--name`, shown by `ollama-repl-ctl list`,
   picked with `-s NAME`; ctl waits for a session when none matches.
 - Terminal mirrors a remote session (2026-10-30): `[remote]> line` shown in

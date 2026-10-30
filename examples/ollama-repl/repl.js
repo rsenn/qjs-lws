@@ -566,7 +566,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /diff           - git diff of the project (what has been changed so far)
 /each <cmd> :: <task> - run <task> once per output line of <cmd> ({} = the item), each in a fresh conversation
 /binding <text> - force-attach the native-binding reference (fib.c/point.c/cheat sheet) for this prompt, even if it doesn't sound like a binding request
-/model          - show the provider/model/endpoint in use
+/model [NAME|list] - show the provider/model/endpoint in use; switch to another installed model (conversation kept) or list them
 /tools          - list the tools the model can call
 /system         - print the system prompt
 /system default [N[-M]] - (re)set it to the default prompt, or only its lines N..M
@@ -578,6 +578,16 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /context        - inspect the full context about to be sent to the model (system prompt + project scan + conversation) - raw, inspect()-colored, with -x; a one-line-per-message summary without it
 /log            - inspect just the conversation so far (no system prompt/project scan) - same raw-with--x/summary-without split as /context
 Anything else is sent to the model as a prompt.`;
+
+/** @returns {string[]|null} names `ollama list` shows, null if it cannot be run */
+function ollamaModels() {
+  const pipe = popen('ollama list', 'r');
+  if(!pipe) return null;
+
+  const out = pipe.readAsString();
+  pipe.close();
+  return out.split('\n').slice(1).map(l => l.split(/\s+/)[0]).filter(Boolean);
+}
 
 /** --name, else the model name; made unique among the live sessions (name, name-2, ...). */
 function sessionName(opts) {
@@ -726,6 +736,8 @@ async function main() {
     return results.join('\n');
   };
 
+  let control = null;
+
   const repl = new ChatREPL(
     opts.model,
     async line => {
@@ -792,15 +804,30 @@ async function main() {
             `model:    ${opts.provider}/${opts.model} @ ${endpoint}${opts.stream ? ' (streaming)' : ''}`,
             `root:     ${opts.root}`,
             `messages: ${messages.length - baseMessageCount} (${messages.length} incl. system prompt + project scan)`,
-            `log:      ${opts.model}.log`,
+            `log:      ${log.path}`,
             `uptime:   ${uptimeS}s`,
           ].join('\n'),
         );
         return;
       }
 
-      if(prompt === '/model') {
-        console.log(`${opts.provider}/${opts.model} @ ${endpoint}`);
+      if(prompt === '/model' || prompt.startsWith('/model ')) {
+        const arg = prompt.slice('/model'.length).trim();
+
+        if(!arg) return void console.log(`${opts.provider}/${opts.model} @ ${endpoint}`);
+
+        const known = opts.provider === 'ollama' ? ollamaModels() : null;
+
+        if(arg === 'list') return void console.log(known ? known.join('\n') : '(model list is only available for --provider ollama)');
+
+        /* only models already installed: switching never pulls one */
+        if(known && !known.includes(arg) && !known.includes(`${arg}:latest`)) return void console.log(red(`error: no such model "${arg}" (/model list shows the installed ones)`));
+
+        opts.model = arg;
+        client.model = arg;
+        repl.setPromptName(arg);
+        control?.update({ model: arg });
+        console.log(`(model: ${opts.provider}/${arg} - the conversation so far is kept)`);
         return;
       }
 
@@ -951,7 +978,7 @@ async function main() {
 
   if(opts.listen !== undefined) {
     const name = sessionName(opts);
-    const control = new ControlSocket(
+    control = new ControlSocket(
       { name, model: opts.model, provider: opts.provider, root: opts.root, cwd: getcwd()[0] },
       line => {
         // as if typed: shown on the terminal so the user sees who asked

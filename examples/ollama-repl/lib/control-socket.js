@@ -12,6 +12,7 @@
  *   {type:'waiting', kind, text}    a y/N or ask_user question is on the
  *                                   terminal; only the user can answer it
  *   {type:'ready'}                  every submitted line has been handled
+ *   {type:'info', ...}              session info changed (the model, after /model)
  */
 import { mkdir, remove, setReadHandler, kill, getpid, readdir } from 'os';
 import { getenv, loadFile, open } from 'std';
@@ -130,6 +131,16 @@ export class ControlSocket {
   /** @param {object} obj  an event for every connected client */
   event(obj) {
     for(const conn of this.#clients.keys()) this.#send(conn, obj);
+  }
+
+  /** Publishes changed session info (e.g. the model after /model). */
+  update(patch) {
+    Object.assign(this.#info, patch);
+
+    const f = open(this.#infoPath, 'w');
+    f.puts(JSON.stringify(this.#info) + '\n');
+    f.close();
+    this.event({ type: 'info', ...patch });
   }
 
   output(text) {

@@ -310,7 +310,8 @@ the raw events.
   round trip, no approval prompt (that's only for the model's own `RUN:`
   requests - see above)
 - `/status` - model/connection/session info
-- `/model`, `/tools`, `/stream [on|off]` - show the model in use, list the model's tools, show or toggle streaming
+- `/model [NAME|list]` - show the model in use; `NAME` switches to another installed model (`ollama list`; never pulls one) and keeps the conversation, the prompt and `ollama-repl-ctl list` follow; `list` shows the installed ones. Also works over `--listen`.
+- `/tools`, `/stream [on|off]` - list the model's tools, show or toggle streaming
 - `/system` - print the system prompt. It can also be changed mid-session
   (`/clear` removes it along with everything else; `--failsafe` starts
   without one, but still never gives the model tools):
