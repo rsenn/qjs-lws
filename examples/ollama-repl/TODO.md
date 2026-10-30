@@ -395,6 +395,13 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- Tool-call loop guard (2026-10-31): `runToolLoop()` no longer re-executes
+  a call (same tool + args) already made this turn; the model gets an
+  error saying so instead. Two rounds in a row made only of repeats
+  (also catches A,B,A,B alternation) withdraw the tools (`toolChoice:
+  'none'`) so it must answer in text. Seen with qwen3:8b repeating
+  edit_file calls. Not verified live (only that repl.js loads); the
+  repeat limit (`MAX_REPEAT_ROUNDS`) is untested against a real model.
 - `/model NAME` (2026-10-30): switch model in a running session, conversation kept; session file and log stay named after the starting model.
 - Session names (2026-10-30): `--name`, shown by `ollama-repl-ctl list`,
   picked with `-s NAME`; ctl waits for a session when none matches.

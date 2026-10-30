@@ -410,6 +410,9 @@ function elideOldToolResults(messages, numCtx) {
   }
 }
 
+/* rounds made only of already-seen tool calls before tools are withdrawn */
+const MAX_REPEAT_ROUNDS = 2;
+
 /**
  * Drives the tool-calling loop (see SYSTEM_PROMPT/TOOLS): runs one
  * chat round with TOOLS (lib/tool-requests.js) offered, and if the reply
@@ -429,10 +432,14 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
   const tools = (forEach ? TOOLS : TOOLS.filter(t => t.name !== 'for_each' && t.name !== 'ask_user')).filter(t => !opts.omitTools?.includes(t.name));
 
   let nudges = 0;
+  /* loop guard: calls already made this turn (name+args -> times seen) and
+     how many rounds in a row consisted only of repeats */
+  const seenCalls = new Map();
+  let repeatRounds = 0;
   const writesAtStart = writeCount; // this loop's own changes, not an earlier item's
 
   for(let round = 0; ; round++) {
-    const final = round >= opts.maxRounds - 1;
+    const final = round >= opts.maxRounds - 1 || repeatRounds >= MAX_REPEAT_ROUNDS;
     elideOldToolResults(messages, opts.numCtx);
     const result = await chatRound(client, messages, opts, abortRef, final ? { toolChoice: 'none' } : { tools });
 
@@ -461,11 +468,28 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
     if(!opts.quiet) console.log(dim(result.toolCalls.map(tc => `(${tc.name} ${JSON.stringify(tc.args).slice(0, 160)})`).join('\n')));
 
+    let repeats = 0;
+
     for(const tc of result.toolCalls) {
+      const sig = tc.name + JSON.stringify(tc.args);
+      const seen = seenCalls.get(sig) ?? 0;
+      seenCalls.set(sig, seen + 1);
+
+      if(seen > 0) {
+        repeats++;
+        const output = `error: you already made this exact ${tc.name} call (${seen}x) - repeating it will not change the result. Try a different approach (different arguments, read_file to re-check the current contents first) or stop and explain what is blocking you.`;
+        if(!opts.quiet) console.log(dim(`(repeated ${tc.name} call skipped)`));
+        log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
+        messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
+        continue;
+      }
+
       const output = await executeTool(tc.name, tc.args, opts.root, confirmRun, askUser, forEach);
       log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
       messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
     }
+
+    repeatRounds = repeats === result.toolCalls.length ? repeatRounds + 1 : 0;
   }
 }
 
