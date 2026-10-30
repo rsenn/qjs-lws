@@ -43,6 +43,16 @@ export class ChatREPL extends REPL {
 
   #onAbort;
 
+  /* hooks for lib/control-socket.js: onIdle() once every submitted line
+     has been handled, onPrompt(kind, text) when a question is put to the
+     terminal user */
+  onIdle;
+  onPrompt;
+
+  get busy() {
+    return this.#busy;
+  }
+
   /**
    * @param {string} name    ps1 prefix (e.g. "you" -> "you> ")
    * @param {(line: string) => Promise<void>} onLine  called once per
@@ -188,7 +198,10 @@ export class ChatREPL extends REPL {
         this.#busy = false;
 
         if(this.#queue.length) this.#run(this.#queue.shift());
-        else this.handleCmdEnd();
+        else {
+          this.handleCmdEnd();
+          this.onIdle?.();
+        }
       });
   }
 
@@ -212,6 +225,7 @@ export class ChatREPL extends REPL {
     return new Promise(resolve => {
       this.ps1 = yellow('[y/N]') + ' ';
       console.log(yellow(promptText));
+      this.onPrompt?.('confirm', promptText);
 
       const cb = answer => {
         /* Same batched-bytes situation as handleCmd()'s own reset (see its
@@ -269,6 +283,7 @@ export class ChatREPL extends REPL {
     return new Promise(resolve => {
       this.ps1 = yellow('(answer)>') + ' ';
       console.log(yellow(promptText));
+      this.onPrompt?.('ask', promptText);
 
       const cb = answer => {
         this.cmd = '';

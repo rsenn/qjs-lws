@@ -395,6 +395,22 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- Session names (2026-10-30): `--name`, shown by `ollama-repl-ctl list`,
+  picked with `-s NAME`; ctl waits for a session when none matches.
+- Terminal mirrors a remote session (2026-10-30): `[remote]> line` shown in
+  green; the hidden NUDGE re-prompt and the for_each prompt hint are now
+  printed. Found while checking this on a pty: `asksForChange()` tested the
+  whole user message including attached file contents, so a read-only
+  question about a file containing `add` made the REPL nudge the model into
+  editing it (a file was modified twice). It now tests the typed request
+  (`request` on the user message).
+- Control socket (2026-10-30): `--listen [PATH]` (`lib/control-socket.js`),
+  client `ctl.js` (installed as `ollama-repl-ctl`: list/send/watch). Output
+  is teed by wrapping `std.out.puts`; `ChatREPL#onIdle`/`onPrompt` emit
+  `ready`/`waiting`. Verified: `/model`, `/tools`, a real read_file round trip
+  with qwen2.5-coder, socket and info file removed on exit. Not verified:
+  the `waiting` event (needs a model that calls run_command), two clients at
+  once, a client that stops reading (the server's `send()` blocks).
 - Piped mode (2026-10-20): `ChatREPL`/`repl.js` follow the base REPL's
   line mode when stdout is not a tty (`lib/ansi.js`: no escapes, no
   spinner; `pipeBusy` held while a line is handled, released for

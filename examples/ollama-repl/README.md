@@ -212,6 +212,12 @@ message you typed, sent to the model as-is (conversation history is still
 kept across turns) - useful when you want a plain chat against the model
 itself, or when the scaffolding is what you're trying to rule out.
 
+`--no-system` drops only the built-in system prompt: tools, the project scan
+and file attachment stay. Meant for a controller (Claude Code over
+`--listen`) that brings its own: `ollama-repl-ctl send '/system file
+PROMPT.md'` sets it, `send /clear` empties the whole context to try again from
+scratch. A resumed session's saved system prompt is dropped too.
+
 Three separate logs, not one - each answers a different question:
 
 - `<model>.log` - the conversation transcript (prompts/replies/tool
@@ -249,6 +255,46 @@ printf 'what does lib/run-command.js do?\n/status\n' | qjsm repl.js --stream > o
   sees the question, then sends `y`/`n` or the answer text
 - `/exit`, Ctrl-D equivalents and `SIGINT` all end the session; the
   session log and saved session are written on the way out
+
+## Sharing a running session (`--listen`)
+
+`ollama-repl --listen [PATH]` opens a unix socket (default
+`$XDG_RUNTIME_DIR/ollama-repl/<pid>.sock`, directory mode 0700, plus a
+`<pid>.json` describing the session) so another process - Claude Code, a
+script - can type into the session you are using on the terminal and read what
+it prints. It is the same conversation, not a new one: the terminal shows the
+remote line, in full and in green, as `[remote]> ...`, then the usual output:
+attachments, spinner, the model's reply, tool calls. Anything the REPL adds to
+the conversation behind the scenes is shown too: `(nudge: ...)` when it sends
+the model back to work, `(added to the prompt: ...)` for the for_each hint.
+
+```sh
+ollama-repl --listen --name alpha       # in a terminal (--name: default is the model name)
+ollama-repl-ctl list                    # name, pid, model, root, socket of live sessions
+ollama-repl-ctl send 'summarize lib/chat-repl.js'   # prints the reply, exits when idle
+ollama-repl-ctl -s alpha send /diff     # -s: session name, pid, model fragment or socket path
+ollama-repl-ctl watch                   # follow the session's output
+```
+
+Several sessions can listen at once (each has its own socket); `--name` tells
+them apart, a duplicate name gets `-2`, `-3`, ... With no matching session
+`ollama-repl-ctl` waits for one to appear (a note on stderr says so, `-t SECS`
+bounds the wait, default 600) - it never starts one itself.
+
+`send` exits 0 when every submitted line has been handled, 3 when the session
+waits for the user at the terminal, 124 on timeout (`-t SECS`, default 600;
+the session keeps working). The wire format (plain input lines, one JSON event
+per line out: `hello`, `accepted`, `output`, `waiting`, `ready`) is documented
+at the top of `lib/control-socket.js`; `--json` makes `ollama-repl-ctl` print
+the raw events.
+
+- The model's `run_command` approval (`[y/N]`) and `ask_user` questions are
+  never answerable over the socket: a remote line sent meanwhile is queued
+  behind them, and `send` reports exit status 3. Only the terminal user
+  approves commands.
+- Access is by file permissions only (same user): do not point `--listen` at a
+  world-accessible path.
+- A remote line sent while you are typing discards your half-typed line.
 
 ## REPL commands
 

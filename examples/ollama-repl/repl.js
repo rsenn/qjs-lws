@@ -48,7 +48,7 @@
  *     independent of `TRAFFIC`.
  */
 import { exit, loadFile, popen, out as stdout, err as stderr } from 'std';
-import { clearTimeout, setTimeout, stat, readdir, S_IFDIR } from 'os';
+import { clearTimeout, getcwd, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
@@ -58,6 +58,7 @@ import { TOOLS, executeTool, resetJournal, undoJournal, writeCount } from './lib
 import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
 import { fileMode, SKIP_DIRS } from './lib/match.js';
 import { ChatREPL } from './lib/chat-repl.js';
+import { ControlSocket, listSessions } from './lib/control-socket.js';
 import { SessionLog } from './lib/session-log.js';
 import { SessionStore } from './lib/session-store.js';
 import { SentFiles } from './lib/sent-files.js';
@@ -73,7 +74,7 @@ import { piped, dim, red, green } from './lib/ansi.js';
 const DEFAULT_MAX_ROUNDS = 40;
 
 function parseArgs(argv) {
-  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false };
+  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -85,16 +86,22 @@ function parseArgs(argv) {
     else if(arg === '--stream') opts.stream = true;
     else if(arg === '-x' || arg === '--debug') opts.debug = true;
     else if(arg === '--failsafe') opts.failsafe = true;
+    else if(arg === '--no-system') opts.noSystem = true;
+    else if(arg === '--name') opts.name = argv[++i];
     else if(arg === '--num-ctx') opts.numCtx = +argv[++i];
     else if(arg === '--temperature') opts.temperature = +argv[++i];
     else if(arg === '--max-rounds') opts.maxRounds = +argv[++i];
     else if(arg === '--yes' || arg === '-y') opts.yes = true;
+    else if(arg === '--listen') opts.listen = argv[i + 1] && !argv[i + 1].startsWith('-') ? argv[++i] : '';
     else if(arg === '--help' || arg === '-h') {
       console.log(
-        'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--num-ctx N] [--temperature T] [--max-rounds N] [--yes]\n' +
+        'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
           '  --model list     list the available chat models and exit (gemini; ollama via `ollama list`).\n' +
+          '  --no-system      start without the built-in system prompt (tools and project scan stay); set one later with /system. For controllers that bring their own.\n' +
           '  --num-ctx N      context window requested from Ollama (default 16384; Ollama itself defaults to 4096).\n' +
           '  --max-rounds N   tool-calling rounds per prompt (default 40).\n' +
+          '  --listen [PATH]  open a control socket so another process (ollama-repl-ctl, Claude Code) can type into this session and read its output.\n' +
+          '  --name NAME      session name for --listen (default: the model name, made unique); ollama-repl-ctl -s NAME picks it among several.\n' +
           '  --yes/-y         run_command without asking (unattended agents).\n' +
           '  -x/--debug logs raw request/response JSON to <provider>-repl-debug.log (same as setting DEBUG=1).\n' +
           '  TRAFFIC=<path> (env var, not a flag) additionally logs native socket-level RX/TX traffic to that file.',
@@ -204,7 +211,10 @@ const NUDGE = `You have not changed anything yet. Do not print file contents or 
 /** True if the conversation's latest user request (not a nudge) asks to modify code or files. */
 function asksForChange(messages) {
   const users = messages.filter(m => m.role === 'user' && m.content !== NUDGE);
-  return /\b(add|insert|change|fix|refactor|rename|remove|delete|write|create|update|implement|replace|document|comment|convert|rewrite)\b/i.test(users[users.length - 1]?.content ?? '');
+  const last = users[users.length - 1];
+  /* `request` is what was typed; `content` also carries attached file
+     contents, whose code ("add", "update", ...) must not read as a request */
+  return /\b(add|insert|change|fix|refactor|rename|remove|delete|write|create|update|implement|replace|document|comment|convert|rewrite)\b/i.test(last?.request ?? last?.content ?? '');
 }
 
 /* Least privilege for a batch item: a task that is only about adding comments
@@ -441,6 +451,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
          does this. Send it back to work, twice at most. */
       if(!final && nudges < 2 && writeCount === writesAtStart && asksForChange(messages)) {
         nudges++;
+        if(!opts.quiet) console.log(dim(`(nudge: ${NUDGE})`));
         messages.push({ role: 'user', content: NUDGE });
         continue;
       }
@@ -568,6 +579,15 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /log            - inspect just the conversation so far (no system prompt/project scan) - same raw-with--x/summary-without split as /context
 Anything else is sent to the model as a prompt.`;
 
+/** --name, else the model name; made unique among the live sessions (name, name-2, ...). */
+function sessionName(opts) {
+  const base = opts.name ?? opts.model;
+  const taken = new Set(listSessions().map(s => s.name));
+  let name = base;
+  for(let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+  return name;
+}
+
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
 
@@ -615,7 +635,13 @@ async function main() {
   const store = new SessionStore(opts.model);
   const saved = store.load();
 
-  const messages = saved ? saved.messages : opts.failsafe ? [] : [{ role: 'system', content: SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') }];
+  const messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') }];
+  /* a resumed session carries the system prompt of the run that saved it */
+  if(opts.noSystem && messages[0]?.role === 'system') {
+    messages.shift();
+    if(saved) saved.baseMessageCount = Math.max(0, saved.baseMessageCount - 1);
+  }
+
   const saveSession = () => store.save(messages, baseMessageCount);
 
   const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : opts.provider === 'openai' ? 'api.openai.com' : `${opts.host}:${opts.port}`;
@@ -900,10 +926,11 @@ async function main() {
 
       /* a small model told only "every function" tends to narrate a plan or
          start doing them one by one in a single context - say how to do it */
+      if(/\b(every|each|all)\b/i.test(effectivePrompt)) console.log(dim('(added to the prompt: use for_each for a repeated job)'));
       if(/\b(every|each|all)\b/i.test(effectivePrompt)) finalText += '\n\n(This job repeats over many things: list ALL of the items the request names (e.g. every function declared in the header - not only the files attached above) and call for_each once - do not do them yourself one by one, and do not just describe a plan.)';
 
       const turnStart = messages.length;
-      messages.push({ role: 'user', content: finalText });
+      messages.push({ role: 'user', content: finalText, request: effectivePrompt });
 
       let reply;
       try {
@@ -921,6 +948,34 @@ async function main() {
     opts.root,
     () => abortRef.current?.() ?? false,
   );
+
+  if(opts.listen !== undefined) {
+    const name = sessionName(opts);
+    const control = new ControlSocket(
+      { name, model: opts.model, provider: opts.provider, root: opts.root, cwd: getcwd()[0] },
+      line => {
+        // as if typed: shown on the terminal so the user sees who asked
+        console.log(`${piped ? '' : '\r\x1b[K'}${green(`[remote]> ${line}`)}`);
+        repl.handleCmd(line);
+      },
+      () => repl.busy,
+      opts.listen || undefined,
+    );
+
+    /* everything the REPL prints (console.log goes through it too) is
+       copied to the connected clients */
+    const puts = stdout.puts.bind(stdout);
+    stdout.puts = s => {
+      control.output(s);
+      return puts(s);
+    };
+
+    repl.onIdle = () => control.event({ type: 'ready' });
+    repl.onPrompt = (kind, text) => control.event({ type: 'waiting', kind, text });
+    control.start();
+    console.log(dim(`(control socket: ${control.path}, session name: ${name})`));
+    repl.addCleanupHandler(() => control.close());
+  }
 
   repl.addCleanupHandler(() => {
     saveSession();

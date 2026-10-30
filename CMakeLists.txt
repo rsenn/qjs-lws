@@ -850,6 +850,9 @@ endif(NOT CMAKE_INSTALL_BINDIR)
 install(PROGRAMS examples/ollama-repl/repl.js
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
         RENAME ollama-repl)
+install(PROGRAMS examples/ollama-repl/ctl.js
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        RENAME ollama-repl-ctl)
 
 set(SRC_JS "${CMAKE_CURRENT_SOURCE_DIR}/examples/search.js")
 set(BIN_JS "${CMAKE_CURRENT_BINARY_DIR}/search.js")
