@@ -132,6 +132,14 @@ export class ChatREPL extends REPL {
     return { tab, pos: word.length, ctx: {} };
   }
 
+  /* Enter always submits: the base REPL's continuation() parses the line
+     as JavaScript and keeps it open while a bracket/quote/regex is
+     unterminated, so "/model list" (a leading "/" starts a regex literal)
+     just printed "  ..." continuation lines instead of running. */
+  continuation() {
+    return null;
+  }
+
   handleCmd(expr) {
     if(expr === null) {
       // Ctrl-D on an empty line - same intent as /exit.
