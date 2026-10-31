@@ -165,7 +165,7 @@ against any of the three clients. `API.md` has a full round-trip example.
 
 ```sh
 qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
-        [--num-ctx N] [--temperature T] [--max-rounds N] [--yes]
+        [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -185,6 +185,12 @@ for `--provider openai`.
 default is 4096 tokens, which the project scan plus a couple of attached
 files already fills, and it then truncates silently (empty reply,
 `done_reason: "length"`; the client now reports that as an error).
+`--think [MODE]` (ollama only) sets the `think` field: `detect`
+(default: true when `/api/show` lists the "thinking" capability, else
+false; re-checked after `/model`), on, off, `auto` (field omitted, the
+model's own default applies) or low|medium|high. A model that cannot
+think rejects `on`. The reasoning text is not
+shown, only the answer.
 `--temperature` (default 0.2) keeps edits repeatable. `--max-rounds`
 (default 40) caps tool-calling rounds per prompt. `--yes` runs
 `run_command` without asking.

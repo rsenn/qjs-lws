@@ -81,9 +81,12 @@ export class OllamaClient {
    *   of this flag)
    */
   #timeoutMs;
+  #thinkCache;
 
-  constructor({ host = 'localhost', port = 11434, model, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false, numCtx = DEFAULT_NUM_CTX, temperature = DEFAULT_TEMPERATURE } = {}) {
+  constructor({ host = 'localhost', port = 11434, model, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false, numCtx = DEFAULT_NUM_CTX, temperature = DEFAULT_TEMPERATURE, think = 'detect' } = {}) {
     this.host = host;
+    this.think = think;
+    this.#thinkCache = new Map();
     this.temperature = temperature;
     this.numCtx = numCtx;
     this.port = port;
@@ -131,8 +134,8 @@ export class OllamaClient {
   }
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
-  async #post(payload) {
-    const url = `http://${this.host}:${this.port}/api/chat`;
+  async #post(payload, path = '/api/chat') {
+    const url = `http://${this.host}:${this.port}${path}`;
     const headers = { 'content-type': 'application/json' };
 
     this.#logger.request('POST', url, headers);
@@ -267,6 +270,28 @@ export class OllamaClient {
   }
 
   /**
+   * Whether `model` lists "thinking" under `capabilities` in `/api/show`
+   * (what `ollama show` prints); cached per model. A failed lookup counts
+   * as "no", so an old server or a missing model never blocks a chat.
+   */
+  async canThink(model = this.model) {
+    if(!this.#thinkCache.has(model)) {
+      let can = false;
+      try {
+        const data = await (await this.#post({ model }, '/api/show')).json();
+        can = !!data?.capabilities?.includes('thinking');
+      } catch(e) {}
+      this.#thinkCache.set(model, can);
+    }
+    return this.#thinkCache.get(model);
+  }
+
+  /** Turns the `think` mode into the value for the payload: `detect` becomes true/false by capability, `auto` stays (omitted later). */
+  async resolveThink(think = this.think) {
+    return think === 'detect' ? await this.canThink() : think;
+  }
+
+  /**
    * POSTs one non-streaming `/api/chat` request over the kept-alive
    * connection. `messages`/`options` follow this project's shared
    * message/tool-use format - see API.md. `toolChoice` is accepted but
@@ -275,8 +300,9 @@ export class OllamaClient {
    *
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
-  async chat(messages, { think = false, tools, toolChoice, ...options } = {}) {
-    const payload = { ...options, options: { num_ctx: this.numCtx, temperature: this.temperature }, model: this.model, messages: this.#toMessages(messages), stream: false, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
+  async chat(messages, { think = this.think, tools, toolChoice, ...options } = {}) {
+    think = await this.resolveThink(think);
+    const payload = { ...options, options: { num_ctx: this.numCtx, temperature: this.temperature }, model: this.model, messages: this.#toMessages(messages), stream: false, ...(think === 'auto' ? {} : { think }), ...(tools ? { tools: this.#toTools(tools) } : {}) };
 
     const resp = await this.#post(payload);
     const data = await resp.json();
@@ -311,8 +337,9 @@ export class OllamaClient {
    *   returned object.
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
-  async chatStream(messages, { think = false, tools, toolChoice, ...options } = {}, onToken) {
-    const payload = { ...options, options: { num_ctx: this.numCtx, temperature: this.temperature }, model: this.model, messages: this.#toMessages(messages), stream: true, think, ...(tools ? { tools: this.#toTools(tools) } : {}) };
+  async chatStream(messages, { think = this.think, tools, toolChoice, ...options } = {}, onToken) {
+    think = await this.resolveThink(think);
+    const payload = { ...options, options: { num_ctx: this.numCtx, temperature: this.temperature }, model: this.model, messages: this.#toMessages(messages), stream: true, ...(think === 'auto' ? {} : { think }), ...(tools ? { tools: this.#toTools(tools) } : {}) };
 
     const resp = await this.#post(payload);
     const reader = resp.body.getReader();

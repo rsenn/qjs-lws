@@ -73,8 +73,10 @@ import { piped, dim, red, green } from './lib/ansi.js';
    re-requesting) runaway cost, not just literal infinite loops. */
 const DEFAULT_MAX_ROUNDS = 40;
 
+const THINK_VALUES = ['detect', 'on', 'off', 'true', 'false', 'auto', 'low', 'medium', 'high'];
+
 function parseArgs(argv) {
-  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined };
+  const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect' };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -88,17 +90,22 @@ function parseArgs(argv) {
     else if(arg === '--failsafe') opts.failsafe = true;
     else if(arg === '--no-system') opts.noSystem = true;
     else if(arg === '--name') opts.name = argv[++i];
-    else if(arg === '--num-ctx') opts.numCtx = +argv[++i];
+    else if(arg === '--think') {
+      const v = argv[i + 1];
+      if(v !== undefined && THINK_VALUES.includes(v)) i++;
+      opts.think = v !== undefined && THINK_VALUES.includes(v) ? (v === 'on' || v === 'true' ? true : v === 'off' || v === 'false' ? false : v) : true;
+    } else if(arg === '--num-ctx') opts.numCtx = +argv[++i];
     else if(arg === '--temperature') opts.temperature = +argv[++i];
     else if(arg === '--max-rounds') opts.maxRounds = +argv[++i];
     else if(arg === '--yes' || arg === '-y') opts.yes = true;
     else if(arg === '--listen') opts.listen = argv[i + 1] && !argv[i + 1].startsWith('-') ? argv[++i] : '';
     else if(arg === '--help' || arg === '-h') {
       console.log(
-        'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
+        'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
           '  --model list     list the available chat models and exit (gemini; ollama via `ollama list`).\n' +
           '  --no-system      start without the built-in system prompt (tools and project scan stay); set one later with /system. For controllers that bring their own.\n' +
           '  --num-ctx N      context window requested from Ollama (default 16384; Ollama itself defaults to 4096).\n' +
+          '  --think [MODE]   ollama: let the model think before answering. MODE is detect (default: on if `ollama show` lists the "thinking" capability, else off), on (default when the flag has no MODE), off, auto (send nothing, the model decides) or low|medium|high (gpt-oss). `on` errors on models without that capability; thinking is much slower on a model running partly on the CPU.\n' +
           '  --max-rounds N   tool-calling rounds per prompt (default 40).\n' +
           '  --listen [PATH]  open a control socket so another process (ollama-repl-ctl, Claude Code) can type into this session and read its output.\n' +
           '  --name NAME      session name for --listen (default: the model name, made unique); ollama-repl-ctl -s NAME picks it among several.\n' +
@@ -622,6 +629,14 @@ function sessionName(opts) {
   return name;
 }
 
+/** One line telling which `think` value the client will send for its model, and why. */
+async function thinkNote(client) {
+  const mode = client.think;
+  const value = await client.resolveThink();
+  const why = mode === 'detect' ? ((await client.canThink()) ? 'model has the thinking capability' : 'model has no thinking capability') : `--think ${mode}`;
+  return `(think: ${mode === 'auto' ? 'not sent' : value} - ${why})`;
+}
+
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
 
@@ -662,6 +677,8 @@ async function main() {
     client.destroy();
     exit(0);
   }
+
+  if(opts.provider === 'ollama') console.log(dim(await thinkNote(client)));
 
   const log = new SessionLog(`${opts.model.replaceAll(':', '-')}.log`);
   const sentFiles = new SentFiles(opts.model, opts.root);
@@ -852,6 +869,7 @@ async function main() {
         repl.setPromptName(arg);
         control?.update({ model: arg });
         console.log(`(model: ${opts.provider}/${arg} - the conversation so far is kept)`);
+        if(opts.provider === 'ollama') console.log(dim(await thinkNote(client)));
         return;
       }
 
