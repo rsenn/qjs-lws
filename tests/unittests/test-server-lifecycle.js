@@ -2,7 +2,7 @@
  * Tests for Server lifecycle methods (Bun/Deno compatibility).
  */
 import { tests, assert, assertEquals } from './tinytest.js';
-import { serve } from '../../lib/serve.js';
+import { serve, Response } from '../../lib/serve.js';
 import { URL } from '../../lib/lws/url.js';
 
 await tests({

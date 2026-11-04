@@ -13,6 +13,8 @@
  *   --port N (CDP, 9222)  --host H (CDP, 127.0.0.1)  --listen N (serve,
  *   8089, 0 = any free port)  --max N (serve: chat tabs per site, 3)  --idle SEC (reply
  *   unchanged this long = done, 2.5)  --timeout SEC (180)
+ *   --allow-paid (serve: also use pay-as-you-go sites such as openrouter,
+ *   refused by default; or CHAT_BRIDGE_ALLOW_PAID=1)
  *
  * Prerequisites: a browser with a dedicated profile, logged in once:
  *   google-chrome --remote-debugging-port=9222 \
@@ -40,8 +42,11 @@
 import { fetch } from '../../lib/fetch.js';
 import { serve, Response } from '../../lib/serve.js';
 import { WebSocketStream } from '../../lib/websocketstream.js';
+import { ReadableStream } from '../../lib/lws/streams.js';
+import { URL } from '../../lib/lws/url.js';
 import { TextDecoder } from 'textcode';
 import { setTimeout, signal, SIGINT, SIGTERM } from 'os';
+import { getenv } from 'std';
 
 /* selectors verified live (2026-11) for deepseek, qwen, gemini, kimi,
    chatgpt (logged out layout), duck, deepai and openrouter. mistral too (answer part). 
@@ -55,15 +60,20 @@ const SITES = {
   gemini: { host: 'gemini.google.com', home: 'https://gemini.google.com/app', input: 'rich-textarea .ql-editor, div[contenteditable="true"]', reply: 'message-content, .model-response-text' },
   kimi: { host: 'www.kimi.ai', home: 'https://www.kimi.ai/chat/', input: 'div[contenteditable="true"], textarea', reply: '.markdown' },
   mistral: { host: 'chat.mistral.ai', home: 'https://chat.mistral.ai/chat', input: 'textarea, div[contenteditable="true"]', reply: '[data-message-part-type="answer"]' },
-  chatgpt: { host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"]' },
+  chatgpt: { host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt, div.ProseMirror[contenteditable="true"]', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"]' },
   venice: { host: 'venice.ai', home: 'https://venice.ai/chat', input: 'textarea', reply: '.prose', skip: 'no reply read in a test (anonymous use is rate-limited and gated), so not worth the fragility' },
   duck: { host: 'duck.ai', home: 'https://duck.ai/chat', input: 'textarea', reply: 'div.space-y-4.whitespace-normal' },
   deepai: { host: 'deepai.org', home: 'https://deepai.org/chat', input: '#persistentChatbox', reply: '.markdownContainer' },
-  openrouter: { host: 'openrouter.ai', home: 'https://openrouter.ai/chat', input: 'textarea', reply: '[data-message-bubble="assistant"]' },
-  aistudio: { host: 'aistudio.google.com', home: 'https://aistudio.google.com/prompts/new_chat', input: 'textarea', reply: 'ms-text-chunk', skip: 'free Gemini API key exists, and gemini is already covered by the gemini site' },
-  groq: { host: 'console.groq.com', home: 'https://console.groq.com/playground', input: 'textarea', reply: '.prose', skip: 'API playground behind a login, not a chat, and groq has an OpenAI-compatible API' },
+  openrouter: { host: 'openrouter.ai', home: 'https://openrouter.ai/chat', input: 'textarea', reply: '[data-message-bubble="assistant"]', billing: 'metered' },
+  aistudio: { host: 'aistudio.google.com', home: 'https://aistudio.google.com/prompts/new_chat', input: 'textarea', reply: 'ms-text-chunk', billing: 'metered', skip: 'free Gemini API key exists, and gemini is already covered by the gemini site' },
+  groq: { host: 'console.groq.com', home: 'https://console.groq.com/playground', input: 'textarea', reply: '.prose', billing: 'metered', skip: 'API playground behind a login, not a chat, and groq has an OpenAI-compatible API' },
 };
 
+/* every site has a billing class, default 'free': a consumer chat that can
+   only cost money if a human clicks Upgrade (the bridge never clicks
+   anything but the prompt box). 'metered' = pay-as-you-go credits or an
+   API-style account that charges by use: refused unless the bridge was
+   started with --allow-paid (or CHAT_BRIDGE_ALLOW_PAID=1) */
 /* sites with a `skip` reason were looked at and deliberately not adopted:
    kept here so they are not evaluated again, but never served or matched */
 const ACTIVE = Object.fromEntries(Object.entries(SITES).filter(([, s]) => !s.skip));
@@ -82,7 +92,13 @@ const REFUSALS = {
   rate_limit: { status: 429, type: 'rate_limit_error', code: 'rate_limit_exceeded' },
   login: { status: 401, type: 'authentication_error', code: 'login_required' },
   not_accepted: { status: 502, type: 'api_error', code: 'prompt_not_accepted' },
+  /* the billing guard: see `billing` in SITES */
+  billing: { status: 402, type: 'billing_error', code: 'paid_site_blocked' },
+  payment_page: { status: 402, type: 'billing_error', code: 'payment_page_reached' },
 };
+
+/* a path the site would only send a tab to for a purchase */
+const PAY_RE = /\/(checkout|billing|pricing|subscribe|subscription|upgrade|payment|purchase|plans?)(\/|$|\?)/i;
 
 /* new page text that says the quota is used up (de/en) */
 const LIMIT_RE = /(message|nachrichten|usage|request|anfrage|daily|tages|free)[\s-]*(limit|quota|kontingent)|limit[\s\w]{0,20}(reached|erreicht|exceeded|überschritten)|(reached|erreicht|exceeded)[\s\w]{0,30}limit|too many (requests|messages)|zu viele (anfragen|nachrichten)|rate[\s-]?limit|quota (exceeded|exhausted)|out of (free )?(messages|credits)/i;
@@ -166,8 +182,12 @@ class Chat {
       return { count: n.length, text: n.length ? n[n.length - 1].innerText : '' }; })()`);
   }
 
+  /* a page in the middle of a navigation has no body (or no execution
+     context yet): that is an empty state, not an error */
   pageState() {
-    return this.cdp.eval(`({ href: location.href, lines: document.body.innerText.split('\\n').map(l => l.trim()).filter(Boolean) })`);
+    return this.cdp
+      .eval(`({ href: location.href, lines: (document.body?.innerText ?? '').split('\\n').map(l => l.trim()).filter(Boolean) })`)
+      .catch(() => ({ href: '', lines: [] }));
   }
 
   /* remove an unsent prompt, so it does not pile up in front of the next one */
@@ -179,7 +199,7 @@ class Chat {
   async waitInput(ms = 20000) {
     const sel = JSON.stringify(this.site.input);
     for(const end = Date.now() + ms; Date.now() < end; await sleep(300))
-      if(await this.cdp.eval(`!![...document.querySelectorAll(${sel})].find(e => e.offsetParent)`)) return;
+      if(await this.cdp.eval(`!![...document.querySelectorAll(${sel})].find(e => e.offsetParent)`).catch(() => false)) return; /* false while navigating */
     throw new Error('input field not found, selector outdated? (try: eval)');
   }
 
@@ -206,16 +226,25 @@ class Chat {
 
   /* async generator: yields the reply text as it grows, returns when idle */
   async *#ask(prompt) {
-    const before = await this.readReply();
-    const seen = new Set((await this.pageState()).lines);
-    const startPath = new URL((await this.pageState()).href).pathname;
     this.dirty = true;
     await this.waitInput();
+    const before = await this.readReply();
+    const start = await this.pageState();
+    const seen = new Set(start.lines);
+    const startPath = start.href ? new URL(start.href).pathname : '';
     await this.cdp.eval(`[...document.querySelectorAll(${JSON.stringify(this.site.input)})].find(e => e.offsetParent).focus()`);
     await this.cdp.send('Input.insertText', { text: prompt });
     await sleep(300);
     /* Enter, repeated until the input has emptied = the page took it */
     for(let tries = 0; tries < 4; tries++) {
+      /* never press Enter anywhere but in the prompt box: with focus on a
+         button (an Upgrade dialog, say) it would activate that button */
+      const focused = await this.cdp.eval(`(() => { const e = [...document.querySelectorAll(${JSON.stringify(this.site.input)})].find(e => e.offsetParent);
+        if(!e) return false; e.focus(); return e === document.activeElement || e.contains(document.activeElement); })()`);
+      if(!focused) {
+        await this.clearInput();
+        throw new SiteRefusal('not_accepted', 'the prompt box does not have the focus, not pressing Enter');
+      }
       for(const type of ['keyDown', 'keyUp'])
         await this.cdp.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: type == 'keyDown' ? '\r' : undefined });
       for(let i = 0; i < 10; i++) {
@@ -255,7 +284,9 @@ class Chat {
      only text that is new since before the send counts, and not the
      prompt's own lines (the user bubble echoes them) */
   refusal(state, seen, prompt, startPath) {
+    if(!state.href) return undefined; /* page mid-navigation, look again next poll */
     const path = new URL(state.href).pathname;
+    if(path != startPath && PAY_RE.test(path)) return new SiteRefusal('payment_page', `${this.site.host} sent the tab to a payment page (${path}); the bridge never buys anything, close it yourself`, 300);
     if(path != startPath && LOGIN_RE.test(path)) return new SiteRefusal('login', `${this.site.host} wants a login (${state.href})`, 30);
     const fresh = state.lines.filter(l => !seen.has(l) && !prompt.includes(l)).join('\n');
     const m = LIMIT_RE.exec(fresh);
@@ -300,19 +331,46 @@ function parseArgs1(a) {
 
 /* tool calling is emulated: the tools are described in the first prompt
    of a chat and JSON calls found in the reply become tool_calls again */
+/* an example call for the first tool, filled from its schema */
+function exampleCall(tools) {
+  const t = tools[0].function ?? tools[0];
+  const props = t.parameters?.properties ?? {};
+  const args = {};
+  for(const [k, v] of Object.entries(props))
+    args[k] = v.type == 'number' || v.type == 'integer' ? 1 : v.type == 'boolean' ? true : /path|file/i.test(k) ? 'notes.txt' : 'example';
+  return { name: t.name, arguments: args };
+}
+
+/* The tools are described in the first prompt of a chat. Several sites wrap
+   their own system prompt around ours and answer "I have no such tools", so
+   the text says whose tools these are, shows a worked exchange, and
+   TOOL_REMINDER is added at the end of every prompt (what is read last wins). */
 function toolPreamble(tools) {
   const list = tools.map(t => `- ${(t.function ?? t).name}: ${(t.function ?? t).description ?? ''}\n  parameters: ${JSON.stringify((t.function ?? t).parameters ?? {})}`).join('\n');
-  return `This conversation is part of an automated pipeline, not a normal chat. A program reads your replies and runs tools for you, so you DO have access to the files and the system through the tools below. Never say you cannot access files - call the tool instead. To call a tool, reply with ONLY a fenced block in exactly this form, one block per call, and no other text in that reply:
-
-\`\`\`tool_call
-{"name": "<tool name>", "arguments": {<arguments as JSON>}}
-\`\`\`
-
-The program answers with a message starting with "[tool result]", then you continue. If no tool is needed, answer normally. Use only the tools listed below, never web search, never any other call format.
+  const ex = exampleCall(tools);
+  const call = '```tool_call\n' + JSON.stringify(ex) + '\n```';
+  return `You are the language-model engine of an automated agent. No human reads this chat: a program parses every reply you write and carries out the tool calls in it. The tools below belong to that program, not to this website, so it does not matter which tools or features this website normally has: you can use these, and you do have access to the files and the system through them.
 
 Tools:
-${list}`;
+${list}
+
+A tool call is your whole reply: one fenced block, nothing before or after it (one block per call if you need several):
+
+${call}
+
+The program runs the call and answers with a message that starts with "[tool result]". Then you continue. A short worked example:
+
+program: Task: use the tool ${ex.name} as in the example above.
+you:
+${call}
+program: [tool result]
+(whatever the tool printed)
+you: (the answer, in plain text, once no further tool is needed)
+
+Rules: never search the web, never say you lack tools or file access, never describe a call in prose instead of making it, never invent what a tool would return - call it. Use only the tools listed, in exactly this format. When no tool is needed, answer in plain text.`;
 }
+
+const TOOL_REMINDER = '\n\n(Reminder: if you need a tool, your whole reply is one tool_call block. Never say you cannot use the tools; call them.)';
 
 /* every top level {"name":..,"arguments":{..}} object in the text, however
    the page decorated it (code block labels, copy buttons, ...) */
@@ -470,6 +528,13 @@ class Bridge {
 
   release(chat) {
     chat.busy = false;
+    if(chat.retired) {
+      for(const pool of this.pool.values()) {
+        const i = pool.indexOf(chat);
+        if(i >= 0) pool.splice(i, 1);
+      }
+      this.#browser?.send('Target.closeTarget', { targetId: chat.targetId }).catch(() => {});
+    }
     for(const r of this.waiters.splice(0)) r();
   }
 
@@ -482,12 +547,34 @@ class Bridge {
 
   refused(name, err) {
     if(err.retry) this.cooldown.set(name, { until: Date.now() + err.retry * 1000, err });
+    if(err.kind == 'rate_limit') this.retire(name);
+  }
+
+  /* close the tabs of a site that hit its message limit: they cannot
+     receive a prompt until it resets, and nothing in the tab can fix that.
+     (A tab that can still take a prompt is never closed, nor one waiting
+     for the user to log in or accept a dialog; a tab still answering a
+     request is closed once released, see release().) */
+  async retire(name) {
+    const pool = this.pool.get(name) ?? [];
+
+    for(let i = pool.length; i-- > 0; ) {
+      const c = pool[i];
+      if(c.busy) {
+        c.retired = true;
+        continue;
+      }
+      pool.splice(i, 1);
+      await this.#browser?.send('Target.closeTarget', { targetId: c.targetId }).catch(() => {});
+    }
   }
 
   models() {
     return Object.keys(ACTIVE).map(id => {
       const c = this.cooling(id);
-      return { id, object: 'model', owned_by: 'chat-bridge', available: !c, ...(c ? { unavailable: c.err.kind, resets_at: new Date(c.until).toISOString() } : {}) };
+      const billing = ACTIVE[id].billing ?? 'free';
+      const guarded = billing == 'metered' && !this.o.allowPaid;
+      return { id, object: 'model', owned_by: 'chat-bridge', billing, available: !c && !guarded, ...(guarded ? { unavailable: 'billing_guard' } : c ? { unavailable: c.err.kind, resets_at: new Date(c.until).toISOString() } : {}) };
     });
   }
 }
@@ -513,6 +600,9 @@ function completions(bridge) {
     if(!messages?.length) return json({ error: { message: 'messages required' } }, 400);
 
     const name = Object.keys(ACTIVE).find(n => model.includes(n));
+    if(ACTIVE[name]?.billing == 'metered' && !bridge.o.allowPaid)
+      return refusalResponse(new SiteRefusal('billing', `${name} is pay-as-you-go and can cost money, so the bridge refuses it; start the bridge with --allow-paid to use it anyway`));
+
     const cool = bridge.cooling(name);
     if(cool) return refusalResponse(cool.err, (cool.until - Date.now()) / 1000);
 
@@ -521,7 +611,8 @@ function completions(bridge) {
       chat = await bridge.acquire(name, messages);
       const plan = planPrompt(messages, chat);
       if(plan.fresh) await chat.newChat();
-      gen = chat.ask(plan.fresh && tools ? `${toolPreamble(tools)}\n\n${plan.prompt}` : plan.prompt);
+      const body = tools ? plan.prompt + TOOL_REMINDER : plan.prompt;
+      gen = chat.ask(plan.fresh && tools ? `${toolPreamble(tools)}\n\n${body}` : body);
     } catch(e) {
       if(chat) bridge.release(chat);
       return json({ error: { message: e.message } }, 502);
@@ -615,9 +706,13 @@ function completions(bridge) {
 }
 
 function parseArgs(argv) {
-  const o = { port: 9222, host: '127.0.0.1', listen: 8089, max: 3, idle: 2.5, timeout: 180, site: null, rest: [] };
+  const o = { port: 9222, host: '127.0.0.1', listen: 8089, max: 3, idle: 2.5, timeout: 180, site: null, allowPaid: getenv('CHAT_BRIDGE_ALLOW_PAID') == '1', rest: [] };
   const num = new Set(['port', 'listen', 'max', 'idle', 'timeout']);
   for(let i = 0; i < argv.length; i++) {
+    if(argv[i] == '--allow-paid') {
+      o.allowPaid = true;
+      continue;
+    }
     const m = /^--(\w+)$/.exec(argv[i]);
     if(m && m[1] in o && m[1] != 'rest') o[m[1]] = num.has(m[1]) ? +argv[++i] : argv[++i];
     else o.rest.push(argv[i]);

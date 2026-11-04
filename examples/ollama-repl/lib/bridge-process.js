@@ -32,14 +32,15 @@ function bridgeCommand(scriptPath) {
  * @param {string} [o.scriptPath]  path of repl.js, to find the in-repo bridge
  * @param {string} [o.cdpHost]
  * @param {number} [o.cdpPort]
+ * @param {boolean} [o.allowPaid]  let the bridge use pay-as-you-go sites
  * @returns {Promise<{url: string, pid: number, stop: () => void}>}
  */
-export async function startBridge({ scriptPath, cdpHost = '127.0.0.1', cdpPort = 9222, timeoutMs = 20000 } = {}) {
+export async function startBridge({ scriptPath, cdpHost = '127.0.0.1', cdpPort = 9222, allowPaid = false, timeoutMs = 20000 } = {}) {
   const cmd = bridgeCommand(scriptPath);
   if(!cmd) throw new Error('chat-bridge not found: install it (cmake --install), put it on PATH, or set CHAT_BRIDGE');
 
   const [rfd, wfd] = pipe();
-  const pid = exec([...cmd, '--listen', '0', '--host', cdpHost, '--port', String(cdpPort), 'serve'], { block: false, stdout: wfd, stderr: wfd });
+  const pid = exec([...cmd, '--listen', '0', '--host', cdpHost, '--port', String(cdpPort), ...(allowPaid ? ['--allow-paid'] : []), 'serve'], { block: false, stdout: wfd, stderr: wfd });
   close(wfd);
 
   let out = '';

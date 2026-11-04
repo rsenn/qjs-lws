@@ -18,6 +18,7 @@
  * 1 error.
  */
 import { exit, err as stderr, out as stdout } from 'std';
+import { TextDecoder } from 'textcode';
 import { setReadHandler, setTimeout, sleep } from 'os';
 import { AF_UNIX, SOCK_STREAM, SockAddr, Socket } from 'sockets';
 import { listSessions } from './lib/control-socket.js';

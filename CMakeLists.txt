@@ -934,6 +934,11 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuickJSModule.cmake)
 if(DO_TESTS)
   include(CTest)
 
+  # bare qjs: it has no qjs-modules Bun/Node compatibility layer, so a test
+  # (or the code it runs) that uses Response, URL, fetch, ... as a bare global
+  # instead of importing the project's own class fails here instead of
+  # silently getting the compat layer's lookalike. Needs a qjs that searches
+  # QUICKJS_MODULE_PATH for native modules such as lws.so.
   foreach(TEST ${TESTS})
     basename(BASE "${TEST}")
     string(REPLACE "test_" "" NAME "${BASE}")
@@ -944,6 +949,6 @@ if(DO_TESTS)
       COMMAND
         env
         "QUICKJS_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR};${CMAKE_CURRENT_SOURCE_DIR};${QUICKJS_C_MODULE_DIR};${QUICKJS_JS_MODULE_DIR}"
-        "${QJSM}" "${TEST}")
+        "${QJS}" "${TEST}")
   endforeach(TEST ${TESTS})
 endif(DO_TESTS)

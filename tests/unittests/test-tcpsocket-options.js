@@ -1,5 +1,6 @@
 import { tests, eq, assert } from './tinytest.js';
 import { TCPSocket } from '../../lib/tcpsocket.js';
+import { exit } from 'std';
 
 await tests({
   'TCPSocket.setNoDelay() exists and returns this for chaining'() {
@@ -73,4 +74,4 @@ await tests({
 });
 
 console.log('✅ All TCPSocket socket option tests passed');
-process.exit(0);
+exit(0);

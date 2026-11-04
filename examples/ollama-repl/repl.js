@@ -53,6 +53,7 @@ import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
 import { Failover, failoverNote } from './lib/failover.js';
+import { buildHandoff, HANDOFF_MODEL } from './lib/handoff.js';
 import { startBridge, pickModel } from './lib/bridge-process.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
@@ -87,6 +88,11 @@ function parseArgs(argv) {
     else if(arg === '--host') opts.host = argv[++i];
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
+    else if(arg === '--no-failover') opts.noFailover = true;
+    else if(arg === '--allow-paid') opts.allowPaid = true;
+    else if(arg === '--no-handoff') opts.noHandoff = true;
+    else if(arg === '--handoff-turns') opts.handoffTurns = +argv[++i];
+    else if(arg === '--handoff-model') opts.handoffModel = argv[++i];
     else if(arg === '--cdp-host') opts.cdpHost = argv[++i];
     else if(arg === '--cdp-port') opts.cdpPort = +argv[++i];
     else if(arg === '--stream') opts.stream = true;
@@ -106,6 +112,9 @@ function parseArgs(argv) {
     else if(arg === '--help' || arg === '-h') {
       console.log(
         'Usage: qjsm repl.js [--provider ollama|gemini|openai|bridge] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
+          '  --no-failover    with a chat-bridge: stay on the chosen model when it hits its limit instead of switching to another.\n' +
+          '  --no-handoff / --handoff-turns N (3) / --handoff-model NAME (qwen3:4b-instruct): on a failover the conversation is compacted before it goes to the next model - the last N turns are kept, older ones are summarized by that local ollama model (--no-handoff replays everything).\n' +
+          '  --allow-paid     with --provider bridge: also use pay-as-you-go sites (openrouter); refused and skipped by default, they can cost money.\n' +
           '  --provider bridge  start examples/chat-bridge itself on a free port and use it (models = the chat sites; one is picked in turn unless --model is given; --cdp-host/--cdp-port = the browser, default 127.0.0.1:9222).\n' +
           '  --model list     list the available chat models and exit (gemini, openai-compatible /models incl. chat-bridge; ollama via `ollama list`).\n' +
           '  --no-system      start without the built-in system prompt (tools and project scan stay); set one later with /system. For controllers that bring their own.\n' +
@@ -373,6 +382,8 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
          printed for this attempt: switch and ask the same question again */
       if(!opts.quiet) console.log(dim(failoverNote(e, client.model, to)));
       tried.add(to);
+      /* the next site starts from nothing: send it a compacted conversation, not all of it */
+      if(failoverHook.handoff && !opts.noHandoff) await failoverHook.handoff(messages, opts);
       failoverHook.onSwitch(to);
     }
   }
@@ -675,7 +686,7 @@ async function main() {
   let bridgeProc = null;
   if(opts.provider === 'bridge') {
     try {
-      bridgeProc = await startBridge({ scriptPath: scriptArgs[0], cdpHost: opts.cdpHost, cdpPort: opts.cdpPort });
+      bridgeProc = await startBridge({ scriptPath: scriptArgs[0], cdpHost: opts.cdpHost, cdpPort: opts.cdpPort, allowPaid: opts.allowPaid });
     } catch(e) {
       console.log(red(`error: ${e.message}`));
       exit(1);
@@ -1116,12 +1127,24 @@ async function main() {
 
   /* over a chat-bridge, a model that hits its limit hands the turn to the
      next available one by itself (lib/failover.js) */
-  if(opts.provider === 'openai') {
+  if(opts.provider === 'openai' && !opts.noFailover) {
     const failover = new Failover(client);
 
     if(await failover.detect())
       failoverHook = {
         failover,
+        handoff: async (msgs, callOpts) => {
+          const base = msgs === messages ? baseMessageCount : msgs[0]?.role === 'system' ? 1 : 0;
+          if(!callOpts.quiet) console.log(dim(`(handoff: summarizing older turns with ${opts.handoffModel ?? HANDOFF_MODEL} ...)`));
+
+          const h = await buildHandoff(msgs, base, { keepTurns: opts.handoffTurns ?? 3, model: opts.handoffModel ?? HANDOFF_MODEL, host: opts.host, port: opts.port });
+          if(!h) return;
+
+          const before = msgs.length;
+          msgs.splice(0, msgs.length, ...h.messages);
+          if(msgs === messages) saveSession();
+          if(!callOpts.quiet) console.log(dim(`(handoff: ${before} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept)`));
+        },
         onSwitch: name => {
           opts.model = name;
           client.model = name;

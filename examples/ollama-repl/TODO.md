@@ -561,22 +561,24 @@ done - see item 4a above for the same live-verification gap.
 
 ## Automatic model failover over a chat-bridge
 
-Plan and rationale: `examples/chat-bridge/TODO.md` ("Failover plan").
-Done: typed errors and `listModels()` in the OpenAI client; `lib/failover.js`
-builds the fallback order from the endpoint's `/models` (only when every
-entry is `owned_by: "chat-bridge"`, no `--fallback` option) and `chatRound()`
-switches to the next available model and retries the turn on a rate-limit or
-login error. Open:
+Plan and rationale: `examples/chat-bridge/TODO.md` ("Failover plan"). All four
+steps are done: typed errors and `listModels()` in the OpenAI client;
+`lib/failover.js` builds the fallback order from the endpoint's `/models` (only
+when every entry is `owned_by: "chat-bridge"`, no `--fallback` option) and
+`chatRound()` switches to the next available model on a rate-limit or login
+error; `lib/handoff.js` compacts the conversation first (base messages kept,
+last `--handoff-turns` user turns kept with big tool results clipped, older
+turns summarized by `--handoff-model`, default `qwen3:4b-instruct`).
+Open:
 
-- handoff instead of replaying the whole conversation (the retry currently
-  sends the full history): system prompt, a note that the previous model hit
-  its limit, the last K turns (default 6) with big tool results cut, and a
-  summary of the older part written by a small local model
-  (`qwen3:4b-instruct`), not by the exhausted site
 - failover only covers `chatRound()`; a limit hit in the middle of a
   streamed reply (after text was printed) is not handled
 - when every model is unavailable the original error is shown; a hint with
   the earliest `resets_at` would help
+- after a handoff `/reset` keeps the base messages but the compacted turns are
+  gone from the local history (the session file is saved compacted too)
+- the summary comes from a 4B model: it can still drop or garble details, the
+  strict headings in `lib/handoff.js` only reduce that
 
 Also done: `--provider bridge` (lib/bridge-process.js) runs the chat-bridge as a
 child process on a free port and rotates the starting model per session

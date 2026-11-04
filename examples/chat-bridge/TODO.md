@@ -49,10 +49,30 @@ replaying the whole conversation to it.
      strip); alternatives `llama3.2:3b` or `gemma3:4b`. Verify the tag
      with `ollama show` after pulling.
 
-Steps 1, 2 and 3 are done (see Done); 4 is open and tracked in
-`ollama-repl/TODO.md` too, since the code for it lives there.
+All four steps are done (see Done).
 
 ## Backlog
+
+**Wanted, not started** (decided 2026-11-04, one at a time; numbers are the
+ideas in [PROVIDERS.md](PROVIDERS.md)): 2 model selection `site/model`; 3 tool
+call tolerance; 5 capabilities in `/v1/models`; 6 replay framing; 8 `check`
+command; 9 per-site latency and timeout override; 10 more refusal detection;
+11 per-site message budgets; 12 housekeeping (leftover tabs, bridge-made
+chats); 13 estimated `usage`.
+
+From the provider sweep (details in PROVIDERS.md):
+
+- **Capabilities in `/v1/models`:** `tools: false` for sites that ignore the
+  tool preamble (chatgpt, duck, deepai), so ollama-repl does not try tool
+  work on them and failover skips them for tool tasks.
+- **Replay framing:** gemini read a replayed transcript (with tool results) as
+  instructions; wrap the flattened transcript in a clear "continue, answer the
+  last message only" frame.
+- **Known start state per tab:** deepai can sit in an image-edit mode; model
+  pickers and modes should be reset by `newChat()`.
+- **Per-site timeouts:** openrouter streams about one chunk per second (112 s
+  for 120 words); give sites an expected latency and let clients override.
+- **`check` command** printing the PROVIDERS.md table for the open sites.
 
 Open items, roughly by value. Bugs are tracked in `BUGS`. Design and spec: [README.md](README.md). Move finished items into the Done section.
 
@@ -88,6 +108,15 @@ Several sites host many models. Proposal: put the model in the request's
   model that pauses mid-answer).
 
 ### 3. API completeness
+
+- Tool call tolerance (seen live with deepseek, 2026-11-04): the model once
+  answered `tool_call` + the code block's UI text ("Kopieren", "Herunterladen")
+  + `{"name": "read_file", "path": "slug.js"}` with the arguments flat instead
+  of under `arguments`, which `extractCalls()` rejects, so it was shown as
+  text; a retry then sent `read_file {}` (empty arguments) before the right
+  call. Accept flat arguments (every key but `name` when the tool's schema
+  lists it) and ignore copy-button text; consider telling the model once when
+  a call had no usable arguments.
 
 - Stream text for a request with tools until a tool call appears, instead of
   answering whole.
@@ -130,6 +159,21 @@ Several sites host many models. Proposal: put the model in the request's
 
 ## Done
 
+- failover step 4: `ollama-repl/lib/handoff.js`. A failover keeps the base
+  messages, the last 3 user turns (big tool results clipped to 600 chars) and
+  replaces older turns by a summary from `qwen3:4b-instruct` (headings FACTS,
+  GOAL, DONE, READ ONLY, NOT DONE YET; a plain digest if ollama is
+  unreachable). Options `--handoff-turns`, `--handoff-model`, `--no-handoff`.
+  Verified live: 5 turns on deepseek, `/model mistral` (limited), 14 -> 8
+  messages, the next model still knew the code word and the language. A first
+  prompt without FACTS lost them, and one without DONE/NOT DONE claimed
+  unfinished work was finished: the summarizer needs the strict headings
+- billing guard (idea 1): `billing` class per site, metered sites refused
+  unless `--allow-paid`, Enter only with focus in the prompt box, payment page
+  detection; `ollama-repl --allow-paid` passes it on
+- tabs the bridge opened are closed only when of no use any more: a site that hit
+  its message limit has its tabs retired (an in-flight one on release); used chats
+  that can still take a prompt are never closed
 - failover step 1: refusal detection in the bridge (rate limit, login redirect,
   prompt not accepted) answered as OpenAI errors 429/401/502 with Retry-After
   (also for streaming, before any chunk), cooldown per site, `available` and

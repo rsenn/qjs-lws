@@ -16,6 +16,7 @@
  */
 import { mkdir, remove, setReadHandler, kill, getpid, readdir } from 'os';
 import { getenv, loadFile, open } from 'std';
+import { TextDecoder } from 'textcode';
 import { AF_UNIX, SOCK_STREAM, SockAddr, Socket } from 'sockets';
 
 export function controlDir() {

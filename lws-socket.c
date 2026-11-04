@@ -739,6 +739,10 @@ lwsjs_socket_want_write(JSContext* ctx, JSValueConst this_val, int argc, JSValue
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
+  /* lwsjs_socket_destroy() zeroes s->wsi when the connection closes */
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "socket is closed");
+
   if(argc > 0) {
     if(!socket_queue_callback(s, ctx, argv[0]))
       return JS_ThrowOutOfMemory(ctx);
@@ -905,6 +909,12 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
+
+  /* the client may have hung up while the handler was still working:
+     lwsjs_socket_destroy() zeroes s->wsi, and lws_add_http_common_headers()
+     below writes through it */
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "socket is closed");
 
   for(int i = 0; i < argc; ++i) {
     if(code == -1 && header_arg == -1 && ptr == NULL && JS_IsNumber(argv[i])) {

@@ -319,7 +319,7 @@ function buildShims(doc) {
       headers: new Map([['content-type', 'application/json']]),
       json: () => Promise.resolve({}),
       text: () => Promise.resolve('{}'),
-      blob: () => Promise.resolve(new Blob()),
+      blob: () => Promise.resolve(typeof Blob != 'undefined' ? new Blob() : {}),
       arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
     });
   }

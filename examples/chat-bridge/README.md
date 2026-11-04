@@ -19,7 +19,7 @@ answer back out of the DOM.
 - [Backlog](#backlog)
 
 Files: `chat-bridge.js` (the program), `README.md` (this document),
-`TODO.md` (open work).
+`PROVIDERS.md` (what each site can do, quirks, billing), `TODO.md` (open work).
 
 ## Usage
 
@@ -36,6 +36,7 @@ Files: `chat-bridge.js` (the program), `README.md` (this document),
 | `--host H` | 127.0.0.1 | browser CDP host |
 | `--listen N` | 8089 | `serve`: HTTP port, 0 = any free port (the startup line prints the real one) |
 | `--max N` | 3 | `serve`: chat tabs per site |
+| `--allow-paid` | off | `serve`: also use pay-as-you-go sites (`billing: 'metered'`, now openrouter); also `CHAT_BRIDGE_ALLOW_PAID=1` |
 | `--idle SEC` | 2.5 | reply unchanged this long = finished |
 | `--timeout SEC` | 180 | give up waiting for a reply |
 
@@ -51,8 +52,8 @@ From ollama-repl, which can start the bridge itself:
     qjsm ../ollama-repl/repl.js --provider bridge
 
 That runs `serve` on a free port, picks one of the available models in turn
-(or use `--model NAME`), fails over to another when one hits its limit, and
-stops the bridge on exit. `--cdp-host`/`--cdp-port` name the browser. Or run
+(or use `--model NAME`), fails over to another when one hits its limit (after
+compacting the conversation, see below), and stops the bridge on exit. `--cdp-host`/`--cdp-port` name the browser. Or run
 the bridge yourself:
 
     qjsm chat-bridge.js serve
@@ -77,7 +78,11 @@ site whose name the model string contains.
   entered with `Input.insertText` and submitted with a real Enter key event
   dispatched over CDP; the user's own tabs and keyboard focus are left alone.
 - **Own your tabs.** `serve` opens up to `--max` tabs per site and closes
-  them again on SIGINT/SIGTERM. It never reuses or closes tabs it did not
+  them again on SIGINT/SIGTERM. A tab is closed earlier only when it is of no
+  use any more: its site hit a message limit, so it cannot receive a prompt
+  until the limit resets. A chat that was used and can still take a prompt is
+  never closed, and neither is a tab waiting for you to log in or accept a
+  dialog. It never reuses or closes tabs it did not
   create (`send`/`read`/`eval` are the exception: they attach to an
   existing tab of the site).
 
@@ -171,6 +176,26 @@ once, without touching the browser. For `stream: true` the status is
 returned before any chunk, so a client sees a real HTTP error.
 ollama-repl uses this to fail over to another model.
 
+### Billing guard
+
+Nothing the bridge does can buy anything: it types into the prompt box and
+presses Enter. Still, three guards keep it that way.
+
+- **`billing` class per site.** `free` (the default) is a consumer chat that
+  costs money only if a human clicks Upgrade. `metered` is pay-as-you-go
+  credits or an API-style account (openrouter; aistudio and groq, if they
+  were adopted). A metered site is **refused unless the bridge runs with
+  `--allow-paid`**: requests get HTTP 402 `paid_site_blocked`, and `/v1/models`
+  lists it with `available: false, unavailable: "billing_guard"`, so
+  ollama-repl's rotation and failover skip it on their own.
+- **Enter only in the prompt box.** Before each Enter the bridge focuses the
+  prompt box and checks that it holds the focus; otherwise Enter could
+  activate a stray button (an Upgrade dialog). No focus, no Enter
+  (`prompt_not_accepted`).
+- **Payment pages.** If a send makes the tab move to a checkout, billing,
+  pricing, subscribe, upgrade, payment, purchase or plans path, the request
+  fails with 402 `payment_page_reached` and the site cools down for 5 minutes.
+
 ## Specification
 
 ### HTTP endpoints
@@ -194,6 +219,7 @@ before `--timeout` → 504, site refusals as in [Refusals](#refusals).
       home,   // URL that opens a fresh chat
       input,  // selector of the prompt box (first visible match)
       reply,  // selector of the assistant messages (last match is read)
+      billing, // 'free' (default) or 'metered', see Billing guard
       skip,   // optional: why the site was looked at and not adopted
     }
 
