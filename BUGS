@@ -481,3 +481,7 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 - test-tcpsocket-and-test-websocket-time-out (tests/unittests/test-tcpsocket.js, tests/unittests/test-websocket.js): both time out at 40s under ctest, also with the serve/ServerResponse changes stashed, so they are pre-existing. found running ctest on build/x86_64-linux-gnu.
 
     cd build/x86_64-linux-gnu && ctest -R "test-tcpsocket|test-websocket.js" --timeout 40
+
+- chat-bridge-failed-send-leaves-text-in-input (examples/chat-bridge.js:159): when a send times out the inserted prompt stays in the page's input box, so the next attempt appends to it and ends up in front of the user's own draft. seen while testing the kimi site with a wrong host.
+
+    point a site's host at a page that never submits, send twice, then read the input with: qjsm examples/chat-bridge.js --site kimi eval 'document.querySelector("div[contenteditable=true]").innerText'

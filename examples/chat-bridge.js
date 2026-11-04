@@ -49,7 +49,7 @@ const SITES = {
   deepseek: { host: 'chat.deepseek.com', home: 'https://chat.deepseek.com/', input: 'textarea', reply: '.ds-markdown' },
   qwen: { host: 'chat.qwen.ai', home: 'https://chat.qwen.ai/', input: 'textarea.message-input-textarea, textarea', reply: '.qwen-markdown' },
   gemini: { host: 'gemini.google.com', home: 'https://gemini.google.com/app', input: 'rich-textarea .ql-editor, div[contenteditable="true"]', reply: 'message-content, .model-response-text' },
-  kimi: { host: 'www.kimi.com', home: 'https://www.kimi.com/', input: 'div[contenteditable="true"], textarea', reply: '.markdown' },
+  kimi: { host: 'www.kimi.ai', home: 'https://www.kimi.ai/chat/', input: 'div[contenteditable="true"], textarea', reply: '.markdown' },
 };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
