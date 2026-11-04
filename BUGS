@@ -477,3 +477,15 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 - serve-response-headers-dropped (lib/serve.js:326): headers set on the Response (e.g. content-type: application/json or text/event-stream) never reach the client, curl -i shows only connection: close and transfer-encoding: chunked, also for non-streamed string bodies. found writing examples/chat-bridge.js.
 
     serve({ port: 8091, fetch: () => new Response('{}', { headers: { 'content-type': 'application/json' } }) })  // curl -i has no content-type
+
+- serve-tls-option-ignored (lib/serve.js:782): serve({ tls: { cert, key } }) puts tls straight into the LWSVhost options but the native parser only knows server_ssl_cert/server_ssl_private_key_filepath (see lib/lws/tls.js), so tls is silently dropped and the server listens in plain text, even with nonexistent cert files. found while checking lws_create_vhost error reporting.
+
+    serve({ port: 8097, tls: { cert: '/nonexistent', key: '/nonexistent' }, fetch: () => new Response('x') })  // no error, no tls
+
+- vhost-bad-mount-protocol-silent (lws-vhost.c:123): a mount naming a protocol that is not in the protocols list does not make lws_create_vhost fail, the vhost is created and the mount just never works. confirmed with the mount below.
+
+    serve({ port: 8098, mounts: [{ mountpoint: '/x', protocol: 'nope', originProtocol: 0 }], fetch: () => new Response('x') })  // no error
+
+- test-websocket-server-members-segfault (tests/unittests/test-websocket-server-members.js): the test crashes with SIGSEGV under ctest, and test-context-features.js and test-server-lifecycle.js time out at 40s. identical with and without the lws_create_vhost error change, so not caused by it. found running ctest on build/x86_64-linux-gnu.
+
+    cd build/x86_64-linux-gnu && ctest -R "test-websocket-server-members|test-server-lifecycle|test-context-features" --timeout 40

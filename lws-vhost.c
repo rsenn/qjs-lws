@@ -3,6 +3,8 @@
 #include "lws-socket.h"
 #include "lws-protocol.h"
 #include "js-utils.h"
+#include <errno.h>
+#include <string.h>
 
 struct lws_protocol_vhost_options*
 lwsjs_vhost_option_from(JSContext* ctx, JSValueConst obj) {
@@ -88,6 +90,67 @@ lwsjs_vhost_options_free(JSRuntime* rt, struct lws_protocol_vhost_options* vho) 
   }
 }
 
+/* The exception for a failed lws_create_vhost(): names the vhost, its
+   interface and port and, if errno was set, the reason, e.g.
+   "lws_create_vhost failed for 127.0.0.1:8089: Address already in use".
+   The error also gets `errno` and `code` ('EADDRINUSE', ...) properties
+   so a caller can tell a busy port from, say, a bad certificate. */
+static JSValue
+lwsjs_vhost_create_error(JSContext* ctx, const struct lws_context_creation_info* info, int err) {
+  static const struct {
+    int err;
+    const char* code;
+  } codes[] = {
+      {EADDRINUSE, "EADDRINUSE"},
+      {EADDRNOTAVAIL, "EADDRNOTAVAIL"},
+      {EACCES, "EACCES"},
+      {ENOENT, "ENOENT"},
+      {EAFNOSUPPORT, "EAFNOSUPPORT"},
+      {EMFILE, "EMFILE"},
+      {ENFILE, "ENFILE"},
+      {ENOMEM, "ENOMEM"},
+      {EINVAL, "EINVAL"},
+  };
+  DynBuf db;
+  JSValue exc;
+
+  dbuf_init2(&db, 0, 0);
+  dbuf_printf(&db, "lws_create_vhost failed");
+
+  if(info->vhost_name || info->iface || info->port) {
+    dbuf_printf(&db, " for ");
+    if(info->iface)
+      dbuf_printf(&db, "%s", info->iface);
+    else if(info->vhost_name)
+      dbuf_printf(&db, "%s", info->vhost_name);
+    if(info->port > 0)
+      dbuf_printf(&db, ":%d", info->port);
+  }
+
+  if(err)
+    dbuf_printf(&db, ": %s", strerror(err));
+  else
+    dbuf_printf(&db, " (see logLevel() output for details, e.g. a bad certificate, mount or protocol)");
+
+  dbuf_putc(&db, 0);
+  JS_ThrowInternalError(ctx, "%s", (const char*)db.buf);
+  dbuf_free(&db);
+
+  exc = JS_GetException(ctx);
+
+  if(err) {
+    JS_SetPropertyStr(ctx, exc, "errno", JS_NewInt32(ctx, err));
+
+    for(size_t i = 0; i < sizeof(codes) / sizeof(codes[0]); ++i)
+      if(codes[i].err == err) {
+        JS_SetPropertyStr(ctx, exc, "code", JS_NewString(ctx, codes[i].code));
+        break;
+      }
+  }
+
+  return JS_Throw(ctx, exc);
+}
+
 JSClassID lwsjs_vhost_class_id;
 static JSValue lwsjs_vhost_proto, lwsjs_vhost_ctor;
 
@@ -115,12 +178,26 @@ lwsjs_vhost_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
   if(JS_IsObject(argv[1]))
     lwsjs_context_creation_info_fromobj(ctx, argv[1], &vh->info);
 
+  /* lws hands the port to htons(), so 70000 would silently listen on 4464 */
+  if(vh->info.port > 65535) {
+    JS_ThrowRangeError(ctx, "port %d out of range (0-65535)", vh->info.port);
+    goto fail;
+  }
+
   vh->info.user = obj_ptr(ctx, obj);
 
   JS_SetOpaque(obj, vh);
 
   /* This must be called last, because it can trigger callbacks already */
+  errno = 0;
+
   if(!(vh->vho = lws_create_vhost(context, &vh->info))) {
+    /* lws only reports why through its own log (silent at the default log
+       level), so errno - left by the failing bind()/listen()/socket() -
+       is the one dependable clue; read it before the cleanup below can
+       clobber it. */
+    int err = errno;
+
     /* Undo the self-reference below by hand: the finalizer normally drops
        it, but the finalizer only runs once the last ref is gone, and
        vh->info.user *is* one of those refs - freeing just `obj` here would
@@ -130,7 +207,7 @@ lwsjs_vhost_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
 
     JS_FreeValue(ctx, obj);
 
-    return JS_ThrowInternalError(ctx, "lws_create_vhost failed");
+    return lwsjs_vhost_create_error(ctx, &vh->info, err);
   }
 
   JS_DefinePropertyValueStr(ctx, obj, "info", JS_DupValue(ctx, argv[1]), JS_PROP_CONFIGURABLE);

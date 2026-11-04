@@ -37,7 +37,7 @@
  * back into tool_calls (see toolPreamble).
  */
 import { fetch } from '../lib/fetch.js';
-import { serve } from '../lib/serve.js';
+import { serve, Response } from '../lib/serve.js';
 import { WebSocketStream } from '../lib/websocketstream.js';
 import { TextDecoder } from 'textcode';
 import { setTimeout, signal, SIGINT, SIGTERM } from 'os';
@@ -513,16 +513,21 @@ async function main() {
   if(cmd == 'serve') {
     const handle = completions(bridge);
     /* loopback only: this endpoint types into logged-in sessions */
-    serve({
-      hostname: '127.0.0.1',
-      port: o.listen,
-      async fetch(req) {
-        const path = new URL(req.url).pathname.replace(/^\/v1/, '');
-        if(path == '/models') return json({ object: 'list', data: bridge.models().map(id => ({ id, object: 'model', owned_by: 'chat-bridge' })) });
-        if(path == '/chat/completions' && req.method == 'POST') return handle(req);
-        return json({ error: { message: 'not found' } }, 404);
-      },
-    });
+    try {
+      serve({
+        hostname: '127.0.0.1',
+        port: o.listen,
+        async fetch(req) {
+          const path = new URL(req.url).pathname.replace(/^\/v1/, '');
+          if(path == '/models') return json({ object: 'list', data: bridge.models().map(id => ({ id, object: 'model', owned_by: 'chat-bridge' })) });
+          if(path == '/chat/completions' && req.method == 'POST') return handle(req);
+          return json({ error: { message: 'not found' } }, 404);
+        },
+      });
+    } catch(e) {
+      throw new Error(e.code == 'EADDRINUSE' ? `${e.message} (another chat-bridge running? pick another port with --listen)` : e.message);
+    }
+
     for(const sig of [SIGINT, SIGTERM])
       signal(sig, () => bridge.closeAll().finally(() => process.exit(0)));
     console.log(`chat-bridge: http://127.0.0.1:${o.listen}/v1 (browser CDP ${o.host}:${o.port})`);
