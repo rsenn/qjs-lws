@@ -34,7 +34,7 @@ Files: `chat-bridge.js` (the program), `README.md` (this document),
 | `--site NAME` | first open | site for `send`/`read`/`eval` |
 | `--port N` | 9222 | browser CDP port |
 | `--host H` | 127.0.0.1 | browser CDP host |
-| `--listen N` | 8089 | `serve`: HTTP port |
+| `--listen N` | 8089 | `serve`: HTTP port, 0 = any free port (the startup line prints the real one) |
 | `--max N` | 3 | `serve`: chat tabs per site |
 | `--idle SEC` | 2.5 | reply unchanged this long = finished |
 | `--timeout SEC` | 180 | give up waiting for a reply |
@@ -46,11 +46,21 @@ sites you want, started with remote debugging:
       --user-data-dir=$HOME/.chat-bridge-profile \
       https://chat.deepseek.com https://chat.qwen.ai
 
-From ollama-repl:
+From ollama-repl, which can start the bridge itself:
+
+    qjsm ../ollama-repl/repl.js --provider bridge
+
+That runs `serve` on a free port, picks one of the available models in turn
+(or use `--model NAME`), fails over to another when one hits its limit, and
+stops the bridge on exit. `--cdp-host`/`--cdp-port` name the browser. Or run
+the bridge yourself:
 
     qjsm chat-bridge.js serve
     OPENAI_API_URL=http://127.0.0.1:8089/v1 OPENAI_API_KEY=x \
       qjsm ../ollama-repl/repl.js --provider openai --model deepseek
+
+`serve` checks the browser first and exits with the command to start one if
+nothing answers on the CDP port.
 
 The **model name selects the site** (`deepseek`, `qwen`, ...): the first
 site whose name the model string contains.

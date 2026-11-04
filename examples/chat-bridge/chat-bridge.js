@@ -11,7 +11,7 @@
  *
  * Options: --site NAME (deepseek|qwen|gemini|kimi|chatgpt|duck|deepai|openrouter|mistral, default: first open)
  *   --port N (CDP, 9222)  --host H (CDP, 127.0.0.1)  --listen N (serve,
- *   8089)  --max N (serve: chat tabs per site, 3)  --idle SEC (reply
+ *   8089, 0 = any free port)  --max N (serve: chat tabs per site, 3)  --idle SEC (reply
  *   unchanged this long = done, 2.5)  --timeout SEC (180)
  *
  * Prerequisites: a browser with a dedicated profile, logged in once:
@@ -639,9 +639,18 @@ async function main() {
 
   if(cmd == 'serve') {
     const handle = completions(bridge);
-    /* loopback only: this endpoint types into logged-in sessions */
+
+    /* fail now, with the fix, rather than on the first request */
     try {
-      serve({
+      await fetch(bridge.url('/json/version'));
+    } catch(e) {
+      throw new Error(`no browser on CDP ${o.host}:${o.port}, start one with: google-chrome --remote-debugging-port=${o.port} --user-data-dir=$HOME/.chat-bridge-profile`);
+    }
+
+    /* loopback only: this endpoint types into logged-in sessions */
+    let server;
+    try {
+      server = serve({
         hostname: '127.0.0.1',
         port: o.listen,
         async fetch(req) {
@@ -657,7 +666,8 @@ async function main() {
 
     for(const sig of [SIGINT, SIGTERM])
       signal(sig, () => bridge.closeAll().finally(() => process.exit(0)));
-    console.log(`chat-bridge: http://127.0.0.1:${o.listen}/v1 (browser CDP ${o.host}:${o.port})`);
+    /* --listen 0 = any free port; this line is how a parent finds it */
+    console.log(`chat-bridge: http://127.0.0.1:${server.port}/v1 (browser CDP ${o.host}:${o.port})`);
     return new Promise(() => {}); /* run until killed */
   }
 

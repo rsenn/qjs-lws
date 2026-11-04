@@ -481,7 +481,3 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 - test-tcpsocket-and-test-websocket-time-out (tests/unittests/test-tcpsocket.js, tests/unittests/test-websocket.js): both time out at 40s under ctest, also with the serve/ServerResponse changes stashed, so they are pre-existing. found running ctest on build/x86_64-linux-gnu.
 
     cd build/x86_64-linux-gnu && ctest -R "test-tcpsocket|test-websocket.js" --timeout 40
-
-- repl-model-status-line-hardcoded-endpoint (examples/ollama-repl/repl.js:698): /model (and the startup line) shows api.openai.com as the endpoint for --provider openai even when OPENAI_API_URL points elsewhere, e.g. at a chat-bridge. noticed testing /model against the bridge.
-
-    OPENAI_API_URL=http://127.0.0.1:8089/v1 OPENAI_API_KEY=x qjsm examples/ollama-repl/repl.js --provider openai --model deepseek   # then /model prints "openai/deepseek @ api.openai.com"

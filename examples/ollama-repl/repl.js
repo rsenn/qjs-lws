@@ -19,7 +19,7 @@
  * Run (Ollama must already be running locally with the model pulled; for
  * `--provider gemini`, GEMINI_API_KEY must be exported instead, and for
  * `--provider openai`, OPENAI_API_KEY):
- *   qjsm repl.js [--provider ollama|gemini|openai] [--model NAME|list] [--host localhost] [--port 11434] [--root .]
+ *   qjsm repl.js [--provider ollama|gemini|openai|bridge] [--model NAME|list] [--host localhost] [--port 11434] [--root .]
  * Or, once installed (see CMakeLists.txt - installs to bin/ollama-repl,
  * lib/ollama-client.js's cross-tree imports rewritten to the installed
  * `lws/*.js` module path):
@@ -52,6 +52,8 @@ import { clearTimeout, getcwd, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
+import { Failover, failoverNote } from './lib/failover.js';
+import { startBridge, pickModel } from './lib/bridge-process.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
 import { TOOLS, executeTool, resetJournal, undoJournal, writeCount } from './lib/tool-requests.js';
@@ -85,6 +87,8 @@ function parseArgs(argv) {
     else if(arg === '--host') opts.host = argv[++i];
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
+    else if(arg === '--cdp-host') opts.cdpHost = argv[++i];
+    else if(arg === '--cdp-port') opts.cdpPort = +argv[++i];
     else if(arg === '--stream') opts.stream = true;
     else if(arg === '-x' || arg === '--debug') opts.debug = true;
     else if(arg === '--failsafe') opts.failsafe = true;
@@ -101,7 +105,8 @@ function parseArgs(argv) {
     else if(arg === '--listen') opts.listen = argv[i + 1] && !argv[i + 1].startsWith('-') ? argv[++i] : '';
     else if(arg === '--help' || arg === '-h') {
       console.log(
-        'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
+        'Usage: qjsm repl.js [--provider ollama|gemini|openai|bridge] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
+          '  --provider bridge  start examples/chat-bridge itself on a free port and use it (models = the chat sites; one is picked in turn unless --model is given; --cdp-host/--cdp-port = the browser, default 127.0.0.1:9222).\n' +
           '  --model list     list the available chat models and exit (gemini, openai-compatible /models incl. chat-bridge; ollama via `ollama list`).\n' +
           '  --no-system      start without the built-in system prompt (tools and project scan stay); set one later with /system. For controllers that bring their own.\n' +
           '  --num-ctx N      context window requested from Ollama (default 16384; Ollama itself defaults to 4096).\n' +
@@ -117,12 +122,13 @@ function parseArgs(argv) {
     }
   }
 
-  if(opts.provider !== 'ollama' && opts.provider !== 'gemini' && opts.provider !== 'openai') {
-    console.log(red(`error: --provider must be "ollama", "gemini" or "openai", got "${opts.provider}"`));
+  if(opts.provider !== 'ollama' && opts.provider !== 'gemini' && opts.provider !== 'openai' && opts.provider !== 'bridge') {
+    console.log(red(`error: --provider must be "ollama", "gemini", "openai" or "bridge", got "${opts.provider}"`));
     exit(1);
   }
 
-  opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : opts.provider === 'openai' ? 'gpt-4o-mini' : 'qwen2.5-coder';
+  /* bridge: undefined = picked from the bridge's models, see main() */
+  opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : opts.provider === 'openai' ? 'gpt-4o-mini' : opts.provider === 'bridge' ? undefined : 'qwen2.5-coder';
 
   return opts;
 }
@@ -348,7 +354,31 @@ function startSpinner(label = 'Thinking') {
  * through to client.chat()/chatStream().
  * @returns {Promise<{content: string, toolCalls?: object[]}>}
  */
+/* set by main() when the endpoint is a chat-bridge: { failover, onSwitch } */
+let failoverHook = null;
+
 async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
+  const tried = new Set([client.model]);
+
+  for(;;) {
+    try {
+      return await chatRoundOnce(client, messages, opts, abortRef, chatOptions);
+    } catch(e) {
+      if(!failoverHook || !Failover.applies(e)) throw e;
+
+      const to = await failoverHook.failover.next(tried);
+      if(!to) throw e;
+
+      /* the refusal came back before any reply text, so nothing was
+         printed for this attempt: switch and ask the same question again */
+      if(!opts.quiet) console.log(dim(failoverNote(e, client.model, to)));
+      tried.add(to);
+      failoverHook.onSwitch(to);
+    }
+  }
+}
+
+async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {}) {
   //console.log('chatRound');
   const t0 = Date.now();
   const stopSpinner = piped || opts.quiet ? () => {} : startSpinner();
@@ -368,7 +398,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
       const result = await client.chatStream(messages, chatOptions, token => {
         if(first) {
           stopSpinner();
-          stdout.puts(`\n${opts.provider}> `);
+          stdout.puts(`\n${opts.label ?? opts.provider}> `);
           first = false;
         }
 
@@ -389,7 +419,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
 
     const result = await client.chat(messages, chatOptions);
     stopSpinner();
-    if(result.content && !opts.quiet) console.log(`\n${opts.provider}> ${result.content}\n`);
+    if(result.content && !opts.quiet) console.log(`\n${opts.label ?? opts.provider}> ${result.content}\n`);
     cogitated();
     return result;
   } finally {
@@ -640,12 +670,42 @@ async function thinkNote(client) {
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
 
+  /* --provider bridge: run examples/chat-bridge ourselves and talk to it
+     as an OpenAI endpoint (everything below sees provider 'openai') */
+  let bridgeProc = null;
+  if(opts.provider === 'bridge') {
+    try {
+      bridgeProc = await startBridge({ scriptPath: scriptArgs[0], cdpHost: opts.cdpHost, cdpPort: opts.cdpPort });
+    } catch(e) {
+      console.log(red(`error: ${e.message}`));
+      exit(1);
+    }
+
+    opts.provider = 'openai';
+    opts.label = 'bridge';
+    opts.baseUrl = bridgeProc.url;
+    opts.apiKey = 'bridge';
+  }
+
   let client;
   try {
     client = opts.provider === 'gemini' ? new GeminiClient(opts) : opts.provider === 'openai' ? new OpenAIClient(opts) : new OllamaClient(opts);
   } catch(e) {
     console.log(red(`error: ${e.message}`));
     exit(1);
+  }
+
+  if(bridgeProc && opts.model === undefined) {
+    const models = await client.listModels().catch(() => []);
+    opts.model = pickModel(models);
+
+    if(!opts.model) {
+      console.log(red('error: no model available on the bridge right now (all rate limited?), try again later'));
+      bridgeProc.stop();
+      exit(1);
+    }
+
+    client.model = opts.model;
   }
 
   if(opts.model === 'list') {
@@ -671,10 +731,12 @@ async function main() {
       for(const m of await client.listModels()) console.log(`${m.name.padEnd(44)} ${String(m.inputTokenLimit ?? '').padStart(8)} in ${String(m.outputTokenLimit ?? '').padStart(6)} out  ${m.displayName ?? ''}`);
     } catch(e) {
       console.log(red(`error: ${e.message}`));
+      bridgeProc?.stop();
       exit(1);
     }
 
     client.destroy();
+    bridgeProc?.stop();
     exit(0);
   }
 
@@ -695,7 +757,7 @@ async function main() {
 
   const saveSession = () => store.save(messages, baseMessageCount);
 
-  const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : opts.provider === 'openai' ? 'api.openai.com' : `${opts.host}:${opts.port}`;
+  const endpoint = opts.provider === 'gemini' ? 'generativelanguage.googleapis.com' : opts.provider === 'openai' ? client.baseUrl.replace(/^https?:\/\//, '').replace(/\/v1$/, '') : `${opts.host}:${opts.port}`;
   console.log(`ollama-repl: ${opts.provider}/${opts.model} @ ${endpoint}  (root: ${opts.root})${opts.failsafe ? '  [failsafe: no system prompt/project scan/tools]' : ''}`);
   //console.log(`Type a prompt and press Enter.\nReference files by name or glob (e.g. src/*.js) to attach them.`);
   console.log(`/help for commands.`);
@@ -1052,10 +1114,28 @@ async function main() {
     repl.addCleanupHandler(() => control.close());
   }
 
+  /* over a chat-bridge, a model that hits its limit hands the turn to the
+     next available one by itself (lib/failover.js) */
+  if(opts.provider === 'openai') {
+    const failover = new Failover(client);
+
+    if(await failover.detect())
+      failoverHook = {
+        failover,
+        onSwitch: name => {
+          opts.model = name;
+          client.model = name;
+          repl.setPromptName(name);
+          control?.update({ model: name });
+        },
+      };
+  }
+
   repl.addCleanupHandler(() => {
     saveSession();
     log.close();
     client.destroy();
+    bridgeProc?.stop();
   });
 
   await repl.run();

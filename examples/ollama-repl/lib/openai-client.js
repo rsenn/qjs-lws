@@ -348,6 +348,11 @@ export class OpenAIClient {
    *
    * @returns {Promise<{name: string, displayName: string, available: boolean, resetsAt?: string, ownedBy?: string}[]>}
    */
+  /** the endpoint's base URL, e.g. http://127.0.0.1:8089/v1 */
+  get baseUrl() {
+    return this.#baseUrl;
+  }
+
   async listModels() {
     const url = `${this.#baseUrl}${this.#apiPath.replace(/\/chat\/completions$/, '')}/models`;
     const headers = { authorization: `Bearer ${this.#apiKey}` };

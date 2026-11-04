@@ -562,16 +562,24 @@ done - see item 4a above for the same live-verification gap.
 ## Automatic model failover over a chat-bridge
 
 Plan and rationale: `examples/chat-bridge/TODO.md` ("Failover plan").
-Done: the OpenAI client reports typed errors (`OpenAIError`) and lists models
-(`listModels()`, `/model list`). Open:
+Done: typed errors and `listModels()` in the OpenAI client; `lib/failover.js`
+builds the fallback order from the endpoint's `/models` (only when every
+entry is `owned_by: "chat-bridge"`, no `--fallback` option) and `chatRound()`
+switches to the next available model and retries the turn on a rate-limit or
+login error. Open:
 
-- fallback order built by the repl itself from the endpoint's `/models`
-  (only when its entries are `owned_by: "chat-bridge"`; no `--fallback`
-  option): current model first, then the other available ones; on a
-  rate-limit error switch to the next one and retry the turn, on a login
-  error just skip the model
-- handoff instead of replaying the whole conversation: system prompt, a note
-  that the previous model hit its limit, the last K turns (default 6) with
-  big tool results cut, and a summary of the older part written by a small
-  local model (`qwen3:4b-instruct`), not by the exhausted site
+- handoff instead of replaying the whole conversation (the retry currently
+  sends the full history): system prompt, a note that the previous model hit
+  its limit, the last K turns (default 6) with big tool results cut, and a
+  summary of the older part written by a small local model
+  (`qwen3:4b-instruct`), not by the exhausted site
+- failover only covers `chatRound()`; a limit hit in the middle of a
+  streamed reply (after text was printed) is not handled
+- when every model is unavailable the original error is shown; a hint with
+  the earliest `resets_at` would help
 
+Also done: `--provider bridge` (lib/bridge-process.js) runs the chat-bridge as a
+child process on a free port and rotates the starting model per session
+(state in ~/.cache/ollama-repl/bridge-next). Gaps: the browser is not started
+for you (the bridge prints the command), and a repl that is killed hard (not
+via /exit or Ctrl-C) can leave the bridge child running.

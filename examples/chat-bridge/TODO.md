@@ -49,8 +49,8 @@ replaying the whole conversation to it.
      strip); alternatives `llama3.2:3b` or `gemma3:4b`. Verify the tag
      with `ollama show` after pulling.
 
-Steps 1 and 2 are done (see Done); 3 and 4 are open and tracked in
-`ollama-repl/TODO.md` too, since the code for them lives there.
+Steps 1, 2 and 3 are done (see Done); 4 is open and tracked in
+`ollama-repl/TODO.md` too, since the code for it lives there.
 
 ## Backlog
 
@@ -135,6 +135,16 @@ Several sites host many models. Proposal: put the model in the request's
   (also for streaming, before any chunk), cooldown per site, `available` and
   `resets_at` in `/v1/models`, unsent prompt cleared from the input box.
   Verified live against mistral's real message limit
+- `ollama-repl --provider bridge` starts the bridge itself (free port via
+  `--listen 0`, address read from its startup line), picks the model by
+  rotating through the available ones, stops the bridge on exit; `serve`
+  now checks the CDP port up front
+- failover step 3: `ollama-repl/lib/failover.js`. Over an endpoint whose models
+  are all `owned_by: "chat-bridge"` a rate-limit or login error switches the
+  turn to the next model `/models` lists as available and retries it; no
+  option. Verified live: started on rate-limited mistral, moved to deepseek
+  with a one-line note, the next prompt stayed on deepseek. Until step 4 the
+  retry still sends the whole history
 - failover step 2: `OpenAIError` (status, code, type, retryAfter, isRateLimit)
   and `OpenAIClient#listModels()` in ollama-repl; `--model list`, `/model list`
   and a `/model NAME` check work for `--provider openai`
