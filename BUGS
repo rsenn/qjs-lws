@@ -469,3 +469,11 @@ See doc/api-compatibility.md for full compatibility assessment with code example
   is stuck. Found running ctest; cause not yet investigated.
 
     qjsm tests/unittests/test-ws.js  (run from the build dir; does not terminate)
+
+- serve-streamed-body-bytes-chunk-empty (lib/serve.js:330): a Response whose ReadableStream body enqueues Uint8Array chunks is sent as chunked with an empty body, string chunks work. confirmed with a 10 line serve() handler and curl; flush() passes the chunk straight to resp.write() which apparently only takes strings.
+
+    serve({ port: 8091, fetch: () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('a')); c.close(); } })) })  // curl shows an empty body
+
+- serve-response-headers-dropped (lib/serve.js:326): headers set on the Response (e.g. content-type: application/json or text/event-stream) never reach the client, curl -i shows only connection: close and transfer-encoding: chunked, also for non-streamed string bodies. found writing examples/chat-bridge.js.
+
+    serve({ port: 8091, fetch: () => new Response('{}', { headers: { 'content-type': 'application/json' } }) })  // curl -i has no content-type
