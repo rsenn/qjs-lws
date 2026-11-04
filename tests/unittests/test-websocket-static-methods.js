@@ -1,3 +1,4 @@
+import { setTimeout } from 'os';
 /**
  * Test WebSocket static methods:
  * - WebSocket.connect(url, protocols?) - returns Promise<WebSocket>

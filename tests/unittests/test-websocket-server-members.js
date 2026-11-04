@@ -1,3 +1,4 @@
+import { setTimeout } from 'os';
 import { tests, eq, assert } from './tinytest.js';
 import { createServer, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT } from 'lws.so';
 import { WebSocket } from '../../lib/websocket.js';

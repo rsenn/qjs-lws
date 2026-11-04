@@ -474,10 +474,18 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     serve({ port: 8098, mounts: [{ mountpoint: '/x', protocol: 'nope', originProtocol: 0 }], fetch: () => new Response('x') })  // no error
 
-- test-websocket-server-members-segfault (tests/unittests/test-websocket-server-members.js): the test crashes with SIGSEGV under ctest, and test-context-features.js and test-server-lifecycle.js time out at 40s. identical with and without the lws_create_vhost error change, so not caused by it. found running ctest on build/x86_64-linux-gnu.
+- test-websocket-server-members-cork-timeout (tests/unittests/test-websocket-server-members.js): no longer crashes with SIGSEGV (the old entry; gone since the respond()/want_write NULL-wsi guard in lws-socket.c), but the cork() batches writes test fails with Timeout waiting for messages and the test then times out under ctest. found running ctest with bare qjs on build/x86_64-linux-gnu.
 
     cd build/x86_64-linux-gnu && ctest -R "test-websocket-server-members|test-server-lifecycle|test-context-features" --timeout 40
 
 - test-tcpsocket-and-test-websocket-time-out (tests/unittests/test-tcpsocket.js, tests/unittests/test-websocket.js): both time out at 40s under ctest, also with the serve/ServerResponse changes stashed, so they are pre-existing. found running ctest on build/x86_64-linux-gnu.
 
     cd build/x86_64-linux-gnu && ctest -R "test-tcpsocket|test-websocket.js" --timeout 40
+
+- server-url-not-instanceof-url (lib/serve.js:410): test-server-lifecycle.js fails Server.url exists and is a URL object, server.url instanceof URL is false although both the test and serve.js import URL from lib/lws/url.js, and the test process then hangs until the ctest timeout. cause not found. found running ctest with bare qjs.
+
+    cd build/x86_64-linux-gnu && ctest -R test-server-lifecycle --output-on-failure --timeout 20
+
+- websocket-connect-econnrefused (tests/unittests/test-websocket-static-methods.js): WebSocket.connect() returns a connected WebSocket fails with conn fail: ECONNREFUSED (lib/lws/protocols.js:659 onClientConnectionError) and the test times out after the last test. cause not found, maybe the test connects before the server listens. found running ctest with bare qjs.
+
+    cd build/x86_64-linux-gnu && ctest -R test-websocket-static-methods --output-on-failure --timeout 20
