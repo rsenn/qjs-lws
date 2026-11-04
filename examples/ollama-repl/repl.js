@@ -102,7 +102,7 @@ function parseArgs(argv) {
     else if(arg === '--help' || arg === '-h') {
       console.log(
         'Usage: qjsm repl.js [--provider ollama|gemini|openai] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
-          '  --model list     list the available chat models and exit (gemini; ollama via `ollama list`).\n' +
+          '  --model list     list the available chat models and exit (gemini, openai-compatible /models incl. chat-bridge; ollama via `ollama list`).\n' +
           '  --no-system      start without the built-in system prompt (tools and project scan stay); set one later with /system. For controllers that bring their own.\n' +
           '  --num-ctx N      context window requested from Ollama (default 16384; Ollama itself defaults to 4096).\n' +
           '  --think [MODE]   ollama: let the model think before answering. MODE is detect (default: on if `ollama show` lists the "thinking" capability, else off), on (default when the flag has no MODE), off, auto (send nothing, the model decides) or low|medium|high (gpt-oss). `on` errors on models without that capability; thinking is much slower on a model running partly on the CPU.\n' +
@@ -662,8 +662,8 @@ async function main() {
       exit(pipe.close() === 0 ? 0 : 1);
     }
 
-    if(opts.provider !== 'gemini') {
-      console.log(red(`error: --model list is only implemented for --provider gemini and ollama (not ${opts.provider})`));
+    if(opts.provider !== 'gemini' && opts.provider !== 'openai') {
+      console.log(red(`error: --model list is only implemented for --provider gemini, openai and ollama (not ${opts.provider})`));
       exit(1);
     }
 
@@ -857,11 +857,17 @@ async function main() {
 
         if(!arg) return void console.log(`${opts.provider}/${opts.model} @ ${endpoint}`);
 
-        const known = opts.provider === 'ollama' ? ollamaModels() : null;
+        /* openai: whatever the endpoint lists, if it lists at all (a
+           chat-bridge does, with availability; plain servers may not) */
+        const remote = opts.provider === 'openai' ? await client.listModels().catch(() => null) : null;
+        const known = opts.provider === 'ollama' ? ollamaModels() : remote ? remote.map(m => m.name) : null;
 
-        if(arg === 'list') return void console.log(known ? known.join('\n') : '(model list is only available for --provider ollama)');
+        if(arg === 'list') {
+          if(remote) return void console.log(remote.map(m => `${m.name.padEnd(16)} ${m.available ? m.displayName : red(m.displayName)}`).join('\n'));
+          return void console.log(known ? known.join('\n') : '(model list is only available for --provider ollama and openai endpoints that serve /models)');
+        }
 
-        /* only models already installed: switching never pulls one */
+        /* only models already installed (or offered): switching never pulls one */
         if(known && !known.includes(arg) && !known.includes(`${arg}:latest`)) return void console.log(red(`error: no such model "${arg}" (/model list shows the installed ones)`));
 
         opts.model = arg;

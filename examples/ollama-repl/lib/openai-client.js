@@ -49,6 +49,42 @@ const DEFAULT_TIMEOUT_SECS = 15 * 60;
    See lib/logger.js's own doc comment. */
 const DEBUG_LOG_PATH = 'openai-repl-debug.log';
 
+/**
+ * A non-2xx answer from the endpoint. `message` keeps the full dump
+ * (status, headers, body) for the log; the parsed fields are for callers
+ * that react to a kind of failure (e.g. failing over from a model whose
+ * quota is used up).
+ *
+ * @property {number} status       HTTP status
+ * @property {string} [code]       OpenAI `error.code` (rate_limit_exceeded, login_required, ...)
+ * @property {string} [type]       OpenAI `error.type`
+ * @property {number} [retryAfter] seconds, from the Retry-After header
+ * @property {string} [detail]     OpenAI `error.message`, the short human text
+ */
+export class OpenAIError extends Error {
+  constructor(status, headers, body) {
+    super(`OpenAI HTTP ${status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+    this.name = 'OpenAIError';
+    this.status = status;
+
+    let err;
+    try {
+      err = JSON.parse(body)?.error;
+    } catch(e) {}
+
+    this.code = err?.code ?? undefined;
+    this.type = err?.type ?? undefined;
+    this.detail = err?.message;
+    const ra = Number(headers['retry-after']);
+    if(ra > 0) this.retryAfter = ra;
+  }
+
+  /** the quota or rate limit of the model is used up */
+  get isRateLimit() {
+    return this.status === 429 || this.code === 'rate_limit_exceeded' || this.code === 'insufficient_quota';
+  }
+}
+
 export class OpenAIClient {
   #apiKey;
   #baseUrl;
@@ -223,7 +259,7 @@ export class OpenAIClient {
       const headers = {};
       resp.headers?.forEach((v, k) => headers[k] = v);
       const body = await resp.text().catch(() => '');
-      throw new Error(`OpenAI HTTP ${resp.status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+      throw new OpenAIError(resp.status, headers, body);
     }
 
     return resp;
@@ -303,6 +339,34 @@ export class OpenAIClient {
     if(!result.content && !result.toolCalls) throw new Error(`unexpected OpenAI response: ${JSON.stringify(data)}`);
 
     return result;
+  }
+
+  /**
+   * GET {base}/models - the models the endpoint offers. A chat-bridge
+   * (examples/chat-bridge) adds `available` (false while a site is rate
+   * limited or logged out) and `resets_at`; plain servers leave them out.
+   *
+   * @returns {Promise<{name: string, displayName: string, available: boolean, resetsAt?: string, ownedBy?: string}[]>}
+   */
+  async listModels() {
+    const url = `${this.#baseUrl}${this.#apiPath.replace(/\/chat\/completions$/, '')}/models`;
+    const headers = { authorization: `Bearer ${this.#apiKey}` };
+
+    this.#logger.request('GET', url, headers);
+
+    const { req, wsi } = await this.#adapter.connect(this.#ctx, url, { method: 'GET', headers, alpn: 'http/1.1' });
+    const resp = await this.#awaitResponse(req, wsi);
+    const body = await resp.text().catch(() => '');
+
+    if(resp.status < 200 || resp.status >= 300) throw new OpenAIError(resp.status, {}, body);
+
+    return (JSON.parse(body).data ?? []).map(m => ({
+      name: m.id,
+      displayName: [m.owned_by, m.available === false ? `unavailable (${m.unavailable ?? 'refused'}${m.resets_at ? ` until ${m.resets_at}` : ''})` : ''].filter(Boolean).join(' '),
+      available: m.available !== false,
+      resetsAt: m.resets_at,
+      ownedBy: m.owned_by,
+    }));
   }
 
   /**

@@ -558,3 +558,20 @@ done - see item 4a above for the same live-verification gap.
   `console.log()` the raw message array - full-depth, `inspect()`-colored
   on a TTY, same formatting the existing `-x` debug log already used for
   request/response payloads, just live in the terminal instead of a file.
+
+## Automatic model failover over a chat-bridge
+
+Plan and rationale: `examples/chat-bridge/TODO.md` ("Failover plan").
+Done: the OpenAI client reports typed errors (`OpenAIError`) and lists models
+(`listModels()`, `/model list`). Open:
+
+- fallback order built by the repl itself from the endpoint's `/models`
+  (only when its entries are `owned_by: "chat-bridge"`; no `--fallback`
+  option): current model first, then the other available ones; on a
+  rate-limit error switch to the next one and retry the turn, on a login
+  error just skip the model
+- handoff instead of replaying the whole conversation: system prompt, a note
+  that the previous model hit its limit, the last K turns (default 6) with
+  big tool results cut, and a summary of the older part written by a small
+  local model (`qwen3:4b-instruct`), not by the exhausted site
+

@@ -1,3 +1,4 @@
+#!/usr/bin/env qjsm
 /**
  * chat-bridge - drive a chatbot web page in a real browser over CDP, from
  * the command line or as an OpenAI-compatible HTTP endpoint.
@@ -8,7 +9,7 @@
  *        qjsm chat-bridge.js [options] eval "expr"      raw Runtime.evaluate
  *        qjsm chat-bridge.js list                       list page tabs
  *
- * Options: --site NAME (deepseek|qwen|gemini|kimi, default: first open)
+ * Options: --site NAME (deepseek|qwen|gemini|kimi|chatgpt|duck|deepai|openrouter|mistral, default: first open)
  *   --port N (CDP, 9222)  --host H (CDP, 127.0.0.1)  --listen N (serve,
  *   8089)  --max N (serve: chat tabs per site, 3)  --idle SEC (reply
  *   unchanged this long = done, 2.5)  --timeout SEC (180)
@@ -21,7 +22,7 @@
  * Use it from ollama-repl:
  *   qjsm chat-bridge.js serve
  *   OPENAI_API_URL=http://127.0.0.1:8089/v1 OPENAI_API_KEY=x \
- *     qjsm ollama-repl/repl.js --provider openai --model deepseek
+ *     qjsm ../ollama-repl/repl.js --provider openai --model deepseek
  *
  * The model name selects the site. serve opens up to --max background
  * tabs per site in the browser's window, one conversation each, so
@@ -36,21 +37,64 @@
  * described in the first prompt and JSON calls in the reply are turned
  * back into tool_calls (see toolPreamble).
  */
-import { fetch } from '../lib/fetch.js';
-import { serve, Response } from '../lib/serve.js';
-import { WebSocketStream } from '../lib/websocketstream.js';
+import { fetch } from '../../lib/fetch.js';
+import { serve, Response } from '../../lib/serve.js';
+import { WebSocketStream } from '../../lib/websocketstream.js';
 import { TextDecoder } from 'textcode';
 import { setTimeout, signal, SIGINT, SIGTERM } from 'os';
 
-/* selectors verified live for deepseek and qwen (2026-11), the others are
-   unverified guesses. input = prompt box, reply = assistant messages (the
+/* selectors verified live (2026-11) for deepseek, qwen, gemini, kimi,
+   chatgpt (logged out layout), duck, deepai and openrouter. mistral too (answer part). 
+   unverified guess: its chat redirects to a login in the test browser.
+   a `skip` reason marks a site that was looked at and deliberately not
+   adopted (see ACTIVE below). input = prompt box, reply = assistant messages (the
    last one is read) */
 const SITES = {
   deepseek: { host: 'chat.deepseek.com', home: 'https://chat.deepseek.com/', input: 'textarea', reply: '.ds-markdown' },
   qwen: { host: 'chat.qwen.ai', home: 'https://chat.qwen.ai/', input: 'textarea.message-input-textarea, textarea', reply: '.qwen-markdown' },
   gemini: { host: 'gemini.google.com', home: 'https://gemini.google.com/app', input: 'rich-textarea .ql-editor, div[contenteditable="true"]', reply: 'message-content, .model-response-text' },
   kimi: { host: 'www.kimi.ai', home: 'https://www.kimi.ai/chat/', input: 'div[contenteditable="true"], textarea', reply: '.markdown' },
+  mistral: { host: 'chat.mistral.ai', home: 'https://chat.mistral.ai/chat', input: 'textarea, div[contenteditable="true"]', reply: '[data-message-part-type="answer"]' },
+  chatgpt: { host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"]' },
+  venice: { host: 'venice.ai', home: 'https://venice.ai/chat', input: 'textarea', reply: '.prose', skip: 'no reply read in a test (anonymous use is rate-limited and gated), so not worth the fragility' },
+  duck: { host: 'duck.ai', home: 'https://duck.ai/chat', input: 'textarea', reply: 'div.space-y-4.whitespace-normal' },
+  deepai: { host: 'deepai.org', home: 'https://deepai.org/chat', input: '#persistentChatbox', reply: '.markdownContainer' },
+  openrouter: { host: 'openrouter.ai', home: 'https://openrouter.ai/chat', input: 'textarea', reply: '[data-message-bubble="assistant"]' },
+  aistudio: { host: 'aistudio.google.com', home: 'https://aistudio.google.com/prompts/new_chat', input: 'textarea', reply: 'ms-text-chunk', skip: 'free Gemini API key exists, and gemini is already covered by the gemini site' },
+  groq: { host: 'console.groq.com', home: 'https://console.groq.com/playground', input: 'textarea', reply: '.prose', skip: 'API playground behind a login, not a chat, and groq has an OpenAI-compatible API' },
 };
+
+/* sites with a `skip` reason were looked at and deliberately not adopted:
+   kept here so they are not evaluated again, but never served or matched */
+const ACTIVE = Object.fromEntries(Object.entries(SITES).filter(([, s]) => !s.skip));
+
+/* a site that will not answer: kind is rate_limit, login or not_accepted.
+   `retry` = seconds until it is worth trying again */
+class SiteRefusal extends Error {
+  constructor(kind, message, retry) {
+    super(message);
+    this.kind = kind;
+    this.retry = retry;
+  }
+}
+
+const REFUSALS = {
+  rate_limit: { status: 429, type: 'rate_limit_error', code: 'rate_limit_exceeded' },
+  login: { status: 401, type: 'authentication_error', code: 'login_required' },
+  not_accepted: { status: 502, type: 'api_error', code: 'prompt_not_accepted' },
+};
+
+/* new page text that says the quota is used up (de/en) */
+const LIMIT_RE = /(message|nachrichten|usage|request|anfrage|daily|tages|free)[\s-]*(limit|quota|kontingent)|limit[\s\w]{0,20}(reached|erreicht|exceeded|überschritten)|(reached|erreicht|exceeded)[\s\w]{0,30}limit|too many (requests|messages)|zu viele (anfragen|nachrichten)|rate[\s-]?limit|quota (exceeded|exhausted)|out of (free )?(messages|credits)/i;
+const LOGIN_RE = /\/(log-?in|sign-?in|sign-?up|auth|authenticate|authorize)\b/i;
+
+/* "in 3 Stunden", "in 45 minutes", "after 2 days" -> seconds, else undefined */
+function parseReset(text) {
+  const m = /(\d+)\s*(hours?|stunden?|std|h|minutes?|minuten?|min|days?|tage?n?)\b/i.exec(text);
+  if(!m) return undefined;
+  const unit = m[2].toLowerCase();
+  return +m[1] * (/^(h|std|hour|stund)/.test(unit) ? 3600 : /^(d|tag)/.test(unit) ? 86400 : 60);
+}
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -122,6 +166,16 @@ class Chat {
       return { count: n.length, text: n.length ? n[n.length - 1].innerText : '' }; })()`);
   }
 
+  pageState() {
+    return this.cdp.eval(`({ href: location.href, lines: document.body.innerText.split('\\n').map(l => l.trim()).filter(Boolean) })`);
+  }
+
+  /* remove an unsent prompt, so it does not pile up in front of the next one */
+  clearInput() {
+    return this.cdp.eval(`(() => { const e = [...document.querySelectorAll(${JSON.stringify(this.site.input)})].find(e => e.offsetParent);
+      if(e) { e.focus(); document.execCommand('selectAll'); document.execCommand('delete'); } })()`).catch(() => {});
+  }
+
   async waitInput(ms = 20000) {
     const sel = JSON.stringify(this.site.input);
     for(const end = Date.now() + ms; Date.now() < end; await sleep(300))
@@ -153,6 +207,8 @@ class Chat {
   /* async generator: yields the reply text as it grows, returns when idle */
   async *#ask(prompt) {
     const before = await this.readReply();
+    const seen = new Set((await this.pageState()).lines);
+    const startPath = new URL((await this.pageState()).href).pathname;
     this.dirty = true;
     await this.waitInput();
     await this.cdp.eval(`[...document.querySelectorAll(${JSON.stringify(this.site.input)})].find(e => e.offsetParent).focus()`);
@@ -169,13 +225,23 @@ class Chat {
       if(await this.inputEmpty()) break;
     }
 
+    if(!(await this.inputEmpty())) {
+      await this.clearInput();
+      const st = await this.pageState();
+      throw this.refusal(st, seen, prompt, startPath) ?? new SiteRefusal('not_accepted', 'the page did not take the prompt (a dialog in the way? try: eval)');
+    }
+
     const { timeout, idle } = this.opts;
     const deadline = Date.now() + timeout * 1000;
     let last = null, changed = Date.now();
     while(Date.now() < deadline) {
       await sleep(400);
       const cur = await this.readReply();
-      if(cur.count <= before.count && cur.text == before.text) continue;
+      if(cur.count <= before.count && cur.text == before.text) {
+        const why = this.refusal(await this.pageState(), seen, prompt, startPath);
+        if(why) throw why;
+        continue;
+      }
       if(cur.text != last) {
         last = cur.text;
         changed = Date.now();
@@ -183,6 +249,19 @@ class Chat {
       } else if(last && Date.now() - changed >= idle * 1000) return;
     }
     if(last === null) throw new Error('no reply seen before timeout');
+  }
+
+  /* a SiteRefusal if the page now says it will not answer, else undefined.
+     only text that is new since before the send counts, and not the
+     prompt's own lines (the user bubble echoes them) */
+  refusal(state, seen, prompt, startPath) {
+    const path = new URL(state.href).pathname;
+    if(path != startPath && LOGIN_RE.test(path)) return new SiteRefusal('login', `${this.site.host} wants a login (${state.href})`, 30);
+    const fresh = state.lines.filter(l => !seen.has(l) && !prompt.includes(l)).join('\n');
+    const m = LIMIT_RE.exec(fresh);
+    if(!m) return undefined;
+    const line = fresh.split('\n').find(l => LIMIT_RE.test(l)) ?? m[0];
+    return new SiteRefusal('rate_limit', `${this.site.host}: ${line}`, parseReset(fresh.slice(fresh.indexOf(line))) ?? 900);
   }
 
   /* serialized: one prompt at a time per tab */
@@ -281,6 +360,7 @@ class Bridge {
   pool = new Map(); /* site name -> Chat[] of tabs we own */
   opening = new Map(); /* site name -> tabs being created */
   waiters = [];
+  cooldown = new Map(); /* site name -> { until (ms), err } for a refusing site */
   #browser;
   #opening = Promise.resolve();
 
@@ -306,7 +386,7 @@ class Bridge {
     try {
       host = new URL(tab.url).host;
     } catch(e) {}
-    return Object.entries(SITES).find(([, s]) => s.host == host);
+    return Object.entries(ACTIVE).find(([, s]) => s.host == host);
   }
 
   async attach(tab, site) {
@@ -347,9 +427,9 @@ class Bridge {
       this.#browser = new CDP();
       await this.#browser.open(this.ws(v.webSocketDebuggerUrl));
     }
-    const { targetId } = await this.#browser.send('Target.createTarget', { url: SITES[name].home, newWindow: false, background: true });
+    const { targetId } = await this.#browser.send('Target.createTarget', { url: ACTIVE[name].home, newWindow: false, background: true });
     const tab = (await this.tabs()).find(t => t.id == targetId);
-    const chat = await this.attach(tab, SITES[name]);
+    const chat = await this.attach(tab, ACTIVE[name]);
     chat.targetId = targetId;
     return chat;
   }
@@ -358,7 +438,7 @@ class Bridge {
      any idle one (reset to a fresh chat), else a new tab up to --max,
      else wait for one to be released */
   async acquire(name, messages) {
-    if(!SITES[name]) throw new Error(`unknown model, use one of: ${Object.keys(SITES).join(', ')}`);
+    if(!ACTIVE[name]) throw new Error(`unknown model, use one of: ${Object.keys(ACTIVE).join(', ')}`);
     for(;;) {
       if(!this.pool.has(name)) this.pool.set(name, []);
       const pool = this.pool.get(name); /* same array throughout, open() awaits */
@@ -393,12 +473,32 @@ class Bridge {
     for(const r of this.waiters.splice(0)) r();
   }
 
+  /* a site that refused, until it is worth asking again */
+  cooling(name) {
+    const c = this.cooldown.get(name);
+    if(c && c.until > Date.now()) return c;
+    this.cooldown.delete(name);
+  }
+
+  refused(name, err) {
+    if(err.retry) this.cooldown.set(name, { until: Date.now() + err.retry * 1000, err });
+  }
+
   models() {
-    return Object.keys(SITES);
+    return Object.keys(ACTIVE).map(id => {
+      const c = this.cooling(id);
+      return { id, object: 'model', owned_by: 'chat-bridge', available: !c, ...(c ? { unavailable: c.err.kind, resets_at: new Date(c.until).toISOString() } : {}) };
+    });
   }
 }
 
-const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
+const json = (o, status = 200, headers = {}) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json', ...headers } });
+
+/* the OpenAI error shape for a refusing site; clients read the status, `code` and Retry-After */
+function refusalResponse(err, retry = err.retry) {
+  const r = REFUSALS[err.kind] ?? REFUSALS.not_accepted;
+  return json({ error: { message: err.message, type: r.type, code: r.code, param: null } }, r.status, retry ? { 'retry-after': String(Math.ceil(retry)) } : {});
+}
 
 function completions(bridge) {
   return async req => {
@@ -412,7 +512,10 @@ function completions(bridge) {
     const tools = body.tools?.length ? body.tools : null;
     if(!messages?.length) return json({ error: { message: 'messages required' } }, 400);
 
-    const name = Object.keys(SITES).find(n => model.includes(n));
+    const name = Object.keys(ACTIVE).find(n => model.includes(n));
+    const cool = bridge.cooling(name);
+    if(cool) return refusalResponse(cool.err, (cool.until - Date.now()) / 1000);
+
     let chat, gen;
     try {
       chat = await bridge.acquire(name, messages);
@@ -445,6 +548,10 @@ function completions(bridge) {
         for await (const t of gen) text = t;
       } catch(e) {
         chat.history = [];
+        if(e instanceof SiteRefusal) {
+          bridge.refused(name, e);
+          return refusalResponse(e);
+        }
         return json({ error: { message: e.message } }, 504);
       } finally {
         bridge.release(chat);
@@ -458,6 +565,25 @@ function completions(bridge) {
       return new Response(chunk({ role: 'assistant', content: '' }) + chunk(delta) + chunk({}, finish) + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
     }
 
+    /* wait for the first reply text, so a refusal can still be a real
+       HTTP status instead of an error event in the middle of a stream */
+    let first;
+    try {
+      first = await gen.next();
+    } catch(e) {
+      chat.history = [];
+      bridge.release(chat);
+      if(e instanceof SiteRefusal) {
+        bridge.refused(name, e);
+        return refusalResponse(e);
+      }
+      return json({ error: { message: e.message } }, 504);
+    }
+    const replies = (async function* () {
+      if(!first.done) yield first.value;
+      yield* gen;
+    })();
+
     /* strings, not bytes: serve() drops Uint8Array chunks (see BUGS) */
     return new Response(
       new ReadableStream({
@@ -465,7 +591,7 @@ function completions(bridge) {
           let sent = '';
           try {
             c.enqueue(chunk({ role: 'assistant', content: '' }));
-            for await (const t of gen) {
+            for await (const t of replies) {
               /* only append-only growth is streamable, a rewrite waits */
               if(t.length > sent.length && t.startsWith(sent)) {
                 c.enqueue(chunk({ content: t.slice(sent.length) }));
@@ -476,7 +602,8 @@ function completions(bridge) {
             c.enqueue(chunk({}, 'stop') + 'data: [DONE]\n\n');
           } catch(e) {
             chat.history = [];
-            c.enqueue(`data: ${JSON.stringify({ error: { message: e.message } })}\n\n`);
+            if(e instanceof SiteRefusal) bridge.refused(name, e);
+            c.enqueue(`data: ${JSON.stringify({ error: { message: e.message, ...(REFUSALS[e.kind] ? { type: REFUSALS[e.kind].type, code: REFUSALS[e.kind].code } : {}) } })}\n\n`);
           }
           bridge.release(chat);
           c.close();
@@ -519,7 +646,7 @@ async function main() {
         port: o.listen,
         async fetch(req) {
           const path = new URL(req.url).pathname.replace(/^\/v1/, '');
-          if(path == '/models') return json({ object: 'list', data: bridge.models().map(id => ({ id, object: 'model', owned_by: 'chat-bridge' })) });
+          if(path == '/models') return json({ object: 'list', data: bridge.models() });
           if(path == '/chat/completions' && req.method == 'POST') return handle(req);
           return json({ error: { message: 'not found' } }, 404);
         },

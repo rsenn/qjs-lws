@@ -482,6 +482,6 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     cd build/x86_64-linux-gnu && ctest -R "test-tcpsocket|test-websocket.js" --timeout 40
 
-- chat-bridge-failed-send-leaves-text-in-input (examples/chat-bridge.js:159): when a send times out the inserted prompt stays in the page's input box, so the next attempt appends to it and ends up in front of the user's own draft. seen while testing the kimi site with a wrong host.
+- repl-model-status-line-hardcoded-endpoint (examples/ollama-repl/repl.js:698): /model (and the startup line) shows api.openai.com as the endpoint for --provider openai even when OPENAI_API_URL points elsewhere, e.g. at a chat-bridge. noticed testing /model against the bridge.
 
-    point a site's host at a page that never submits, send twice, then read the input with: qjsm examples/chat-bridge.js --site kimi eval 'document.querySelector("div[contenteditable=true]").innerText'
+    OPENAI_API_URL=http://127.0.0.1:8089/v1 OPENAI_API_KEY=x qjsm examples/ollama-repl/repl.js --provider openai --model deepseek   # then /model prints "openai/deepseek @ api.openai.com"

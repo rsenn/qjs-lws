@@ -868,6 +868,18 @@ add_custom_command(
 # Ensure the target/install step depends on the generated file
 add_custom_target(generate_search_js ALL DEPENDS "${BIN_JS}")
 
+set(SRC_CHAT_BRIDGE_JS "${CMAKE_CURRENT_SOURCE_DIR}/examples/chat-bridge/chat-bridge.js")
+set(BIN_CHAT_BRIDGE_JS "${CMAKE_CURRENT_BINARY_DIR}/chat-bridge.js")
+
+add_custom_command(
+    OUTPUT "${BIN_CHAT_BRIDGE_JS}"
+    DEPENDS "${SRC_CHAT_BRIDGE_JS}"
+    COMMAND ${CMAKE_COMMAND} -DSRC="${SRC_CHAT_BRIDGE_JS}" -DBIN="${BIN_CHAT_BRIDGE_JS}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/subst-lib-imports.cmake"
+    COMMENT "Transforming chat-bridge.js for installation"
+)
+
+add_custom_target(generate_chat_bridge_js ALL DEPENDS "${BIN_CHAT_BRIDGE_JS}")
+
 # examples/ollama-repl/lib/*.js import the project's own lib/lws/*.js by a
 # relative, in-repo path (../../../lib/lws/...) that only resolves next to
 # this source tree - once installed, lib/ goes dir-less ('file.js') and
@@ -902,14 +914,17 @@ file(GLOB OLLAMA_REPL_LIB_INSTALL_FILES "${OLLAMA_REPL_LIB_BUILD_DIR}/*.js")
 install(FILES ${OLLAMA_REPL_LIB_INSTALL_FILES}
         DESTINATION "${CMAKE_INSTALL_BINDIR}/lib")
 
-# Installed last: BIN_JS is a build-time generated file (see
-# generate_search_js above), not a source file. If it's ever missing at
+# Installed last: BIN_JS and BIN_CHAT_BRIDGE_JS are build-time generated files (see
+# generate_search_js and generate_chat_bridge_js above), not a source file. If it's ever missing at
 # install time (e.g. `cmake --install` run without a prior build), CMake's
 # install script aborts on this file INSTALL - placing this rule last
 # ensures that failure can't also skip installing everything above it.
 install(PROGRAMS "${BIN_JS}"
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
         RENAME search)
+install(PROGRAMS "${BIN_CHAT_BRIDGE_JS}"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        RENAME chat-bridge)
 
 file(GLOB TESTS tests/unittests/test-*.js)
 relative_path(TESTS "${CMAKE_CURRENT_SOURCE_DIR}" ${TESTS})
