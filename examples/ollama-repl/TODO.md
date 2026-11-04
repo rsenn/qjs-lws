@@ -585,3 +585,10 @@ child process on a free port and rotates the starting model per session
 (state in ~/.cache/ollama-repl/bridge-next). Gaps: the browser is not started
 for you (the bridge prints the command), and a repl that is killed hard (not
 via /exit or Ctrl-C) can leave the bridge child running.
+
+Update 2026-11-04: `--allow-paid` (billing guard), `--cdp-host/--cdp-port`,
+`--no-failover` and `--no-handoff` are documented in README.md ("Using the
+chat sites"); `/tools` output is word-wrapped to the terminal width. Open:
+chatgpt, duck and deepai ignore the emulated tools, so a failover onto them
+ends tool work (`tools: false` in `/v1/models` would let the failover skip
+them, chat-bridge/TODO.md idea 5).

@@ -1,7 +1,10 @@
 # ollama-repl
 
 A small Claude-Code-style REPL for chatting with a local [Ollama](https://ollama.com)
-model (`qwen2.5-coder` by default) about the files in your project.
+model (`qwen2.5-coder` by default) about the files in your project. It also
+works against Gemini, any OpenAI-compatible endpoint, and - through
+`examples/chat-bridge` - the free chat websites (DeepSeek, Mistral, Qwen, ...)
+driven in your own browser (`--provider bridge`).
 
 - **Dedicated HTTP client.** `lib/ollama-client.js` talks to Ollama's
   `/api/chat` endpoint directly through the `httpClient` protocol adapter
@@ -159,12 +162,15 @@ against any of the three clients. `API.md` has a full round-trip example.
   key from https://platform.openai.com/api-keys), or set `opts.apiKeyEnv`
   to use a different environment variable for other OpenAI-compatible
   providers (Mistral, Together, Groq, local servers, etc.).
+- `--provider bridge`: a Chrome/Chromium started with
+  `--remote-debugging-port=9222`, logged in to the chat sites you want to
+  use; see [Using the chat sites (`--provider bridge`)](#using-the-chat-sites---provider-bridge).
 - `lws.so` built (see the repo root's build instructions).
 
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
+qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai|bridge] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
         [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes]
 ```
 
@@ -178,8 +184,9 @@ against - defaults to the current directory.
 
 `--model list` prints the chat-capable models the API key can use (name,
 token limits, display name) and exits with `--provider gemini`; with
-`--provider ollama` it prints the output of `ollama list`. Not implemented
-for `--provider openai`.
+`--provider ollama` it prints the output of `ollama list`; with
+`--provider openai` and `--provider bridge` it lists the endpoint's
+`/v1/models`.
 
 `--num-ctx` (default 16384) is the context window asked of Ollama - its own
 default is 4096 tokens, which the project scan plus a couple of attached
@@ -194,6 +201,36 @@ shown, only the answer.
 `--temperature` (default 0.2) keeps edits repeatable. `--max-rounds`
 (default 40) caps tool-calling rounds per prompt. `--yes` runs
 `run_command` without asking.
+
+## Using the chat sites (`--provider bridge`)
+
+```sh
+qjsm examples/ollama-repl/repl.js --provider bridge [--model deepseek] [--cdp-host 127.0.0.1] [--cdp-port 9222]
+```
+
+Starts `examples/chat-bridge` itself on a free port (an OpenAI-compatible
+endpoint that types your prompts into the chat websites open in the
+browser) and talks to it with the OpenAI client; the bridge is stopped on
+exit. Without `--model` the models (one per site) are used in turn, so load
+spreads over the free tiers. The browser is not started for you. Details,
+the site table and per-site quirks: `../chat-bridge/README.md`,
+`../chat-bridge/PROVIDERS.md`.
+
+- **Automatic failover.** When a site hits its message limit, asks you to
+  log in, or does not take the prompt, the turn is retried on the next
+  available model (one line says so). The conversation is compacted first
+  (`lib/handoff.js`): system prompt and project scan kept, the last
+  `--handoff-turns N` (3) user turns kept with big tool results clipped,
+  older turns summarized by a small local model (`--handoff-model`,
+  default `qwen3:4b-instruct`, needs a running ollama; without it a plain
+  digest is used). `--no-handoff` replays everything, `--no-failover`
+  stays on the chosen model. Failover only applies when every model of the
+  endpoint is `owned_by: "chat-bridge"`.
+- **Billing guard.** Pay-as-you-go sites (openrouter) are skipped unless
+  `--allow-paid` is given.
+- Tool calls are emulated in text by the bridge; DeepSeek, Mistral, Qwen,
+  Gemini and Kimi passed a small coding task, ChatGPT, duck.ai and DeepAI
+  answer chat but do not use the tools (see PROVIDERS.md).
 
 ## Coding work
 
@@ -347,7 +384,7 @@ this project's own conventions rather than guessed from memory. Works the
 same against any provider:
 
 ```sh
-qjsm examples/ollama-repl/repl.js --provider ollama   # or --provider gemini / openai
+qjsm examples/ollama-repl/repl.js --provider ollama   # or --provider gemini / openai / bridge
 ```
 
 Any prompt that looks like a binding request (contains "binding",

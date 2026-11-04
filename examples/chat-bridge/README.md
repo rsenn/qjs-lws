@@ -147,8 +147,9 @@ markdown) waits until the text is append-only again.
 Web chats have no tool API. For a request with `tools`:
 
 1. On a fresh chat the first prompt is prefixed with `toolPreamble()`: the
-   tools are described and the model is told to answer a call with only a
-   fenced `tool_call` JSON block.
+   tools are described, a worked example call is shown, and the model is told
+   to answer a call with only a fenced `tool_call` JSON block. Later requests
+   to the same chat get a short reminder (`TOOL_REMINDER`) appended instead.
 2. Tool results come back as `role: tool` messages and are flattened to
    `[tool result]` lines; earlier assistant tool calls are re-rendered as the
    same fenced blocks, so the model sees a consistent transcript.
@@ -158,6 +159,11 @@ Web chats have no tool API. For a request with `tools`:
    `finish_reason: "tool_calls"`.
 4. Calls can only be told apart once the reply is complete, so a request
    **with tools is answered whole even when streaming was asked**.
+
+Measured per site (PROVIDERS.md): deepseek, qwen, gemini, kimi and mistral
+follow the protocol and passed a coding task; chatgpt (logged out), duck and
+deepai still ignore it, even with the worked example (duck sometimes obeys
+with the end-of-prompt reminder).
 
 ### Refusals
 
@@ -240,13 +246,13 @@ Status as of 2026-11. "verified" = a prompt/reply round trip through `serve`.
 | site | status | notes |
 |---|---|---|
 | deepseek | verified | plain, streaming, tool calls |
-| qwen | verified | plain |
-| gemini | verified | plain |
-| kimi | verified | EU users: `www.kimi.ai/chat` (not `kimi.com`) |
-| chatgpt | verified, logged out layout | logged-in layout not tested; input `#prompt-textarea, #mobile-composer-prompt` |
-| duck | verified | needs the terms dialog accepted once by the user |
-| deepai | verified | |
-| openrouter | verified | |
+| qwen | verified | plain, streaming, tool calls |
+| gemini | verified | plain, streaming, tool calls (a replayed transcript is read as instructions) |
+| kimi | verified | plain, streaming, tool calls; EU users: `www.kimi.ai/chat` (not `kimi.com`) |
+| chatgpt | verified, logged out layout | logged-in layout not tested; input `#prompt-textarea, #mobile-composer-prompt, div.ProseMirror`; chat only, ignores tools |
+| duck | verified (chat only) | needs the terms dialog accepted once by the user; ignores tools |
+| deepai | verified (chat only) | ignores tools; can sit in an image-edit mode |
+| openrouter | verified, **metered** | pay-as-you-go: refused unless `--allow-paid`; very slow stream |
 | mistral | verified (plain, multi-turn, streaming, tools) | free tier has a message limit; concurrency and a long stream untested because the limit was hit |
 | venice | skipped | no reply read in a test (anonymous use is rate-limited and gated) |
 | aistudio | skipped | free Gemini API key exists, and gemini is already covered |

@@ -159,6 +159,12 @@ Several sites host many models. Proposal: put the model in the request's
 
 ## Done
 
+- tool use for chatgpt, duck and deepai tried harder (2026-11-04): worked
+  example call in `toolPreamble()` plus an end-of-prompt reminder; duck
+  sometimes obeys, deepai and chatgpt still do not (open, see PROVIDERS.md)
+- the library and tests no longer rely on the qjs-modules compat-layer
+  globals (`setTimeout` etc. imported from `os`); ctest runs them with bare
+  `qjs`
 - failover step 4: `ollama-repl/lib/handoff.js`. A failover keeps the base
   messages, the last 3 user turns (big tool results clipped to 600 chars) and
   replaces older turns by a summary from `qwen3:4b-instruct` (headings FACTS,
