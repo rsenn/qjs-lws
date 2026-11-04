@@ -67,7 +67,7 @@ import { SentFiles } from './lib/sent-files.js';
 import { FileExchange } from './lib/file-exchange.js';
 import { runCommand } from './lib/run-command.js';
 import { extractTextToolCalls } from './lib/text-tool-calls.js';
-import { piped, dim, red, green } from './lib/ansi.js';
+import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
 /* Bounds the tool-calling loop (see TOOLS/lib/tool-requests.js and
    runToolLoop() below) - a tool-call round costs a real network round trip
@@ -942,7 +942,7 @@ async function main() {
       }
 
       if(prompt === '/tools') {
-        console.log(TOOLS.map(t => `${(t.function?.name ?? t.name).padEnd(14)} ${(t.function?.description ?? t.description ?? '').split('\n')[0]}`).join('\n'));
+        console.log(TOOLS.map(t => wrapHanging((t.function?.name ?? t.name).padEnd(14) + ' ', (t.function?.description ?? t.description ?? '').split('\n')[0])).join('\n'));
         return;
       }
 
