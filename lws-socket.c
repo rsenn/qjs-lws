@@ -899,6 +899,57 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   return JS_NewInt32(ctx, (int)len);
 }
 
+/* bytes the header lines of a headers object need, name + value + ": " and
+   the line end, so respond() can size its buffer to the real headers (Bun
+   sends any amount of headers, a fixed buffer silently lost the rest) */
+static size_t
+lwsjs_headers_size(JSContext* ctx, JSValueConst obj) {
+  JSPropertyEnum* tab = 0;
+  uint32_t tab_len;
+  size_t total = 0;
+
+  if(JS_GetOwnPropertyNames(ctx, &tab, &tab_len, obj, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM))
+    return 0;
+
+  for(uint32_t j = 0; j < tab_len; j++) {
+    size_t nlen = 0, vlen;
+    const char* name = JS_AtomToCStringLen(ctx, &nlen, tab[j].atom);
+    JSValue value = JS_GetProperty(ctx, obj, tab[j].atom);
+    uint32_t nelem = 0;
+
+    if(js_array_length(ctx, value, &nelem)) {
+      for(uint32_t k = 0; k < nelem; k++) {
+        JSValue elem = JS_GetPropertyUint32(ctx, value, k);
+        const char* v = JS_ToCStringLen(ctx, &vlen, elem);
+
+        if(v) {
+          total += nlen + vlen + 4;
+          JS_FreeCString(ctx, v);
+        }
+
+        JS_FreeValue(ctx, elem);
+      }
+    } else {
+      const char* v = JS_ToCStringLen(ctx, &vlen, value);
+
+      if(v) {
+        total += nlen + vlen + 4;
+        JS_FreeCString(ctx, v);
+      }
+    }
+
+    JS_FreeValue(ctx, value);
+
+    if(name)
+      JS_FreeCString(ctx, name);
+
+    JS_FreeAtom(ctx, tab[j].atom);
+  }
+
+  js_free(ctx, tab);
+  return total;
+}
+
 static JSValue
 lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
   LWSSocket* s;
@@ -971,15 +1022,69 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
   /* the header block of a response has to fit in here: with the 2 KB lws
      recommends, a response with more headers than that silently lost the
      ones that did not fit */
-  const size_t space = 8 * LWS_RECOMMENDED_MIN_HEADER_SPACE + 32;
-  uint8_t* const start = view ? vstart : alloca(LWS_PRE + space) + LWS_PRE;
+  size_t space = LWS_RECOMMENDED_MIN_HEADER_SPACE + 32;
+  uint8_t* hbuf = NULL; /* heap buffer when the headers do not fit the stack one */
+
+  if(!view && header_arg != -1)
+    space += lwsjs_headers_size(ctx, argv[header_arg]);
+
+  uint8_t* start;
+
+  if(view)
+    start = vstart;
+  else if(space <= 8 * LWS_RECOMMENDED_MIN_HEADER_SPACE) {
+    start = alloca(LWS_PRE + space) + LWS_PRE;
+  } else {
+    if(!(hbuf = js_malloc(ctx, LWS_PRE + space))) {
+      if(is_str)
+        JS_FreeCString(ctx, (const char*)ptr);
+
+      return JS_ThrowOutOfMemory(ctx);
+    }
+
+    start = hbuf + LWS_PRE;
+  }
+
   uint8_t *const end = view ? view->end : start + space, *p = start;
 
-  if(lws_add_http_common_headers(s->wsi, code, NULL, len > 0 ? (uint64_t)len : LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end)) {
+#define RESPOND_RETURN(x) \
+  do { \
+    JSValue r_ = (x); \
+    js_free(ctx, hbuf); \
+    return r_; \
+  } while(0)
+
+  /* lws_add_http_common_headers() answers `connection: close` whenever there
+   * is no content-length, which is wrong for a chunked response (the chunk
+   * framing delimits the body) and for a status that has no body at all
+   * (204, 304, 1xx; they must not carry a content-length either). h1 only:
+   * leave the connection alive when the request allowed it, like Bun. */
+  BOOL delimited = FALSE;
+
+  if(!s->wsi->mux_substream && len <= 0) {
+    if(code == 204 || code == 304 || (code >= 100 && code < 200))
+      delimited = TRUE;
+    else if(header_arg != -1) {
+      JSValue te = JS_GetPropertyStr(ctx, argv[header_arg], "transfer-encoding");
+      const char* tes = JS_IsString(te) ? JS_ToCString(ctx, te) : NULL;
+
+      if(tes && !strcasecmp(tes, "chunked"))
+        delimited = TRUE;
+
+      if(tes)
+        JS_FreeCString(ctx, tes);
+
+      JS_FreeValue(ctx, te);
+    }
+  }
+
+  if(delimited ? (lws_add_http_header_status(s->wsi, code, &p, end) ||
+                  (s->wsi->http.conn_type != HTTP_CONNECTION_KEEP_ALIVE && lws_add_http_header_by_token(s->wsi, WSI_TOKEN_CONNECTION, (const unsigned char*)"close", 5, &p, end)))
+               : lws_add_http_common_headers(s->wsi, code, NULL, len > 0 ? (uint64_t)len : LWS_ILLEGAL_HTTP_CONTENT_LEN, &p, end)) {
     if(is_str)
       JS_FreeCString(ctx, (const char*)ptr);
 
-    return JS_ThrowInternalError(ctx, "lws_add_http_common_headers failed");
+    RESPOND_RETURN(JS_ThrowInternalError(ctx, "lws_add_http_common_headers failed"));
   }
 
   JSPropertyEnum* tab = 0;
@@ -1035,7 +1140,7 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     if(is_str)
       JS_FreeCString(ctx, (const char*)ptr);
 
-    return JS_EXCEPTION;
+    RESPOND_RETURN(JS_EXCEPTION);
   }
 
   int err;
@@ -1067,7 +1172,7 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     if(is_str)
       JS_FreeCString(ctx, (const char*)ptr);
 
-    return JS_ThrowInternalError(ctx, "lws_finalize_http_header returned %d", err);
+    RESPOND_RETURN(JS_ThrowInternalError(ctx, "lws_finalize_http_header returned %d", err));
   }
 
   written = lws_ptr_diff_size_t(p, start);
@@ -1113,7 +1218,7 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       }
 
       if(!wc)
-        return JS_ThrowOutOfMemory(ctx);
+        RESPOND_RETURN(JS_ThrowOutOfMemory(ctx));
 
       written += (size_t)len;
 
@@ -1139,7 +1244,7 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
       lwsjs_view_commit(ctx, argv + dst_arg, view);
   }
 
-  return js_new_size(ctx, written);
+  RESPOND_RETURN(js_new_size(ctx, written));
 }
 
 /* wsi.transactionCompleted() - manual escape hatch for a handler that
