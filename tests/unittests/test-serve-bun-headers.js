@@ -25,6 +25,7 @@ const get = async path => fetch(`http://127.0.0.1:${server.port}${path}`, { h2: 
 let r = await get('/');
 assertEquals('text/plain;charset=utf-8', r.headers.get('content-type'), 'string body');
 assertEquals('hello', await r.text(), 'string body text');
+assertEquals(true, /GMT$/.test(r.headers.get('date') ?? ''), 'Date header');
 
 r = await get('/bytes');
 assertEquals('application/octet-stream', r.headers.get('content-type'), 'bytes body');
