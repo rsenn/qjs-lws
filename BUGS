@@ -146,6 +146,13 @@
     tests/test-keepalive.js's fixture server can't
     reproduce this directly (its keepalive_timeout closes cleanly, a real
     FIN, which the client notices right away - a different failure mode);
+    2026-11-05: not reproducible against a local keep-alive server. A python
+    http.server (HTTP/1.1, content-length or chunked replies) with
+    lib/fetch.js (keepAlive default, h2:false): 3 sequential POSTs with gaps
+    of 0, 0.3 and 3 s all succeed on the same client port (the connection
+    IS reused). So the entry may be stale or need the exact Ollama
+    behaviour; do not spend time on it without a reproduction.
+
     reproduce against a real Ollama server instead: qjsm
     examples/ollama-repl/repl.js --provider ollama --model
     qwen2.5-coder:latest -x -x (second -x for LLL_USER), send one prompt,
@@ -324,3 +331,11 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 - blob-so-links-stream-so-not-found (lib/lws/body.js:111): test-body.js fails with could not load module filename /usr/local/lib/x86_64-linux-gnu/quickjs/blob.so because that installed qjs-modules blob.so needs stream.so which ldd reports not found; an install problem of qjs-modules, but body.js (text()/blob()) depends on it. found running ctest with bare qjs.
 
     ldd /usr/local/lib/x86_64-linux-gnu/quickjs/blob.so | grep "not found"
+
+- serve-responses-always-connection-close (lib/serve.js, lib/lws/response.js:353; lws-socket.c:971): every response of serve() carries "connection: close" (curl -v shows it), because respond() is called with an unknown length (len <= 0 becomes LWS_ILLEGAL_HTTP_CONTENT_LEN) even for a fully known body, so no keep-alive is possible against our own server. found while trying to reproduce h1-late-queued-pipeline-never-promoted.
+
+    serve({ port: 18099 }, () => new Response('hello'))   then   curl -sv http://127.0.0.1:18099/a   (look for connection: close)
+
+- fetch-reuses-connection-announced-closed (lib/fetch.js:116, lib/lws/protocols.js:502): with the default keepAlive a second sequential fetch() to the same serve() server fails with TypeError: server closed before responding, because the first response said connection: close and the client still queues the second request on that connection instead of opening a new one. gaps of 0 to 1.5 s all fail, keepAlive: false works.
+
+    const s = serve({ port: 0, hostname: '127.0.0.1' }, () => new Response('x')); await fetch(url, { h2: false }).then(r => r.text()); await fetch(url, { h2: false })
