@@ -14,6 +14,7 @@ const url = `http://127.0.0.1:${server.port}/`;
 
 for(const [method, body] of [['GET'], ['POST', 'x'], ['GET'], ['POST', 'y']]) {
   const res = await fetch(url, { method, body, h2: false });
+  assertEquals('2', res.headers.get('content-length'), 'an in-memory body goes out with content-length (keep-alive)');
   assertEquals('ok', await res.text(), `${method} after earlier requests`);
 }
 

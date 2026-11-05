@@ -332,7 +332,6 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     ldd /usr/local/lib/x86_64-linux-gnu/quickjs/blob.so | grep "not found"
 
-- serve-responses-always-connection-close (lib/serve.js, lib/lws/response.js:353; lws-socket.c:971): every response of serve() carries "connection: close" (curl -v shows it), because respond() is called with an unknown length (len <= 0 becomes LWS_ILLEGAL_HTTP_CONTENT_LEN) even for a fully known body, so no keep-alive is possible against our own server. found while trying to reproduce h1-late-queued-pipeline-never-promoted.
+- test-serve-and-test-fetch-time-out (tests/test-serve.js, tests/test-fetch.js): both run into a 40 s timeout under bare qjs and print no result line, with and without the keep-alive serve change; tests/test-client.js also fails its plain TCP case (expected echo of hello-tcp, got undefined). These are the scripts in tests/ (not run by ctest). found checking the serve keep-alive fix.
 
-    serve({ port: 18099 }, () => new Response('hello'))   then   curl -sv http://127.0.0.1:18099/a   (look for connection: close)
-
+    qjs tests/test-serve.js   (with QUICKJS_MODULE_PATH set to build/x86_64-linux-gnu first)
