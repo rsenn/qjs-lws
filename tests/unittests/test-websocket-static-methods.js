@@ -1,4 +1,5 @@
 import { setTimeout } from 'os';
+import { exit } from 'std';
 /**
  * Test WebSocket static methods:
  * - WebSocket.connect(url, protocols?) - returns Promise<WebSocket>
@@ -69,4 +70,4 @@ await tests({
 });
 
 console.log('✅ All WebSocket static method tests passed');
-process.exit(0);
+exit(0);
