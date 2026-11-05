@@ -1,0 +1,127 @@
+2026-11-05  Roman Senn  <roman.l.senn@gmail.com>
+
+	* ChangeLog: New, GNU style.
+	* CLAUDE.md: New section ChangeLog (format, examples/ exempt); stage
+	files by name.
+
+	* lib/tcpsocket.js (TCPSocket.listen): The message callback no longer
+	returns the result of dispatchEvent().  lws reads a non-zero return of
+	a callback as "close the connection", so a server that wrote from its
+	data handler lost the connection after the first message.
+
+	* lib/serve.js (flush): Send a Date header and, for a body whose type
+	is known, a default content-type, the way Bun does: text/plain;
+	charset=utf-8 for a string, application/octet-stream for bytes, the
+	type of a Blob, application/x-www-form-urlencoded for URLSearchParams.
+	An in-memory string or byte body is now sent with content-length
+	instead of streamed, so the connection can be kept alive.
+	(Server#url, serve): Pass the iface 127.0.0.1 for the host name
+	"localhost" (as Bun binds it); lws takes an interface name or an
+	address, and with a host name listenPort stayed 0.
+	* lib/lws/response.js (Response.json): Use "application/json;charset=utf-8".
+	* lws-socket.c (lwsjs_headers_size): New.  Size of the header lines of
+	a headers object.
+	(lwsjs_socket_respond): Size the header buffer from the real headers
+	(heap buffer when large) instead of a fixed 2 KB; a header that does
+	not fit is an error and no longer dropped.  Chunked responses and the
+	statuses 204, 304 and 1xx on h1 keep the connection alive (status line
+	written without lws_add_http_common_headers, which answers
+	"connection: close" for an unknown length).
+	* tests/unittests/test-serve-bun-headers.js: New.
+	* tests/unittests/test-large-response-headers.js: New.
+
+	* lib/fetch.js (fetch): Retry once on a fresh connection when the
+	request queued on the shared connection died with "server closed
+	before responding", for bodies that can be sent again.
+	(fetchOnce): New, the former body of fetch.
+	(buildContext): Ask for 32 KB header buffers (maxHttpHeaderData).
+	* tests/unittests/test-fetch-reuse.js: New.
+
+	* lws-context.c (lwsjs_context_creation_info_fromobj): Read
+	max_http_header_data.
+
+	* lws-vhost.c (lwsjs_vhost_constructor): A callback mount that names a
+	protocol which is not in the protocols list now throws a TypeError
+	instead of creating a mount that never answers.
+	* tests/unittests/test-vhost-bad-mount.js: New.
+
+	* lws-socket.c (lwsjs_socket_write, lwsjs_socket_transaction_completed)
+	(lwsjs_socket_long_poll_rxonly, lwsjs_socket_http_client_read)
+	(lwsjs_socket_add_header, lwsjs_socket_client_http_multipart): Throw
+	"socket is closed" when lwsjs_socket_destroy() has zeroed the wsi,
+	instead of dereferencing a NULL pointer.
+
+	* lws-protocol.c (lwsjs_callback_protocol): When wsi.close() is called
+	from inside the ESTABLISHED or CLIENT_ESTABLISHED callback, run the JS
+	closed handler ourselves, once: lws treats the connection as never
+	opened and skips CLOSED, so onClosed() never ran.  The close code still
+	goes out because the callback keeps returning -1.
+	(pollfd_handler): Bound the forced-service loop to 64 rounds; the rest
+	is picked up by the service tick, so a wsi that keeps asking for
+	service can no longer starve JS timers.
+	* lws-socket.h (LWSSocket): New bit closed_fired.
+	* tests/unittests/test-ws.js: Passes now (no change to the file).
+
+	* lib/websocket.js (WebSocket#send): The drain callback no longer
+	returns the result of dispatchEvent().  lws closed the connection
+	right after the first send().
+
+	* lib/rpc/json-rpc-handler.js (handleSingleRequest): params is
+	optional.  The message of a thrown error goes over the wire instead of
+	"Server error", with the error's data or its name and message in data.
+
+	* cmake/BuildLibwebsockets.cmake (build_libwebsockets): Pass the
+	arguments after the legacy target name as step dependencies; the test
+	"if(ARGN)" was never true inside a macro.
+	* cmake/FindLibreSSL.cmake (find_libressl): Only query the libressl
+	target when it exists; append LIBRARY_DIR to the install rpath, not
+	the undefined LIBRARY_PATH.
+
+	* tests/unittests/tinytest.js: TEST_ONLY=<substring> runs only the
+	tests whose name contains it.  Print failures with console.log when
+	console.error is missing (bare qjs).
+	* tests/unittests/test-context-features.js: Pass the body before the
+	headers to respond() (the other order sends an empty body) and resolve
+	on the end of the HTTP transaction, not on the close of a kept-alive
+	connection.
+	* tests/unittests/test-udp-send-integration.js,
+	tests/unittests/test-websocket-server-members.js,
+	tests/unittests/test-websocket-static-methods.js: Import setTimeout,
+	clearTimeout and exit instead of using the compat layer globals.
+	* BUGS: Remove the fixed entries, file the new ones, note what could
+	not be reproduced.
+
+	* lib/logger.js, lib/lws/body.js, lib/rpc/common.js: A missing
+	qjs-modules module (console, blob, bjson) is reported with a clear
+	message.  (Written by another session; committed together with the
+	serve changes above.)
+
+2026-11-04  Roman Senn  <roman.l.senn@gmail.com>
+
+	* lib/serve.js (serve): Translate the tls option with
+	tlsContextOptions, forward the response headers, accept Uint8Array
+	chunks of a streamed body, answer h2 bodies.
+	(toResponse): Pass through a Response of another implementation.
+	(respond): No error answer when the client has hung up.
+	* lib/lws/response.js (wireData): New.
+	(ServerResponse#flushHeaders): Send the first chunk together with the
+	headers under h2.
+
+	* lws-socket.c (lwsjs_socket_respond, lwsjs_socket_want_write): Throw
+	"socket is closed" after the client disconnected; the wsi pointer had
+	been zeroed by lwsjs_socket_destroy() and the native code crashed
+	(segmentation fault in lws_add_http_header_status).
+	* tests/unittests/test-server-client-disconnect.js: New.
+	* tests/unittests/test-server-lifecycle.js: Import Response.
+	* tests/unittests/test-tcpsocket-options.js: Use exit from std.
+
+	* lib/tcpsocket.js, lib/lws/abort.js, lib/lws/streams.js: Import
+	setTimeout and clearTimeout from os instead of relying on the global
+	of the qjs-modules compat layer.
+
+	* CMakeLists.txt: Install examples/chat-bridge/chat-bridge.js as
+	bin/chat-bridge.  Run the unit tests with the bare qjs, with
+	QUICKJS_MODULE_PATH set to the build and the module directories (not
+	the source directory: a second module instance was loaded from it).
+	* cmake/subst-lib-imports.cmake: Rewrite '../../lib/ imports of the
+	installed script.

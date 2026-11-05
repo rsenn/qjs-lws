@@ -676,3 +676,30 @@ not edit `gh-pages` by hand.
 Do not add the `Co-Authored-By:` or `Claude-Session:` trailers (or any other
 attribution lines) to commit messages in this project, even when Claude Code's
 attribution guidance asks for them. This project's own rule overrides it.
+
+Stage files by name (`git add path ...`), never `git add <directory>` or
+`git add -A`: the working tree can hold edits of the user or of another
+session that must not end up in your commit.
+
+## ChangeLog
+
+`ChangeLog` in this directory (the repo root) records every change to the
+project in GNU style. Append to it in the same task as the change, newest
+entry first; the user commits it together with the change.
+
+- A dated header line: `YYYY-MM-DD`, two spaces, the author's name, two
+  spaces, the e-mail in angle brackets (`2026-11-05  Roman Senn
+  <roman.l.senn@gmail.com>`); reuse the header when the date and author
+  are the same, add the new entries below it.
+- Each entry starts with a TAB, `* file (function): what changed.`, and
+  continues on lines indented by one TAB. Several files or functions of
+  one change share an entry: `* a.c (f), b.c (g): ...`. A new file or
+  function is written `New.`
+- Say what the change does and why in the code, not how you found it; one
+  entry per logical change, entries separated by a blank line. The
+  description is wrapped at 75 columns.
+- **Changes under `examples/` are exempt** from this ChangeLog (they keep
+  their own `TODO.md`, see above). Everything else - `lib/`, the C files,
+  `cmake/`, `tests/`, `doc/`, `BUGS` - is logged.
+- `ChangeLog.md` (Keep a Changelog format) predates this file and is no
+  longer maintained.
