@@ -467,12 +467,12 @@ done - see item 4a above for the same live-verification gap.
   gone, because `GeminiClient` (unlike `OpenAIClient`) never pinned ALPN
   and was negotiating h2 with Google's servers - h2 has its own
   connection-reuse behavior independent of the app-level pipeline flag.
-  Forcing `alpn: 'http/1.1'` (mirroring `OpenAIClient`'s own existing
-  workaround for a different h2 bug) fixed it; see BUGS:
-  gemini-client-h2-second-request-queued-never-promoted for the exact
-  trace and why the root mechanism wasn't fully pinned down. Verified live
-  against real Gemini: 3 sequential paused requests, previously reliably
-  failing on the 2nd, all completed correctly after the ALPN change.
+  Forcing `alpn: 'http/1.1'` (mirroring `OpenAIClient`'s own workaround
+  for a different h2 bug) hid it. 2026-11-05: the workaround is removed
+  again - with the lws.so and lib fixes of that day (the early h2
+  ESTABLISHED report, the file-completion transaction) three sequential
+  paused requests (0, 3 and 6 s gaps), `chat()` and `chatStream()`, all
+  complete over h2 against real Gemini (gemini-3.1-flash-lite, two runs).
   `OpenAIClient` not re-verified live (same live-verification gap as the
   rest of it, see item 4a above).
 
@@ -582,7 +582,9 @@ Open:
 
 Also done: `--provider bridge` (lib/bridge-process.js) runs the chat-bridge as a
 child process on a free port and rotates the starting model per session
-(state in ~/.cache/ollama-repl/bridge-next). Gaps: the browser is not started
+(state in ~/.cache/ollama-repl/bridge-next). The bridge now navigates blank
+tabs that are already open before it creates any (`chat-bridge/README.md`,
+"Tabs"); `--provider bridge` has no option for `--new-tabs` yet. Gaps: the browser is not started
 for you (the bridge prints the command), and a repl that is killed hard (not
 via /exit or Ctrl-C) can leave the bridge child running.
 

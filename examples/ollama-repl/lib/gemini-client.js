@@ -198,21 +198,6 @@ export class GeminiClient {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
-      /* Forces http/1.1 over ALPN instead of letting the server negotiate
-         h2. Google's servers happily negotiate h2, and h2 connections
-         reuse/multiplex independently of the app-level LCCSCF_PIPELINE
-         flag (which only gates h1's own opt-in reuse path,
-         lib/core-net/client/connect2.c) - live testing against a real
-         Gemini endpoint showed a 2nd request landing in exactly the
-         ESTABLISHED_CLIENT_HTTP-before-CLIENT_HTTP_WRITEABLE symptom
-         removing LCCSCF_PIPELINE was meant to fix (see BUGS:
-         h1-late-queued-pipeline-never-promoted) even with that flag gone,
-         right after a 1st request that had negotiated h2. Forcing h1
-         removes h2 (and whatever reuse/coalescing it does) from the
-         picture entirely - same workaround OpenAIClient already uses,
-         there for an unrelated h2 WINDOW_UPDATE bug (see its own
-         comment). */
-      alpn: 'http/1.1',
     });
 
     // Registered synchronously, right after connect() resolves - no
@@ -324,7 +309,7 @@ export class GeminiClient {
 
       this.#logger.request('GET', url, headers);
 
-      const { req, wsi } = await this.#adapter.connect(this.#ctx, url, { method: 'GET', headers, alpn: 'http/1.1' });
+      const { req, wsi } = await this.#adapter.connect(this.#ctx, url, { method: 'GET', headers });
       const resp = await this.#awaitResponse(req, wsi);
       const data = await resp.json().catch(() => null);
 
