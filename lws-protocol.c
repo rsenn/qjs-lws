@@ -70,7 +70,12 @@ pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* ar
    * announce, e.g. a full response that arrived in one read(). external
    * poll loops must drive it, or the wsi waits forever. see
    * lws_service_adjust_timeout() in lws-service.h. */
-  while(lws_service_adjust_timeout(pc->lws, 1, 0) == 0)
+  /* bounded: a wsi that keeps asking for forced service without ever making
+   * progress (a client HTTP wsi nobody drains, see BUGS
+   * deferred-close-hangs-on-established-client-http) would spin here forever
+   * and starve every JS timer. What is left is picked up by the service tick
+   * (lws-context.c), which services once per event loop turn. */
+  for(int i = 0; i < 64 && lws_service_adjust_timeout(pc->lws, 1, 0) == 0; ++i)
     lws_service_tsi(pc->lws, -1, 0);
 
   return JS_UNDEFINED;

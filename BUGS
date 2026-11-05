@@ -60,6 +60,15 @@
     });
     ctx.clientConnect({ address: 'localhost', port: 29990, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
 
+    2026-11-05: pollfd_handler's forced-service loop (lws-protocol.c) is now
+    bounded (64 iterations, the rest is picked up by the service tick), so a
+    wsi that keeps asking for service can no longer starve JS timers. The
+    live-lock itself could NOT be reproduced with a plain wsi.close() from
+    onEstablishedClientHttp against a local server (timers kept firing, with
+    old and new lws.so), so whether the bounded loop cures the original
+    case is unconfirmed; the body of a deferred-closed response is still not
+    drained.
+
 - async-dns-qtype-ignored-on-cache-fill (libwebsockets/lib/system/async-dns/async-dns.c,
   used via lws_async_dns_query() from the new ctx.resolve() binding in
   lws-context.c): querying the same hostname with qtype AAAA after (or
