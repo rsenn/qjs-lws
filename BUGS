@@ -1,17 +1,3 @@
-- ws-deflate-final-fragment-unreliable (lws-context.c:488-499): with permessage_deflate
-  opted in, lws_is_final_fragment() reportedly tracks decompression steps rather than
-  wire frames, so every fragment of a large message may report final. Not reproduced:
-  with deflate off (the default) 4 KB to 200 KB messages, sent from a raw socket in
-  segments of 100 to 100000 bytes, all reach reassembleFragments() complete and with
-  only the last fragment final. The earlier report of messages over ~4221 bytes from
-  Chrome never arriving was not reproduced either (its repro never assigned onMsg); the
-  deflate-on case has not been tested.
-
-    // server: createServer({ ..., permessage_deflate: true }) with a WsProtocol whose
-    // message is wrapped in reassembleFragments(); client negotiates permessage-deflate
-    // and sends a compressed text message over 4096 bytes - check whether only the
-    // last fragment reports final
-
 - deferred-close-hangs-on-established-client-http (lws-protocol.c:~50,
   pollfd_handler's forced-service while loop; ops-h1.c:719-747,
   rops_handle_POLLIN_h1): closing an HTTP client wsi from
@@ -69,50 +55,6 @@
     case is unconfirmed; the body of a deferred-closed response is still not
     drained.
 
-- async-dns-qtype-ignored-on-cache-fill (libwebsockets/lib/system/async-dns/async-dns.c,
-  used via lws_async_dns_query() from the new ctx.resolve() binding in
-  lws-context.c): querying the same hostname with qtype AAAA after (or
-  instead of) qtype A returns both the A and AAAA records mixed together
-  in a single result, rather than only the records matching the requested
-  type. Confirmed against a real external name (example.com, via the
-  sandbox's systemd-resolved stub at 127.0.0.53) - both { type: 'A' } and
-  { type: 'AAAA' } queries in separate fresh LWSContexts came back with
-  the same four addresses (two IPv4, two IPv6). Not narrowed further -
-  could be the DNS cache keying by name only and not by qtype, or the
-  query construction itself not restricting the wire request to one
-  record type. Not in scope to fix here since it's inside the vendored
-  libwebsockets submodule, not this project's own binding code.
-
-    const ctx = new LWSContext({});
-    console.log(await ctx.resolve('example.com', { type: 'AAAA' }));
-    // -> includes IPv4 addresses too, not just AAAA/IPv6
-
-- false-positive-unhandled-rejection-warning (qjsm interpreter, promise job
-  queue): `await`ing a synchronously-throwing async function still prints
-  "Possibly unhandled promise rejection: <Error>" to stderr even when the
-  `await` is directly inside a `try { ... } catch { ... }` that correctly
-  catches it - cosmetic (the catch block does run, execution continues
-  normally), but noisy. Found while testing the new SEARCH: request
-  channel's error path (lib/web-search.js's webSearch() throwing
-  synchronously when GOOGLE_API_KEY/GOOGLE_CSE_ID aren't set, caught by
-  lib/tool-requests.js's runRequests()). Reproduces with a two-line async
-  function unrelated to this project's own code, both at top level and
-  nested inside another async function - an interpreter/job-queue
-  diagnostic quirk, not specific to ollama-repl. Not investigated further
-  or fixed - would need digging into quickjs's own promise rejection
-  tracking, out of scope here.
-
-    async function f() { throw new Error('boom'); }
-    try { await f(); } catch(e) { console.log('caught:', e.message); }
-    // prints "Possibly unhandled promise rejection: Error: boom" to
-    // stderr anyway, then "caught: boom" - the catch worked fine, the
-    // warning is just wrong
-
-- serve-upgrade-hangs-in-fuller-scenario (lib/serve.js, server.upgrade() / makeUpgradeHook()): 
-  server.upgrade() works in every focused test tried - a raw createServer()+WsProtocol+upgrade-hook repro, a raw createServer()+WebSocket.protocol()+upgrade-hook repro, and a minimal serve({fetch, websocket}) test with a single /ws endpoint and ws.data all connected and exchanged messages correctly - but a fuller end-to-end test (multiple endpoints, a preceding plain fetch() request, an assert-heavy client harness) left the WS client hanging with no open/error/close event ever firing, no native LLL_USER log line for the attempt at all, and no clear repro reduced yet before this was set aside to finish the rest of the task. Something about the fuller scenario's exact shape triggers it; isolated pieces of that same scenario (plain fetch before connecting, URL parsing in the fetch handler, the connect()-via-Promise client helper) were each individually ruled out as the sole cause without finding what combination actually does it. Needs a fresh, patient bisection of the original failing test before server.upgrade() can be trusted beyond the single-endpoint case.
-
-    not minimally reduced yet - see the description above for what was and wasn't ruled out; start from a serve({fetch, websocket}) with two distinct upgrade-accepting URL branches and a preceding plain fetch() call, then bisect down
-
 - h1-late-queued-pipeline-never-promoted (libwebsockets/lib/roles/h1/ops-h1.c,
   rops_handle_POLLOUT_h1; contrast libwebsockets/lib/core-net/wsi.c:1720,
   lws_wsi_mux_apply_queue): native root cause of the ollama-repl "only the
@@ -155,7 +97,14 @@
     tests/test-keepalive.js's fixture server can't
     reproduce this directly (its keepalive_timeout closes cleanly, a real
     FIN, which the client notices right away - a different failure mode);
-    2026-11-05: not reproducible against a local keep-alive server. A python
+    2026-11-05 (later): reproducible locally with the plain HTTP/1.1 case of tests/test-fetch.js (lws
+    file-mount server, keepAlive fetch of index.html then page2.html on the same connection): the second
+    request gets ESTABLISHED_CLIENT_HTTP and RECEIVE_CLIENT_HTTP before the server has answered, httpClientRead
+    reports a failure and the wsi is dropped ("dropped"); returning 0 there instead of -1 hangs. Against
+    python http.server and serve() reuse works. Fix is in libwebsockets (a queued child must not inherit
+    client_rx_avail), not done.
+
+    2026-11-05 (earlier): not reproducible against a local keep-alive server. A python
     http.server (HTTP/1.1, content-length or chunked replies) with
     lib/fetch.js (keepAlive default, h2:false): 3 sequential POSTs with gaps
     of 0, 0.3 and 3 s all succeed on the same client port (the connection
@@ -178,27 +127,6 @@
     ESTABLISHED_CLIENT_HTTP firing before SERVER_NEW_CLIENT_INSTANTIATED/
     CLIENT_APPEND_HANDSHAKE_HEADER; only reproduced with the alpn override
     removed from gemini-client.js's connect() options
-
-- h2-rst-stream-protocol-error-closes-connection (libwebsockets h2 role,
-  roles/h2/http2.c; surfaces in lib/lws/protocols.js's onClosedClientHttp
-  as a plain "closed" error with no other detail): an h2 (ALPN-negotiated)
-  request to some real hosts - confirmed against unpkg.com, httpbin.org,
-  github.com, all independent of any redirect - gets RST_STREAM'd by the
-  peer with reason 0x1 (PROTOCOL_ERROR) right after we send HEADERS/
-  WINDOW_UPDATE, closing the connection before it ever establishes; a
-  plain h1.1-only request (`fetch(url, { h2: false })`, which makes
-  fetch.js set `alpn: 'http/1.1'`) to the exact same URL succeeds every
-  time. Not narrowed further - since a real h2-capable server should not
-  RST_STREAM a normal GET, this looks like our own h2 client is sending
-  something the peer considers malformed (header ordering/casing, a
-  disallowed connection-specific header, framing), not a peer bug, but
-  the actual malformed frame/header wasn't identified. Workaround used by
-  lib/cdn-loader.js: force `h2: false` on its fetchSync() calls.
-
-    globalThis.os = await import('os');
-    import { fetch } from 'fetch.js';
-    const res = await fetch('https://unpkg.com/preact?module'); // hangs then rejects "closed"
-    await fetch('https://unpkg.com/preact?module', { h2: false }); // succeeds
 
 - vhost-destroy-logs-spurious-not-on-no-listener-list-error
   (libwebsockets/lib/core-net/vhost.c:1706-1707, __lws_vhost_destroy2()):
@@ -225,48 +153,7 @@
     // any LWSContext without an `iface` option on its vhost(s) logs this
     // on destroy; e.g. just running tests/test-jsonrpc-ws.js reproduces it.
 
-- serve-websocket-options-silently-ignored (lib/serve.js:593-599): six of
-  `serve()`'s Bun-shaped `websocket` handler options are read into local
-  variables but never referenced again anywhere else in the file -
-  `perMessageDeflate`, `maxPayloadLength`, `backpressureLimit`,
-  `closeOnBackpressureLimit`, `sendPings`, and `publishToSelf` all have zero
-  effect, with no comment nearby flagging them as stubs (unlike this file's
-  other admitted stubs - `reload()`, `closeIdleConnections()`,
-  `server.fetch()` - which say so where they're defined). Confirmed by
-  reading the file: each is assigned once (destructured from
-  `websocket.<name>`) and grep finds no other occurrence of the variable
-  name. `idleTimeout`/`ping`/`pong`/`drain` from the same options object
-  *are* wired up correctly nearby, which is what makes the silent ones easy
-  to miss. A caller passing e.g. `maxPayloadLength` believing it caps
-  message size, or `publishToSelf: true` believing it changes `ws.publish()`
-  behavior, gets no error and no effect.
-
-    import { serve } from './lib/serve.js';
-    serve({
-      websocket: {
-        message(ws, data) {},
-        maxPayloadLength: 100,     // never enforced - a 1MB message still arrives
-        publishToSelf: true,       // ws.publish() still always excludes the sender
-      },
-    });
-
-- context-destroy-logs-not-on-no-listener-list (LWSContext#destroy(),
-  lws-context.c): calling .destroy() on an LWSContext shortly after using
-  it for a single client request (as fetchSync(), lib/fetch.js, now does
-  for every call) always logs two ERR-level lines during teardown - "[vh|N|
-  <name>||-1]: not on no_listener list" for both the request's own vhost
-  and the context's automatic "system" vhost. Cosmetic (the context is
-  still fully torn down and a subsequent fetchSync() call works correctly
-  right after), but noisy on stderr for every single fetchSync() call.
-  Not narrowed further - could be a missing "add to no_listener list" step
-  somewhere in vhost creation, or destroy() expecting a state vhost
-  creation never actually reaches for a client-only (no listen socket)
-  vhost.
-
-    globalThis.os = await import('os');
-    import { fetchSync } from 'fetch.js';
-    fetchSync('https://example.com/');
-    // stderr gets the two "not on no_listener list" ERR lines every time
+- serve-websocket-options-silently-ignored (lib/serve.js:~640): backpressureLimit, closeOnBackpressureLimit and sendPings are read and never used (perMessageDeflate, maxPayloadLength and publishToSelf work now); they need the write queue size / ping control from lws.
 
 - fetch-h2-plain-response-body-stream-already-locked (lib/lws/protocols.js:388):
   in tests/test-fetch.js the "H2, plain" case fetches the index page fine (200)
@@ -279,6 +166,13 @@
 
     qjsm tests/test-fetch.js    # hangs after the H2, plain error
 
+- ws-deflate-loses-data (libwebsockets permessage-deflate rx, via lws-protocol.c RECEIVE): with permessage_deflate on (serve({websocket:{perMessageDeflate:true}})) and a client that negotiates it, a text message of 70000 random letters reaches reassembleFragments() as 65 fragments totalling only 57712 bytes, the last one final: about 12 KB are lost between lws' inflate and the callback (messages up to 5000 bytes are fine; the fragments are 1024 bytes with a short one of about 370 after every fourth). Raising the protocol rx_buffer_size to 16384 changes nothing. found testing with python websockets 17.1 (compression='deflate').
+
+    // server: serve({ port: 18977, fetch(req, s) { if(s.upgrade(req)) return; return new Response('x') },
+    //   websocket: { perMessageDeflate: true, message(ws, d) { ws.send('len=' + d.length) } } })
+    // client (python): websockets.connect('ws://127.0.0.1:18977/ws', compression='deflate'),
+    //   send ''.join(random.choice(string.ascii_letters + ' ') for _ in range(70000)) -> replies len=57712
+
 ---
 
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
@@ -288,22 +182,14 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     # in tests/unittests/tinytest.js after the last console.log: exit(failures ? 1 : 0)
 
-- blob-so-links-stream-so-not-found (lib/lws/body.js:111): test-body.js fails with could not load module filename /usr/local/lib/x86_64-linux-gnu/quickjs/blob.so because that installed qjs-modules blob.so needs stream.so which ldd reports not found; an install problem of qjs-modules, but body.js (text()/blob()) depends on it. found running ctest with bare qjs.
-
-    ldd /usr/local/lib/x86_64-linux-gnu/quickjs/blob.so | grep "not found"
-
-- test-serve-and-test-fetch-time-out (tests/test-serve.js, tests/test-fetch.js): both run into a 40 s timeout under bare qjs and print no result line, with and without the keep-alive serve change; tests/test-client.js also fails its plain TCP case (expected echo of hello-tcp, got undefined). These are the scripts in tests/ (not run by ctest). found checking the serve keep-alive fix.
-
-    qjs tests/test-serve.js   (with QUICKJS_MODULE_PATH set to build/x86_64-linux-gnu first)
-
-
-- tonarraybuffer-view-without-offset-empty (lws.c:452): lws.toArrayBuffer(view) with only one argument returns an empty ArrayBuffer for a typed array, because get_offset_length() is only called when argc > 1 so len stays 0; toArrayBuffer(view, 0) and toArrayBuffer(view, 0, n) work. found while replacing textcode in the tests, confirmed with a 3 byte Uint8Array.
-
-    import * as lws from 'lws.so';
-    lws.toArrayBuffer(new Uint8Array([1,2,3])).byteLength;   // 0, expected 3
-
-- tcpsocketstream-connect-right-after-close-dropped (lib/tcpsocketstream.js:32): a TCPSocketStream created in the same tick as a previous one's close() (without awaiting closed) never opens; its client wsi is closed by lws without any open, error or close callback, so opened never settles. test-tcpsocket.js awaits closed to avoid it. the StreamAdapter pending-claim theory was tried and does not help; the fd handlers of the new socket are intact, the wsi is just closed silently right after connecting. not yet understood.
+- tcpsocketstream-connect-right-after-close-dropped (lib/tcpsocketstream.js:32): (not the TCPSocket client message-closes-connection bug fixed in lib/lws/util.js makeFireEvent, this one is still there) a TCPSocketStream created in the same tick as a previous one's close() (without awaiting closed) never opens; its client wsi is closed by lws without any open, error or close callback, so opened never settles. test-tcpsocket.js awaits closed to avoid it. the StreamAdapter pending-claim theory was tried and does not help; the fd handlers of the new socket are intact, the wsi is just closed silently right after connecting. not yet understood.
 
     const a = new TCPSocketStream({ host: 'localhost', port }); await a.opened;
     a.close();
     const b = new TCPSocketStream({ host: 'localhost', port }); await b.opened; // never settles
+
+- chat-bridge-model-substring-match (examples/chat-bridge/chat-bridge.js:620): the site for a request is the first site whose name is a substring of the model name, so with sites fake and fakerot the model fakerot is served by fake; any site name that contains another site's name is unreachable. found with the fake-site test (examples/chat-bridge/test/run.sh), which names its sites to avoid it.
+
+    CHAT_BRIDGE_SITES=sites.json (sites "fake" and "fakerot"), then ask model "fakerot": the reply comes from the fake tab.
+
+- test-fetch-plain-h1-reuse (tests/test-fetch.js): HTTP/1.1 plain case fails with dropped on the second fetch, see h1-late-queued-pipeline-never-promoted; the H2 plain case then stops at TypeError stream already locked (fetch-h2-plain-response-body-stream-already-locked). tests/test-serve.js and tests/test-client.js pass now.

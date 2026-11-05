@@ -24,7 +24,7 @@ import { URL } from '../lib/lws/url.js';
 import { generateSelfSignedCert } from '../lib/lws/tls.js';
 import { tests, assert, assertStrictEquals as eq } from './unittests/tinytest.js';
 import { toString, logLevel, LLL_ERR, LLL_USER, LWSMPRO_CALLBACK } from 'lws.so';
-import { TextDecoder } from 'textcode';
+import { TextDecoder } from './utf8.js';
 import * as std from 'std';
 
 logLevel(LLL_ERR | LLL_USER);
@@ -219,14 +219,14 @@ const TESTS = {
     server.stop();
   },
 
-  async 'callback mode: a missing content-length header streams as chunked, not buffered'() {
+  async 'callback mode: a string body gets a content-length (like Bun), not chunked'() {
     const port = nextPort();
     const body = 'auto-computed-length';
     const server = serve({ port, hostname: 'localhost', fetch: () => new Response(body) });
 
     const resp = await fetch(`http://127.0.0.1:${port}/`);
-    eq('chunked', resp.headers.get('transfer-encoding'));
-    assert(!resp.headers.has('content-length'), 'expected no content-length on a chunked response');
+    eq(String(body.length), resp.headers.get('content-length'));
+    assert(!resp.headers.has('transfer-encoding'), 'expected no transfer-encoding on an in-memory body');
     eq(body, await resp.text());
 
     server.stop();

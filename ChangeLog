@@ -1,5 +1,29 @@
 2026-11-05  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/serve.js (serve): The ws protocol is now protocols[0] and forwards
+	onHttpConfirmUpgrade to the http upgrade hook.  A client that sends no
+	Sec-WebSocket-Protocol (Bun, browsers, ws, python websockets) is bound
+	to the vhost's default protocol, so it got the 101 reply and then never
+	reached open/message.  perMessageDeflate is passed on to the context
+	and vhost; maxPayloadLength and publishToSelf go to WebSocket.protocol.
+	* lib/websocket.js (WebSocket.protocol): New options publishToSelf (the
+	sender gets its own ws.publish()) and maxPayloadLength (close with 1009
+	above it), the Bun websocket options.
+	* lib/lws/util.js (makeFireEvent): Return nothing.  The result of
+	dispatchEvent() was returned from lws callbacks, and a non-zero return
+	closes the connection: a TCPSocket client was closed after its first
+	message (and the same for UDPSocket and WebSocket callbacks that return
+	fire()).
+	* tests/unittests/test-serve-ws-no-subprotocol.js,
+	tests/unittests/test-serve-ws-options.js: New.
+
+	* lws.c (lwsjs_functions): toArrayBuffer(view) without an offset
+	returned an empty ArrayBuffer for a typed array; the length is now
+	defaulted by get_offset_length() for any argument count.
+	* tests/unittests/test-toarraybuffer.js: New.
+	* tests/test-serve.js: A string body is sent with content-length like
+	Bun, not chunked.
+
 	* lws-protocol.c (pollfd_handler): Ask poll() for the real state of the
 	fd and hand that to lws_service_fd().  quickjs runs one handler per
 	ready fd and loop turn, the read handler first; a connecting socket

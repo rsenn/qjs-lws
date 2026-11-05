@@ -470,7 +470,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
 
         maxlen = MIN((buflen - ofs), maxlen);
 
-        ofs += argc > 1 ? get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len) : 0;
+        ofs += get_offset_length(ctx, argc - 1, argv + 1, maxlen, &len);
 
         if(ofs == 0 && buflen == len)
           ret = JS_DupValue(ctx, buffer);
