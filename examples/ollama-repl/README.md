@@ -226,6 +226,13 @@ the site table and per-site quirks: `../chat-bridge/README.md`,
   digest is used). `--no-handoff` replays everything, `--no-failover`
   stays on the chosen model. Failover only applies when every model of the
   endpoint is `owned_by: "chat-bridge"`.
+- **No tools, files as text (`--no-tools`).** For sites that ignore tool
+  calls: the files named in the prompt are attached as text and the model
+  answers with whole `File: path` blocks, which are written to disk. deepai,
+  duck and chatgpt fixed the small slugify task this way. With
+  `--provider bridge` the system prompt is a short one and the project scan
+  is skipped (`--scan` brings it back), because some sites cap a message
+  (duck.ai: 16000 characters).
 - **Billing guard.** Pay-as-you-go sites (openrouter) are skipped unless
   `--allow-paid` is given.
 - Tool calls are emulated in text by the bridge; DeepSeek, Mistral, Qwen,

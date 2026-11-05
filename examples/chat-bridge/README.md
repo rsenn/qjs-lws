@@ -165,6 +165,18 @@ follow the protocol and passed a coding task; chatgpt (logged out), duck and
 deepai still ignore it, even with the worked example (duck sometimes obeys
 with the end-of-prompt reminder).
 
+### Chats the bridge creates
+
+A request that does not extend a tab's history starts a new chat, and every
+chat stays in the site's sidebar. Measures: a tool result is not compared
+when matching history (a client that clips old results, like ollama-repl,
+keeps its chat); a site's `maxPrompt` (duck.ai: 16000 characters) is checked
+before sending and answered as `context_length_exceeded` (also listed as
+`max_prompt_chars` in `/v1/models`); every chat is recorded in
+`~/.cache/chat-bridge/chats.json`, and `chat-bridge.js chats` lists them per
+site (`chats forget [site]` drops the records). The bridge does not delete
+chats on the sites yet.
+
 ### Refusals
 
 While waiting for a reply the bridge also watches the page. It reports, as

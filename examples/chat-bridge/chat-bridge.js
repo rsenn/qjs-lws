@@ -45,8 +45,8 @@ import { WebSocketStream } from '../../lib/websocketstream.js';
 import { ReadableStream } from '../../lib/lws/streams.js';
 import { URL } from '../../lib/lws/url.js';
 import { TextDecoder } from 'textcode';
-import { setTimeout, signal, SIGINT, SIGTERM } from 'os';
-import { getenv } from 'std';
+import { setTimeout, signal, SIGINT, SIGTERM, mkdir } from 'os';
+import { getenv, exit, loadFile, open as fopen } from 'std';
 
 /* selectors verified live (2026-11) for deepseek, qwen, gemini, kimi,
    chatgpt (logged out layout), duck, deepai and openrouter. mistral too (answer part). 
@@ -60,9 +60,9 @@ const SITES = {
   gemini: { host: 'gemini.google.com', home: 'https://gemini.google.com/app', input: 'rich-textarea .ql-editor, div[contenteditable="true"]', reply: 'message-content, .model-response-text' },
   kimi: { host: 'www.kimi.ai', home: 'https://www.kimi.ai/chat/', input: 'div[contenteditable="true"], textarea', reply: '.markdown' },
   mistral: { host: 'chat.mistral.ai', home: 'https://chat.mistral.ai/chat', input: 'textarea, div[contenteditable="true"]', reply: '[data-message-part-type="answer"]' },
-  chatgpt: { host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt, div.ProseMirror[contenteditable="true"]', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"]' },
+  chatgpt: { host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt, div.ProseMirror[contenteditable="true"]', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"], [data-markdown-text-style="assistant-message"]' },
   venice: { host: 'venice.ai', home: 'https://venice.ai/chat', input: 'textarea', reply: '.prose', skip: 'no reply read in a test (anonymous use is rate-limited and gated), so not worth the fragility' },
-  duck: { host: 'duck.ai', home: 'https://duck.ai/chat', input: 'textarea', reply: 'div.space-y-4.whitespace-normal' },
+  duck: { host: 'duck.ai', home: 'https://duck.ai/chat', maxPrompt: 16000, input: 'textarea', reply: 'div.space-y-4.whitespace-normal' },
   deepai: { host: 'deepai.org', home: 'https://deepai.org/chat', input: '#persistentChatbox', reply: '.markdownContainer' },
   openrouter: { host: 'openrouter.ai', home: 'https://openrouter.ai/chat', input: 'textarea', reply: '[data-message-bubble="assistant"]', billing: 'metered' },
   aistudio: { host: 'aistudio.google.com', home: 'https://aistudio.google.com/prompts/new_chat', input: 'textarea', reply: 'ms-text-chunk', billing: 'metered', skip: 'free Gemini API key exists, and gemini is already covered by the gemini site' },
@@ -179,7 +179,17 @@ class Chat {
 
   readReply() {
     return this.cdp.eval(`(() => { const n = [...document.querySelectorAll(${JSON.stringify(this.site.reply)})];
-      return { count: n.length, text: n.length ? n[n.length - 1].innerText : '' }; })()`);
+      const last = n[n.length - 1]; if(!last) return { count: 0, text: '' };
+      /* innerText loses the code fences (and keeps the copy-button labels
+         of a code block): put the fences back from the <pre> elements */
+      let text = last.innerText;
+      for(const pre of last.querySelectorAll('pre')) {
+        const code = pre.querySelector('code'), raw = pre.innerText, at = text.indexOf(raw);
+        if(at < 0) continue;
+        const lang = ((code ?? pre).className.match(/language-([\\w+-]+)/) ?? [])[1] ?? '';
+        text = text.slice(0, at) + '\\x60\\x60\\x60' + lang + '\\n' + (code ?? pre).innerText.replace(/\\n$/, '') + '\\n\\x60\\x60\\x60' + text.slice(at + raw.length);
+      }
+      return { count: n.length, text }; })()`);
   }
 
   /* a page in the middle of a navigation has no body (or no execution
@@ -221,7 +231,10 @@ class Chat {
   /* true if the open chat already holds exactly the request's history */
   continues(messages) {
     const prev = messages.slice(0, -1);
-    return this.history.length > 0 && prev.length == this.history.length && prev.every((m, i) => line(m) == line(this.history[i]));
+    /* a tool result is not compared: a client that clips old results to
+       save context (ollama-repl does) must not make every round a new chat,
+       the open chat saw the real result already */
+    return this.history.length > 0 && prev.length == this.history.length && prev.every((m, i) => m.role == this.history[i].role && (m.role == 'tool' || line(m) == line(this.history[i])));
   }
 
   /* async generator: yields the reply text as it grows, returns when idle */
@@ -413,6 +426,36 @@ function planPrompt(messages, chat) {
   return { prompt: body, fresh: true };
 }
 
+/* chats the bridge created, so they can be listed and cleaned up later:
+   ~/.cache/chat-bridge/chats.json, [{ site, url, created }] */
+const CHATS_FILE = `${getenv('HOME') ?? '.'}/.cache/chat-bridge/chats.json`;
+
+function loadChats() {
+  try {
+    return JSON.parse(loadFile(CHATS_FILE) ?? '[]');
+  } catch(e) {
+    return [];
+  }
+}
+
+function saveChats(list) {
+  mkdir(`${getenv('HOME') ?? '.'}/.cache`, 0o755);
+  mkdir(`${getenv('HOME') ?? '.'}/.cache/chat-bridge`, 0o755);
+  const f = fopen(CHATS_FILE, 'w');
+  f.puts(JSON.stringify(list, null, 1));
+  f.close();
+}
+
+/* remember the open chat of a tab (once per URL) */
+async function recordChat(site, name, chat) {
+  const { href } = await chat.pageState();
+  if(!href || href == site.home || href.replace(/\/$/, '') == site.home.replace(/\/$/, '')) return;
+  const list = loadChats();
+  if(list.some(c => c.url == href)) return;
+  list.push({ site: name, url: href, created: new Date().toISOString() });
+  saveChats(list);
+}
+
 class Bridge {
   chats = new Map(); /* tab id -> Chat */
   pool = new Map(); /* site name -> Chat[] of tabs we own */
@@ -574,7 +617,7 @@ class Bridge {
       const c = this.cooling(id);
       const billing = ACTIVE[id].billing ?? 'free';
       const guarded = billing == 'metered' && !this.o.allowPaid;
-      return { id, object: 'model', owned_by: 'chat-bridge', billing, available: !c && !guarded, ...(guarded ? { unavailable: 'billing_guard' } : c ? { unavailable: c.err.kind, resets_at: new Date(c.until).toISOString() } : {}) };
+      return { id, object: 'model', owned_by: 'chat-bridge', billing, ...(ACTIVE[id].maxPrompt ? { max_prompt_chars: ACTIVE[id].maxPrompt } : {}), available: !c && !guarded, ...(guarded ? { unavailable: 'billing_guard' } : c ? { unavailable: c.err.kind, resets_at: new Date(c.until).toISOString() } : {}) };
     });
   }
 }
@@ -612,7 +655,13 @@ function completions(bridge) {
       const plan = planPrompt(messages, chat);
       if(plan.fresh) await chat.newChat();
       const body = tools ? plan.prompt + TOOL_REMINDER : plan.prompt;
-      gen = chat.ask(plan.fresh && tools ? `${toolPreamble(tools)}\n\n${body}` : body);
+      const full = plan.fresh && tools ? `${toolPreamble(tools)}\n\n${body}` : body;
+      const max = ACTIVE[name]?.maxPrompt;
+      if(max && full.length > max) {
+        bridge.release(chat);
+        return json({ error: { message: `${name} takes at most ${max} characters per message, this prompt has ${full.length}`, type: 'invalid_request_error', code: 'context_length_exceeded' } }, 400);
+      }
+      gen = chat.ask(full);
     } catch(e) {
       if(chat) bridge.release(chat);
       return json({ error: { message: e.message } }, 502);
@@ -645,6 +694,7 @@ function completions(bridge) {
         }
         return json({ error: { message: e.message } }, 504);
       } finally {
+        await recordChat(ACTIVE[name], name, chat).catch(() => {});
         bridge.release(chat);
       }
       const msg = toMessage(text);
@@ -727,6 +777,25 @@ async function main() {
 
   const bridge = new Bridge(o);
 
+  if(cmd == 'chats') {
+    /* chats the bridge created: `chats` lists them, `chats forget [site]`
+       drops the records (the sites' own history is untouched) */
+    const list = loadChats();
+    if(arg == 'forget') {
+      const keep = list.filter(c => o.rest[2] && c.site != o.rest[2]);
+      saveChats(keep);
+      console.log(`forgot ${list.length - keep.length} of ${list.length} records`);
+      return;
+    }
+    const per = {};
+    for(const c of list) {
+      per[c.site] = (per[c.site] ?? 0) + 1;
+      console.log(`${c.site}\t${c.created}\t${c.url}`);
+    }
+    console.log(Object.entries(per).map(([k, v]) => `${k}: ${v}`).join(', ') || 'no chats recorded');
+    return;
+  }
+
   if(cmd == 'list') {
     for(const t of await bridge.tabs()) console.log(`${bridge.siteOf(t)?.[0] ?? '-'}\t${t.url}\t${t.title}`);
     return;
@@ -760,7 +829,7 @@ async function main() {
     }
 
     for(const sig of [SIGINT, SIGTERM])
-      signal(sig, () => bridge.closeAll().finally(() => process.exit(0)));
+      signal(sig, () => bridge.closeAll().finally(() => exit(0)));
     /* --listen 0 = any free port; this line is how a parent finds it */
     console.log(`chat-bridge: http://127.0.0.1:${server.port}/v1 (browser CDP ${o.host}:${o.port})`);
     return new Promise(() => {}); /* run until killed */
@@ -778,9 +847,9 @@ async function main() {
 }
 
 main().then(
-  () => process.exit(0),
+  () => exit(0),
   e => {
-    console.error('chat-bridge:', e.message);
-    process.exit(1);
+    console.log('chat-bridge:', e.message);
+    exit(1);
   },
 );

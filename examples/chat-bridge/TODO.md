@@ -159,6 +159,15 @@ Several sites host many models. Proposal: put the model in the request's
 
 ## Done
 
+- chat creation measures: tool results ignored when matching a tab's history,
+  `maxPrompt` per site (duck 16000), chats recorded and listed (`chats`);
+  open: deleting chats on the sites, a `--max-chats` budget, CDP file
+  attachment (`DOM.setFileInputFiles`) for files too big to paste
+- chatgpt (logged in) reply selector `[data-markdown-text-style="assistant-message"]`;
+  replies get their code fences back from the `<pre>` elements
+- coding task without tools (`ollama-repl --no-tools`, files attached as text,
+  reply `File:` blocks): deepai, duck and chatgpt all pass the slugify task
+
 - tool use for chatgpt, duck and deepai tried harder (2026-11-04): worked
   example call in `toolPreamble()` plus an end-of-prompt reminder; duck
   sometimes obeys, deepai and chatgpt still do not (open, see PROVIDERS.md)

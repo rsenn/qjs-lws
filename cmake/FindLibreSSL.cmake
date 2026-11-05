@@ -96,7 +96,9 @@ macro(find_libressl)
                    IMPORTED_LOCATION "${LIBRESSL_TLS_LIBRARY}")
     endif()
 
-    get_target_property(LIBRESSL_LIBRARY_LOCATION libressl IMPORTED_LOCATION)
+    if(TARGET libressl)
+      get_target_property(LIBRESSL_LIBRARY_LOCATION libressl IMPORTED_LOCATION)
+    endif(TARGET libressl)
 
     if(EXISTS "${LIBRESSL_ROOT_DIR}/lib")
       set(LIBRARY_DIR "${LIBRESSL_ROOT_DIR}/lib")
@@ -107,7 +109,7 @@ macro(find_libressl)
     endif(NOT LIBRARY_DIR)
 
     if(EXISTS "${LIBRARY_DIR}")
-      rpath_append(CMAKE_INSTALL_RPATH "${LIBRARY_PATH}")
+      rpath_append(CMAKE_INSTALL_RPATH "${LIBRARY_DIR}")
     endif(EXISTS "${LIBRARY_DIR}")
 
     set(LIBRESSL_LIBRARY_DIR "${LIBRARY_DIR}"

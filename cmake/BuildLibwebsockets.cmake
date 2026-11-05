@@ -647,9 +647,16 @@ macro(build_libwebsockets)
 
   #link_directories("${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib")
 
-  if(ARGN)
-    ExternalProject_Add_StepDependencies("${TARGET}" build ${ARGN})
-  endif(ARGN)
+  # extra arguments (anything after the legacy positional target name) are
+  # targets the build step has to wait for. Not `if(ARGN)`: inside a macro
+  # ARGN is no variable, so that test was always false.
+  set(BLW_DEPENDS ${BLW_UNPARSED_ARGUMENTS})
+  if(NOT BLW_TARGET AND BLW_DEPENDS)
+    list(REMOVE_AT BLW_DEPENDS 0)
+  endif(NOT BLW_TARGET AND BLW_DEPENDS)
+  if(BLW_DEPENDS)
+    ExternalProject_Add_StepDependencies("${TARGET}" build ${BLW_DEPENDS})
+  endif(BLW_DEPENDS)
 
   # What the rest of the project links against must be the PIC variant, which
   # the shared module needs, even though the non-PIC build runs last.

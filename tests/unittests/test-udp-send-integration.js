@@ -1,3 +1,4 @@
+import { setTimeout } from 'os';
 import { tests, eq, assert } from './tinytest.js';
 import { UDPSocket } from '../../lib/udpsocket.js';
 import { toString } from 'lws.so';

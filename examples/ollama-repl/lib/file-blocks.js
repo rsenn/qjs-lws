@@ -9,7 +9,9 @@
 import { stat, mkdir } from 'os';
 import { open as fopen } from 'std';
 
-const FILE_BLOCK_RE = /^File:[ \t]*(\S+)[ \t]*\r?\n```[^\n`]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/gm;
+/* blank lines between the path and the fence, and a bare language line in
+   front of it, are tolerated: chat sites render code blocks that way */
+const FILE_BLOCK_RE = /^File:[ \t]*(\S+)[ \t]*\r?\n(?:[ \t]*\r?\n)*(?:[A-Za-z0-9_+-]+[ \t]*\r?\n)?```[^\n`]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/gm;
 const FENCE_RE = /```([a-zA-Z0-9_+-]*)[ \t]*\r?\n([\s\S]*?)\r?\n```/g;
 
 /** Every `{ path, content }` file block found in `text`. */

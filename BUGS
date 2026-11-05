@@ -202,142 +202,6 @@
     import { fetch } from 'fetch.js';
     await fetch('http://github.com/', { h2: false }); // "problems parsing header"
 
-- json-rpc-handler-rejects-missing-params (lib/rpc/json-rpc-handler.js:80): a request
-  with no params field at all is rejected as -32600 invalid request, even though
-  json-rpc 2.0 makes params optional. handleSingleRequest()'s validity check requires
-  request.params to already be an array or object, so a bare {jsonrpc, method, id}
-  request (params key entirely absent, e.g. after JSON.stringify() drops an
-  undefined params field) fails validation before the method lookup ever runs.
-  confirmed via tests/test-jsonrpc-ws.js: calling a method with no params argument
-  produces "Invalid Request" instead of reaching the handler (or its expected
-  "method not found"/execution-error responses).
-
-    const handler = new JsonRpcHandler({ methods: { ping: () => 'pong' } });
-    await handler.handleRequest({ jsonrpc: '2.0', method: 'ping', id: 1 }); // -32600, should call ping()
-
-- json-rpc-handler-error-data-loses-message-over-wire (lib/rpc/json-rpc-handler.js:101-105):
-  handleSingleRequest()'s catch clause always sets error.message to the fixed string
-  "Server error" and puts the raw thrown Error object in error.data, discarding the
-  original message everywhere except in-process (same JS realm, no serialization).
-  Error's own message/stack aren't enumerable own properties, so JSON.stringify(error)
-  is "{}" - any real transport (lib/rpc/ws-server.js, lib/rpc/http-server.js, both of
-  which JSON.stringify() the response before writing it) delivers data: {} to the
-  caller, destroying the actual error detail. Found while testing
-  lib/rpc/remote-object-endpoint.js against lib/rpc/remote-object-factory.js: a
-  deliberately-thrown "No such object #<id>" came back as just "Server error".
-
-    JSON.stringify({ data: new Error('boom') }); // '{"data":{}}' - message/stack lost
-
----
-
-## API Compatibility Bugs (from doc/api-compatibility.md assessment)
-
-### server-missing-11-methods (lib/serve.js, Bun.js Server API): **PARTIALLY FIXED**
-  Added/improved implementations for server lifecycle methods:
-  - url (getter) - returns URL object constructed from hostname/port ✅
-  - development (getter) - returns development flag (default false) ✅
-  - id (getter) - returns unique server identifier ✅
-  - pendingRequests (getter) - returns count of in-flight HTTP requests (tracking not yet wired)
-  - pendingWebSockets (getter) - returns count of active WebSocket connections (tracking not yet wired)
-  - stop() - now returns Promise that resolves after ctx.destroy() completes (Bun/Deno compatibility) ✅
-  - ref()/unref() - no-op stubs (lws contexts already manage process lifecycle)
-  - subscriberCount(topic) - now wired to the WebSocket TopicRegistry (lib/websocket.js) via
-    the protocol descriptor's subscriberCount(topic), threaded through Server's constructor ✅
-  - requestIP(request) - now returns the peer IP via a WeakMap<Request, ip> populated in
-    toRequest()/requestFromWsi() (lib/serve.js), since the WHATWG Request handed to user
-    code doesn't itself carry the originating wsi ✅
-  - timeout(seconds) - now backed by the native wsi.setTimeout() binding (lws_set_timeout(),
-    lws-socket.c), re-armed via the new internal _applyTimeout() on every request and every
-    WS message so it means "idle for N seconds", not "N seconds since connect" - lws force-
-    closes the connection itself at expiry. Confirmed end-to-end: a WS client left idle after
-    server.timeout(1) is closed by the server ~1s later ✅
-  - closeIdleConnections() - stub returning 0 (needs lws context integration)
-  - reload(options) - no-op stub (complex implementation needed)
-  - fetch(request) - stub returning 501 (needs routing through handlers)
-
-  Added internal tracking methods (_incrementRequests, _decrementRequests,
-  _incrementWebSockets, _decrementWebSockets) for future use.
-
-  Tests: 10 tests in test-server-lifecycle.js all pass, verifying stop() returns
-  Promise, id is unique string, pendingRequests/pendingWebSockets are numbers,
-  url is URL object, development is boolean.
-
-  Next steps: wire up request/websocket tracking, and implement
-  closeIdleConnections()/reload()/fetch() with actual lws context integration.
-
-### websockethandler-missing-10-options (lib/serve.js, Bun.js WebSocket API): **PARTIALLY FIXED**
-  Added support for all 10 missing WebSocket handler options:
-  - drain() - now wired: WebSocket#send() (lib/websocket.js) arms a one-shot native
-    wsi.wantWrite() callback whenever a send() leaves bufferedAmount > 0, which fires a
-    'drain' event once the write queue is fully flushed; serve.js wires websocket.drain to it ✅
-  - ping() - wired to 'ping' event listener
-  - pong() - wired to 'pong' event listener
-  - perMessageDeflate - accepted but not implemented (needs lws compression support)
-  - maxPayloadLength - accepted but not implemented (needs lws configuration)
-  - idleTimeout - now backed by the native wsi.setTimeout() binding (lws_set_timeout()),
-    re-armed on every WS message; takes precedence over server.timeout() when both are set ✅
-  - backpressureLimit - accepted but not implemented (needs lws backpressure support)
-  - closeOnBackpressureLimit - accepted but not implemented (needs lws backpressure support)
-  - sendPings - accepted but not implemented (needs lws ping configuration)
-  - publishToSelf - accepted but not implemented (needs TopicRegistry changes)
-
-  ping/pong/drain/idleTimeout handlers are now fully functional; the rest still require
-  underlying lws library support (compression, backpressure limits, ping config) or
-  TopicRegistry changes (publishToSelf) not yet done.
-
-  New: WebSocket#writableNeedDrain and TCPSocket#writableNeedDrain (Node's
-  socket.writableNeedDrain equivalent), backed by the new wsi.sendPipeChoked getter
-  (lws_send_pipe_choked(), lws-socket.c).
-
-  All 34 serve tests pass.
-
-### tcpsocket-options-are-stubs (lib/tcpsocket.js, Node.js/Bun/Deno TCP API): **PARTIALLY FIXED**
-  TCPSocket.setNoDelay() and setKeepAlive() are still stubs (no-op methods
-  that return `this` for chaining) - they accept the correct parameters per
-  Node.js/Bun/Deno specs but don't actually configure the socket, since that
-  needs a native `setsockopt()` binding this project doesn't have yet:
-  - setNoDelay: needs `setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, ...)`
-  - setKeepAlive: needs `setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, ...)` and
-    TCP_KEEPIDLE/TCP_KEEPINTVL
-
-  setTimeout() is now fully implemented in JS (no native change needed):
-  tracks an inactivity timer armed on construction and reset on `send()`/
-  `write()` and on incoming `'message'` activity, firing a `'timeout'` event
-  (and the optional callback) after the given number of milliseconds of
-  inactivity; `0` disables it. All 10 tests in test-tcpsocket-options.js pass.
-
-### ws-server-close-event-delayed-30s (lws-protocol.c): a WS server-side
-  `close` event (WebSocket.protocol()'s wrapper, lib/websocket.js) doesn't
-  fire until ~30 seconds after the peer actually sends its close frame,
-  even though the client-side close handshake itself completes immediately.
-  Confirmed on a plain client-initiated `wsi.close(1000, 'done')` against a
-  `WebSocket.protocol()` server: the server-side wsi *does* see the close
-  frame right away (visible in the CLOSED-reason callback sequence), but
-  the JS `close` event/promise doesn't resolve until exactly ~30000ms
-  later - looks like a hardcoded close-handshake/timeout default
-  (PENDING_TIMEOUT_* or similar) rather than anything driven by the actual
-  network round trip. Reproduces identically before and after the
-  wantWrite()/write_queue callback-entry rework in this same commit, so
-  it's pre-existing, not caused by that change.
-
-    import { createServer, LWSContext, LWSMPRO_NO_MOUNT } from 'lws.so';
-    import { WebSocket } from './lib/websocket.js';
-    const port = 19998;
-    const closed = new Promise(r => {
-      createServer({
-        port, vhostName: 'localhost',
-        mounts: [{ mountpoint: '/echo', protocol: 'echo', originProtocol: LWSMPRO_NO_MOUNT }],
-        protocols: [WebSocket.protocol('echo', ws => ws.addEventListener('close', r))],
-      });
-    });
-    const client = new LWSContext({
-      protocols: [{ name: 'ws', onClientEstablished: wsi => wsi.close(1000, 'done') }],
-    });
-    client.clientConnect(`ws://localhost:${port}/echo`, { protocol: 'echo', localProtocolName: 'ws' });
-    const t0 = Date.now();
-    await closed;
-    console.log(Date.now() - t0); // ~30000, should be near-instant
-
 - vhost-destroy-logs-spurious-not-on-no-listener-list-error
   (libwebsockets/lib/core-net/vhost.c:1706-1707, __lws_vhost_destroy2()):
   destroying any vhost logs "ERR [vh|N|name||-1]: not on no_listener list"
@@ -388,30 +252,6 @@
       },
     });
 
-- build-libwebsockets-argn-check-always-false (cmake/BuildLibwebsockets.cmake:4):
-  the `build_libwebsockets()` macro's `if(ARGN)` (meant to pick a custom
-  ExternalProject target name when the caller passes one, e.g.
-  `build_libwebsockets(websockets)` from CMakeLists.txt) is always false, so
-  the macro always falls through to the hardcoded default name
-  `libwebsockets` regardless of what's passed. Confirmed by adding a debug
-  `message()` right after the if/else and reconfiguring: `ARGN='websockets'
-  TARGET='libwebsockets'`. Root cause: inside a macro, `ARGN` is only
-  substitutable via `${ARGN}` - `if(ARGN)` (bare, no `${}`) makes CMake's
-  if() look up a normal variable literally named `ARGN`, which doesn't
-  exist, so it's always empty/false. This masks a second latent bug: the
-  `if(TARGET libbrotli) ExternalProject_Add_StepDependencies(websockets
-  configure libbrotli) endif()` block a few dozen lines below the call site
-  references a target named `websockets`, which never actually exists
-  (the real target is always `libwebsockets`) - only unnoticed because
-  `BUILD_BROTLI` is OFF by default on systems where brotli is found via
-  pkg-config, so that branch never runs.
-
-    not practically reproducible in plain JS - it's a CMake macro; the repro
-    is: add `message(STATUS "ARGN='${ARGN}'")` right after
-    cmake/BuildLibwebsockets.cmake's `if(ARGN)`/`else()` block and reconfigure
-    with `cmake -S . -B <dir>` - the target always ends up named
-    `libwebsockets` even though `websockets` was passed.
-
 - context-destroy-logs-not-on-no-listener-list (LWSContext#destroy(),
   lws-context.c): calling .destroy() on an LWSContext shortly after using
   it for a single client request (as fetchSync(), lib/fetch.js, now does
@@ -446,15 +286,6 @@
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
 
 
-- find-libressl-references-nonexistent-target (cmake/FindLibreSSL.cmake:104):
-  find_libressl() calls get_target_property() on a target named libressl
-  that it never creates (it only defines libcrypto, libssl and libtls) and
-  calls rpath_append() with the undefined LIBRARY_PATH instead of
-  LIBRARY_DIR. Found by reading the file while wiring LibreSSL into
-  build_libwebsockets(), which therefore does not use it.
-
-    not practically reproducible in plain JS
-
 - test-context-features-hangs-after-last-test (tests/unittests/test-context-features.js:1):
   all tests print OK but the process never exits (ctest times out at 60s
   on x86_64-linux-gnu), so a context or socket created by the last
@@ -482,10 +313,14 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     cd build/x86_64-linux-gnu && ctest -R "test-tcpsocket|test-websocket.js" --timeout 40
 
-- server-url-not-instanceof-url (lib/serve.js:410): test-server-lifecycle.js fails Server.url exists and is a URL object, server.url instanceof URL is false although both the test and serve.js import URL from lib/lws/url.js, and the test process then hangs until the ctest timeout. cause not found. found running ctest with bare qjs.
-
-    cd build/x86_64-linux-gnu && ctest -R test-server-lifecycle --output-on-failure --timeout 20
-
 - websocket-connect-econnrefused (tests/unittests/test-websocket-static-methods.js): WebSocket.connect() returns a connected WebSocket fails with conn fail: ECONNREFUSED (lib/lws/protocols.js:659 onClientConnectionError) and the test times out after the last test. cause not found, maybe the test connects before the server listens. found running ctest with bare qjs.
 
     cd build/x86_64-linux-gnu && ctest -R test-websocket-static-methods --output-on-failure --timeout 20
+
+- tinytest-failures-exit-zero (tests/unittests/tinytest.js:59): tests() only prints "N out of M tests failed" and the process exits 0, so ctest reports a test with failing cases as passed; making it exit 1 on failure (and exit at the end, which also stops the hangs of tests that leave a context open) turned test-body and test-udp-send-integration red and made test-lwsspa time out, so it was reverted. found while fixing the ctest hangs.
+
+    # in tests/unittests/tinytest.js after the last console.log: exit(failures ? 1 : 0)
+
+- blob-so-links-stream-so-not-found (lib/lws/body.js:111): test-body.js fails with could not load module filename /usr/local/lib/x86_64-linux-gnu/quickjs/blob.so because that installed qjs-modules blob.so needs stream.so which ldd reports not found; an install problem of qjs-modules, but body.js (text()/blob()) depends on it. found running ctest with bare qjs.
+
+    ldd /usr/local/lib/x86_64-linux-gnu/quickjs/blob.so | grep "not found"

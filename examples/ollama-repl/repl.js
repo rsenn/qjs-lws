@@ -89,6 +89,8 @@ function parseArgs(argv) {
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--no-failover') opts.noFailover = true;
+    else if(arg === '--no-tools') opts.noTools = true;
+    else if(arg === '--scan') opts.scan = true;
     else if(arg === '--allow-paid') opts.allowPaid = true;
     else if(arg === '--no-handoff') opts.noHandoff = true;
     else if(arg === '--handoff-turns') opts.handoffTurns = +argv[++i];
@@ -112,6 +114,8 @@ function parseArgs(argv) {
     else if(arg === '--help' || arg === '-h') {
       console.log(
         'Usage: qjsm repl.js [--provider ollama|gemini|openai|bridge] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
+          '  --no-tools       offer the model no tools: files named in the prompt are attached as text and the model answers with whole `File: path` blocks, which are written to disk. For chat sites that ignore tool calls (chatgpt, duck, deepai).\n' +
+          '  --scan           with --provider bridge: also send the project scan at session start (off by default, the chat sites take limited messages).\n' +
           '  --no-failover    with a chat-bridge: stay on the chosen model when it hits its limit instead of switching to another.\n' +
           '  --no-handoff / --handoff-turns N (3) / --handoff-model NAME (qwen3:4b-instruct): on a failover the conversation is compacted before it goes to the next model - the last N turns are kept, older ones are summarized by that local ollama model (--no-handoff replays everything).\n' +
           '  --allow-paid     with --provider bridge: also use pay-as-you-go sites (openrouter); refused and skipped by default, they can cost money.\n' +
@@ -141,6 +145,34 @@ function parseArgs(argv) {
 
   return opts;
 }
+
+const NOTOOLS_PROMPT = `You are a coding assistant that changes the code in the user's project.
+You have no tools and cannot run anything. The files the user names are
+attached to their message; work only from those.
+
+To change or create a file, answer with the COMPLETE new content of that
+file in this exact form, and nothing else inside the block:
+
+File: path/to/file.js
+\`\`\`js
+...whole file...
+\`\`\`
+
+Rules: one File: block per changed file, the path exactly as the user
+wrote it. Keep everything you were not asked to change exactly as it was
+(same indentation, comments, order). Do not add explanations before the
+block; one short sentence after it is fine. If you cannot do the task from
+the attached files, say what is missing.`;
+
+/* a chat site takes one message at a time and some cap it (duck.ai: 16000
+   characters): the long default prompt and the project scan would eat that,
+   so --provider bridge starts with this short one and no scan (--scan
+   brings the scan back) */
+const BRIDGE_PROMPT = `You are a coding assistant working in the user's project directory. Act with
+the tools you are given instead of describing changes: read_file a file
+before you change it, change it with edit_file (exact old text) or
+insert_above, keep the existing style, change only what was asked, and end
+with one short sentence saying what you did.`;
 
 const SYSTEM_PROMPT = `You are a coding assistant that maintains and refactors the code in the
 current project directory, like Claude Code. You act through tools: you do
@@ -477,6 +509,14 @@ const MAX_REPEAT_ROUNDS = 2;
  * @returns {Promise<string>} the final reply shown to the user
  */
 async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach) {
+  if(opts.noTools) {
+    /* chat-only model: one plain round, the reply carries File: blocks */
+    const result = await chatRound(client, messages, opts, abortRef, {});
+    messages.push({ role: 'assistant', content: result.content });
+    log.reply(result.content);
+    return result.content;
+  }
+
   const tools = (forEach ? TOOLS : TOOLS.filter(t => t.name !== 'for_each' && t.name !== 'ask_user')).filter(t => !opts.omitTools?.includes(t.name));
 
   let nudges = 0;
@@ -759,7 +799,7 @@ async function main() {
   const store = new SessionStore(opts.model);
   const saved = store.load();
 
-  const messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') }];
+  const messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') }];
   /* a resumed session carries the system prompt of the run that saved it */
   if(opts.noSystem && messages[0]?.role === 'system') {
     messages.shift();
@@ -777,7 +817,7 @@ async function main() {
 
   if(saved) {
     console.log(dim(`(resumed session from ${store.path}: ${messages.length} messages)`));
-  } else if(!opts.failsafe) {
+  } else if(!opts.failsafe && (opts.label !== 'bridge' || opts.scan)) {
     console.log(dim(`(scanning project layout...)`));
 
     const projectContext = await gatherProjectContext(opts.root);
