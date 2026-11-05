@@ -547,6 +547,12 @@ lwsjs_context_creation_info_fromobj(JSContext* ctx, JSValueConst obj, struct lws
   ci->keepalive_timeout = to_uint32free(ctx, value);
 #endif
 
+  /* size (bytes, lws caps it at 32768) of the buffer one HTTP header block
+     has to fit in; lws's default of 4096 is too small for e.g. github.com's
+     response headers ("Ran out of header data space") */
+  value = js_get_property(ctx, obj, "max_http_header_data");
+  ci->max_http_header_data = to_uint32free(ctx, value);
+
   /* How long (seconds) a client connection may sit waiting - for the TLS
      handshake, for the server to reply, etc - before lws gives up on it
      with e.g. "Timed out waiting server reply" (see wsi-timeout.c). Left

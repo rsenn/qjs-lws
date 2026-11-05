@@ -191,24 +191,6 @@
     const res = await fetch('https://unpkg.com/preact?module'); // hangs then rejects "closed"
     await fetch('https://unpkg.com/preact?module', { h2: false }); // succeeds
 
-- client-http-header-buffer-too-small-for-large-response-headers
-  (libwebsockets header-pool "ah" buffer, sized at vhost/context creation;
-  surfaces as native log "Ran out of header data space" then a JS
-  "problems parsing header" connection error): a response with enough
-  header bytes (confirmed against a plain `http://github.com/` ->
-  `https://github.com/` redirect, which trips it via github's normal
-  security/cookie header set) overflows lws's fixed-size header parse
-  buffer and the whole request fails outright, instead of e.g. truncating
-  or growing the buffer. Not investigated further - would need finding
-  where this project's context/vhost creation could pass a larger
-  `header_data_size`-equivalent value (if lws exposes one) or otherwise
-  size the ah pool, out of scope for the http-scheme-redirect fix this
-  was found alongside.
-
-    globalThis.os = await import('os');
-    import { fetch } from 'fetch.js';
-    await fetch('http://github.com/', { h2: false }); // "problems parsing header"
-
 - vhost-destroy-logs-spurious-not-on-no-listener-list-error
   (libwebsockets/lib/core-net/vhost.c:1706-1707, __lws_vhost_destroy2()):
   destroying any vhost logs "ERR [vh|N|name||-1]: not on no_listener list"
