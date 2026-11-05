@@ -336,6 +336,3 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     serve({ port: 18099 }, () => new Response('hello'))   then   curl -sv http://127.0.0.1:18099/a   (look for connection: close)
 
-- fetch-reuses-connection-announced-closed (lib/fetch.js:116, lib/lws/protocols.js:502): with the default keepAlive a second sequential fetch() to the same serve() server fails with TypeError: server closed before responding, because the first response said connection: close and the client still queues the second request on that connection instead of opening a new one. gaps of 0 to 1.5 s all fail, keepAlive: false works.
-
-    const s = serve({ port: 0, hostname: '127.0.0.1' }, () => new Response('x')); await fetch(url, { h2: false }).then(r => r.text()); await fetch(url, { h2: false })
