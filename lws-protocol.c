@@ -675,6 +675,15 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   JSValue sock = wsi && reason != LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL && reason != LWS_CALLBACK_PROTOCOL_INIT ? lwsjs_socket_get_or_create(ctx, wsi) : JS_UNDEFINED;
   LWSSocket* s = lwsjs_socket_data(sock);
 
+  /* the JS closed handler runs once per connection, see the end of this
+   * function for the one case where we call it ourselves */
+  if(s && (reason == LWS_CALLBACK_CLOSED || reason == LWS_CALLBACK_CLIENT_CLOSED)) {
+    if(s->closed_fired)
+      goto end;
+
+    s->closed_fired = 1;
+  }
+
   if(is_writeable_reason(reason)) {
     /* drain queued wsi.write() chunks while lws takes them, stop at a queued
      * wsi.wantWrite(fn) entry, see socket_flush() in lws-socket.c */
@@ -1002,6 +1011,14 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
     if(s && s->completed)
       ret = -1;
   }
+
+  /* wsi.close() called from inside the established callback: we return -1
+   * (lws then puts the close code on the wire), but lws treats a connection
+   * whose ESTABLISHED callback failed as never opened and skips CLOSED, so
+   * onClosed()/onClientClosed() would never run (with the code and reason
+   * stashed by wsi.close()). Run it here instead. */
+  if(ret != 0 && s && s->closed && !s->closed_fired && (reason == LWS_CALLBACK_ESTABLISHED || reason == LWS_CALLBACK_CLIENT_ESTABLISHED))
+    lwsjs_callback_protocol(wsi, reason == LWS_CALLBACK_ESTABLISHED ? LWS_CALLBACK_CLOSED : LWS_CALLBACK_CLIENT_CLOSED, user, NULL, 0);
 
   if(ret != 0) {
     int fd = lws_get_socket_fd(wsi);
