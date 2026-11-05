@@ -771,7 +771,7 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const o = parseArgs(process.argv.slice(2));
+  const o = parseArgs(scriptArgs.slice(1));
   const [cmd, arg] = o.rest;
   if(!cmd) throw new Error('usage: chat-bridge.js [options] serve|send|read|eval|list [arg]');
 

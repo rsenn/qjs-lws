@@ -7,7 +7,7 @@
  * ../chat-bridge/chat-bridge.js next to this repl, or a `chat-bridge`
  * executable on PATH (what `cmake --install` creates).
  */
-import { close, exec, kill, pipe, read, setReadHandler, setTimeout, sleep, waitpid, mkdir, WNOHANG } from 'os';
+import { close, exec, kill, open as osOpen, pipe, read, setReadHandler, setTimeout, sleep, waitpid, mkdir, O_RDONLY, WNOHANG } from 'os';
 import { getenv, loadFile, open } from 'std';
 import { toString } from 'lws.so';
 
@@ -40,7 +40,11 @@ export async function startBridge({ scriptPath, cdpHost = '127.0.0.1', cdpPort =
   if(!cmd) throw new Error('chat-bridge not found: install it (cmake --install), put it on PATH, or set CHAT_BRIDGE');
 
   const [rfd, wfd] = pipe();
-  const pid = exec([...cmd, '--listen', '0', '--host', cdpHost, '--port', String(cdpPort), ...(allowPaid ? ['--allow-paid'] : []), 'serve'], { block: false, stdout: wfd, stderr: wfd });
+  /* the child must not share the terminal's stdin: anything it reads there
+     is a keystroke the repl never sees */
+  const nul = osOpen('/dev/null', O_RDONLY);
+  const pid = exec([...cmd, '--listen', '0', '--host', cdpHost, '--port', String(cdpPort), ...(allowPaid ? ['--allow-paid'] : []), 'serve'], { block: false, stdin: nul, stdout: wfd, stderr: wfd });
+  close(nul);
   close(wfd);
 
   let out = '';
