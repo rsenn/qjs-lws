@@ -31,9 +31,9 @@ Two tests per provider, on the same bridge build.
 | kimi | ok 13s | 6 chunks / 10s | ok | ok | calls the tool again | **pass**, 33s | good |
 | openrouter | ok 9s | 112 chunks / 112s | not measured (client timeout) | | | **pass**, 145s, 2 tool calls | works, very slow |
 | mistral | ok | ok | ok | ok | ok | not run (message limit hit first) | good until the free limit |
-| chatgpt (logged out) | ok 7s | 4 chunks / 5s | **ignores tools** | ignores | text only | **fail** | chat only |
-| duck | ok 6s | 7 chunks / 4s | **ignores tools** | ignores | text only | **fail** | chat only |
-| deepai | ok 5s | 5 chunks / 4s | **ignores tools** | ignores | text only | **fail** | chat only |
+| chatgpt | ok 7s | 4 chunks / 5s | **ignores tools** | ignores | text only | tools **fail**; `--no-tools` **pass**, 15s | chat + files-as-text |
+| duck | ok 6s | 7 chunks / 4s | **ignores tools** | ignores | text only | tools **fail**; `--no-tools` **pass**, 6s | chat + files-as-text |
+| deepai | ok 5s | 5 chunks / 4s | **ignores tools** | ignores | text only | tools **fail**; `--no-tools` **pass**, 9s | chat + files-as-text |
 
 "Ignores tools" means the site answers the question itself (ChatGPT and duck
 searched the web for the weather) or says it has no such tools ("project
@@ -76,7 +76,10 @@ preamble says.
 - After a tool result it sometimes calls the tool again instead of answering.
 - "Upgrade your plan" shown: free plan.
 
-### chatgpt (`chatgpt.com`, logged out)
+### chatgpt (`chatgpt.com`)
+- Logged in (free plan) since 2026-11-05: replies sit in `[data-markdown-text-style="assistant-message"]` (no `data-message-author-role` any more), and the page shows a floating-chat UI. The sections below describe the earlier logged-out layout.
+- Coding without tools works: `ollama-repl --no-tools` attaches the files as text and the reply carries a `File:` block.
+
 - The test browser is not logged in. The page works anonymously but:
   the composer is `#mobile-composer-prompt` (not `#prompt-textarea`), replies
   are `li[data-message-role="assistant"]` (not `data-message-author-role`),
@@ -87,6 +90,8 @@ preamble says.
 - The logged-in layout is untested.
 
 ### duck (`duck.ai`)
+- **Caps a message at 16000 characters.** The bridge knows it (`maxPrompt`) and answers `context_length_exceeded`; the default ollama-repl system prompt plus project scan alone exceeded it, hence the short bridge prompt and no scan.
+- Coding without tools works (`--no-tools`); the code block comes back with the language label outside the fence, which `extractFileBlocks()` now tolerates.
 - Needs a terms dialog accepted once by a human ("Fortsetzen"). The bridge
   does not click through it.
 - Class names are hashed; the reply is found by `div.space-y-4.whitespace-normal`.
@@ -94,6 +99,7 @@ preamble says.
   and time questions itself, ignoring tools.
 
 ### deepai (`deepai.org/chat`)
+- Coding without tools works (`--no-tools`). The attach menu ("Add Photos & Files") exists; CDP file attachment is not implemented because pasting the files as text was enough.
 - Composer `#persistentChatbox`, reply `.markdownContainer`.
 - The chat has modes; one tab answered with "Error: No image found to edit.
   Please generate or upload an image first." (image edit mode left selected).

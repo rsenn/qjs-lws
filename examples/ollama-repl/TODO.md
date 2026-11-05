@@ -586,6 +586,16 @@ child process on a free port and rotates the starting model per session
 for you (the bridge prints the command), and a repl that is killed hard (not
 via /exit or Ctrl-C) can leave the bridge child running.
 
+Update 2026-11-05: `--no-tools` (files as text, `File:` blocks) and the short
+bridge prompt without project scan (`--scan` restores it) are in. A report that
+the prompt stops accepting input after "error: OpenAI connection failed:
+dropped" could not be reproduced with a pty (dropped connection, hung server
+plus Ctrl+C, `--listen`, `-x`); one real cause was fixed, the bridge child
+shared the terminal's stdin and now gets /dev/null. If it happens again, check
+`ls -l /proc/<pid>/fd/0` of the chat-bridge child and whether Enter echoes.
+Not done: `tools: false` in `/v1/models` so the repl switches to `--no-tools`
+by itself, a handoff-aware prompt budget for duck's 16000 characters.
+
 Update 2026-11-04: `--allow-paid` (billing guard), `--cdp-host/--cdp-port`,
 `--no-failover` and `--no-handoff` are documented in README.md ("Using the
 chat sites"); `/tools` output is word-wrapped to the terminal width. Open:
