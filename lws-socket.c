@@ -776,6 +776,10 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
+  /* the connection may be gone already (see lwsjs_socket_destroy()) */
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "socket is closed");
+
   if(JS_IsString(argv[i])) {
     text = TRUE;
   }
@@ -1153,6 +1157,10 @@ lwsjs_socket_transaction_completed(JSContext* ctx, JSValueConst this_val, int ar
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
+  /* the connection may be gone already (see lwsjs_socket_destroy()) */
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "socket is closed");
+
   if((close_now = lws_http_transaction_completed(s->wsi) ? TRUE : FALSE))
     s->completed = TRUE;
 
@@ -1170,6 +1178,10 @@ lwsjs_socket_long_poll_rxonly(JSContext* ctx, JSValueConst this_val, int argc, J
 
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
+
+  /* the connection may be gone already (see lwsjs_socket_destroy()) */
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "socket is closed");
 
   return JS_NewBool(ctx, lws_h2_client_stream_long_poll_rxonly(s->wsi) == 0);
 }
@@ -1309,6 +1321,10 @@ lwsjs_socket_http_client_read(JSContext* ctx, JSValueConst this_val, int argc, J
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
 
+  /* the connection may be gone already (see lwsjs_socket_destroy()) */
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "socket is closed");
+
   if((q = p = get_buffer(ctx, argc, argv, &n))) {
     l = n;
     result = lws_http_client_read(s->wsi, (char**)&p, &l);
@@ -1329,6 +1345,9 @@ lwsjs_socket_add_header(JSContext* ctx, JSValueConst this_val, int argc, JSValue
 
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
+
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "socket is closed");
 
   if(argc > 0 && JS_IsNumber(argv[0])) {
     token = to_int32(ctx, argv[0]);
@@ -1372,6 +1391,10 @@ lwsjs_socket_client_http_multipart(JSContext* ctx, JSValueConst this_val, int ar
 
   if(!(s = lwsjs_socket_data2(ctx, this_val)))
     return JS_EXCEPTION;
+
+  /* the connection may be gone already (see lwsjs_socket_destroy()) */
+  if(!s->wsi)
+    return JS_ThrowInternalError(ctx, "socket is closed");
 
   if(!s->wsi->http.multipart)
     return ret;

@@ -299,10 +299,6 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     qjsm tests/unittests/test-ws.js  (run from the build dir; does not terminate)
 
-- test-websocket-server-members-cork-timeout (tests/unittests/test-websocket-server-members.js): no longer crashes with SIGSEGV (the old entry; gone since the respond()/want_write NULL-wsi guard in lws-socket.c), but the cork() batches writes test fails with Timeout waiting for messages and the test then times out under ctest. found running ctest with bare qjs on build/x86_64-linux-gnu.
-
-    cd build/x86_64-linux-gnu && ctest -R "test-websocket-server-members|test-server-lifecycle|test-context-features" --timeout 40
-
 - test-tcpsocket-and-test-websocket-time-out (tests/unittests/test-tcpsocket.js, tests/unittests/test-websocket.js): both time out at 40s under ctest, also with the serve/ServerResponse changes stashed, so they are pre-existing. found running ctest on build/x86_64-linux-gnu.
 
     cd build/x86_64-linux-gnu && ctest -R "test-tcpsocket|test-websocket.js" --timeout 40
@@ -322,3 +318,7 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 - test-serve-and-test-fetch-time-out (tests/test-serve.js, tests/test-fetch.js): both run into a 40 s timeout under bare qjs and print no result line, with and without the keep-alive serve change; tests/test-client.js also fails its plain TCP case (expected echo of hello-tcp, got undefined). These are the scripts in tests/ (not run by ctest). found checking the serve keep-alive fix.
 
     qjs tests/test-serve.js   (with QUICKJS_MODULE_PATH set to build/x86_64-linux-gnu first)
+
+- websocket-client-closes-right-after-first-send (lib/websocket.js send(), lws-socket.c socket_flush(); lws timer path): a WebSocket client that sends one message gets its connection closed by lws straight after the TX (log: CLIENT_WRITEABLE, TX 2 bytes, WS_CLIENT_DROP_PROTOCOL, then a 1000 close frame, server sees WS_PEER_INITIATED_CLOSE), so a server never gets the chance to answer and the cork() test of test-websocket-server-members.js (and probably the hangs of test-websocket.js, test-ws.js) fail. gdb: the first lws_close_free_wsi comes from __lws_sul_service_ripe called by lws_service_adjust_timeout in pollfd_handler (lws-protocol.c), i.e. an lws timer fires on the client wsi right after the first write; which timer is not found. Without a send the connection stays open.
+
+    createServer({ port, protocols: [WebSocket.protocol('ws', ws => ws.addEventListener('message', e => ws.send('hi')))] }); const c = new WebSocket('ws://localhost:' + port, 'ws'); c.addEventListener('open', () => c.send('go')); c.addEventListener('close', () => console.log('closed')); // closed is printed within ms
