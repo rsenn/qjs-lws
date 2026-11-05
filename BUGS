@@ -182,7 +182,7 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     # in tests/unittests/tinytest.js after the last console.log: exit(failures ? 1 : 0)
 
-- tcpsocketstream-connect-right-after-close-dropped (lib/tcpsocketstream.js:32): (not the TCPSocket client message-closes-connection bug fixed in lib/lws/util.js makeFireEvent, this one is still there) a TCPSocketStream created in the same tick as a previous one's close() (without awaiting closed) never opens; its client wsi is closed by lws without any open, error or close callback, so opened never settles. test-tcpsocket.js awaits closed to avoid it. the StreamAdapter pending-claim theory was tried and does not help; the fd handlers of the new socket are intact, the wsi is just closed silently right after connecting. not yet understood.
+- tcpsocketstream-connect-right-after-close-dropped (lib/tcpsocketstream.js:32): (not the TCPSocket client message-closes-connection bug fixed in lib/lws/util.js makeFireEvent, this one is still there) a TCPSocketStream created in the same tick as a previous one's close() (without awaiting closed) never opens; its client wsi is closed by lws without any open, error or close callback, so opened never settles. test-tcpsocket.js awaits closed to avoid it. the StreamAdapter pending-claim theory was tried and does not help; the fd handlers of the new socket are intact, the wsi is just closed silently right after connecting. not yet understood. Deferring the context destroy by 50 ms does not help either, so it is not the destroy racing the new connect.
 
     const a = new TCPSocketStream({ host: 'localhost', port }); await a.opened;
     a.close();
