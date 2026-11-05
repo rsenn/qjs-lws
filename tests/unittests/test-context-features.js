@@ -17,7 +17,7 @@ function startCookieServer(port) {
       {
         name: 'api',
         onHttp(wsi) {
-          wsi.respond(200, { 'content-type': 'text/plain', 'set-cookie': 'foo=bar; Path=/' }, 'hi');
+          wsi.respond(200, 'hi', { 'content-type': 'text/plain', 'set-cookie': 'foo=bar; Path=/' }); // the body comes before the headers
           return 0;
         },
       },
@@ -37,6 +37,11 @@ function httpGet(port, clientOpts, connectOpts) {
           },
           onReceiveClientHttp(wsi) {
             wsi.httpClientRead(new ArrayBuffer(4096));
+          },
+          /* the server keeps the connection alive, so the request is done when
+             its transaction completes, not when the connection closes */
+          onCompletedClientHttp(wsi) {
+            resolve({ client, status: this.status, conmon: wsi.conmon });
           },
           onClosedClientHttp(wsi) {
             resolve({ client, status: this.status, conmon: wsi.conmon });

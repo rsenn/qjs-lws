@@ -284,14 +284,6 @@
 See doc/api-compatibility.md for full compatibility assessment with code examples and priority ranking.
 
 
-- test-context-features-hangs-after-last-test (tests/unittests/test-context-features.js:1):
-  all tests print OK but the process never exits (ctest times out at 60s
-  on x86_64-linux-gnu), so a context or socket created by the last
-  resolve() tests is probably left alive. Found running ctest; cause not
-  yet investigated.
-
-    qjsm tests/unittests/test-context-features.js  (run from the build dir; does not terminate)
-
 - test-tcpsocket-times-out (tests/unittests/test-tcpsocket.js): times out (test-websocket.js passes since the drain-callback fix) at 40s under ctest, also with the serve/ServerResponse changes stashed, so they are pre-existing. found running ctest on build/x86_64-linux-gnu.
 
     cd build/x86_64-linux-gnu && ctest -R "test-tcpsocket|test-websocket.js" --timeout 40
