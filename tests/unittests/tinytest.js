@@ -37,12 +37,16 @@
  * -Joe Walnes
  * MIT License. See https://github.com/joewalnes/jstinytest/
  */
+import { getenv } from 'std';
+
+const only = getenv('TEST_ONLY');
 const TinyTest = {
   async run(tests) {
     let count = 0,
       failures = 0;
 
     for(let testName in tests) {
+      if(only && !testName.includes(only)) continue; // TEST_ONLY=<substring>: run just the matching tests
       let testAction = tests[testName];
       //console.log('Test:', testName, testAction);
       try {

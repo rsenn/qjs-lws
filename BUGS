@@ -292,12 +292,9 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 
     qjsm tests/unittests/test-context-features.js  (run from the build dir; does not terminate)
 
-- test-ws-hangs-after-ws-close (tests/unittests/test-ws.js:1):
-  the suite never finishes (ctest timeout at 60s); the log ends right
-  after CLIENT_CLOSED of a ws client, so a later test or the loop teardown
-  is stuck. Found running ctest; cause not yet investigated.
+- test-ws-hangs-in-server-close-from-established (tests/unittests/test-ws.js, lws-protocol.c end of lwsjs_callback_protocol): not a hang after the last test but three cases that hang inside: 'server (raw): onClosed reports the code/reason the server itself sent', 'server (raw): onClosed leaves reason undefined for a code-only close' and 'two concurrent connections...'. The server calls wsi.close(code, reason) inside onEstablished; lws-protocol.c then returns -1 for that callback (s->closed), lws treats the connection as never established ("user ESTABLISHED failed connection", WS_SERVER_DROP_PROTOCOL) and never fires CLOSED, so onClosed never runs and the test waits forever. Returning 0 for ESTABLISHED/CLIENT_ESTABLISHED and closing asynchronously (tried) lets CLOSED fire but then the close frame goes out without the stashed code, so test-websocket.js and test-websocketstream.js lose the peer's close code (4001 expected, undefined). A fix has to do both: keep -1 (code on the wire) and call the JS onClosed handler itself when lws will not; needs a decision. Find a single case with TEST_ONLY (tinytest.js).
 
-    qjsm tests/unittests/test-ws.js  (run from the build dir; does not terminate)
+    TEST_ONLY="the server itself sent" qjs tests/unittests/test-ws.js   (QUICKJS_MODULE_PATH with build/x86_64-linux-gnu first)
 
 - test-tcpsocket-times-out (tests/unittests/test-tcpsocket.js): times out (test-websocket.js passes since the drain-callback fix) at 40s under ctest, also with the serve/ServerResponse changes stashed, so they are pre-existing. found running ctest on build/x86_64-linux-gnu.
 
