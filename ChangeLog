@@ -1,5 +1,19 @@
 2026-11-05  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lws-protocol.c (lwsjs_callback_protocol): HTTP_FILE_COMPLETION with
+	no JS handler goes to lws_callback_http_dummy().  That is what completes
+	the transaction of a served file: it resets the per-response state of
+	the wsi.  Without it the next response on the kept-alive connection had
+	its headers counted as body, "no room for file content", and the file
+	was never sent (header, then close): fetch() of two files from an
+	LWSMPRO_FILE mount failed on the second.
+	* lib/lws/protocols.js (HttpClientProtocol#onEstablishedClientHttp):
+	Ignore the established report that lws makes for a stream queued on an
+	h2 connection before any response (status 0), and a repeat of it; the
+	Response built for the first locked the body stream for the second
+	("stream already locked").
+	* tests/unittests/test-file-mount-keepalive.js: New.
+
 	* lib/serve.js (serve): The ws protocol is now protocols[0] and forwards
 	onHttpConfirmUpgrade to the http upgrade hook.  A client that sends no
 	Sec-WebSocket-Protocol (Bun, browsers, ws, python websockets) is bound

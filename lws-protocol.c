@@ -683,6 +683,16 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   if(handlers && countof(handlers->callbacks) > reason && !is_nullish(handlers->callbacks[reason]))
     cb = &handlers->callbacks[reason];
 
+  /* a served file (LWSMPRO_FILE mount) ends with this callback, and lws's own
+   * handler is what completes the transaction: it resets the per-response
+   * state of the wsi (what has been counted of the answer's framing) and
+   * readies the keep-alive connection for the next request. without it the
+   * next response on the same connection was cut short: its headers were
+   * counted as body, so the file had no room and the connection was closed
+   * after the headers. a JS handler for it stays in charge. */
+  if(wsi && reason == LWS_CALLBACK_HTTP_FILE_COMPLETION && (!cb || is_nullish(*cb)))
+    return lws_callback_http_dummy(wsi, reason, user, in, len);
+
   JSValue sock = wsi && reason != LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL && reason != LWS_CALLBACK_PROTOCOL_INIT ? lwsjs_socket_get_or_create(ctx, wsi) : JS_UNDEFINED;
   LWSSocket* s = lwsjs_socket_data(sock);
 

@@ -97,12 +97,11 @@
     tests/test-keepalive.js's fixture server can't
     reproduce this directly (its keepalive_timeout closes cleanly, a real
     FIN, which the client notices right away - a different failure mode);
-    2026-11-05 (later): reproducible locally with the plain HTTP/1.1 case of tests/test-fetch.js (lws
-    file-mount server, keepAlive fetch of index.html then page2.html on the same connection): the second
-    request gets ESTABLISHED_CLIENT_HTTP and RECEIVE_CLIENT_HTTP before the server has answered, httpClientRead
-    reports a failure and the wsi is dropped ("dropped"); returning 0 there instead of -1 hangs. Against
-    python http.server and serve() reuse works. Fix is in libwebsockets (a queued child must not inherit
-    client_rx_avail), not done.
+    2026-11-05 (later): tests/test-fetch.js plain HTTP/1.1 looked like this (second request on a
+    reused connection dropped) but was a different bug, now fixed: a protocol without an
+    HTTP_FILE_COMPLETION handler never completed the transaction, so lws cut the next file
+    response short (lws-protocol.c, test-file-mount-keepalive.js). This entry itself (queued request on
+    an idle connection never promoted) is still unreproduced.
 
     2026-11-05 (earlier): not reproducible against a local keep-alive server. A python
     http.server (HTTP/1.1, content-length or chunked replies) with
@@ -155,17 +154,6 @@
 
 - serve-websocket-options-silently-ignored (lib/serve.js:~640): backpressureLimit, closeOnBackpressureLimit and sendPings are read and never used (perMessageDeflate, maxPayloadLength and publishToSelf work now); they need the write queue size / ping control from lws.
 
-- fetch-h2-plain-response-body-stream-already-locked (lib/lws/protocols.js:388):
-  in tests/test-fetch.js the "H2, plain" case fetches the index page fine (200)
-  but then throws "TypeError: This stream has already been locked for
-  exclusive reading by another reader", raised from streamFromIterable()
-  (lib/lws/stream-utils.js:99) while onEstablishedClientHttp() constructs the
-  Response, and the run then hangs instead of finishing. The two HTTP/1.1
-  cases (plain, TLS) in the same file pass. Not narrowed to a root cause;
-  found once the globalThis.os fix let the suite get this far.
-
-    qjsm tests/test-fetch.js    # hangs after the H2, plain error
-
 - ws-deflate-loses-data (libwebsockets permessage-deflate rx, via lws-protocol.c RECEIVE): with permessage_deflate on (serve({websocket:{perMessageDeflate:true}})) and a client that negotiates it, a text message of 70000 random letters reaches reassembleFragments() as 65 fragments totalling only 57712 bytes, the last one final: about 12 KB are lost between lws' inflate and the callback (messages up to 5000 bytes are fine; the fragments are 1024 bytes with a short one of about 370 after every fourth). Raising the protocol rx_buffer_size to 16384 changes nothing. found testing with python websockets 17.1 (compression='deflate').
 
     // server: serve({ port: 18977, fetch(req, s) { if(s.upgrade(req)) return; return new Response('x') },
@@ -191,5 +179,3 @@ See doc/api-compatibility.md for full compatibility assessment with code example
 - chat-bridge-model-substring-match (examples/chat-bridge/chat-bridge.js:620): the site for a request is the first site whose name is a substring of the model name, so with sites fake and fakerot the model fakerot is served by fake; any site name that contains another site's name is unreachable. found with the fake-site test (examples/chat-bridge/test/run.sh), which names its sites to avoid it.
 
     CHAT_BRIDGE_SITES=sites.json (sites "fake" and "fakerot"), then ask model "fakerot": the reply comes from the fake tab.
-
-- test-fetch-plain-h1-reuse (tests/test-fetch.js): HTTP/1.1 plain case fails with dropped on the second fetch, see h1-late-queued-pipeline-never-promoted; the H2 plain case then stops at TypeError stream already locked (fetch-h2-plain-response-body-stream-already-locked). tests/test-serve.js and tests/test-client.js pass now.
