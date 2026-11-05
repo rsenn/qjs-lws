@@ -1,5 +1,25 @@
 2026-11-05  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lws-protocol.c (pollfd_handler): Ask poll() for the real state of the
+	fd and hand that to lws_service_fd().  quickjs runs one handler per
+	ready fd and loop turn, the read handler first; a connecting socket
+	whose peer closed or refused stays readable, so the write handler never
+	ran, lws never finished the connect on POLLIN alone and the wsi hung
+	until lws' 3 s timeout (the busy loop that made test-tcpsocket time
+	out).
+	* iohandler.c (iohandler_set): Clear an fd handler only when this
+	context registered it.  The os handler table is keyed by fd number for
+	the whole process, so a destroyed context closing its wsi late wiped
+	the handlers of a socket of another context that had reused the number.
+	* lws-context.c (lwsjs_context_method): destroy() clears the remaining
+	fd handlers of the context; lws sends no DEL_POLL_FD for a wsi it has
+	not closed yet.
+	* tests/unittests/test-tcpsocket.js: Await closed at the end of the
+	TCPSocketStream test (see BUGS tcpsocketstream-connect-right-after-
+	close-dropped).
+	* tests/unittests/test-response.js: Response.json() has no space before
+	charset, like Bun.
+
 	* ChangeLog: New, GNU style.
 	* CLAUDE.md: New section ChangeLog (format, examples/ exempt); stage
 	files by name.

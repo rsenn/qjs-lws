@@ -66,7 +66,7 @@ await tests({
 
   async 'Response.json() sets content-type and serializes the body'() {
     const r = Response.json({ a: 1 });
-    eq('application/json; charset=utf-8', r.headers.get('content-type'));
+    eq('application/json;charset=utf-8', r.headers.get('content-type'));
     const body = await r.text();
     eq(1, JSON.parse(body).a);
   },

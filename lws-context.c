@@ -893,6 +893,10 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         timers_cleanup(lws);
         lws_context_destroy(lws->ctx);
         lws->ctx = NULL;
+        /* lws sends no DEL_POLL_FD for a wsi it did not get to close before
+         * the context went away: its fd handlers would stay in the event loop
+         * and make it spin on an fd nobody services any more. */
+        iohandler_cleanup(lws);
         ret = JS_TRUE;
       }
 

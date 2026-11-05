@@ -1,3 +1,4 @@
+#include <poll.h>
 #include "lws-protocol.h"
 #include "lws-socket.h"
 #include "lws-context.h"
@@ -63,6 +64,16 @@ pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* ar
       .events = pc->events,
       .revents = pc->write ? POLLOUT : POLLIN,
   };
+
+  /* quickjs runs only one handler per ready fd and loop turn, the read one
+   * first. a connecting socket whose peer closed or refused stays readable
+   * for good, so the write handler never ran, and lws does not finish a
+   * connect on POLLIN alone: it hung until lws' timeout. hand lws the real
+   * state of the fd instead of the direction of this handler. */
+  struct pollfd now = {.fd = pc->fd, .events = pc->events};
+
+  if(poll(&now, 1, 0) > 0 && now.revents)
+    pf.revents = now.revents;
 
   lws_service_fd(pc->lws, &pf);
 

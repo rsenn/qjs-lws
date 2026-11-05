@@ -76,9 +76,17 @@ iohandler_remove(LWSContext* lws, int fd, BOOL write) {
 
 void
 iohandler_set(LWSContext* lws, int fd, JSValueConst handler, BOOL write) {
+  BOOL add = JS_IsFunction(lws->js, handler);
+
+  /* the os handler table is process wide, keyed by fd number only. a context
+   * that never registered this fd (or already cleared it) must not clear it:
+   * the number may have been reused by a socket of another context, e.g.
+   * when a destroyed context's wsi is finally closed. */
+  if(!add && !iohandler_find(lws, fd, write))
+    return;
+
   JSValue fn = iohandler_function(lws, write);
   JSValue args[2] = {JS_NewInt32(lws->js, fd), handler};
-  BOOL add = JS_IsFunction(lws->js, handler);
 
   DEBUG("%s %d %s", write ? "os.setWriteHandler" : "os.setReadHandler", fd, add ? "[function]" : "NULL");
 

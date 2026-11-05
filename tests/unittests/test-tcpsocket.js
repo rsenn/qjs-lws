@@ -530,6 +530,7 @@ await tests({
     eq('hello-stream', toString(value.buffer ?? value));
 
     ts.close();
+    await ts.closed;
     server.destroy();
   },
 
