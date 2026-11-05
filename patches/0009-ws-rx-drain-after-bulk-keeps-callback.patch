@@ -1,0 +1,36 @@
+From: Roman Senn <roman.l.senn@gmail.com>
+Subject: [PATCH] ws rx: do not swallow the first drain output after a bulk payload
+
+lws_parse_ws() handles payload in bulk and then calls lws_ws_rx_sm() with
+ALREADY_PROCESSED_NO_CB, as the bulk path did the user callback itself.  With
+permessage-deflate that call can be a drain of the inflater: lws_ws_rx_sm()
+takes the wsi off the draining list on entry, so while the extension runs the
+wsi flag is clear, and NO_CB was only cleared when that flag was set.  The
+output of that first drain (up to rx_buf_size, 1024 bytes by default) was
+dropped without a RECEIVE callback: one lump in five of every message that
+inflates to more than one buffer, a 70000 byte message arrived as 57712.
+Clear NO_CB for a call that entered as a drain too.
+
+Made against libwebsockets f1650e3e7 (main).
+
+---
+diff --git a/lib/sansio/ws/ops-ws.c b/lib/sansio/ws/ops-ws.c
+index 9a570c5dd..05a5c0a38 100644
+--- a/lib/sansio/ws/ops-ws.c
++++ b/lib/sansio/ws/ops-ws.c
+@@ -875,7 +875,14 @@ drain_extension:
+ 			n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &pmdrx, 0);
+ 			lwsl_debug("%s: ext says %d / ebuf.len %d\n", __func__,
+ 				   n, pmdrx.eb_out.len);
+-			if (wsi->ws->rx_draining_ext)
++			/*
++			 * The entry drain took us off the list above, so the
++			 * wsi flag alone is clear again for a drain that came
++			 * in with nothing left pending after it: use what we
++			 * entered with too, or a drain that the bulk path
++			 * called with NO_CB has its output swallowed
++			 */
++			if (wsi->ws->rx_draining_ext || rx_draining_ext)
+ 				already_processed &= (char)~ALREADY_PROCESSED_NO_CB;
+ #endif
+ 

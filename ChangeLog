@@ -1,5 +1,14 @@
 2026-11-05  Roman Senn  <roman.l.senn@gmail.com>
 
+	* patches/0009-ws-rx-drain-after-bulk-keeps-callback.patch: New.
+	libwebsockets (lib/sansio/ws/ops-ws.c, lws_ws_rx_sm): the first drain of
+	the permessage-deflate inflater after the bulk payload path had its
+	output dropped, because NO_CB was cleared only while the wsi was on the
+	draining list, which the entry drain had just left.  One lump of 1024
+	bytes in five of every large deflated message was lost (a 70000 byte
+	message arrived as 57712).
+	* tests/unittests/test-ws-deflate-large-message.js: New.
+
 	* lws-protocol.c (lwsjs_callback_protocol): HTTP_FILE_COMPLETION with
 	no JS handler goes to lws_callback_http_dummy().  That is what completes
 	the transaction of a served file: it resets the per-response state of
