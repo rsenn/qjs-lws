@@ -964,7 +964,10 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     return JS_EXCEPTION;
   }
 
-  const size_t space = LWS_RECOMMENDED_MIN_HEADER_SPACE + 32;
+  /* the header block of a response has to fit in here: with the 2 KB lws
+     recommends, a response with more headers than that silently lost the
+     ones that did not fit */
+  const size_t space = 8 * LWS_RECOMMENDED_MIN_HEADER_SPACE + 32;
   uint8_t* const start = view ? vstart : alloca(LWS_PRE + space) + LWS_PRE;
   uint8_t *const end = view ? view->end : start + space, *p = start;
 
@@ -977,6 +980,7 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
   JSPropertyEnum* tab = 0;
   uint32_t tab_len;
+  int hdr_err = 0;
 
   if(header_arg != -1 && !JS_GetOwnPropertyNames(ctx, &tab, &tab_len, argv[header_arg], JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)) {
     for(uint32_t j = 0; j < tab_len; j++) {
@@ -995,8 +999,10 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
           JSValue elem = JS_GetPropertyUint32(ctx, value, k);
 
           if((vstr = JS_ToCStringLen(ctx, &vlen, elem))) {
-            if(lws_add_http_header_by_name(s->wsi, name, vstr, vlen, &p, end))
+            if(lws_add_http_header_by_name(s->wsi, name, vstr, vlen, &p, end)) {
               JS_ThrowInternalError(ctx, "lws_add_http_header_by_name");
+              hdr_err = 1;
+            }
 
             JS_FreeCString(ctx, vstr);
           }
@@ -1004,8 +1010,10 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
           JS_FreeValue(ctx, elem);
         }
       } else if((vstr = JS_ToCStringLen(ctx, &vlen, value))) {
-        if(lws_add_http_header_by_name(s->wsi, name, vstr, vlen, &p, end))
+        if(lws_add_http_header_by_name(s->wsi, name, vstr, vlen, &p, end)) {
           JS_ThrowInternalError(ctx, "lws_add_http_header_by_name");
+          hdr_err = 1;
+        }
 
         JS_FreeCString(ctx, vstr);
       }
@@ -1016,6 +1024,14 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
     }
 
     js_free(ctx, tab);
+  }
+
+  /* a header that did not fit is an error, not something to drop silently */
+  if(hdr_err) {
+    if(is_str)
+      JS_FreeCString(ctx, (const char*)ptr);
+
+    return JS_EXCEPTION;
   }
 
   int err;
