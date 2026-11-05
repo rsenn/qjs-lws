@@ -184,6 +184,23 @@ lwsjs_vhost_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSVal
     goto fail;
   }
 
+  /* lws_create_vhost() accepts a callback mount whose protocol is not in the
+     protocols list and the mount then silently never works */
+  for(const struct lws_http_mount* m = vh->info.mounts; m; m = m->mount_next) {
+    if(m->origin_protocol != LWSMPRO_CALLBACK || !m->protocol)
+      continue;
+
+    const struct lws_protocols* pr = vh->info.protocols;
+
+    while(pr && pr->name && strcmp(pr->name, m->protocol))
+      ++pr;
+
+    if(!pr || !pr->name) {
+      JS_ThrowTypeError(ctx, "mount '%s' names protocol '%s' which is not in the protocols list", m->mountpoint ? m->mountpoint : "", m->protocol);
+      goto fail;
+    }
+  }
+
   vh->info.user = obj_ptr(ctx, obj);
 
   JS_SetOpaque(obj, vh);
