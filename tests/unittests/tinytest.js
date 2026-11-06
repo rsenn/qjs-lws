@@ -37,31 +37,58 @@
  * -Joe Walnes
  * MIT License. See https://github.com/joewalnes/jstinytest/
  */
-import { getenv } from 'std';
+import { getenv, exit } from 'std';
 
 const only = getenv('TEST_ONLY');
+
+class Skip extends Error {}
+
 const TinyTest = {
   async run(tests) {
     let count = 0,
-      failures = 0;
+      failures = 0,
+      skipped = 0;
 
     for(let testName in tests) {
-      if(only && !testName.includes(only)) continue; // TEST_ONLY=<substring>: run just the matching tests
+      if(only && !only.split('|').some(o => testName.includes(o))) continue; // TEST_ONLY=<substring>[|<substring>...]: run just the matching tests
       let testAction = tests[testName];
       //console.log('Test:', testName, testAction);
       try {
         await testAction();
-        console.log('Test:', testName, 'OK');
+        console.log('\u2705 Test:', testName);
       } catch(e) {
-        failures++;
-        (console.error || console.log).call(console, 'Test:', testName, 'FAILED', e);
-        (console.error || console.log).call(console, e.stack);
+        if(e instanceof Skip) {
+          skipped++;
+          console.log('\u26a0\ufe0f  Test:', testName, `(skipped: ${e.message})`);
+        } else {
+          failures++;
+          (console.error || console.log).call(console, '\u274c Test:', testName, 'FAILED', e);
+          (console.error || console.log).call(console, e.stack);
+        }
       }
       count++;
     }
 
-    if(failures) console.log(`${failures} out of ${count} tests failed.`);
-    else console.log(`${count} tests succeeded.`);
+    /* the summary line keeps its shape: run-all.sh greps it */
+    if(skipped) console.log(`\u26a0\ufe0f  ${skipped} skipped`);
+    if(failures) {
+      console.log(`${failures} out of ${count} tests failed.`);
+      exit(1); /* so ctest sees the failure, and a server a failed test left running cannot hang the run */
+    } else console.log(`${count - skipped} tests succeeded.`);
+  },
+
+  /* skip the running test (shown as a warning, not a failure) */
+  skip(reason) {
+    throw new Skip(reason);
+  },
+
+  /* import an optional module (one from qjs-modules, say) or skip the test */
+  async needs(name) {
+    try {
+      return await import(name);
+    } catch(e) {
+      throw new Skip(`needs the '${name}' module`);
+    }
   },
 
   fail(msg) {
@@ -88,6 +115,8 @@ const TinyTest = {
 };
 
 export const fail = TinyTest.fail,
+  skip = TinyTest.skip,
+  needs = TinyTest.needs,
   assert = TinyTest.assert,
   assertEquals = TinyTest.assertEquals,
   eq = TinyTest.assertEquals, // alias for assertEquals

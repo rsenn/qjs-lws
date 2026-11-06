@@ -15,6 +15,9 @@
  *   unchanged this long = done, 2.5)  --timeout SEC (180)
  *   --allow-paid (serve: also use pay-as-you-go sites such as openrouter,
  *   refused by default; or CHAT_BRIDGE_ALLOW_PAID=1)
+ *   --new-tabs (serve: always create tabs with Target.createTarget; by default
+ *   blank tabs that are already open are navigated first, because some
+ *   browsers open a new window for a created target)
  *
  * Prerequisites: a browser with a dedicated profile, logged in once:
  *   google-chrome --remote-debugging-port=9222 \
@@ -44,6 +47,7 @@ import { serve, Response } from '../../lib/serve.js';
 import { WebSocketStream } from '../../lib/websocketstream.js';
 import { ReadableStream } from '../../lib/lws/streams.js';
 import { URL } from '../../lib/lws/url.js';
+import { extractCalls } from './tool-calls.js';
 import { TextDecoder } from 'textcode';
 import { setTimeout, signal, SIGINT, SIGTERM, mkdir } from 'os';
 import { getenv, exit, loadFile, open as fopen } from 'std';
@@ -68,6 +72,10 @@ const SITES = {
   aistudio: { host: 'aistudio.google.com', home: 'https://aistudio.google.com/prompts/new_chat', input: 'textarea', reply: 'ms-text-chunk', billing: 'metered', skip: 'free Gemini API key exists, and gemini is already covered by the gemini site' },
   groq: { host: 'console.groq.com', home: 'https://console.groq.com/playground', input: 'textarea', reply: '.prose', billing: 'metered', skip: 'API playground behind a login, not a chat, and groq has an OpenAI-compatible API' },
 };
+
+/* extra sites (tests, private deployments): $CHAT_BRIDGE_SITES names a JSON
+   file { name: { host, home, input, reply, ... } } merged over SITES */
+if(getenv('CHAT_BRIDGE_SITES')) Object.assign(SITES, JSON.parse(loadFile(getenv('CHAT_BRIDGE_SITES')) ?? '{}'));
 
 /* every site has a billing class, default 'free': a consumer chat that can
    only cost money if a human clicks Upgrade (the bridge never clicks
@@ -111,6 +119,9 @@ function parseReset(text) {
   const unit = m[2].toLowerCase();
   return +m[1] * (/^(h|std|hour|stund)/.test(unit) ? 3600 : /^(d|tag)/.test(unit) ? 86400 : 60);
 }
+
+/* a tab that holds nothing of the user's: the bridge may use it */
+const BLANK_RE = /^(about:blank|chrome:\/\/(newtab|new-tab-page)\/?|edge:\/\/newtab\/?|brave:\/\/newtab\/?)/;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -385,36 +396,6 @@ Rules: never search the web, never say you lack tools or file access, never desc
 
 const TOOL_REMINDER = '\n\n(Reminder: if you need a tool, your whole reply is one tool_call block. Never say you cannot use the tools; call them.)';
 
-/* every top level {"name":..,"arguments":{..}} object in the text, however
-   the page decorated it (code block labels, copy buttons, ...) */
-function extractCalls(text, names) {
-  text = text.replace(/[\u00a0\u200b\u2028\u2029]/g, ' '); /* rendered code blocks */
-  const calls = [];
-  for(let i = text.indexOf('{'); i >= 0; i = text.indexOf('{', i + 1)) {
-    let depth = 0, str = false, esc = false, j = i;
-    for(; j < text.length; j++) {
-      const c = text[j];
-      if(str) {
-        if(esc) esc = false;
-        else if(c == '\\') esc = true;
-        else if(c == '"') str = false;
-      } else if(c == '"') str = true;
-      else if(c == '{') depth++;
-      else if(c == '}' && --depth == 0) break;
-    }
-    if(depth) break;
-    try {
-      const o = JSON.parse(text.slice(i, j + 1));
-      const args = o.arguments ?? o.parameters;
-      if(names.has(o.name) && args && typeof args == 'object') {
-        calls.push({ name: o.name, arguments: args });
-        i = j;
-      }
-    } catch(e) {}
-  }
-  return calls;
-}
-
 /* returns { prompt, fresh }: only the last user turn if the chat already
    holds the history, else the whole transcript flattened into one prompt */
 function planPrompt(messages, chat) {
@@ -509,7 +490,11 @@ class Bridge {
     return chat;
   }
 
-  /* a new background tab, same window and profile so already logged in */
+  /* a tab for a chat: by default a blank tab that is already open gets
+     navigated, and only when there is none a background tab is created
+     (CDP cannot place a created tab in a given window, and some browsers
+     open a new window for it); with --new-tabs one is always created.
+     Same profile, so logged in */
   async open(name) {
     const prev = this.#opening;
     let done;
@@ -523,6 +508,17 @@ class Bridge {
   }
 
   async #open(name) {
+    if(!this.o.newTabs) {
+      const owned = new Set([...this.pool.values()].flat().map(c => c.targetId));
+      const spare = (await this.tabs()).find(t => !owned.has(t.id) && BLANK_RE.test(t.url));
+      if(spare) {
+        const chat = await this.attach(spare, ACTIVE[name]);
+        chat.targetId = spare.id;
+        chat.borrowed = true;
+        await chat.cdp.send('Page.navigate', { url: ACTIVE[name].home });
+        return chat;
+      }
+    }
     if(!this.#browser) {
       const v = await (await fetch(this.url('/json/version'))).json();
       this.#browser = new CDP();
@@ -566,7 +562,13 @@ class Bridge {
   /* close the tabs this bridge opened */
   async closeAll() {
     for(const pool of this.pool.values())
-      for(const c of pool) await this.#browser?.send('Target.closeTarget', { targetId: c.targetId }).catch(() => {});
+      for(const c of pool) await this.dispose(c);
+  }
+
+  /* close a tab the bridge created; a borrowed one goes back to blank */
+  async dispose(chat) {
+    if(chat.borrowed) await chat.cdp.send('Page.navigate', { url: 'about:blank' }).catch(() => {});
+    else await this.#browser?.send('Target.closeTarget', { targetId: chat.targetId }).catch(() => {});
   }
 
   release(chat) {
@@ -576,7 +578,7 @@ class Bridge {
         const i = pool.indexOf(chat);
         if(i >= 0) pool.splice(i, 1);
       }
-      this.#browser?.send('Target.closeTarget', { targetId: chat.targetId }).catch(() => {});
+      this.dispose(chat);
     }
     for(const r of this.waiters.splice(0)) r();
   }
@@ -671,11 +673,10 @@ function completions(bridge) {
       created = Math.floor(Date.now() / 1000);
     const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
     const remember = msg => (chat.history = [...messages, msg]);
-    const names = new Set((tools ?? []).map(t => (t.function ?? t).name));
 
     /* the reply text -> an assistant message, with tool_calls if it has any */
     const toMessage = text => {
-      const calls = tools ? extractCalls(text, names) : [];
+      const calls = tools ? extractCalls(text, tools) : [];
       if(!calls.length) return { role: 'assistant', content: text };
       return { role: 'assistant', content: null, tool_calls: calls.map((c, i) => ({ id: `call_${id}_${i}`, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) };
     };
@@ -756,11 +757,15 @@ function completions(bridge) {
 }
 
 function parseArgs(argv) {
-  const o = { port: 9222, host: '127.0.0.1', listen: 8089, max: 3, idle: 2.5, timeout: 180, site: null, allowPaid: getenv('CHAT_BRIDGE_ALLOW_PAID') == '1', rest: [] };
+  const o = { port: 9222, host: '127.0.0.1', listen: 8089, max: 3, idle: 2.5, timeout: 180, site: null, allowPaid: getenv('CHAT_BRIDGE_ALLOW_PAID') == '1', newTabs: false, rest: [] };
   const num = new Set(['port', 'listen', 'max', 'idle', 'timeout']);
   for(let i = 0; i < argv.length; i++) {
     if(argv[i] == '--allow-paid') {
       o.allowPaid = true;
+      continue;
+    }
+    if(argv[i] == '--new-tabs') {
+      o.newTabs = true;
       continue;
     }
     const m = /^--(\w+)$/.exec(argv[i]);

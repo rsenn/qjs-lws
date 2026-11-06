@@ -50,6 +50,7 @@ import createContext from '../lib/lws/context.js';
 import { httpClient } from '../lib/lws/protocols.js';
 import { tests, assert } from './unittests/tinytest.js';
 import * as std from 'std';
+import { setTimeout, clearTimeout } from 'os';
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

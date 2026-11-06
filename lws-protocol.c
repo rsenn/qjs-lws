@@ -693,6 +693,20 @@ lwsjs_callback_protocol(struct lws* wsi, enum lws_callback_reasons reason, void*
   if(wsi && reason == LWS_CALLBACK_HTTP_FILE_COMPLETION && (!cb || is_nullish(*cb)))
     return lws_callback_http_dummy(wsi, reason, user, in, len);
 
+  /* lws parks the response body of an http client and waits for the handler
+   * of this callback to drain it with lws_http_client_read(), which is also
+   * what turns reading back on. a protocol without that handler never did,
+   * the event stayed pending and lws was serviced over and over without
+   * end, a busy loop for as long as the connection lived (an http client
+   * that only looks at the headers, or closes from onEstablishedClientHttp).
+   * drain it here; the bytes reach onReceiveClientHttpRead if it is set. */
+  if(wsi && reason == LWS_CALLBACK_RECEIVE_CLIENT_HTTP && (!cb || is_nullish(*cb))) {
+    char buf[LWS_PRE + 4096], *p = buf + LWS_PRE;
+    int n = sizeof(buf) - LWS_PRE;
+
+    return lws_http_client_read(wsi, &p, &n) < 0 ? -1 : 0;
+  }
+
   JSValue sock = wsi && reason != LWS_CALLBACK_CLIENT_HTTP_BIND_PROTOCOL && reason != LWS_CALLBACK_PROTOCOL_INIT ? lwsjs_socket_get_or_create(ctx, wsi) : JS_UNDEFINED;
   LWSSocket* s = lwsjs_socket_data(sock);
 

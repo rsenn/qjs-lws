@@ -1,6 +1,6 @@
-import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
+import { tests, eq, assert, assertStrictEquals, fail, needs } from './tinytest.js';
 import { Body } from '../../lib/lws/body.js';
-import { TextEncoder } from 'textcode';
+import { TextEncoder } from '../utf8.js';
 
 await tests({
   'null/undefined body means no body'() {
@@ -12,6 +12,7 @@ await tests({
   },
 
   async 'text()/arrayBuffer()/blob() resolve to empty for a null/undefined body, matching WHATWG Request/Response'() {
+    await needs('blob'); // Body.blob() uses qjs-modules' blob
     for(const init of [null, undefined]) {
       eq('', await new Body(init).text());
       eq(0, (await new Body(init).arrayBuffer()).byteLength);

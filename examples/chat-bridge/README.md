@@ -37,8 +37,18 @@ Files: `chat-bridge.js` (the program), `README.md` (this document),
 | `--listen N` | 8089 | `serve`: HTTP port, 0 = any free port (the startup line prints the real one) |
 | `--max N` | 3 | `serve`: chat tabs per site |
 | `--allow-paid` | off | `serve`: also use pay-as-you-go sites (`billing: 'metered'`, now openrouter); also `CHAT_BRIDGE_ALLOW_PAID=1` |
+| `--new-tabs` | off | always create tabs with `Target.createTarget`; by default blank tabs that are already open are navigated first (see below) |
 | `--idle SEC` | 2.5 | reply unchanged this long = finished |
 | `--timeout SEC` | 180 | give up waiting for a reply |
+
+Tabs: CDP cannot place a created tab in a given window, and some browsers
+open a new *window* for a `Target.createTarget`. So `serve` first navigates a
+blank tab (`about:blank` or the new-tab page) that is already open, and only
+when there is none creates a background tab. A borrowed tab is navigated back
+to blank when the chat is retired or the bridge exits (created tabs are
+closed). Keep a few blank tabs open to avoid created tabs altogether. Tabs
+that already show a site (your own chats) are never taken. `--new-tabs`
+always creates.
 
 Prerequisite: a browser with a dedicated profile, logged in once to the
 sites you want, started with remote debugging:
@@ -301,3 +311,17 @@ names from the QuickJS module dir.
 ## Backlog
 
 Open work is tracked in [TODO.md](TODO.md); bugs in `BUGS` at the repo root.
+
+## Testing
+
+`test/run.sh` runs the bridge against a fake chat site (`test/fake-site.html`)
+in a throwaway headless Chrome with its own profile and CDP port (9333), so
+your own browser is not touched. It checks `/v1/models`, a plain and a
+streamed reply, tool calls (nested and flat arguments), the refusals (prompt
+not taken: 502, daily limit: 429 with `Retry-After`) and a site whose layout
+changed. The site is added with `CHAT_BRIDGE_SITES=file.json`, a JSON object
+`{ name: { host, home, input, reply } }` merged over the built-in sites.
+Needs google-chrome (or `$CHROME`), qjsm, and `QUICKJS_MODULE_PATH` pointing at
+a `lws.so` build. `test/probe.js` is the part that talks to the bridge.
+Unit tests of the tool call parser: `qjsm test-tool-calls.js`.
+

@@ -52,7 +52,7 @@
  */
 import { tests, eq, assert } from './tinytest.js';
 import { createServer, LWSContext, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT } from 'lws.so';
-import { TextDecoder } from 'textcode';
+import { TextDecoder } from '../utf8.js';
 import { freePort } from './subprocess-utils.js';
 
 // A fresh TextDecoder per call, not a shared module-level one: decode()

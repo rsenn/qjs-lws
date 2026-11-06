@@ -16,7 +16,7 @@ import { freePort } from './unittests/subprocess-utils.js';
 import { createServer, LWSContext, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT, LWS_WRITE_BINARY } from 'lws.so';
 import { WebSocket, CONNECTING, OPEN, CLOSED } from '../lib/websocket.js';
 import { WebSocketStream } from '../lib/websocketstream.js';
-import { TextDecoder } from 'textcode';
+import { TextDecoder } from './utf8.js';
 import * as std from 'std';
 
 const dec = new TextDecoder();

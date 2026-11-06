@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs every tests/unittests/test-*.js suite with qjsm and reports overall
-# pass/fail. tinytest.js doesn't set a process exit code on failure, so this
-# greps its own summary line instead.
+# pass/fail by grepping each suite's summary line (tinytest.js also exits 1
+# on a failure, but a suite that crashes before the summary has no line).
 #
 # Usage: tests/unittests/run-all.sh [qjsm-binary]
 

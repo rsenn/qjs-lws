@@ -529,8 +529,9 @@ await tests({
     assertStrictEquals(false, done);
     eq('hello-stream', toString(value.buffer ?? value));
 
+    /* no await of ts.closed on purpose: the next test's TCPSocketStream is
+       created while the shared context of this one is being destroyed */
     ts.close();
-    await ts.closed;
     server.destroy();
   },
 

@@ -55,7 +55,7 @@ All four steps are done (see Done).
 
 **Wanted, not started** (decided 2026-11-04, one at a time; numbers are the
 ideas in [PROVIDERS.md](PROVIDERS.md)): 2 model selection `site/model`; 3 tool
-call tolerance; 5 capabilities in `/v1/models`; 6 replay framing; 8 `check`
+call tolerance (done, see Done); 5 capabilities in `/v1/models`; 6 replay framing; 8 `check`
 command; 9 per-site latency and timeout override; 10 more refusal detection;
 11 per-site message budgets; 12 housekeeping (leftover tabs, bridge-made
 chats); 13 estimated `usage`.
@@ -109,15 +109,6 @@ Several sites host many models. Proposal: put the model in the request's
 
 ### 3. API completeness
 
-- Tool call tolerance (seen live with deepseek, 2026-11-04): the model once
-  answered `tool_call` + the code block's UI text ("Kopieren", "Herunterladen")
-  + `{"name": "read_file", "path": "slug.js"}` with the arguments flat instead
-  of under `arguments`, which `extractCalls()` rejects, so it was shown as
-  text; a retry then sent `read_file {}` (empty arguments) before the right
-  call. Accept flat arguments (every key but `name` when the tool's schema
-  lists it) and ignore copy-button text; consider telling the model once when
-  a call had no usable arguments.
-
 - Stream text for a request with tools until a tool call appears, instead of
   answering whole.
 - Estimated `usage` counts; honour `max_tokens` and `stop` by truncating.
@@ -139,15 +130,34 @@ Several sites host many models. Proposal: put the model in the request's
   fragment, and sweep on start).
 - Optional bearer token for `serve`, and an explicit `--bind` for non-loopback
   use (off by default).
-- Externalise the site table (`sites.json` next to the script or in
-  `~/.config`) so users can add or override sites without editing the script.
+- Externalise the site table further: `$CHAT_BRIDGE_SITES` (a JSON file merged
+  over the built-in table) exists, but there is no default location such as
+  `~/.config/chat-bridge/sites.json`, and no way to override one field of a
+  built-in site.
+- Windows: the user sees extra browser windows appearing with their normal
+  Chrome (not Firefox or Brave). `Target.createTarget` with `newWindow:false`
+  kept all tabs in one window in an isolated Chrome 156 on Xvfb, so the cause
+  is in the user's setup and is not found yet. Suspects: the profile's
+  last-active window is minimised, a popup/app/incognito window, or the CDP
+  browser shares a profile with the normal one. Needed: which window appears
+  and when (every request, or the first of a site). serve now navigates
+  already open blank tabs first (see Done); `--new-tabs` always creates.
+- Site names: the bridge serves a model name with the first site whose name
+  is a substring of it (see BUGS, chat-bridge-model-substring-match).
 
 ### 6. Tests
 
-- A local mock chat page (textarea, button, a reply element that grows) so
-  the context logic, streaming, tool extraction and pooling can run in ctest
-  without a browser account.
-- Unit tests for `extractCalls()` and `planPrompt()` (pure functions).
+- `test/run.sh` (fake site, throwaway headless Chrome) exists but is not in
+  ctest yet; it needs google-chrome and `QUICKJS_MODULE_PATH`. Still missing
+  in it: context matching across requests (history continues vs a fresh
+  chat), pooling with several parallel requests, the no-blank-tab case, a
+  login redirect, and selector rot detected by the bridge instead of a plain
+  error.
+- Unit tests for `planPrompt()` (`extractCalls()` has `test-tool-calls.js`).
+- The experiment this is meant to serve: a web chat, driven through the
+  bridge and ollama-repl, regenerates `chat-bridge.js` and must pass the
+  same `test/run.sh` probe (rungs: one pure function, a module from the
+  README spec, the whole file, then self-healing selectors).
 
 ### 7. Verification gaps
 
@@ -209,3 +219,17 @@ Several sites host many models. Proposal: put the model in the request's
   and a `/model NAME` check work for `--provider openai`
 - site table: deepseek, qwen, gemini, kimi (www.kimi.ai), chatgpt, duck, deepai, openrouter, mistral verified; venice, aistudio, groq recorded as skipped
 - installed to bin/ as chat-bridge by CMakeLists.txt
+- Tool call tolerance: `tool-calls.js` (`extractCalls(text, tools)`, tests in
+  `test-tool-calls.js`) accepts flat arguments (the keys the schema lists),
+  `parameters`/`args`/`input`, string arguments, the OpenAI `function` shape
+  and a `tool` name key, and drops a call missing a required argument (the
+  `read_file {}` case). Not done: telling the model once that a call had no
+  usable arguments.
+- Fake-site test: `test/run.sh` (headless Chrome, `test/fake-site.html`, `test/probe.js`) covers models, plain/streamed replies, tool calls, 502/429 refusals and a changed layout; sites can be added with `CHAT_BRIDGE_SITES`.
+- serve navigates already open blank tabs first and creates a background tab only when none is left (`--new-tabs`: always create); `dispose()` sends a borrowed tab back to about:blank. Not verified: that created tabs stay in the same window in the user's browser (checked only in an isolated Chrome, see PROVIDERS or the commit).
+- Session 2026-11-05 summary: `tool-calls.js` (tolerant tool-call parsing)
+  with `test-tool-calls.js`; `$CHAT_BRIDGE_SITES`; `test/` (fake site, probe,
+  runner); blank tabs first. ollama-repl was re-checked and is not affected:
+  it has its own `lib/text-tool-calls.js` and takes the bridge's structured
+  `tool_calls`. Not done from this session: telling the model once when a
+  call had no usable arguments (needs a retry path in the request handler).

@@ -148,21 +148,19 @@ if(getenv('SELFTEST')) await selfTest();
    see tests/jsonrpc-ws-playground/client.js). The REPL evaluates typed
    input as plain JS in the global scope, so `call`/`notify` are exposed as
    globals rather than the module-scope `const`s above. */
-try {
-  const { REPL } = await import('repl');
+const { REPL } = await import('repl').catch(e => {
+  throw new Error(`the interactive REPL needs the 'repl' module (from qjs-modules), which could not be loaded (${e?.message ?? "not found"})`);
+});
 
-  globalThis.call = reverseClient.call;
-  globalThis.notify = reverseClient.notify;
-  globalThis.factory = createRemoteObjectFactory(reverseClient.call);
+globalThis.call = reverseClient.call;
+globalThis.notify = reverseClient.notify;
+globalThis.factory = createRemoteObjectFactory(reverseClient.call);
 
-  const repl = new REPL('rpc', false); // false = suppress the "QuickJS - Type \h for help" banner
-  repl.historyLoad();
+const repl = new REPL('rpc', false); // false = suppress the "QuickJS - Type \h for help" banner
+repl.historyLoad();
 
-  console.log(`REPL ready - factory.new(className, ...args)/.list()/.delete(obj)/.id(obj) drive the createRemoteObjectEndpoint()
+console.log(`REPL ready - factory.new(className, ...args)/.list()/.delete(obj)/.id(obj) drive the createRemoteObjectEndpoint()
 a browser page serves over ws://localhost:${port}/rpc-reverse (see tests/jsonrpc-ws-playground/client.js); call('method', [params])/notify(...)
 send a raw JSON-RPC request there instead`);
 
-  repl.run();
-} catch(error) {
-  // 'repl' module not built into this qjsm - no interactive REPL, demo still runs headless
-}
+repl.run();

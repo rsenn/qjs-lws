@@ -13,7 +13,7 @@
 import { tests, eq, assert, assertStrictEquals, fail } from './tinytest.js';
 import { createServer, LWSContext, LWSMPRO_NO_MOUNT, LWS_WRITE_TEXT } from 'lws.so';
 import { WebSocket } from '../../lib/websocket.js';
-import { TextDecoder } from 'textcode';
+import { TextDecoder } from '../utf8.js';
 import { freePort } from './subprocess-utils.js';
 import * as std from 'std';
 
