@@ -1,5 +1,31 @@
 2026-11-06  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/lws/body.js (isBlobLike, Body, Body._cloneBody): New isBlobLike.
+	A Blob or Bun.file() body is streamed through body.stream() instead of
+	calling its arrayBuffer() synchronously, which returned a Promise and
+	left the body empty.  _cloneBody tees a stream body so clone() leaves
+	both copies readable.
+
+	* lib/lws/request.js (Request.clone), lib/lws/response.js
+	(Response.clone): Use _cloneBody.  A Request always has a signal.
+
+	* lib/lws/protocols.js (HttpProtocol): req.signal of a server request
+	aborts when the connection closes before the response was sent.
+
+	* lib/serve.js (peerInfo, flush, toRequest): requestIP() returns
+	{ address, family, port } like Bun.  A Blob response gets its
+	content-length from blob.size.  The Request handed to fetch carries
+	req.signal.
+
+	* lws-socket.c (lwsjs_fix_reason_phrase, lwsjs_socket_respond): Write
+	the standard reason phrase for 2xx and 3xx statuses ("201 Created",
+	"302 Found"); lws leaves most empty or says "Redirect".
+
+	* tests/unittests/test-serve-bun-compat.js: New.
+
+	* tests/unittests/test-serve-body-limit-idle.js: requestIP is an
+	object now.
+
 	* CMakeLists.txt: Define _GNU_SOURCE for the qjs-lws targets.  When
 	built inside the quickjs tree with -std=c99, siginfo_t and alloca()
 	were undeclared and lws-socket.c and lws-mount.c failed to compile.

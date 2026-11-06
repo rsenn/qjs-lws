@@ -11,6 +11,55 @@
 #include "quickjs.h"
 
 JSClassID lwsjs_socket_class_id;
+
+/* lws names only some statuses in the status line it writes ("201 " has no
+   phrase, every 3xx but 304 is "Redirect"); Bun sends the standard ones.
+   Rewrites the first line in [start, *pp) when the standard phrase is known
+   and differs. */
+static void
+lwsjs_fix_reason_phrase(uint8_t* start, uint8_t** pp, uint8_t* end, unsigned code) {
+  const char* phrase = 0;
+
+  switch(code) {
+    case 201: phrase = "Created"; break;
+    case 202: phrase = "Accepted"; break;
+    case 203: phrase = "Non-Authoritative Information"; break;
+    case 204: phrase = "No Content"; break;
+    case 205: phrase = "Reset Content"; break;
+    case 206: phrase = "Partial Content"; break;
+    case 300: phrase = "Multiple Choices"; break;
+    case 301: phrase = "Moved Permanently"; break;
+    case 302: phrase = "Found"; break;
+    case 303: phrase = "See Other"; break;
+    case 307: phrase = "Temporary Redirect"; break;
+    case 308: phrase = "Permanent Redirect"; break;
+    default: return;
+  }
+
+  uint8_t *p = *pp, *eol = start;
+
+  while(eol + 1 < p && !(eol[0] == '\r' && eol[1] == '\n'))
+    eol++;
+
+  if(eol + 1 >= p)
+    return;
+
+  /* "HTTP/1.1 201 " -> keep up to and including the code's trailing space */
+  uint8_t* sp = eol;
+
+  while(sp > start && sp[-1] != ' ')
+    sp--;
+
+  size_t plen = strlen(phrase), old = eol - sp;
+
+  if(p - old + plen > end)
+    return;
+
+  memmove(sp + plen, eol, p - eol);
+  memcpy(sp, phrase, plen);
+  *pp = p - old + plen;
+}
+
 static JSValue lwsjs_socket_proto, lwsjs_socket_ctor;
 
 static struct list_head socket_list;
@@ -1086,6 +1135,8 @@ lwsjs_socket_respond(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
     RESPOND_RETURN(JS_ThrowInternalError(ctx, "lws_add_http_common_headers failed"));
   }
+
+  lwsjs_fix_reason_phrase(start, &p, end, code);
 
   JSPropertyEnum* tab = 0;
   uint32_t tab_len;

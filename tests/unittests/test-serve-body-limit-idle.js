@@ -36,7 +36,9 @@ await tests({
       return new Response('x');
     });
     await fetch(`http://127.0.0.1:${server.port}/`);
-    assertEquals(ip, '127.0.0.1');
+    assertEquals(ip.address, '127.0.0.1');
+    assertEquals(ip.family, 'IPv4');
+    assert(ip.port > 0);
     await server.stop();
   },
 });
