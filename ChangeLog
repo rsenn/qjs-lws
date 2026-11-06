@@ -1,5 +1,16 @@
 2026-11-06  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lws-crypto.c (lwsjs_crypto_pbkdf2, lwsjs_crypto_hkdf,
+	lwsjs_crypto_scrypt, lwsjs_crypto_argon2id): New.  Key derivation for
+	Bun.password and crypto.subtle deriveBits.  pbkdf2, hkdf and scrypt
+	use EVP_KDF; argon2id is built in (BLAKE2b and the RFC 9106 fill) as
+	EVP_KDF only has ARGON2 from OpenSSL 3.2.
+
+	* lws-crypto.h, doc/native/crypto.md: Document them.
+
+	* tests/unittests/test-crypto.js: Add RFC 6070, 5869 and 7914 vectors
+	and argon2id hashes made by Bun and libargon2.
+
 	* lws-crypto.c, lws-crypto.h: New.  Native crypto primitives for
 	building crypto.subtle in JS, on OpenSSL 3: digest, hmac (SHA-1/256/
 	384/512) and ECDSA over P-256/P-384/P-521 (ecGenerateKey, ecPublicKey,

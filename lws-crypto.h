@@ -20,6 +20,11 @@
  *   ecValidatePoint(curve, x, y)              -> boolean
  *   ecSign(curve, d, hashAlg, data)           -> ArrayBuffer (r||s)
  *   ecVerify(curve, x, y, hashAlg, sig, data) -> boolean
+ *   pbkdf2(hashAlg, password, salt, iterations, length) -> ArrayBuffer
+ *   hkdf(hashAlg, key, salt, info, length)    -> ArrayBuffer
+ *   scrypt(password, salt, { N, r, p, length }) -> ArrayBuffer
+ *   argon2id(password, salt, { memoryCost, timeCost, parallelism,
+ *            hashLength })                    -> ArrayBuffer (raw hash)
  *
  * alg / hashAlg: SHA-1, SHA-256, SHA-384, SHA-512. curve: P-256, P-384,
  * P-521. d, x, y are big-endian, fixed size (32, 48, 66 bytes); d may be
