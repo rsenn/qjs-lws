@@ -1,16 +1,71 @@
 From: Roman Senn <roman.l.senn@gmail.com>
-Subject: [PATCH] h1 client: restart the requests queued on a non-keepalive leader
+Subject: [PATCH] client: h1: restart the requests queued on a connection that turned out not to be kept alive
 
-When a pipelined h1 client request learns from its response that the server
-does not keep the connection alive, the requests queued behind it are sent
-back to LRS_UNCONNECTED but nothing started their connections, so they hung
-with no error.  Attach a header table to each, which goes on to do the
-connect (as for a redirect restart), once the vhost lock is dropped.
+With LCCSCF_PIPELINE, a second (third...) client request to an endpoint that
+already has a connection is queued behind the first one on that connection
+instead of opening its own.  If the first response then shows that the
+server does not keep the connection alive (an HTTP/1.0 response, or an
+HTTP/1.1 one with neither a content length nor chunking, whose body ends
+with the connection), the queued requests cannot go out on it.  The code
+that notices this in lws_client_interpret_server_handshake() sends each
+queued wsi back to LRS_UNCONNECTED, "to go back to trying to connect", and
+that is where it stops: nothing starts that connect.  The queued requests
+are never sent, never fail, and no callback is made for them: the
+application never hears from them again, unless it has a timeout of its
+own.
 
-(The stash they reconnect from is no longer freed on copy, so that half of
-the original patch is now upstream.)
+An application that makes several requests at once to such a server
+(python's http.server answers HTTP/1.0 by default, for example) and uses
+LCCSCF_PIPELINE to share a connection loses every request but the first.
 
+Cause
+-----
+
+For a redirect, the same restart is done correctly:
+lws_client_reset() leaves the wsi unconnected and the close flow
+(_lws_close_free_wsi(..., "redir")) re-attaches a header table with
+lws_header_table_attach(), which sees LRS_UNCONNECTED and goes on with
+the connect (lws_client_connect_2_dnsreq_MAY_CLOSE_WSI()).  The pipeline
+restart sends the state back with
+lws_wsi_event_role(ww, LWS_WSIEV_RESTART, rops) but does not do that last
+step, so nothing follows.
+
+The fix
+-------
+
+Collect the restarted wsi on a local list while the loop holds the vhost
+lock and, once the lock is dropped, call lws_header_table_attach() for
+each of them: for a client in LRS_UNCONNECTED it goes on to make the
+connection, as in the redirect case.  That can close and free the wsi
+(and it takes the vhost lock itself), which is why it is not done inside
+the loop over the queue.  A failure to attach is logged.
+
+Reproducer
+----------
+
+A standalone C program: a child process serving plain HTTP/1.0 responses
+(one connection each, the body ends where the connection does, the server
+hangs up 200 ms after answering), and an lws client context that makes two
+GETs with LCCSCF_PIPELINE from the same loop turn.  Attached as
+h1-pipeline-no-keepalive.c; build with
+
+    cc -o repro h1-pipeline-no-keepalive.c -I<lws>/include -I<build> \
+       <build>/lib/libwebsockets.a -lz -lcap -lpthread
+
+    $ ./repro                          # before
+    1 of 2 requests completed, 0 failed                (exit 1, waits 5s)
+    $ ./repro                          # after
+    2 of 2 requests completed, 0 failed                (exit 0)
+
+The first response completes in both cases; the second request is
+connected and sent only with the patch (strace shows the second connect()
+and the second request on it).  "0 failed" before is the point: no
+LWS_CALLBACK_CLIENT_CONNECTION_ERROR is made either.
+
+Tested on x86_64 Linux, poll event loop, no TLS, against current main.
 Made against libwebsockets f1650e3e7 (main).
+
+Signed-off-by: Roman Senn <roman.l.senn@gmail.com>
 
 ---
 diff --git a/lib/sansio/http/client/client-http.c b/lib/sansio/http/client/client-http.c

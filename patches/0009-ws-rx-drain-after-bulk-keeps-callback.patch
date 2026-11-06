@@ -1,17 +1,95 @@
 From: Roman Senn <roman.l.senn@gmail.com>
-Subject: [PATCH] ws rx: do not swallow the first drain output after a bulk payload
+Subject: [PATCH] ws: permessage-deflate: do not drop the first inflated chunk after a bulk payload
 
-lws_parse_ws() handles payload in bulk and then calls lws_ws_rx_sm() with
-ALREADY_PROCESSED_NO_CB, as the bulk path did the user callback itself.  With
-permessage-deflate that call can be a drain of the inflater: lws_ws_rx_sm()
-takes the wsi off the draining list on entry, so while the extension runs the
-wsi flag is clear, and NO_CB was only cleared when that flag was set.  The
-output of that first drain (up to rx_buf_size, 1024 bytes by default) was
-dropped without a RECEIVE callback: one lump in five of every message that
-inflates to more than one buffer, a 70000 byte message arrived as 57712.
-Clear NO_CB for a call that entered as a drain too.
+A server receiving a permessage-deflate message that inflates to more than a
+few rx buffers loses part of it: no LWS_CALLBACK_RECEIVE is made for the
+first chunk of output that the inflater yields after the payload was
+consumed in bulk, so the application gets the message with holes in it, and
+the message is shorter than the one that was sent.  Nothing is reported,
+there is no error, the final fragment arrives as usual.
 
+With the default rx buffer (the inflater yields up to rx_buffer_size bytes
+at a time, 1024 here) a message of 70000 bytes arrived as 52592 bytes, of
+1000000 as 747205: about a quarter of the data is missing.  Messages
+below about 4000 bytes are not affected, which is why this goes unnoticed
+with small messages.
+
+Cause
+-----
+
+lws_parse_ws() takes a data frame's payload in bulk when it is in the
+buffer it was given (lws_ws_frame_rest_is_payload()): that hands the bytes
+to the extension and, when it is done, calls
+
+    lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR | ALREADY_PROCESSED_NO_CB, 0)
+
+to "deal with the ramifications".  NO_CB is there because the bulk path has
+already made the user callback for what it processed itself.
+
+When that is a payload that the inflater cannot finish in one go
+(PMDR_HAS_PENDING), the wsi is on the pt's rx_draining_ext list, and
+lws_ws_rx_sm() entered in LWS_RXPS_NEW with wsi->ws->rx_draining_ext set
+takes the wsi off the list at the top (lws_remove_wsi_from_draining_ext_list(),
+which also clears wsi->ws->rx_draining_ext) and notes that in its local
+rx_draining_ext before it runs the extension for one more chunk of output.
+
+The user callback for that chunk is then skipped, because the place that
+clears NO_CB for a drain tests the wsi flag, which the entry has just
+cleared:
+
+    if (wsi->ws->rx_draining_ext)
+        already_processed &= ~ALREADY_PROCESSED_NO_CB;
+
+The extension adds the wsi to the list again only if it has still more to
+deliver after this chunk, i.e. the flag is only set again for the later
+chunks.  So the chunk produced by the very call that came out of the bulk
+path is discarded, and the following ones are delivered, until the
+next bulk pass.  Draining that does not follow a bulk pass is
+unaffected (NO_CB is not set).
+
+The fix
+-------
+
+Also test the local rx_draining_ext, which records that this call entered as
+a drain, so NO_CB is cleared for it as well.  The user callback is then
+made for that chunk as it is for every other.  NO_CB is
+cleared only for a call that is a drain: the bulk path's own callback was
+for the bytes it processed itself, and the output of a drain is not
+among them.
+
+Reproducer
+----------
+
+A standalone C program, no application code involved: an lws server with
+permessage-deflate and a child process that does the handshake over a plain
+socket and sends one compressed binary message of N bytes in one write(),
+so that the whole frame is in the server's first read and its payload
+is taken in bulk.  (With an lws client as the sender I could not trigger
+it, so this is how the frame is delivered by the peers that did: python
+websockets.)  The server
+counts and verifies the bytes it gets in LWS_CALLBACK_RECEIVE and exits
+non-zero if they are not all the same ones that were sent.  It needs only
+zlib.  Attached as ws-deflate-large-message.c; build with
+
+    cc -o repro ws-deflate-large-message.c -I<lws>/include -I<build> \
+       <build>/lib/libwebsockets.a -lz -lcap -lpthread
+
+    $ ./repro 70000                   # before
+    sent 70000 bytes, received 52592, 51353 wrong       (exit 1)
+    $ ./repro 70000                   # after
+    sent 70000 bytes, received 70000, 0 wrong           (exit 0)
+
+Sizes below 4000 bytes pass before and after, 4095 gives 3071 before,
+65536 gives 49152, 131072 gives 98304, 1000000 gives 747205; all sizes
+tried (1 to 1000000) are complete after.
+
+Found with a QuickJS server (qjs-lws) whose websocket messages were cut
+short by a python websockets client sending 70000 bytes.
+
+Tested on x86_64 Linux, poll event loop, no TLS, against current main.
 Made against libwebsockets f1650e3e7 (main).
+
+Signed-off-by: Roman Senn <roman.l.senn@gmail.com>
 
 ---
 diff --git a/lib/sansio/ws/ops-ws.c b/lib/sansio/ws/ops-ws.c

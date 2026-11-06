@@ -163,7 +163,11 @@ if(BUILD_LIBWEBSOCKETS)
   option(WITH_BROTLI "Use brotli HTTP stream compression" ON)
 
   set(LIBWEBSOCKETS_DEPS "")
-  set(LIBWEBSOCKETS_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE")
+  # lws is not strict C: with -std=cNN clang 16+ rejects the "void main"
+  # snippets of lws's CHECK_C_SOURCE_COMPILES probes, every LWS_HAVE_* comes
+  # out false (no pthread.h, so lws_mutex_t is unknown) and the build dies
+  string(REGEX REPLACE "-std=[a-z]+[0-9]+" "" LWS_PARENT_C_FLAGS "${CMAKE_C_FLAGS}")
+  set(LIBWEBSOCKETS_C_FLAGS "${LWS_PARENT_C_FLAGS} -D_GNU_SOURCE")
 
   if(WITH_MBEDTLS)
     set(WITH_SSL ON)

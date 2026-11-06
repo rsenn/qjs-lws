@@ -1,9 +1,9 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c6ee47cd9..8514ff119 100644
+index 8b2204722..171f6ad30 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1294,6 +1294,10 @@ if (MINGW)
- 	add_definitions(-DWINVER=0x0601 -D_WIN32_WINNT=0x0601)
+@@ -1399,6 +1399,10 @@ if (MINGW)
+ 	add_definitions(-DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00)
  endif()
  
 +if (TERMUX)
@@ -14,11 +14,11 @@ index c6ee47cd9..8514ff119 100644
  	source_group("Headers Private"  FILES ${HDR_PRIVATE})
  endif()
 diff --git a/lib/plat/unix/unix-resolv.c b/lib/plat/unix/unix-resolv.c
-index 63579c6a6..5080b68f8 100644
+index 4b1c53965..ea0fa622c 100644
 --- a/lib/plat/unix/unix-resolv.c
 +++ b/lib/plat/unix/unix-resolv.c
-@@ -25,6 +25,12 @@
- #include "private-lib-core.h"
+@@ -26,6 +26,12 @@
+ #include <ctype.h>
  #include "private-lib-async-dns.h"
  
 +#ifndef TERMUX_PREFIX
@@ -30,9 +30,9 @@ index 63579c6a6..5080b68f8 100644
  /*
   * Shared "nameserver" line parser for /etc/resolv.conf-shaped files.
   *
-@@ -59,7 +65,7 @@ lws_asyncdns_parse_resolv_conf(struct lws_context *context, int index,
+@@ -58,7 +64,7 @@ lws_asyncdns_read_resolv_conf(void)
  	if (!r)
- 		return -1;
+ 		return NULL;
  
 -	fd = open(env && env[0] ? env : "/etc/resolv.conf", LWS_O_RDONLY);
 +	fd = open(env && env[0] ? env : PREFIX "/etc/resolv.conf", LWS_O_RDONLY);

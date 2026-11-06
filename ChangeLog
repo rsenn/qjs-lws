@@ -1,4 +1,59 @@
+2026-11-06  Roman Senn  <roman.l.senn@gmail.com>
+
+	* CMakeLists.txt (LIBWEBSOCKETS_C_FLAGS): Drop -std=cNN from the flags
+	passed to the libwebsockets build.  With it clang 16+ rejects the
+	"void main" snippets of lws's CHECK_C_SOURCE_COMPILES probes, so every
+	LWS_HAVE_* was false: no pthread.h (lws_mutex_t unknown) and no
+	sys/prctl.h (prctl undeclared) in the Termux builds.
+
+	* libwebsockets: Moved to upstream main (6b0f392c8).  The submodule was
+	pinned to a commit that only one checkout had, and its tree held the
+	patches as uncommitted edits, so it could not be advanced.
+	* patches/0004-termux-resolvconf.patch: Regenerated against the moved
+	CMakeLists.txt context.
+	* patches/0002-libwebsockets-sa46-pending-udp.patch,
+	patches/0003-acme-sni-cert-q-keygen.patch,
+	patches/0006-openssl-server-q-keygen-guards.patch,
+	patches/0007-service-shutdown-no-parked-rx.patch: Removed.  Upstream
+	now sends on a connected udp socket without a destination (0002), has
+	the EVP_PKEY_Q_keygen guards (0003, 0006) and parks rx in LRS_SHUTDOWN
+	(0007).
+
 2026-11-05  Roman Senn  <roman.l.senn@gmail.com>
+
+	* lws-protocol.c (lwsjs_callback_protocol): RECEIVE_CLIENT_HTTP with no
+	JS handler drains the parked response body with lws_http_client_read().
+	lws waits for that call before it reads again; a client protocol that
+	only had onEstablishedClientHttp left the event pending, and lws was
+	serviced over and over at full cpu for as long as the connection lived.
+	* tests/unittests/test-client-http-no-drain.js: New.
+	* tests/test-keepalive.js: Import setTimeout and clearTimeout from os
+	(the suite did not run under the bare qjs).
+	* BUGS: Note the cause of the busy loop in deferred-close-hangs-on-
+	established-client-http, and the failed attempt to reproduce
+	h1-late-queued-pipeline-never-promoted in plain libwebsockets.
+
+	* lib/tcpsocketstream.js, lib/websocketstream.js, lib/udpsocketstream.js,
+	lib/tcpsocket.js, lib/websocket.js, lib/udpsocket.js (ContextRefCounter
+	destroy callback): Forget the shared context before destroying it.
+	destroy() runs lws callbacks and, with them, the pending promise jobs; a
+	constructor that ran among them found the dying context still set, made
+	its connection on it, and lost the wsi when the destroy completed (a
+	TCPSocketStream created right after the close of the previous one never
+	opened, no event of any kind).  The adapter or socket table is only
+	dropped if no new context was made meanwhile.
+	* tests/unittests/test-tcpsocket.js: The TCPSocketStream test no longer
+	awaits closed before the next test, which is the case that failed.
+	* BUGS: Remove tcpsocketstream-connect-right-after-close-dropped.
+
+	* patches/0008-h1-client-restart-queued-on-no-keepalive.patch,
+	patches/0009-ws-rx-drain-after-bulk-keeps-callback.patch: Message
+	rewritten for upstream: symptom, cause, fix, reproducer with
+	before/after output (the diffs are unchanged).
+	* patches/repro/h1-pipeline-no-keepalive.c,
+	patches/repro/ws-deflate-large-message.c: New.  Standalone C
+	reproducers against plain libwebsockets (no qjs-lws) for the two
+	patches; each exits 1 without the patch and 0 with it.
 
 	* patches/0009-ws-rx-drain-after-bulk-keeps-callback.patch: New.
 	libwebsockets (lib/sansio/ws/ops-ws.c, lws_ws_rx_sm): the first drain of

@@ -46,6 +46,15 @@
     });
     ctx.clientConnect({ address: 'localhost', port: 29990, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
 
+    2026-11-05 (later): found the cause of the busy loop itself, not only
+    its bound: a protocol with no RECEIVE_CLIENT_HTTP handler never drained
+    the parked response body, so lws was serviced over and over at full cpu
+    for as long as the connection lived (timers kept firing, so it looked
+    fine).  lwsjs_callback_protocol() now drains it by default
+    (tests/unittests/test-client-http-no-drain.js).  The deferred close
+    from onEstablishedClientHttp that this entry is about is therefore no
+    longer a spin; the body of such a response is read and dropped.
+
     2026-11-05: pollfd_handler's forced-service loop (lws-protocol.c) is now
     bounded (64 iterations, the rest is picked up by the service tick), so a
     wsi that keeps asking for service can no longer starve JS timers. The
@@ -103,6 +112,15 @@
     response short (lws-protocol.c, test-file-mount-keepalive.js). This entry itself (queued request on
     an idle connection never promoted) is still unreproduced.
 
+    2026-11-05 (latest): also not reproducible in plain libwebsockets without
+    qjs-lws: a C client (LCCSCF_PIPELINE) against a keep-alive HTTP/1.1
+    server, second request queued 0, 100, 500 and 3000 ms after the first
+    completed, always completes (checked against unpatched f1650e3e7 and
+    with the 0008/0009 patches). tests/test-keepalive.js (now runnable under
+    bare qjs) passes too. What is left of the ollama symptom is the
+    black-holed connection (no FIN or RST ever arrives), which no local
+    fixture produces.
+
     2026-11-05 (earlier): not reproducible against a local keep-alive server. A python
     http.server (HTTP/1.1, content-length or chunked replies) with
     lib/fetch.js (keepAlive default, h2:false): 3 sequential POSTs with gaps
@@ -148,12 +166,10 @@
 
     # in tests/unittests/tinytest.js after the last console.log: exit(failures ? 1 : 0)
 
-- tcpsocketstream-connect-right-after-close-dropped (lib/tcpsocketstream.js:32): (not the TCPSocket client message-closes-connection bug fixed in lib/lws/util.js makeFireEvent, this one is still there) a TCPSocketStream created in the same tick as a previous one's close() (without awaiting closed) never opens; its client wsi is closed by lws without any open, error or close callback, so opened never settles. test-tcpsocket.js awaits closed to avoid it. the StreamAdapter pending-claim theory was tried and does not help; the fd handlers of the new socket are intact, the wsi is just closed silently right after connecting. not yet understood. Deferring the context destroy by 50 ms does not help either, so it is not the destroy racing the new connect.
-
-    const a = new TCPSocketStream({ host: 'localhost', port }); await a.opened;
-    a.close();
-    const b = new TCPSocketStream({ host: 'localhost', port }); await b.opened; // never settles
-
 - chat-bridge-model-substring-match (examples/chat-bridge/chat-bridge.js:620): the site for a request is the first site whose name is a substring of the model name, so with sites fake and fakerot the model fakerot is served by fake; any site name that contains another site's name is unreachable. found with the fake-site test (examples/chat-bridge/test/run.sh), which names its sites to avoid it.
 
     CHAT_BRIDGE_SITES=sites.json (sites "fake" and "fakerot"), then ask model "fakerot": the reply comes from the fake tab.
+
+- termux-unit-test-failures (tests/unittests): on Termux aarch64 with libwebsockets 6b0f392c8, test-context-features (cookie jar persist, "failed to write nsc"), test-lwsspa (dynamic field discovery, length 0 not 2), test-serve-ws-options (maxPayloadLength close code undefined, expected 1009), test-websocket (close event code undefined, expected 4001), test-view (Buffer skip/reset, View over raw addresses) fail, and test-fetch-reuse, test-file-mount-keepalive, test-server-client-disconnect, test-ws crash without a summary. not yet known whether these predate the libwebsockets move or are Termux specific.
+
+        qjsm tests/unittests/test-websocket.js
