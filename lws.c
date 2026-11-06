@@ -4,6 +4,7 @@
 #include "lws-sockaddr46.h"
 #include "lws-vhost.h"
 #include "lws-tls.h"
+#include "lws-crypto.h"
 #include "lws-protocol.h"
 #include "lws-buffer.h"
 #include "lws.h"
@@ -1222,6 +1223,7 @@ lwsjs_init(JSContext* ctx, JSModuleDef* m) {
 
   if(m) {
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
+    JS_SetModuleExport(ctx, m, "crypto", lwsjs_crypto_object(ctx));
 #ifdef LWSJS_PRECOMPILED
     JSValue fetch_fn = JS_NewCFunction(ctx, lwsjs_fetch_trampoline, "fetch", 2);
     JSValue wss_ctor = JS_NewCFunction2(ctx, lwsjs_websocketstream_trampoline, "WebSocketStream", 1, JS_CFUNC_constructor, 0);
@@ -1256,6 +1258,7 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
 #ifdef LWS_WITH_TLS
     JS_AddModuleExport(ctx, m, "X509Certificate");
 #endif
+    JS_AddModuleExport(ctx, m, "crypto");
     JS_AddModuleExport(ctx, m, "fetch");
     JS_AddModuleExport(ctx, m, "WebSocketStream");
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));

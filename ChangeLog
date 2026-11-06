@@ -1,5 +1,16 @@
 2026-11-06  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lws-crypto.c, lws-crypto.h: New.  Native crypto primitives for
+	building crypto.subtle in JS, on OpenSSL 3: digest, hmac (SHA-1/256/
+	384/512) and ECDSA over P-256/P-384/P-521 (ecGenerateKey, ecPublicKey,
+	ecValidatePoint, ecSign giving r||s, ecVerify).
+
+	* lws.c (lwsjs_init, js_init_module): Export them as `crypto`.
+
+	* tests/unittests/test-crypto.js: New.
+
+	* doc/native/crypto.md: New.
+
 	* lib/serve.js (serve): New options maxRequestBodySize and
 	idleTimeout (Bun.serve).  idleTimeout calls server.timeout(); the body
 	limit is handed to the http protocol.
