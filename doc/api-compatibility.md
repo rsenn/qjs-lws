@@ -353,8 +353,6 @@ The Bun.js API compatibility is **partial**, with significant gaps in:
 1. `error(err)` - uncaught error handler
 2. `development` - development mode flag
 3. `unix` - UNIX domain socket support
-4. `maxRequestBodySize` - request size limit
-5. `idleTimeout` - connection idle timeout (Bun default 10s)
 6. `http3` - HTTP/3 support (experimental, not applicable to lws)
 
 ---

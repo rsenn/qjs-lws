@@ -1,5 +1,18 @@
 2026-11-06  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/serve.js (serve): New options maxRequestBodySize and
+	idleTimeout (Bun.serve).  idleTimeout calls server.timeout(); the body
+	limit is handed to the http protocol.
+
+	* lib/lws/protocols.js (HttpProtocol): New maxBodySize hook.  A
+	request with a Content-Length above it is answered 413 without running
+	the handler; a chunked body that grows past it fails the body stream
+	with a RangeError.
+
+	* tests/unittests/test-serve-body-limit-idle.js: New.
+
+	* doc/js/bun.md, doc/api-compatibility.md: Document both options.
+
 	* CMakeLists.txt (LIBWEBSOCKETS_C_FLAGS): Drop -std=cNN from the flags
 	passed to the libwebsockets build.  With it clang 16+ rejects the
 	"void main" snippets of lws's CHECK_C_SOURCE_COMPILES probes, so every

@@ -202,6 +202,12 @@ a `ServerWebSocket` feature.
   native `wsi.setTimeout()` binding (`lws_set_timeout()`,
   `doc/native/LWSSocket.md`), which force-closes an idle connection - `0`
   disables it.
+- `idleTimeout` (serve option) - same as `server.timeout()`, set at start;
+  unlike Bun there is no 10s default, the timeout is off unless given.
+- `maxRequestBodySize` (serve option) - bytes; a request whose
+  Content-Length exceeds it is answered `413` without calling the handler.
+  A chunked body that grows past it fails the request body stream with a
+  `RangeError`. No default limit (Bun: 128 MiB).
 - `websocket.idleTimeout` - same mechanism, per-WS-handler; takes
   precedence over `server.timeout()` when both are set on the same
   connection.
