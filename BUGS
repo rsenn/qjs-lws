@@ -169,7 +169,3 @@
 - chat-bridge-model-substring-match (examples/chat-bridge/chat-bridge.js:620): the site for a request is the first site whose name is a substring of the model name, so with sites fake and fakerot the model fakerot is served by fake; any site name that contains another site's name is unreachable. found with the fake-site test (examples/chat-bridge/test/run.sh), which names its sites to avoid it.
 
     CHAT_BRIDGE_SITES=sites.json (sites "fake" and "fakerot"), then ask model "fakerot": the reply comes from the fake tab.
-
-- termux-unit-test-failures (tests/unittests): on Termux aarch64 with libwebsockets 6b0f392c8, test-context-features (cookie jar persist, "failed to write nsc"), test-lwsspa (dynamic field discovery, length 0 not 2), test-serve-ws-options (maxPayloadLength close code undefined, expected 1009), test-websocket (close event code undefined, expected 4001), test-view (Buffer skip/reset, View over raw addresses) fail, and test-fetch-reuse, test-file-mount-keepalive, test-server-client-disconnect, test-ws crash without a summary. not yet known whether these predate the libwebsockets move or are Termux specific.
-
-        qjsm tests/unittests/test-websocket.js
