@@ -1,5 +1,9 @@
 2026-11-06  Roman Senn  <roman.l.senn@gmail.com>
 
+	* CMakeLists.txt: Define _GNU_SOURCE for the qjs-lws targets.  When
+	built inside the quickjs tree with -std=c99, siginfo_t and alloca()
+	were undeclared and lws-socket.c and lws-mount.c failed to compile.
+
 	* lws-crypto.c (lwsjs_crypto_pbkdf2, lwsjs_crypto_hkdf,
 	lwsjs_crypto_scrypt, lwsjs_crypto_argon2id): New.  Key derivation for
 	Bun.password and crypto.subtle deriveBits.  pbkdf2, hkdf and scrypt

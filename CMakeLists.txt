@@ -565,6 +565,8 @@ macro(target_link TARGET)
   if(OUTPUT_NAME)
     set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME "${OUTPUT_NAME}")
   endif(OUTPUT_NAME)
+  # a parent project may force -std=c99, which hides siginfo_t, alloca() and friends
+  target_compile_definitions(${TARGET} PRIVATE -D_GNU_SOURCE)
   # no JS_SHARED_LIBRARY on the archive: its entry point is js_init_module_${VNAME}, so
   # several static modules can be linked into one executable
   if(TARGET_TYPE STREQUAL "STATIC_LIBRARY")
