@@ -65,6 +65,14 @@ macro(build_libwebsockets)
   if(ZLIB_FOUND)
     set(LWS_ZLIB_INCLUDE_DIRS_VALUE "${ZLIB_INCLUDE_DIR}")
     set(LWS_ZLIB_LIBRARIES_VALUE "${ZLIB_LIBRARY}")
+
+    # a fully static link wants the archive beside the .so that was found
+    if(LINK_STATIC AND ZLIB_LIBRARY MATCHES "\\.so$")
+      string(REGEX REPLACE "\\.so$" ".a" _lws_zlib_a "${ZLIB_LIBRARY}")
+      if(EXISTS "${_lws_zlib_a}")
+        set(LWS_ZLIB_LIBRARIES_VALUE "${_lws_zlib_a}")
+      endif(EXISTS "${_lws_zlib_a}")
+    endif(LINK_STATIC AND ZLIB_LIBRARY MATCHES "\\.so$")
   else(ZLIB_FOUND)
     # One zlib build per libwebsockets target, since PIC may differ between them.
     build_zlib(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
@@ -277,7 +285,14 @@ macro(build_libwebsockets)
   option(USE_GNUTLS "Build libwebsockets with gnutls" OFF)
   option(USE_HTTP3 "Build libwebsockets with h3/quic support" OFF)
 
-  set(LIBWEBSOCKETS_ARGS
+  # overlayfs mounting links libmount, which a fully static link does not have
+  if(LINK_STATIC)
+    set(LWS_FSMOUNT_VALUE OFF)
+  else(LINK_STATIC)
+    set(LWS_FSMOUNT_VALUE ON)
+  endif(LINK_STATIC)
+
+set(LIBWEBSOCKETS_ARGS
       -DLWS_WITH_SSL:BOOL=ON
       -DLWS_WITH_WOLFSSL:BOOL=OFF
       -DLWS_WITH_MBEDTLS:BOOL=OFF
@@ -575,7 +590,7 @@ macro(build_libwebsockets)
       -DLWS_WITH_EXTERNAL_POLL:BOOL=ON
       -DLWS_WITH_FANALYZER:BOOL=OFF
       -DLWS_WITH_FILE_OPS:BOOL=ON
-      -DLWS_WITH_FSMOUNT:BOOL=ON
+      -DLWS_WITH_FSMOUNT:BOOL=${LWS_FSMOUNT_VALUE}
       -DLWS_WITH_FTS:BOOL=OFF
       -DLWS_WITH_GCOV:BOOL=OFF
       -DLWS_WITH_GENCRYPTO:BOOL=OFF
