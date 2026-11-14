@@ -1,3 +1,27 @@
+2026-11-14  Roman Senn  <roman.l.senn@gmail.com>
+
+	* BUGS: Add and, once fixed, remove bridge-pipe-eof-busy-loop (a
+	dead chat-bridge left its output pipe at EOF with the read handler
+	still installed, spinning the event loop; fixed in
+	examples/ollama-repl/lib/bridge-process.js).
+
+	* CMakeLists.txt: For a musl or dietlibc compiler, turn BUILD_BROTLI,
+	BUILD_LIBRESSL and BUILD_LIBWEBSOCKETS ON for each of them that is
+	not found in /opt/musl or /opt/diet (or CMAKE_PREFIX_PATH), so it is
+	built from source instead of picking up a host glibc copy.  A value
+	given on the command line is kept.
+
+	* cmake/BuildLibwebsockets.cmake (build_libwebsockets): New option
+	BUILD_LIBRESSL.  When ON, LibreSSL is always built with
+	build_libressl() (static, -fPIC when the libwebsockets build feeds a
+	shared module) and libwebsockets is built against it, skipping the
+	check for a working system OpenSSL.
+
+	* CMakeLists.txt (install): Install examples/chat-bridge/tool-calls.js
+	next to the chat-bridge script.  The installed chat-bridge imports it
+	as './tool-calls.js' and failed with "could not load module" without
+	it.
+
 2026-11-06  Roman Senn  <roman.l.senn@gmail.com>
 
 	* lib/lws/body.js (isBlobLike, Body, Body._cloneBody): New isBlobLike.

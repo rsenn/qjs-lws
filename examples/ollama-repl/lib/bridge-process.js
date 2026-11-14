@@ -13,6 +13,8 @@ import { toString } from 'lws.so';
 
 const SIGTERM = 15;
 const SIGKILL = 9;
+const EINTR = 4;
+const EAGAIN = 11;
 
 /** the command line that runs the bridge, or null */
 function bridgeCommand(scriptPath) {
@@ -51,10 +53,25 @@ export async function startBridge({ scriptPath, cdpHost = '127.0.0.1', cdpPort =
   let url = null;
   const buf = new Uint8Array(4096);
 
+  let rfdOpen = true;
+  const closeRfd = () => {
+    if(!rfdOpen) return;
+    rfdOpen = false;
+    setReadHandler(rfd, null);
+    close(rfd);
+  };
+
   /* kept installed after the URL line: draining the pipe means the bridge
-     can never block (or die of SIGPIPE) writing to it */
+     can never block (or die of SIGPIPE) writing to it. Once the bridge is
+     gone read() only returns 0 (EOF) - the handler must go then, or the
+     pipe stays readable forever and the event loop spins on it, starving
+     the terminal. */
   setReadHandler(rfd, () => {
     const n = read(rfd, buf.buffer, 0, buf.length);
+    if(n === 0 || (n < 0 && n !== -EINTR && n !== -EAGAIN)) {
+      closeRfd();
+      return;
+    }
     if(n > 0 && url === null) {
       out += toString(buf.buffer.slice(0, n));
       url = /chat-bridge: (http:\/\/\S+\/v1)/.exec(out)?.[1] ?? null;
@@ -66,22 +83,21 @@ export async function startBridge({ scriptPath, cdpHost = '127.0.0.1', cdpPort =
     try {
       kill(pid, SIGTERM); /* the bridge closes the tabs it opened */
     } catch(e) {
-      return;
+      return closeRfd();
     }
     for(let i = 0; i < 40; i++) {
-      if(waitpid(pid, WNOHANG)[0] === pid) return close(rfd);
+      if(waitpid(pid, WNOHANG)[0] === pid) return closeRfd();
       sleep(50);
     }
     try {
       kill(pid, SIGKILL);
     } catch(e) {}
-    close(rfd);
+    closeRfd();
   };
 
   for(const end = Date.now() + timeoutMs; url === null; ) {
     if(waitpid(pid, WNOHANG)[0] === pid) {
-      setReadHandler(rfd, null);
-      close(rfd);
+      closeRfd();
       throw new Error(out.trim().split('\n').pop() || 'chat-bridge exited at startup');
     }
     if(Date.now() > end) {
