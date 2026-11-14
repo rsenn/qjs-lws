@@ -315,7 +315,7 @@ lwsjs_vhost_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
          the caller pick the adoption type (raw/http/udp/ssl, via the
          LWS_ADOPT_* flags) and bind straight to a named vhost protocol
          instead of starting in HTTP mode and upgrading later. */
-      int32_t fd = to_int32(ctx, argv[0]);
+      int64_t fd = to_int64(ctx, argv[0]);
       int32_t type = argc > 1 ? to_int32(ctx, argv[1]) : LWS_ADOPT_SOCKET;
       const char* vh_prot_name = NULL;
       struct lws *parent = NULL, *wsi;
@@ -334,7 +334,7 @@ lwsjs_vhost_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
       if(type & LWS_ADOPT_SOCKET)
         u.sockfd = fd;
       else
-        u.filefd = fd;
+        u.filefd = (void*)(intptr_t)fd;
 
       wsi = lws_adopt_descriptor_vhost(vh->vho, (lws_adoption_type)type, u, vh_prot_name, parent);
 

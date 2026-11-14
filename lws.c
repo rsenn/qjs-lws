@@ -11,14 +11,15 @@
 #include "js-utils.h"
 #include "quickjs.h"
 #include <quickjs-libc.h>
-#if !defined(_WIN32)
+
+#ifndef _WIN32
 #include <termios.h>
 #include <sys/ioctl.h>
 #endif
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 static JSContext* lwsjs_log_ctx = 0;
-static JSValue lwsjs_log_fn = {JS_TAG_UNDEFINED, 0};
+JSValue lwsjs_log_fn = JS_UNDEFINED;
 
 static void lwsjs_callback_log(int, const char*);
 
@@ -413,7 +414,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
               for(i = 0; i < shown; i++)
                 snprintf(bytes + i * 3, 4, "%02x ", ptr[i]);
 
-              ret = JS_ThrowTypeError(ctx, "invalid UTF-8 at offset %zu: %s", offset, bytes);
+              ret = JS_ThrowTypeError(ctx, "invalid UTF-8 at offset %d: %s", (int)offset, bytes);
               break;
             }
 
@@ -608,9 +609,9 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
     }
 
     case FUNCTION_WRITE_NUMERIC_ADDRESS: {
-      size_t len, n;
+      size_t len;
       char out[64];
-      uint8_t buf[16], *in, *p = buf;
+      uint8_t *in;
 
       if((in = get_buffer(ctx, argc, argv, &len))) {
         if(argc > 1 && JS_IsNumber(argv[1])) {
@@ -636,7 +637,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       if(argc > 2)
         if((p = get_buffer(ctx, argc - 2, argv + 2, &n)))
           if(n < size)
-            return JS_ThrowRangeError(ctx, "ArrayBuffer must be at least %zu bytes", size);
+            return JS_ThrowRangeError(ctx, "ArrayBuffer must be at least %d bytes", (int)size);
 
       const char* iface = JS_ToCString(ctx, argv[1]);
       int r = lws_interface_to_sa(ipv6, iface, (void*)p, size);

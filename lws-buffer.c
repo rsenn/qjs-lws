@@ -454,7 +454,7 @@ lwsjs_construct(JSContext* ctx, int argc, JSValueConst argv[], BOOL is_buffer) {
       parent = argv[0];
 
     if(ofs < 0 || (uint64_t)ofs > blen || len < 0 || (uint64_t)len > blen - ofs)
-      return JS_ThrowRangeError(ctx, "offset %" PRId64 " + length %" PRId64 " out of range of buffer of %zu bytes", ofs, len, blen);
+      return JS_ThrowRangeError(ctx, "offset %" PRId64 " + length %" PRId64 " out of range of buffer of %"PRIu64" bytes", ofs, len, (uint64_t)blen);
 
     if(!(o = js_mallocz(ctx, sizeof(LWSObj))))
       return JS_EXCEPTION;

@@ -486,21 +486,6 @@ socket_getid(struct lws* wsi) {
   return -1;
 }
 
-static LWSSocket*
-socket_find(struct lws* wsi) {
-  struct list_head* n;
-
-  list_for_each(n, &socket_list) {
-    LWSSocket* sock;
-
-    if((sock = list_entry(n, LWSSocket, link)))
-      if((uintptr_t)sock != (uintptr_t)-1 && sock->wsi == wsi)
-        return sock;
-  }
-
-  return 0;
-}
-
 LWSSocket*
 socket_get(struct lws* wsi) {
   void* obj;
@@ -702,7 +687,7 @@ set_property(JSContext* ctx, JSValueConst obj, const char* name, int nlen, const
 static void
 custom_headers_callback(const char* name, int nlen, void* opaque) {
   CustomHeaders* ch = opaque;
-  int namelen = nlen, len = lws_hdr_custom_length(ch->wsi, name, nlen);
+  int len = lws_hdr_custom_length(ch->wsi, name, nlen);
   char buf[len + 1];
   int i = 0, j, r = lws_hdr_custom_copy(ch->wsi, buf, len + 1, name, nlen);
 
@@ -917,7 +902,7 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
       s->completed = TRUE;
     }
 
-    DEBUG_WSI(s->wsi, "direct-wrote %d/%zu bytes (dispatching, proto=%d)", n, len, proto);
+    DEBUG_WSI(s->wsi, "direct-wrote %d/%d bytes (dispatching, proto=%d)", n, (int)len, proto);
 
     return JS_NewInt32(ctx, (int)len);
   }
@@ -945,7 +930,7 @@ lwsjs_socket_write(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst
      it's our turn to write. */
   lws_callback_on_writable(s->wsi);
 
-  DEBUG_WSI(s->wsi, "queued %zu bytes, %zu buffered, partial=%d", len, s->write_buffered, lws_partial_buffered(s->wsi));
+  DEBUG_WSI(s->wsi, "queued %d bytes, %d buffered, partial=%d", (int)len, (int)s->write_buffered, (int)lws_partial_buffered(s->wsi));
 
   return JS_NewInt32(ctx, (int)len);
 }
@@ -1576,7 +1561,7 @@ lwsjs_socket_client_http_multipart(JSContext* ctx, JSValueConst this_val, int ar
     char* cp = (char*)v->p;
 
     if(lws_client_http_multipart(s->wsi, name, filename, content_type, &cp, (char*)v->end)) {
-      ret = JS_ThrowRangeError(ctx, "lws_client_http_multipart: does not fit into buffer of len %zu", room);
+      ret = JS_ThrowRangeError(ctx, "lws_client_http_multipart: does not fit into buffer of len %d", (int)room);
     } else {
       v->p = (uint8_t*)cp;
 
@@ -1852,7 +1837,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
         if(errno == EBADF)
           ret = JS_NULL;
         else
-          ret = JS_ThrowInternalError(ctx, "geetpeername(%d) returned -1: %s", fd, strerror(errno));
+          ret = JS_ThrowInternalError(ctx, "geetpeername(%d) returned -1: %s", (int)fd, strerror(errno));
       }
 
       break;
@@ -1875,7 +1860,7 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
         if(errno == EBADF)
           ret = JS_NULL;
         else
-          ret = JS_ThrowInternalError(ctx, "getsockname(%d) returned -1: %s", fd, strerror(errno));
+          ret = JS_ThrowInternalError(ctx, "getsockname(%d) returned -1: %s", (int)fd, strerror(errno));
       }
 
       break;

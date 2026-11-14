@@ -135,7 +135,7 @@ lwsjs_sockaddr46_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValu
     return JS_EXCEPTION;
 
   if(len < sizeof(*sa))
-    return JS_ThrowRangeError(ctx, "SockAddr64 must have length %zu", sizeof(*sa));
+    return JS_ThrowRangeError(ctx, "SockAddr64 must have length %d", (int)sizeof(*sa));
 
   switch(magic) {
     case METHOD_TO_STRING: {
@@ -166,7 +166,7 @@ lwsjs_sockaddr46_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValu
         return JS_EXCEPTION;
 
       if(len2 < sizeof(*sa2))
-        return JS_ThrowRangeError(ctx, "SockAddr64 must have length %zu", sizeof(*sa));
+        return JS_ThrowRangeError(ctx, "SockAddr64 must have length %d", (int)sizeof(*sa));
 
       ret = JS_NewInt32(ctx, lws_sa46_compare_ads(sa, sa2));
       break;
@@ -180,7 +180,7 @@ lwsjs_sockaddr46_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValu
         return JS_EXCEPTION;
 
       if(len2 < sizeof(*sa2))
-        return JS_ThrowRangeError(ctx, "SockAddr64 must have length %zu", sizeof(*sa));
+        return JS_ThrowRangeError(ctx, "SockAddr64 must have length %d", (int)sizeof(*sa));
 
       ret = JS_NewBool(ctx, !lws_sa46_on_net(sa, sa2, to_uint32(ctx, argv[1])));
       break;
@@ -208,7 +208,7 @@ lwsjs_sockaddr46_get(JSContext* ctx, JSValueConst this_val, int magic) {
     return JS_EXCEPTION;
 
   if(len < sizeof(*sa))
-    return JS_ThrowRangeError(ctx, "SockAddr64 must have length %zu", sizeof(*sa));
+    return JS_ThrowRangeError(ctx, "SockAddr64 must have length %d", (int)sizeof(*sa));
 
   switch(magic) {
     case PROP_FAMILY: {
@@ -267,7 +267,7 @@ lwsjs_sockaddr46_set(JSContext* ctx, JSValueConst this_val, JSValueConst value, 
     return JS_EXCEPTION;
 
   if(len < sizeof(*sa))
-    return JS_ThrowRangeError(ctx, "SockAddr64 must have length %zu", sizeof(*sa));
+    return JS_ThrowRangeError(ctx, "SockAddr64 must have length %d", (int)sizeof(*sa));
 
   switch(magic) {
     case PROP_PORT: {
@@ -390,7 +390,7 @@ lwsjs_sockaddr46_data(JSContext* ctx, JSValueConst value) {
     return 0;
 
   if((sa = (lws_sockaddr46*)JS_GetArrayBuffer(ctx, &len, value)) && len < sizeof(*sa)) {
-    JS_ThrowRangeError(ctx, "SockAddr64 must have length %zu", sizeof(*sa));
+    JS_ThrowRangeError(ctx, "SockAddr64 must have length %d", (int)sizeof(*sa));
     return 0;
   }
 

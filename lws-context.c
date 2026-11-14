@@ -287,12 +287,6 @@ lwsjs_timer_fire(lws_sorted_usec_list_t* sul) {
   JS_FreeValue(ctx, callback);
 }
 
-static void
-lwsjs_timer_finalize(void* opaque) {
-  LWSTimer* t = opaque;
-  js_free_rt(JS_GetRuntime(t->lws->js), t); // or use appropriate runtime free function if available
-}
-
 static JSValue
 lwsjs_timer_cancel(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[], int magic, void* opaque) {
   LWSTimer* t = opaque;
