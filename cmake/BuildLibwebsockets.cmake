@@ -378,7 +378,8 @@ set(LIBWEBSOCKETS_ARGS
   endif(TERMUX)
 
   if(WIN32 AND NOT MSYS)
-    set(LIBWEBSOCKETS_LIBRARIES "websockets_static;${LIBWEBSOCKETS_LIBRARIES}")
+    # -l form: a bare websockets_static would name the ExternalProject target of the same name
+    set(LIBWEBSOCKETS_LIBRARIES "-lwebsockets_static;${LIBWEBSOCKETS_LIBRARIES}")
   else(WIN32)
     set(LIBWEBSOCKETS_LIBRARIES "websockets;${LIBWEBSOCKETS_LIBRARIES}")
   endif(WIN32)
