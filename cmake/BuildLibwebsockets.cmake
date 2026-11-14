@@ -16,6 +16,11 @@ string(TOUPPER "${BUILD_LIBCAP}" BUILD_LIBCAP)
 if(NOT BUILD_LIBCAP MATCHES "^(AUTO|ON|OFF)$")
   message(FATAL_ERROR "BUILD_LIBCAP must be AUTO, ON or OFF (is '${BUILD_LIBCAP}')")
 endif()
+# libcap is Linux-only (uid_t, linux/capability.h): never build it elsewhere.
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT BUILD_LIBCAP STREQUAL "OFF")
+  message(STATUS "libcap: not available on ${CMAKE_SYSTEM_NAME}, BUILD_LIBCAP=OFF")
+  set(BUILD_LIBCAP OFF)
+endif()
 
 set(BUILD_BROTLI AUTO CACHE STRING "Build brotli from source (AUTO, ON, OFF)")
 set_property(CACHE BUILD_BROTLI PROPERTY STRINGS AUTO ON OFF)
@@ -172,7 +177,7 @@ macro(build_libwebsockets)
   # but only after the toolchain's own directories.
   include(CheckIncludeFile)
   check_include_file(linux/if_packet.h LWS_HAVE_KERNEL_HEADERS)
-  if(NOT LWS_HAVE_KERNEL_HEADERS)
+  if(NOT LWS_HAVE_KERNEL_HEADERS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     file(GLOB LWS_KERNEL_INCLUDE_DIRS /usr/include /usr/include/*-linux-gnu)
     foreach(d ${LWS_KERNEL_INCLUDE_DIRS})
       if(IS_DIRECTORY "${d}/linux" OR IS_DIRECTORY "${d}/asm")
@@ -184,7 +189,7 @@ macro(build_libwebsockets)
       endif()
     endforeach(d)
     set(LWS_KERNEL_INCLUDES_ADDED TRUE)
-  endif(NOT LWS_HAVE_KERNEL_HEADERS)
+  endif(NOT LWS_HAVE_KERNEL_HEADERS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
   # A TLS library the toolchain can use, else build LibreSSL (always, when
   # BUILD_LIBRESSL is ON).
@@ -217,6 +222,12 @@ macro(build_libwebsockets)
     set(CMAKE_REQUIRED_INCLUDES "${old_REQUIRED_INCLUDES}")
     set(CMAKE_REQUIRED_LIBRARIES "${old_REQUIRED_LIBRARIES}")
     set(CMAKE_REQUIRED_LINK_OPTIONS "${old_REQUIRED_LINK_OPTIONS}")
+
+    if(NOT LWS_OPENSSL_WORKS AND (MINGW OR MSYS OR CYGWIN OR CMAKE_SYSTEM_NAME MATCHES "MSYS|CYGWIN"))
+      message(FATAL_ERROR "no usable OpenSSL for ${CMAKE_C_COMPILER}: install the msys2 "
+        "openssl package into the sysroot (msys2-get.sh -s <triplet> openssl), "
+        "LibreSSL is not built for MinGW/MSYS")
+    endif()
 
     if(NOT LWS_OPENSSL_WORKS)
       # One build per libwebsockets target, since PIC may differ between them.
@@ -258,6 +269,10 @@ macro(build_libwebsockets)
       if(BROTLI_INCLUDE_DIR AND NOT BROTLI_INCLUDE_DIR STREQUAL "/usr/include")
         string(APPEND LWS_C_FLAGS_FULL " -I${BROTLI_INCLUDE_DIR}")
       endif()
+      # libraries found by path (a sysroot the linker does not search by itself), not -l names
+      if(BROTLI_LIBRARIES MATCHES "^(/|[A-Za-z]:)")
+        set(LWS_BROTLI_LIBRARIES_VALUE "${BROTLI_LIBRARIES}")
+      endif()
     else(BROTLI_FOUND)
       build_brotli(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
       set(BROTLI_DEPS brotli_${TARGET})
@@ -269,10 +284,6 @@ macro(build_libwebsockets)
   endif(WITH_BROTLI)
 
   set(LIBWEBSOCKETS_LIBRARIES "${LWS_BROTLI_LIBRARIES_VALUE}")
-      # libraries found by path (a sysroot the linker does not search by itself), not -l names
-      if(BROTLI_LIBRARIES MATCHES "^(/|[A-Za-z]:)")
-        set(LWS_BROTLI_LIBRARIES_VALUE "${BROTLI_LIBRARIES}")
-      endif()
   if(LIBCAP_FOUND)
     list(APPEND LIBWEBSOCKETS_LIBRARIES "${LWS_LIBCAP_LIBRARY_VALUE}")
   endif(LIBCAP_FOUND)
@@ -366,13 +377,13 @@ set(LIBWEBSOCKETS_ARGS
     )
   endif(TERMUX)
 
-  if(WIN32)
+  if(WIN32 AND NOT MSYS)
     set(LIBWEBSOCKETS_LIBRARIES "websockets_static;${LIBWEBSOCKETS_LIBRARIES}")
   else(WIN32)
     set(LIBWEBSOCKETS_LIBRARIES "websockets;${LIBWEBSOCKETS_LIBRARIES}")
   endif(WIN32)
 
-  if(WIN32)
+  if(WIN32 AND NOT MSYS)
     set(LIBWEBSOCKETS_LIBRARIES "${LIBWEBSOCKETS_LIBRARIES};crypt32")
   endif(WIN32)
   #    "${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib/libwebsockets.a;${LIBWEBSOCKETS_LIBRARIES}"
@@ -478,6 +489,19 @@ set(LIBWEBSOCKETS_ARGS
     endif()
   endif()
 
+  # lib/misc/diskcache.c is POSIX-only (mkdir with a mode, chown, d_type), and
+  # the file-backed blob cache is built on it.
+  # lws defaults to SChannel on Windows; the TLS here is OpenSSL (the msys2
+  # package), which qjs-lws's crypto binding also needs.
+  if(WIN32 OR MINGW OR MSYS)
+    list(APPEND LIBWEBSOCKETS_ARGS -DLWS_WITH_SCHANNEL:BOOL=OFF)
+  endif()
+
+  if(WIN32 OR MINGW)
+    list(APPEND LIBWEBSOCKETS_ARGS -DLWS_WITH_DISKCACHE:BOOL=OFF
+                                   -DLWS_WITH_CACHE_BLOB:BOOL=OFF)
+  endif()
+
   # Without a libcap usable by this toolchain, stop lws from picking up the
   # host's: its find_path() adds -I/usr/include ahead of the toolchain's own
   # headers, which breaks e.g. musl-gcc builds (host bits/errno.h).
@@ -525,6 +549,13 @@ set(LIBWEBSOCKETS_ARGS
   string(REGEX REPLACE ";-D" "\n\t-D" ARGS "${ARGS}")
   message(VERBOSE "libwebsockets configuration arguments:\n\t${ARGS}")
   string(REGEX REPLACE "[ ]" ";" LIBWEBSOCKETS_ARGS "${LIBWEBSOCKETS_ARGS}")
+
+  # MSYS is a POSIX environment: build lws's plat/unix, not plat/windows
+  set(LWS_MSYS_ARGS "")
+  if(MSYS OR CYGWIN OR CMAKE_SYSTEM_NAME MATCHES "MSYS|CYGWIN")
+    set(LWS_MSYS_ARGS
+        "-DCMAKE_PROJECT_libwebsockets_INCLUDE:FILEPATH=${CMAKE_CURRENT_SOURCE_DIR}/cmake/libwebsockets-msys.cmake")
+  endif()
 
   ExternalProject_Add(
     "${TARGET}"
@@ -655,6 +686,7 @@ set(LIBWEBSOCKETS_ARGS
       -DLWS_WITH_ZLIB:BOOL=ON
     CMAKE_CACHE_ARGS
       ${LIBWEBSOCKETS_ARGS}
+      ${LWS_MSYS_ARGS}
       -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
       -DLWS_HAVE_LIBCAP:BOOL=FALSE
       -DLWS_WITH_PLUGINS_API:BOOL=${LWS_WITH_PLUGINS_API}

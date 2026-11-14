@@ -11,8 +11,10 @@
 #include "js-utils.h"
 #include "quickjs.h"
 #include <quickjs-libc.h>
+#if !defined(_WIN32)
 #include <termios.h>
 #include <sys/ioctl.h>
+#endif
 
 static uint32_t lwsjs_loglevel = LLL_USER | LLL_ERR /*| LLL_WARN | LLL_INFO | LLL_NOTICE*/;
 static JSContext* lwsjs_log_ctx = 0;
@@ -1059,13 +1061,13 @@ lwsjs_callback_log_js(int level, const char* line, const char* func) {
    terminal width. */
 static void
 lwsjs_callback_log_term(int level, const char* line) {
+  size_t columns = 0;
+#if !defined(_WIN32)
   struct winsize wsz;
 
-  if(ioctl(0, TIOCGWINSZ, &wsz) != 0) {
-    memset(&wsz, 0, sizeof(wsz));
-  }
-
-  size_t columns = wsz.ws_col;
+  if(ioctl(0, TIOCGWINSZ, &wsz) == 0)
+    columns = wsz.ws_col;
+#endif
 
   char lev[9];
   size_t len = strlen(lwsjs_log_levels[level]);

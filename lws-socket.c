@@ -5,7 +5,9 @@
 #include "lws.h"
 #include "js-utils.h"
 #include <assert.h>
+#if !defined(_WIN32)
 #include <sys/socket.h>
+#endif
 
 #include "libwebsockets/lib/core/private-lib-core.h"
 #include "quickjs.h"

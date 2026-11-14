@@ -1,0 +1,24 @@
+diff --git a/include/libwebsockets.h b/include/libwebsockets.h
+--- a/include/libwebsockets.h
++++ b/include/libwebsockets.h
+@@ -48,7 +48,7 @@ extern "C" {
+ #if defined(LWS_HAVE_NET_IF_ETHER_H)
+ #include <net/if_ether.h>
+ #endif
+-#if (defined(_WIN32) || defined(__QNX__)) && !defined(ETHER_ADDR_LEN)
++#if (defined(_WIN32) || defined(__QNX__) || defined(__CYGWIN__)) && !defined(ETHER_ADDR_LEN)
+ #define ETHER_ADDR_LEN 6
+ #endif
+ #if defined (__sun)
+diff --git a/lib/plat/unix/unix-sockets.c b/lib/plat/unix/unix-sockets.c
+--- a/lib/plat/unix/unix-sockets.c
++++ b/lib/plat/unix/unix-sockets.c
+@@ -36,7 +36,7 @@
+ 
+ #include <sys/ioctl.h>
+ 
+-#if !defined(LWS_DETECTED_PLAT_IOS)
++#if !defined(LWS_DETECTED_PLAT_IOS) && !defined(__CYGWIN__)
+ #include <net/route.h>
+ #endif
+ 

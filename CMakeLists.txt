@@ -189,8 +189,13 @@ find_quickjs()
 configure_quickjs()
 
 if(WIN32 OR MINGW)
-  set(SOCKET_LIBRARIES mswsock ws2_32)
+  set(SOCKET_LIBRARIES mswsock ws2_32 iphlpapi)
 endif(WIN32 OR MINGW)
+
+# msvcrt printf has no %zu / %lld: use mingw's own implementation instead
+if(MINGW)
+  add_definitions(-D__USE_MINGW_ANSI_STDIO=1)
+endif(MINGW)
 
 compiler_flags_debug()
 
@@ -450,6 +455,7 @@ include_directories(
   libwebsockets/lib/plat/unix
   libwebsockets/lib/plat/unix/android
   libwebsockets/lib/plat/windows
+  libwebsockets/win32port/win32helpers
   libwebsockets/lib/roles
   libwebsockets/lib/io
   libwebsockets/lib/io/cgi

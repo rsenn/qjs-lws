@@ -1,4 +1,6 @@
+#if !defined(_WIN32)
 #include <poll.h>
+#endif
 #include "lws-protocol.h"
 #include "lws-socket.h"
 #include "lws-context.h"
@@ -72,7 +74,11 @@ pollfd_handler(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* ar
    * state of the fd instead of the direction of this handler. */
   struct pollfd now = {.fd = pc->fd, .events = pc->events};
 
+#if defined(_WIN32)
+  if(WSAPoll(&now, 1, 0) > 0 && now.revents)
+#else
   if(poll(&now, 1, 0) > 0 && now.revents)
+#endif
     pf.revents = now.revents;
 
   lws_service_fd(pc->lws, &pf);

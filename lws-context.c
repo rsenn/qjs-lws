@@ -22,6 +22,11 @@
 #include "lws-mount.h"
 #include "lws-protocol.h"
 
+/* wsi_from_fd is not exported on Windows: no already-adopted check there */
+#if defined(WIN32) || defined(_WIN32)
+#define wsi_from_fd(ctx, fd) ((struct lws*)NULL)
+#endif
+
 static void callback_patch_system_vhost(struct lws_context*);
 
 void service_tick_schedule(LWSContext* lws, int delay_ms);
