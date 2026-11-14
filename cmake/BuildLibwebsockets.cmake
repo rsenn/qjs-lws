@@ -269,6 +269,10 @@ macro(build_libwebsockets)
   endif(WITH_BROTLI)
 
   set(LIBWEBSOCKETS_LIBRARIES "${LWS_BROTLI_LIBRARIES_VALUE}")
+      # libraries found by path (a sysroot the linker does not search by itself), not -l names
+      if(BROTLI_LIBRARIES MATCHES "^(/|[A-Za-z]:)")
+        set(LWS_BROTLI_LIBRARIES_VALUE "${BROTLI_LIBRARIES}")
+      endif()
   if(LIBCAP_FOUND)
     list(APPEND LIBWEBSOCKETS_LIBRARIES "${LWS_LIBCAP_LIBRARY_VALUE}")
   endif(LIBCAP_FOUND)
