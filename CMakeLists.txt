@@ -928,6 +928,10 @@ install(FILES ${OLLAMA_REPL_LIB_INSTALL_FILES}
 install(PROGRAMS "${BIN_JS}"
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
         RENAME search)
+# chat-bridge imports './tool-calls.js' (no imports of its own), which
+# resolves next to the installed entry script, so it goes in bin/ as well.
+install(FILES examples/chat-bridge/tool-calls.js
+        DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS "${BIN_CHAT_BRIDGE_JS}"
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
         RENAME chat-bridge)
