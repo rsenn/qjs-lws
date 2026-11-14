@@ -68,6 +68,7 @@ import { SentFiles } from './lib/sent-files.js';
 import { FileExchange } from './lib/file-exchange.js';
 import { runCommand } from './lib/run-command.js';
 import { extractTextToolCalls } from './lib/text-tool-calls.js';
+import { formatUsage } from './lib/usage.js';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
 /* Bounds the tool-calling loop (see TOOLS/lib/tool-requests.js and
@@ -77,6 +78,40 @@ import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 const DEFAULT_MAX_ROUNDS = 40;
 
 const THINK_VALUES = ['detect', 'on', 'off', 'true', 'false', 'auto', 'low', 'medium', 'high'];
+
+const USAGE = [
+  [
+    "Usage: qjsm repl.js [--provider ollama|gemini|openai|bridge] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]",
+  ],
+  [
+    "--no-tools",
+    "offer the model no tools: files named in the prompt are attached as text and the model answers with whole `File: path` blocks, which are written to disk. For chat sites that ignore tool calls (chatgpt, duck, deepai).",
+  ],
+  ["--scan", "with --provider bridge: also send the project scan at session start (off by default, the chat sites take limited messages)."],
+  ["--no-failover", "with a chat-bridge: stay on the chosen model when it hits its limit instead of switching to another."],
+  [
+    "--no-handoff / --handoff-turns N (3) / --handoff-model NAME (qwen3:4b-instruct)",
+    "on a failover the conversation is compacted before it goes to the next model - the last N turns are kept, older ones are summarized by that local ollama model (--no-handoff replays everything).",
+  ],
+  ["--allow-paid", "with --provider bridge: also use pay-as-you-go sites (openrouter); refused and skipped by default, they can cost money."],
+  [
+    "--provider bridge",
+    "start examples/chat-bridge itself on a free port and use it (models = the chat sites; one is picked in turn unless --model is given; --cdp-host/--cdp-port = the browser, default 127.0.0.1:9222).",
+  ],
+  ["--model list", "list the available chat models and exit (gemini, openai-compatible /models incl. chat-bridge; ollama via `ollama list`)."],
+  ["--no-system", "start without the built-in system prompt (tools and project scan stay); set one later with /system. For controllers that bring their own."],
+  ["--num-ctx N", "context window requested from Ollama (default 16384; Ollama itself defaults to 4096)."],
+  [
+    "--think [MODE]",
+    'ollama: let the model think before answering. MODE is detect (default: on if `ollama show` lists the "thinking" capability, else off), on (default when the flag has no MODE), off, auto (send nothing, the model decides) or low|medium|high (gpt-oss). `on` errors on models without that capability; thinking is much slower on a model running partly on the CPU.',
+  ],
+  ["--max-rounds N", "tool-calling rounds per prompt (default 40)."],
+  ["--listen [PATH]", "open a control socket so another process (ollama-repl-ctl, Claude Code) can type into this session and read its output."],
+  ["--name NAME", "session name for --listen (default: the model name, made unique); ollama-repl-ctl -s NAME picks it among several."],
+  ["--yes/-y", "run_command without asking (unattended agents)."],
+  ["-x/--debug", "logs raw request/response JSON to <provider>-repl-debug.log (same as setting DEBUG=1)."],
+  ["TRAFFIC=<path>", "(env var, not a flag) additionally logs native socket-level RX/TX traffic to that file."],
+];
 
 function parseArgs(argv) {
   const opts = { provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect' };
@@ -112,25 +147,7 @@ function parseArgs(argv) {
     else if(arg === '--yes' || arg === '-y') opts.yes = true;
     else if(arg === '--listen') opts.listen = argv[i + 1] && !argv[i + 1].startsWith('-') ? argv[++i] : '';
     else if(arg === '--help' || arg === '-h') {
-      console.log(
-        'Usage: qjsm repl.js [--provider ollama|gemini|openai|bridge] [--model NAME] [--host HOST] [--port PORT] [--root DIR] [--stream] [-x] [--failsafe] [--no-system] [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes] [--listen [PATH]] [--name NAME]\n' +
-          '  --no-tools       offer the model no tools: files named in the prompt are attached as text and the model answers with whole `File: path` blocks, which are written to disk. For chat sites that ignore tool calls (chatgpt, duck, deepai).\n' +
-          '  --scan           with --provider bridge: also send the project scan at session start (off by default, the chat sites take limited messages).\n' +
-          '  --no-failover    with a chat-bridge: stay on the chosen model when it hits its limit instead of switching to another.\n' +
-          '  --no-handoff / --handoff-turns N (3) / --handoff-model NAME (qwen3:4b-instruct): on a failover the conversation is compacted before it goes to the next model - the last N turns are kept, older ones are summarized by that local ollama model (--no-handoff replays everything).\n' +
-          '  --allow-paid     with --provider bridge: also use pay-as-you-go sites (openrouter); refused and skipped by default, they can cost money.\n' +
-          '  --provider bridge  start examples/chat-bridge itself on a free port and use it (models = the chat sites; one is picked in turn unless --model is given; --cdp-host/--cdp-port = the browser, default 127.0.0.1:9222).\n' +
-          '  --model list     list the available chat models and exit (gemini, openai-compatible /models incl. chat-bridge; ollama via `ollama list`).\n' +
-          '  --no-system      start without the built-in system prompt (tools and project scan stay); set one later with /system. For controllers that bring their own.\n' +
-          '  --num-ctx N      context window requested from Ollama (default 16384; Ollama itself defaults to 4096).\n' +
-          '  --think [MODE]   ollama: let the model think before answering. MODE is detect (default: on if `ollama show` lists the "thinking" capability, else off), on (default when the flag has no MODE), off, auto (send nothing, the model decides) or low|medium|high (gpt-oss). `on` errors on models without that capability; thinking is much slower on a model running partly on the CPU.\n' +
-          '  --max-rounds N   tool-calling rounds per prompt (default 40).\n' +
-          '  --listen [PATH]  open a control socket so another process (ollama-repl-ctl, Claude Code) can type into this session and read its output.\n' +
-          '  --name NAME      session name for --listen (default: the model name, made unique); ollama-repl-ctl -s NAME picks it among several.\n' +
-          '  --yes/-y         run_command without asking (unattended agents).\n' +
-          '  -x/--debug logs raw request/response JSON to <provider>-repl-debug.log (same as setting DEBUG=1).\n' +
-          '  TRAFFIC=<path> (env var, not a flag) additionally logs native socket-level RX/TX traffic to that file.',
-      );
+      console.log(formatUsage(USAGE));
       exit(0);
     }
   }
