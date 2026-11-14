@@ -300,12 +300,19 @@ macro(build_libwebsockets)
   option(USE_GNUTLS "Build libwebsockets with gnutls" OFF)
   option(USE_HTTP3 "Build libwebsockets with h3/quic support" OFF)
 
-  # overlayfs mounting links libmount, which a fully static link does not have
-  if(LINK_STATIC)
-    set(LWS_FSMOUNT_VALUE OFF)
-  else(LINK_STATIC)
+  # overlayfs mounting links libmount, which a fully static link does not
+  # have, nor does a foreign sysroot (musl); a missing -lmount would also
+  # fail every libwebsockets configure-time link probe
+  include(CheckLibraryExists)
+  unset(LWS_HAVE_LIBMOUNT CACHE)
+  if(NOT LINK_STATIC)
+    check_library_exists(mount mnt_new_context "" LWS_HAVE_LIBMOUNT)
+  endif(NOT LINK_STATIC)
+  if(LWS_HAVE_LIBMOUNT)
     set(LWS_FSMOUNT_VALUE ON)
-  endif(LINK_STATIC)
+  else(LWS_HAVE_LIBMOUNT)
+    set(LWS_FSMOUNT_VALUE OFF)
+  endif(LWS_HAVE_LIBMOUNT)
 
 set(LIBWEBSOCKETS_ARGS
       -DLWS_WITH_SSL:BOOL=ON

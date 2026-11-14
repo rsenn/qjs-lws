@@ -1,5 +1,12 @@
 2026-11-14  Roman Senn  <roman.l.senn@gmail.com>
 
+	* cmake/BuildLibwebsockets.cmake (build_libwebsockets): Enable
+	LWS_WITH_FSMOUNT only when the compiler can link -lmount, not just
+	when LINK_STATIC is off.  With musl-gcc the missing libmount made
+	every libwebsockets configure-time link probe fail, so
+	LWS_HAVE_EVP_MD_CTX_free was undefined and lws-genhash.c broke on
+	OpenSSL 3.
+
 	* BUGS: Add and, once fixed, remove bridge-pipe-eof-busy-loop (a
 	dead chat-bridge left its output pipe at EOF with the read handler
 	still installed, spinning the event loop; fixed in
