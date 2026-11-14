@@ -592,8 +592,12 @@ endif(OPENSSL_SSL_LIBRARY AND OPENSSL_CRYPTO_LIBRARY)
 list(APPEND OPENSSL_LIBRARIES pthread dl)
 
 macro(target_link TARGET)
-  find_package(GnuTLS QUIET)
-  if(GNUTLS_FOUND)
+  # only when libwebsockets itself was built against it: probing the host would
+  # link a foreign (glibc) libgnutls into a musl module
+  if(USE_GNUTLS)
+    find_package(GnuTLS QUIET)
+  endif(USE_GNUTLS)
+  if(USE_GNUTLS AND GNUTLS_FOUND)
     set(GNUTLS_LINK_LIBS ${GNUTLS_LIBRARIES})
   else()
     set(GNUTLS_LINK_LIBS "")
@@ -612,10 +616,24 @@ macro(target_link TARGET)
     set(OUTPUT_NAME "${VNAME}")
   endif()
   target_include_directories(${TARGET} PRIVATE ${LIBWEBSOCKETS_INCLUDE_DIR})
+  # the installed module must find libquickjs and zlib on its own, and must not
+  # point back into the build tree
+  set(_install_rpath ${CMAKE_INSTALL_RPATH})
+  string(REPLACE ":" ";" _install_rpath "${_install_rpath}")
+  foreach(_lib "${QUICKJS_LIBRARY}" "${ZLIB_LIBRARY}")
+    if(_lib AND IS_ABSOLUTE "${_lib}")
+      get_filename_component(_dir "${_lib}" DIRECTORY)
+      list(APPEND _install_rpath "${_dir}")
+    endif()
+  endforeach(_lib)
+  list(FILTER _install_rpath EXCLUDE REGEX "^${CMAKE_BINARY_DIR}")
+  list(REMOVE_DUPLICATES _install_rpath)
+  string(REPLACE ";" ":" _install_rpath "${_install_rpath}")
+
   set_target_properties(
     ${TARGET}
     PROPERTIES
-      INSTALL_RPATH "${CMAKE_INSTALL_RPATH}"
+      INSTALL_RPATH "${_install_rpath}"
       BUILD_RPATH "${CMAKE_BUILD_RPATH}"
       COMPILE_FLAGS "-fvisibility=hidden"
       LINK_DIRECTORIES
