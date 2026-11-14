@@ -334,7 +334,7 @@ lwsjs_vhost_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCons
       if(type & LWS_ADOPT_SOCKET)
         u.sockfd = fd;
       else
-        u.filefd = (void*)(intptr_t)fd;
+        u.filefd = (lws_filefd_type)(intptr_t)fd;
 
       wsi = lws_adopt_descriptor_vhost(vh->vho, (lws_adoption_type)type, u, vh_prot_name, parent);
 

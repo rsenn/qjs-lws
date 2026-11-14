@@ -74,12 +74,13 @@ lwsjs_camelize(char* dst, size_t dlen, const char* src) {
 size_t
 lwsjs_decamelize(char* dst, size_t dlen, const char* src) {
   size_t i, j;
+  const uint8_t* x=(const uint8_t*)src;
 
   for(i = 0, j = 0; src[i] && j + 1 < dlen; ++i, ++j) {
-    if(i > 0 && islower(src[i - 1]) && isupper(src[i]))
+    if(i > 0 && islower((int)x[i - 1]) && isupper((int)x[i]))
       dst[j++] = '_';
 
-    dst[j] = toupper(src[i]);
+    dst[j] = toupper((int)x[i]);
   }
 
   dst[j] = '\0';
@@ -524,7 +525,7 @@ lwsjs_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst ar
       if(str)
         buf = (uint8_t*)str;
 
-      struct lwsjs_view legacy, *view;
+      struct lwsjs_view legacy={0,0}, *view = 0;
       uint8_t* dst = 0;
       size_t dlen, n;
 
@@ -1039,7 +1040,7 @@ lwsjs_callback_log_js(int level, const char* line, const char* func) {
   size_t len = strlen(line);
 
   while(len > 0) {
-    if(!isspace(line[len - 1]))
+    if(!isspace((int)((const uint8_t*)line)[len - 1]))
       break;
     --len;
   }
@@ -1098,7 +1099,7 @@ lwsjs_callback_log(int level, const char* line) {
   if(!strncmp(line, ": ", 2))
     line += 2;
 
-  while(isspace(*line))
+  while(isspace((int)*(const uint8_t*)line))
     ++line;
 
   level = 31 - clz(level);
