@@ -24,6 +24,11 @@ if(NOT BUILD_BROTLI MATCHES "^(AUTO|ON|OFF)$")
   message(FATAL_ERROR "BUILD_BROTLI must be AUTO, ON or OFF (is '${BUILD_BROTLI}')")
 endif()
 
+# ON: always build LibreSSL from source (cmake/BuildLibreSSL.cmake, static
+# archives, -fPIC when the libwebsockets build feeds a shared module) and
+# build libwebsockets against it; OFF: use the toolchain's OpenSSL and build
+# LibreSSL only if that one does not work.
+option(BUILD_LIBRESSL "Build LibreSSL from source for libwebsockets" OFF)
 
 macro(build_libwebsockets)
   # Accepts either the legacy positional form build_libwebsockets(<target>)
@@ -173,7 +178,8 @@ macro(build_libwebsockets)
     set(LWS_KERNEL_INCLUDES_ADDED TRUE)
   endif(NOT LWS_HAVE_KERNEL_HEADERS)
 
-  # A TLS library the toolchain can use, else build LibreSSL.
+  # A TLS library the toolchain can use, else build LibreSSL (always, when
+  # BUILD_LIBRESSL is ON).
   if(WITH_SSL AND NOT WITH_MBEDTLS AND NOT WITH_WOLFSSL)
     include(CheckCSourceCompiles)
     set(old_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES}")
@@ -185,6 +191,9 @@ macro(build_libwebsockets)
       set(CMAKE_REQUIRED_LINK_OPTIONS "-L${OPENSSL_LIBRARY_DIR}")
     endif(OPENSSL_LIBRARY_DIR)
     unset(LWS_OPENSSL_WORKS CACHE)
+    if(BUILD_LIBRESSL)
+      set(LWS_OPENSSL_WORKS FALSE)
+    else(BUILD_LIBRESSL)
     # Linking alone can't tell a glibc libssl.so from one the toolchain's libc
     # can load (e.g. musl-gcc against the host's), so run it when possible.
     set(LWS_OPENSSL_TEST_SOURCE
@@ -196,6 +205,7 @@ macro(build_libwebsockets)
       include(CheckCSourceRuns)
       check_c_source_runs("${LWS_OPENSSL_TEST_SOURCE}" LWS_OPENSSL_WORKS)
     endif(CMAKE_CROSSCOMPILING)
+    endif(BUILD_LIBRESSL)
     set(CMAKE_REQUIRED_INCLUDES "${old_REQUIRED_INCLUDES}")
     set(CMAKE_REQUIRED_LIBRARIES "${old_REQUIRED_LIBRARIES}")
     set(CMAKE_REQUIRED_LINK_OPTIONS "${old_REQUIRED_LINK_OPTIONS}")
