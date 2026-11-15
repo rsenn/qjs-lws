@@ -117,4 +117,9 @@ export class FileExchange {
 
     return lines.join('\n');
   }
+
+  setRoot(root) {
+    this.#root = root;
+    this.#diffDirReady = false;
+  }
 }

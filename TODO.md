@@ -195,3 +195,11 @@ Open Items).
   are not wired into `DO_TESTS` (only `tests/unittests/test-*.js` are).
 - 19% of libwebsockets' public C API was bound (162/847) when last measured;
   the figure is stale, regenerate it with `tools/binding_coverage.js`.
+
+## Build on a fresh machine (found 2026-11-15, Termux restore)
+
+- fix the three BUGS above (TERMUX flag first: DNS on Termux depends on it)
+- configure applies patches to the libwebsockets submodule in place ("applied
+  0010-cygwin-msys-no-net-route-ether-addr-len.patch" in the log): a default build writes into the
+  source tree; apply on a copy in the build dir, or in a temporary clone (see
+  ~/Sources/quickjs/docs/build-and-CI.md 2.1)

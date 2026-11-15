@@ -711,6 +711,7 @@ function totalChars(msgs) {
 
 const HELP_TEXT = `/reset          - clear conversation history (keeps the initial project scan)
 /clear          - wipe conversation history completely, including the initial project scan
+/cd DIR         - change the project directory the model works in (file refs, writes, run_command all follow it)
 /exit, /quit    - quit
 /help           - this text
 /run <command>  - run a shell command yourself, right now (no model round trip, no approval prompt - it's you asking, not the model)
@@ -834,8 +835,8 @@ async function main() {
   if(opts.provider === 'ollama') console.log(dim(await thinkNote(client)));
 
   const log = new SessionLog(`${opts.model.replaceAll(':', '-')}.log`);
-  const sentFiles = new SentFiles(opts.model, opts.root);
-  const fileExchange = new FileExchange(opts.model, opts.root);
+  let sentFiles = new SentFiles(opts.model, opts.root);
+  let fileExchange = new FileExchange(opts.model, opts.root);
   const store = new SessionStore(opts.model);
   const saved = store.load();
 
@@ -988,6 +989,17 @@ async function main() {
 
       if(prompt === '/help') {
         console.log(HELP_TEXT);
+        return;
+      }
+
+      if(prompt === '/cd') {
+        const arg = prompt.slice('/cd'.length).trim();
+        if(!arg) return void console.log(`(root: ${opts.root})`);
+        opts.root = arg;
+        sentFiles.setRoot(opts.root);
+        fileExchange.setRoot(opts.root);
+        control?.update({ root: opts.root });
+        console.log(`(root: ${opts.root})`);
         return;
       }
 

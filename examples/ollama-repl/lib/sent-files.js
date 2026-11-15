@@ -50,4 +50,9 @@ export class SentFiles {
   get all() {
     return [...this.#sent];
   }
+
+  setRoot(root) {
+    this.#root = root;
+    this.#next = this.#scanNext();
+  }
 }

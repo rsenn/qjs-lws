@@ -246,6 +246,17 @@ Tools the model has: `list_directory`, `read_file` (optional line range),
 project root; `/undo` restores what the last prompt changed, `/diff` shows
 `git diff`), `for_each`, `run_command`, `ask_user`.
 
+`/cd DIR` changes the project directory the model works in mid-session -
+file references and writes are resolved against it, `run_command` runs with
+it as its working directory, and the project scan (if any) is redone on the
+next prompt. It's the in-session equivalent of `--root`:
+
+```
+qjsm repl.js --root /path/to/project
+# ... later, in the REPL:
+/cd ../other-project
+```
+
 Repetitive jobs ("a comment above every function in lib/path.h, from
 lib/path/<name>.c") work best split up: `for_each` (or `/each` by hand)
 runs the same task once per item, each in its own short conversation.
