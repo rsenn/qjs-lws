@@ -47,7 +47,7 @@
  *     also prints lws's own ERR/WARN/USER lines straight to the terminal,
  *     independent of `TRAFFIC`.
  */
-import { exit, loadFile, popen, out as stdout, err as stderr } from 'std';
+import { exit, getenv, loadFile, popen, out as stdout, err as stderr } from 'std';
 import { clearTimeout, getcwd, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
@@ -319,6 +319,24 @@ function asksForChange(messages) {
 function omitToolsFor(task) {
   const commentOnly = /\b(comment|document|documentation)\b/i.test(task) && !/\b(replace|rename|change|fix|remove|delete|refactor|rewrite|update|convert)\b/i.test(task);
   return commentOnly ? ['edit_file', 'write_file', 'run_command'] : [];
+}
+
+/** Absolute, normalised directory for `/cd arg`: ~ is the home directory, a relative arg is taken from the current root (not the process cwd), . and .. are folded. */
+function resolveDir(root, arg) {
+  const home = getenv('HOME') ?? '/';
+  if(arg === '~' || arg.startsWith('~/')) arg = home + arg.slice(1);
+
+  const cwd = getcwd()[0];
+  const base = root.startsWith('/') ? root : root === '.' ? cwd : `${cwd}/${root}`;
+  const parts = [];
+
+  for(const part of (arg.startsWith('/') ? arg : `${base}/${arg}`).split('/')) {
+    if(part === '' || part === '.') continue;
+    if(part === '..') parts.pop();
+    else parts.push(part);
+  }
+
+  return '/' + parts.join('/');
 }
 
 /** True if the project's top-level build files mention QuickJS. */
@@ -992,13 +1010,28 @@ async function main() {
         return;
       }
 
-      if(prompt === '/cd') {
+      if(prompt === '/cd' || prompt.startsWith('/cd ')) {
         const arg = prompt.slice('/cd'.length).trim();
         if(!arg) return void console.log(`(root: ${opts.root})`);
-        opts.root = arg;
+
+        const dir = resolveDir(opts.root, arg);
+        if(fileMode(dir) !== S_IFDIR) return void console.log(red(`error: ${dir}: not a directory`));
+
+        opts.root = dir;
         sentFiles.setRoot(opts.root);
         fileExchange.setRoot(opts.root);
         control?.update({ root: opts.root });
+
+        /* the system prompt's QuickJS notes and the project scan describe the old root */
+        if(messages[0]?.role === 'system' && messages[0].content.startsWith(SYSTEM_PROMPT)) messages[0].content = SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '');
+        const scan = messages.findIndex(m => m.role === 'user' && m.content.startsWith('(automatic project scan'));
+        if(scan >= 0) {
+          const projectContext = await gatherProjectContext(opts.root);
+          messages[scan].content = `(automatic project scan at session start)\n\n${projectContext}`;
+          log.toolResults(projectContext);
+        }
+
+        saveSession();
         console.log(`(root: ${opts.root})`);
         return;
       }
