@@ -1061,7 +1061,7 @@ async function main() {
         const known = opts.provider === 'ollama' ? ollamaModels() : remote ? remote.map(m => m.name) : null;
 
         if(arg === 'list') {
-          if(remote) return void console.log(remote.map(m => `${m.name.padEnd(16)} ${m.available ? m.displayName : red(m.displayName)}`).join('\n'));
+          if(remote) return void console.log(remote.filter(m => m.available).map(m => `${m.name.padEnd(32)} ${m.displayName}`).join('\n'));
           return void console.log(known ? known.join('\n') : '(model list is only available for --provider ollama and openai endpoints that serve /models)');
         }
 
