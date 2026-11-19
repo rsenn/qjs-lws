@@ -560,7 +560,7 @@ printf 'what does lib/run-command.js do?\n/status\n' | qjsm repl.js --stream > o
 ## Sharing a running session (`--listen`)
 
 `ollama-repl --listen [PATH]` opens a unix socket (default
-`$XDG_RUNTIME_DIR/o<pid>.s`, short on purpose: the installed qjsm binds only the first 26 bytes of a socket path, a `--listen PATH` longer than that is refused with a message; plus `$XDG_RUNTIME_DIR/ollama-repl/<pid>.json`, directory mode 0700, describing the session) so another process - Claude Code, a
+`$XDG_RUNTIME_DIR/o<pid>.s`, short on purpose (a Unix socket path holds 107 bytes at most), a `--listen PATH` longer than that is refused with a message; plus `$XDG_RUNTIME_DIR/ollama-repl/<pid>.json`, directory mode 0700, describing the session) so another process - Claude Code, a
 script - can type into the session you are using on the terminal and read what
 it prints. It is the same conversation, not a new one: the terminal shows the
 remote line, in full and in green, as `[remote]> ...`, then the usual output:

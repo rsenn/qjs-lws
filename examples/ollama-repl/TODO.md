@@ -55,10 +55,11 @@ step:
      working directory's <model>.json replace the resumed state (base
      message count, project scan, a second "resumed" line); smoke.sh runs
      with --listen, which found the AF_UNIX problem below
-   - --listen: this qjsm binds only 26 bytes of a socket path (BUGS:
-     sockaddr-unix-length), so a second session failed with EADDRINUSE and
-     ctl reached whichever held the empty abstract name. Now unixAddr()
-     builds the address from bytes, the default path is
+   - --listen: a qjsm before 2026-11-19 bound only 26 bytes of a socket
+     path (qjs-modules fixed it: HAVE_AF_UNIX), so a second session failed
+     with EADDRINUSE and ctl reached whichever held the empty abstract
+     name. unixAddr() is now a thin wrapper of SockAddr(AF_UNIX, path), the
+     default path is
      $XDG_RUNTIME_DIR/o<pid>.s, a too long path is an error and a failed
      --listen ends the run. Two sessions plus ollama-repl-ctl tested. A
      session started before this holds the abstract name: restart it

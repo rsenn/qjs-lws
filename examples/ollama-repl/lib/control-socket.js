@@ -3,7 +3,7 @@
  * running, interactive ollama-repl and read what it prints - the same
  * session the user sees on the terminal, not a fresh conversation.
  *
- * Unix stream socket at `<runtime dir>/o<pid>.s` (short: see unixAddr()) plus `<dir>/<pid>.json` (what a
+ * Unix stream socket at `<runtime dir>/o<pid>.s`  plus `<dir>/<pid>.json` (what a
  * client needs to pick a session). Client -> server: plain text, one input
  * line per line. Server -> client: one JSON object per line:
  *   {type:'hello', ...info, busy}   on connect
@@ -21,29 +21,16 @@ import { TextDecoder, TextEncoder } from 'textcode';
 import { AF_UNIX, SOCK_STREAM, SockAddr, Socket } from 'sockets';
 
 /**
- * How many bytes of a socket path the sockets binding binds: the size of its SockAddr minus the family. A
- * qjsm built without HAVE_AF_UNIX (checked 2026-11-19, qjsm 757b576bf8ab-dirty, BUGS: sockaddr-unix-length)
- * has 28 bytes, so 26: bind() then cuts a longer path (/run/user/1000/ollama-repl/123.sock becomes the
- * directory /run/user/1000/ollama-repl and fails with EADDRINUSE); a good build has 110 bytes, 107 of path.
- */
-export function sockPathLimit() {
-  return Math.min(107, new SockAddr(AF_UNIX).byteLength - 2);
-}
-
-/**
- * sockaddr_un for `path`, built from the raw struct: `new SockAddr(AF_UNIX, path)` leaves sun_path zero in
- * that build and binds the shared empty abstract name (the first session gets it, every other one fails with
- * EADDRINUSE, and a client connects to whichever session holds it). Refuses a path the binding would cut.
+ * sockaddr_un for `path`. A path of 108 bytes or more is refused with a clear message (the binding throws
+ * RangeError). Needs a qjsm from 2026-11-19 on: before that SockAddr(AF_UNIX) was 28 bytes and left sun_path
+ * zero, so every socket bound the shared empty abstract name.
  */
 export function unixAddr(path) {
-  const bytes = new TextEncoder().encode(path);
-  const limit = sockPathLimit();
-  if(bytes.length > limit) throw new Error(`the socket path is ${bytes.length} bytes, this qjsm binds at most ${limit} of a Unix socket path: ${path}`);
-
-  const buf = new ArrayBuffer(110);
-  new DataView(buf).setUint16(0, AF_UNIX, true);
-  new Uint8Array(buf, 2).set(bytes);
-  return new SockAddr(buf);
+  try {
+    return new SockAddr(AF_UNIX, path);
+  } catch(e) {
+    throw new Error(`bad Unix socket path (${new TextEncoder().encode(path).length} bytes, at most 107): ${path}`);
+  }
 }
 
 /* rmSync throws on a missing file, the sock/json files often are */

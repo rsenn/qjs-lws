@@ -31,7 +31,7 @@ OUT=$(cd "$DIR" && qjsm test-rawcolor.js 2>&1) || { echo "FAIL rawcolor: $OUT"; 
 
 # 2. the REPL starts and runs commands
 WORK=$(mktemp -d) || exit 1
-SOCK=/tmp/or-sm-$$.s # short: the installed qjsm binds only the first 26 bytes of a socket path
+SOCK=/tmp/or-sm-$$.s # short, to stay clear of the 107 byte limit
 trap 'rm -rf "$WORK" "$SOCK"' EXIT
 cd "$WORK" || exit 1
 
