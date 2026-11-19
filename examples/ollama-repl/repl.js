@@ -1850,6 +1850,17 @@ async function main() {
       messages.push({ role: 'user', content: prompt });
       messages.push({ role: 'tool', name: 'run_command', toolCallId: '!-user', content: `The user ran the shell command: ${cmd}\nIts output (stdout and stderr merged) follows:\n\n${output || '(no output)'}` });
       log.toolResults(`$ ${cmd}\n${output || '(no output)'}`);
+
+      /* The command output is now in the conversation as a tool result, so
+         run a model round right away and let it react to it. */
+      let reply;
+      try {
+        reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
+      } catch(e) {
+        console.log(red(`error: ${e.message}`));
+        messages.length = turnStart; // don't leave a dangling/partial turn behind
+        return;
+      }
       saveSession();
       return;
     }
