@@ -508,6 +508,16 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   it. `/skill loaded` and `/skill off [NAME]` show and unload (loading again
   replaces the old copy). A loaded skill is part of the conversation: it
   survives `/restart` and is summarized by a compaction like any message.
+- While the model works, a line you type is queued behind it - except the
+  commands that only flip a flag or show something, which act at once and
+  print beside the running reply: `/verbose`, `/proxy` (show, on, off),
+  `/mode`, `/help`, `/status`, `/usage`, `/last`, `/requests`, `/tools`,
+  `/about`, `/gateway` (the reports), `/standby` (show, off), `/delegate`
+  (show, on, off), `/config` (show), `/skill` (list, loaded), `/rename`. Their
+  output goes straight into the transcript, not into a panel (a panel
+  captures stdout and would swallow the streamed reply). Anything that
+  changes the conversation (`/model`, `/clear`, `/compact`, a prompt, ...)
+  still waits its turn, and piped input keeps its order.
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
   says, each in its own panel: the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),

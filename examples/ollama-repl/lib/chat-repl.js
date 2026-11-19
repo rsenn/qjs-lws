@@ -65,6 +65,15 @@ export class ChatREPL extends REPL {
   /** slash commands Tab completes at the start of the line ('/cd', ...) */
   commandNames = [];
 
+  /**
+   * (line) => boolean: lines handled at once even while the model works
+   * (flags and read-only reports); `onImmediate(line)` runs them beside the
+   * running request instead of queueing them behind it. Everything else
+   * waits its turn, a line that changes the conversation must not overlap.
+   */
+  immediate = null;
+  onImmediate = null;
+
   /** () => skill names, completed after '/skill ' */
   skillNames = null;
 
@@ -263,6 +272,11 @@ export class ChatREPL extends REPL {
        and kill the process while the first (real, in-flight network)
        request was still pending - confirmed directly: the reply and its
        log line never appeared. Queue instead of running concurrently. */
+    if(this.#busy && this.onImmediate && this.immediate?.(expr)) {
+      Promise.resolve(this.onImmediate(expr)).catch(err => console.log(red(`error: ${err.message}`)));
+      return true;
+    }
+
     if(this.#busy) {
       this.#queue.push(expr);
       return true;

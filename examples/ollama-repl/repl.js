@@ -3317,6 +3317,15 @@ async function main() {
 
   repl = new ChatREPL(opts.model, reportLine, opts.root, () => abortRef.current?.() ?? false);
 
+  /* commands that only flip a flag or show something do not wait for the running request: typed while the
+     model works they act at once (output goes straight to the transcript, not into a panel, because a panel
+     captures stdout and would swallow the streamed reply). Piped input keeps its order. */
+  if(!piped) {
+    const INSTANT = [/^\/verbose(\s|$)/, /^\/proxy(\s+(on|off))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+off)?$/, /^\/delegate(\s+(on|off))?$/, /^\/config$/, /^\/skill(\s+loaded)?$/, /^\/rename\s/];
+    repl.immediate = line => INSTANT.some(re => re.test(line.trim()));
+    repl.onImmediate = runLine;
+  }
+
   if(tui) {
     repl.tui = tui;
     repl.pagerHeader = (cols, label) => gradientRule(cols, label);
