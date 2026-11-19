@@ -51,7 +51,7 @@ export async function pickNext(gateway, av, { exclude = [] } = {}) {
   }
 
   /* /v1/models lists the models that can serve a request first, the smartest first */
-  for(const m of await gateway.models()) if(m.execution_status === 'ready' && usable(m.id)) return { id: m.id, name: m.name ?? m.id };
+  for(const m of await gateway.models()) if(m.execution_status === 'ready' && m.capabilities?.tools !== false && usable(m.id)) return { id: m.id, name: m.name ?? m.id };
 
   return null;
 }

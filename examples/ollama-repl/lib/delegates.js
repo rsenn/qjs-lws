@@ -212,7 +212,7 @@ export async function discoverGateway(gateway, av, { exclude = [], max = 8 } = {
     return [...new Set(found.map(c => c.id))].slice(0, max);
   }
 
-  return (await gateway.models()).filter(m => m.execution_status === 'ready' && ok(m.id)).map(m => m.id).slice(0, max);
+  return (await gateway.models()).filter(m => m.execution_status === 'ready' && m.capabilities?.tools !== false && ok(m.id)).map(m => m.id).slice(0, max);
 }
 
 /** one line per known model and kind: 'gemma-4-31b  docs 4 ok 1 failed +1, 7.2s' */

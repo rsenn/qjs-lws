@@ -47,6 +47,14 @@ qjsm "$HERE/probe.js" "http://127.0.0.1:$BRIDGE/v1"
 rc=$?
 # last: the limit test of the probe has made the learned quota of the fake site visible
 qjsm "$HERE/shape.js" "http://127.0.0.1:$BRIDGE/v1" fake || rc=1
+# the harness reads the bridge like a gateway: its limits, health and usage show up in the commands
+if [ $rc -eq 0 ]; then
+  H="$HERE/../../ollama-repl/repl.js"
+  out=$(printf '/gateway providers\n/gateway limited\n/gateway usage\n/model list all\n/exit\n' | OPENAI_API_URL="http://127.0.0.1:$BRIDGE/v1" XDG_CONFIG_HOME="$W/cfg" timeout 60 qjsm "$H" --provider openai --model fake 2>&1 | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
+  echo "$out" > "$W/harness.txt"
+  if echo "$out" | grep -q "fake .*rate_limited" && echo "$out" | grep -q "cannot serve a request" && echo "$out" | grep -q "gateway month" && echo "$out" | grep -qE "^fake +fake +cooldown in "; then echo "✅ the harness shows the bridge's providers, limits and usage"; else echo "❌ the harness does not read the bridge"; echo "$out" | tail -25; rc=1; fi
+fi
+
 # a restart keeps the limit the probe ran into (state.json): the site is still exhausted, with its reset time
 if [ $rc -eq 0 ]; then
   kill "${PIDS[-1]}"; wait "${PIDS[-1]}" 2>/dev/null; unset 'PIDS[-1]'

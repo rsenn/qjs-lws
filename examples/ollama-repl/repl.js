@@ -1065,8 +1065,8 @@ async function delegateCandidates(opts) {
 
   try {
     if(opts.provider === 'openai' && gatewayRef?.enabled) {
-      if(gatewayRef.dashboard) availability = await loadAvailability(gatewayRef).catch(() => availability);
-      ids = await discoverGateway(gatewayRef, gatewayRef.dashboard ? availability : null, { exclude });
+      if(gatewayRef.hasLimits) availability = await loadAvailability(gatewayRef).catch(() => availability);
+      ids = await discoverGateway(gatewayRef, gatewayRef.hasLimits ? availability : null, { exclude });
     } else if(opts.provider === 'ollama') {
       const mine = modelStrength(opts.model).tier;
       ids = (ollamaModels() ?? []).filter(m => m !== opts.model && !/embed/i.test(m) && modelStrength(m).tier >= mine);
@@ -1740,7 +1740,7 @@ const standbyReady = () => standby.on && standby.state === 'ready' && standby.id
 
 /** runs fn on fresh availability data of the gateway (needs a dashboard session) */
 async function withAvailability(fn) {
-  if(!gatewayRef?.dashboard) return '(limits need a dashboard session: /gateway login)';
+  if(!gatewayRef?.hasLimits) return '(limits need a dashboard session: /gateway login)';
   availability = await loadAvailability(gatewayRef);
   return fn(availability);
 }
@@ -2022,7 +2022,7 @@ function completeArgs(cmd, args, word) {
 /** Shows the model list with strength coloring and skip status. */
 async function showModelList(remote, known, provider, showAll = false) {
   cleanupSkips();
-  if(gatewayRef?.dashboard) availability = await loadAvailability(gatewayRef).catch(() => availability);
+  if(gatewayRef?.hasLimits) availability = await loadAvailability(gatewayRef).catch(() => availability);
   const all = getFilteredModels(known, remote);
   const models = all.filter(m => m.available && !m.limited?.blocked);
   const hidden = all.filter(m => !m.available && !m.limited?.blocked);
@@ -2240,13 +2240,13 @@ async function main() {
     tui?.drawStatus();
 
     try {
-      if(gateway.dashboard) availability = await loadAvailability(gateway).catch(() => availability);
+      if(gateway.hasLimits) availability = await loadAvailability(gateway).catch(() => availability);
 
       for(const [id, until] of standby.bad) if(until < now) standby.bad.delete(id);
 
       /* the candidates in the gateway's order; one that fails its probe is set aside for 10 minutes */
       for(let attempt = 0; attempt < 3; attempt++) {
-        const av = gateway.dashboard ? availability : null;
+        const av = gateway.hasLimits ? availability : null;
         const exclude = [...currentIds(), ...standby.bad.keys()];
 
         /* nothing routed yet on auto: the gateway's first choice is what the first request will use, the standby is the one after it */
@@ -2296,10 +2296,18 @@ async function main() {
     },
   };
 
-  if(opts.provider === 'openai' && !bridgeProc) {
+  if(opts.provider === 'openai') {
     gateway = gatewayRef = new Gateway(client);
 
-    if(await gateway.detect()) {
+    if((await gateway.detect()) && gateway.isBridge) {
+      /* a chat-bridge: usage, health and limits per site, no routing profiles, dashboard, proxy or sticky sessions */
+      await gateway.refresh(true);
+      if(gateway.hasLimits) availability = await loadAvailability(gateway).catch(() => null);
+      if(opts.standby) {
+        standby.on = true;
+        refreshStandby().catch(() => {});
+      }
+    } else if(gateway.enabled) {
       if(!opts.modelGiven) opts.model = client.model = 'auto';
       /* sticky routing and the gateway's context handoff are keyed by this id: it lives as long as the
          conversation (kept over /restart), not as long as the process */
@@ -2311,7 +2319,7 @@ async function main() {
         standby.on = true;
         refreshStandby().catch(() => {});
       }
-    } else if(opts.label === 'freellm') console.log(dim(`(${client.baseUrl} does not answer /v1/usage - no freellmapi gateway there, /gateway is off)`));
+    } else if(opts.label === 'freellm' && !gateway.enabled) console.log(dim(`(${client.baseUrl} does not answer /v1/usage - no freellmapi gateway there, /gateway is off)`));
   }
 
   /* a plain OpenAI-compatible endpoint (a chat-bridge): its model names for Tab completion */
@@ -2453,7 +2461,7 @@ async function main() {
     ['version', commit ? `qjs-lws ${commit}` : null],
     ['model', `${opts.label ?? opts.provider}/${opts.model}`],
     ['endpoint', endpoint],
-    ['gateway', gateway?.enabled ? `freellmapi${gateway.tokenSource ? `, dashboard via ${gateway.tokenSource}` : ''}` : null],
+    ['gateway', gateway?.enabled ? `${gateway.isBridge ? 'chat-bridge' : 'freellmapi'}${gateway.tokenSource ? `, dashboard via ${gateway.tokenSource}` : ''}` : null],
     ['mode', `${opts.mode} - ${MODE_INFO[opts.mode]}`],
     ['root', shortPath(realpath(opts.root)[0] ?? opts.root)],
     ['session', `${opts.name ?? opts.model}${control ? ' (remote control on)' : ''}`],
@@ -2483,7 +2491,7 @@ async function main() {
     console.log(banner(aboutRows(), TIPS, tui.width));
   } else {
     console.log(`ollama-repl: ${opts.provider}/${opts.model} @ ${endpoint}  (root: ${opts.root})${opts.failsafe ? '  [failsafe: no system prompt/project scan/tools]' : ''}`);
-    if(gateway?.enabled) console.log(dim('(freellmapi gateway: each reply names the model that served it, /usage /last /requests /gateway for the rest)'));
+    if(gateway?.enabled) console.log(dim(gateway.isBridge ? '(chat-bridge: /gateway usage|providers|forecast|limits|limited, /model list shows the sites with their limits)' : '(freellmapi gateway: each reply names the model that served it, /usage /last /requests /gateway for the rest)'));
     console.log(`/help for commands.`);
     console.log(`Logging this session to ${log.path}`);
     console.log(`History persists (^R to search, up/down to recall).`);
@@ -2705,7 +2713,7 @@ async function main() {
     }
 
     if(prompt === '/proxy' || prompt.startsWith('/proxy ')) {
-      if(!gateway?.enabled) return void console.log('(no freellmapi gateway: the endpoint does not answer /v1/usage)');
+      if(!gateway?.enabled || gateway.isBridge) return void console.log('(no freellmapi gateway: the endpoint does not answer /v1/usage the freellmapi way)');
 
       const arg = prompt.slice('/proxy'.length).trim();
       await loadProxy(false);
@@ -2879,6 +2887,8 @@ async function main() {
 
       const [what = 'usage', ...rest] = prompt.slice('/gateway'.length).trim().split(/\s+/).filter(Boolean);
 
+      if(what === 'login' && gateway.isBridge) return void console.log('(a chat-bridge has no dashboard: /gateway usage, providers, forecast, limits, limited and models are its questions)');
+
       if(what === 'login') {
         const ok = await gateway.login({ cdp: { host: opts.cdpHost, port: opts.cdpPort, open: true } });
         if(ok) await Promise.all([gateway.refresh(true), loadProxy(true)]);
@@ -2987,7 +2997,7 @@ async function main() {
         const ofN = matches.length === 1 ? ' (only model matching)' : ` (${modelCycle.index + 1} of ${matches.length})`;
         console.log(`(pattern "${modelCycle.pattern}" matched: ${matches.join(', ')} - switching to ${arg}${ofN})`);
       } else {
-        if(gateway?.dashboard && (!availability || Date.now() - availability.at > 30000)) availability = await loadAvailability(gateway).catch(() => null);
+        if(gateway?.hasLimits && (!availability || Date.now() - availability.at > 30000)) availability = await loadAvailability(gateway).catch(() => null);
         const lim = availability?.byModel.get(arg);
         if(lim?.blocked) return void console.log(red(`error: ${arg} is limited right now (${kindsText(lim)}), back: ${backText(lim, availability.at)} - /model list shows when`));
 
@@ -3216,7 +3226,7 @@ async function main() {
 
     if(prompt === '/route' || prompt.startsWith('/route ')) {
       const arg = prompt.slice('/route'.length).trim();
-      if(!gateway?.enabled) return void console.log(dim('(/route needs a freellmapi gateway: --provider freellm)'));
+      if(!gateway?.enabled || gateway.isBridge) return void console.log(dim('(/route needs a freellmapi gateway: --provider freellm; a chat-bridge picks no route itself yet)'));
 
       const last = stats.last();
       const sticky = opts.sessionId ? `x-session-id ${opts.sessionId}` : '-';

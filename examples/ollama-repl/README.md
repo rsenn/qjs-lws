@@ -964,3 +964,18 @@ end to end.
 - When the gateway ends a request with "All models rate-limited ... Attempt
   trail: ...", the next bare `/model skip` skips every model of the
   providers named in that trail, not only the last one.
+
+## chat-bridge as a backend
+
+`Gateway` (lib/freellm.js) answers for both a freellmapi gateway and a
+chat-bridge: `/v1/usage` says which one (`source: "chat-bridge"`, `gateway.kind`,
+`gateway.isBridge`). For a bridge, `/gateway usage|providers|forecast|models`
+work as they are, and `loadAvailability()` (lib/availability.js) builds the same
+picture from the bridge's own endpoints: a site is a model and a provider at
+once, a site that hit its limit is blocked until its cooldown ends (`/gateway
+limits`, `/gateway limited`, `/model list`), its learned request budget stands
+in the day window. `gateway.hasLimits` (a dashboard session or a bridge) guards
+what needs per-model limits. Not for a bridge: `/route`, `/proxy`, `/gateway
+login|quota`, the `auto` model and sticky sessions. The standby and delegation
+discovery skip sites that cannot call tools. A plain `--provider openai` against
+a bridge URL (`OPENAI_API_URL`) works the same as `--provider bridge`.

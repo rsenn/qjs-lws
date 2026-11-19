@@ -115,6 +115,8 @@ function rowBlocks(row, { rate, budget, keys, errors, now }) {
  * @returns {Promise<{at: number, byModel: Map<string, {blocked: boolean, status: string, until: number|null, approx: boolean, kinds: string[], permanent: boolean, blocks: Block[], rows: number, platforms: string[]}>, byRow: Map<string, Block[]>}>}
  */
 export async function loadAvailability(gateway) {
+  if(gateway.isBridge) return loadBridgeAvailability(gateway);
+
   const now = Date.now();
   const get = p => gateway.api(p).catch(() => null);
 
@@ -182,6 +184,38 @@ export async function loadAvailability(gateway) {
       intelligence: intelOf.get(m.id) ?? null,
       platforms: [...(platformsOf.get(m.id) ?? [])].sort(),
     });
+  }
+
+  return { at: now, byModel, byRow, rate, budget };
+}
+
+/**
+ * The same picture for a chat-bridge, from its own endpoints: a site is a model and a provider at once. A site
+ * that refused with a limit is blocked until the end of its cooldown (/v1/models resets_at); one that needs a
+ * login or the billing guard is not blocked but not selectable (/v1/models available false). The requests of
+ * its learned budget stand in the day window (a bridge knows no finer one) and the estimated tokens in the
+ * month column.
+ */
+async function loadBridgeAvailability(gateway) {
+  const now = Date.now();
+  const [models, prov, fore, usage] = await Promise.all([gateway.models(true), gateway.providers().catch(() => null), gateway.forecast().catch(() => null), gateway.usage().catch(() => null)]);
+  const provOf = new Map((prov?.providers ?? []).map(p => [p.platform, p]));
+  const pools = new Map((fore?.pools ?? []).map(p => [p.pool, p]));
+  const tokens = new Map((usage?.byPlatform ?? []).map(p => [p.platform, p.tokens]));
+  const byModel = new Map(), byRow = new Map(), rate = new Map(), budget = new Map();
+
+  for(const m of models) {
+    const status = m.execution_status ?? 'ready';
+    const blocked = status === 'exhausted';
+    const until = blocked && m.resets_at ? Date.parse(m.resets_at) : null;
+    const blocks = blocked ? [{ kind: 'cooldown', until, detail: provOf.get(m.id)?.last_error ?? 'the site refused: its limit is used up' }] : [];
+    const pool = pools.get(m.id);
+
+    byRow.set(m.id, blocks);
+    if(pool) rate.set(m.id, { rpd: { used: pool.used, limit: pool.limit } });
+    if(tokens.get(m.id)) budget.set(m.id, { used: tokens.get(m.id), budget: 0 });
+
+    byModel.set(m.id, { blocked, status, until, approx: false, permanent: false, kinds: blocks.map(b => b.kind), blocks, rows: 1, intelligence: null, platforms: [m.id] });
   }
 
   return { at: now, byModel, byRow, rate, budget };

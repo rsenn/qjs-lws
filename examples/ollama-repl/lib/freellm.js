@@ -173,6 +173,7 @@ export class Gateway {
 
   /** /gateway quota [FILTER]: per-model windows and month budget, models used today first */
   async quotaText(filter = '') {
+    if(this.isBridge) return `(a chat-bridge counts per site, see /gateway limits)\n\n${await this.usageText()}`;
     if(!this.dashboard) return `(per-model quotas need a dashboard session: ${this.dashboardNote})\n\n${await this.usageText()}`;
 
     await this.refresh(true);
@@ -201,14 +202,24 @@ export class Gateway {
   /** who answered /usage: 'freellmapi', or the `source` it names ('chat-bridge') */
   kind = null;
 
+  /** a chat-bridge: usage, providers, forecast and models only; no dashboard, routing profiles, proxy or sticky sessions */
+  get isBridge() {
+    return this.kind === 'chat-bridge';
+  }
+
+  /** whether per-model limits can be read: a dashboard session of a freellmapi, or a bridge's own endpoints */
+  get hasLimits() {
+    return this.dashboard || this.isBridge;
+  }
+
   /** @returns {Promise<boolean>} whether the endpoint answers /usage the freellmapi way */
   async detect() {
     try {
       const u = await this.#client.getJSON('/usage');
-      /* a chat-bridge answers the same endpoint (its own counters, source: 'chat-bridge'): it has no auto routing,
-         dashboard or sticky sessions, so it is not a gateway for the harness until the backend interface exists */
+      /* a chat-bridge answers the same endpoints with its own counters (source: 'chat-bridge'): the same
+         questions work, but it has no auto routing, dashboard or sticky sessions (see isBridge) */
       this.kind = u?.source ?? 'freellmapi';
-      this.enabled = u?.object === 'usage' && this.kind !== 'chat-bridge';
+      this.enabled = u?.object === 'usage';
     } catch(e) {
       this.enabled = false;
     }

@@ -46,4 +46,25 @@ check('one free key keeps the model ready', !m('eps').blocked && m('eps').platfo
 check('key cap ends at its reset', m('zeta').kinds[0] === 'cap' && m('zeta').until === now + 5 * 86400_000 || Math.abs(m('zeta').until - (now + 5 * 86400_000)) < 2000);
 check('providers come from the rows', m('alpha').platforms.join() === 'p1');
 
+/* a chat-bridge: the sites are the models, limits come from its own endpoints */
+const until = new Date(now + 3 * 3600_000).toISOString();
+const bridge = {
+  isBridge: true,
+  models: async () => [
+    { id: 'deepseek', execution_status: 'ready' },
+    { id: 'qwen', execution_status: 'exhausted', unavailable: 'rate_limit', resets_at: until },
+    { id: 'chatgpt', execution_status: 'needsKey', available: false },
+  ],
+  providers: async () => ({ providers: [{ platform: 'qwen', status: 'rate_limited', last_error: 'rate_limit: daily limit' }] }),
+  forecast: async () => ({ pools: [{ pool: 'qwen', limit: 30, used: 30, remaining: 0 }] }),
+  usage: async () => ({ byPlatform: [{ platform: 'qwen', requests: 30, tokens: 12000 }] }),
+};
+const bv = await loadAvailability(bridge);
+const b = id => bv.byModel.get(id);
+check('bridge: a site that refused is blocked until its cooldown ends', b('qwen').blocked && Math.abs(b('qwen').until - (now + 3 * 3600_000)) < 2000 && b('qwen').kinds[0] === 'cooldown');
+check('bridge: the reason is the last error', b('qwen').blocks[0].detail === 'rate_limit: daily limit');
+check('bridge: a ready site is free, a login site is not blocked but not ready', !b('deepseek').blocked && b('chatgpt').status === 'needsKey' && !b('chatgpt').blocked);
+check('bridge: the site is its own provider', b('qwen').platforms.join() === 'qwen');
+check('bridge: the learned budget shows as the day window', bv.rate.get('qwen').rpd.limit === 30 && bv.budget.get('qwen').used === 12000);
+
 console.log('test-availability ok');

@@ -266,9 +266,11 @@ Counters, learned budgets and the running cooldowns are written to
 `$CHAT_BRIDGE_STATE` (default `~/.cache/chat-bridge/state.json`) after every
 request, so a restart forgets neither the limits nor a cooldown. A new month
 resets the counters and keeps the learned budgets. The ollama-repl harness
-does not treat a bridge as a gateway yet (`/v1/usage` has `source:
-"chat-bridge"`), that comes with the backend interface (step 3 of
-doc/HARNESS.md).
+recognizes a bridge by `source: "chat-bridge"` in `/v1/usage` and reads these
+endpoints like a gateway's: `/gateway usage|providers|forecast|limits|limited|models`,
+`/model list` (sites with their cooldowns and return times), `/standby` and
+delegation discovery (sites with `tools: false` are left out). It has no
+dashboard, `/route`, `/proxy` or sticky sessions.
 
 ### Site table entry
 

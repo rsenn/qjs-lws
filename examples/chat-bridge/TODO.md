@@ -182,6 +182,11 @@ Several sites host many models. Proposal: put the model in the request's
 
 ## Done
 
+- harness step 3, the harness reads the bridge (2026-11-19): see
+  ollama-repl/TODO.md and its README section "chat-bridge as a backend";
+  test/run.sh runs the harness against the fake-site bridge (`/gateway
+  providers|limited|usage`, `/model list all`) and checks the limit shows with
+  its return time. Not done: strength scores for sites, step 4 routing
 - harness step 2, counters and usage endpoints (2026-11-19): `Stats` in
   chat-bridge.js (per site and month: requests, ok, refusals by kind,
   characters, estimated tokens, latency of the last 20, last error, messages

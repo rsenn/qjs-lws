@@ -2,7 +2,7 @@
 
 ## Next tasks (recorded 2026-11-19, in this order)
 
-State: harness steps 1 (24dabc0) and 2 of the chat-bridge plan are done. Open:
+State: harness steps 1 (24dabc0), 2 (af0f0d6) and 3 of the chat-bridge plan are done. Open:
 
 1. [x] (done 2026-11-19, see chat-bridge/TODO.md Done) chat-bridge harness step 2: counters, learned budgets, `/v1/usage`,
    `/v1/providers`, `/v1/quota-forecast`, persisted cooldowns,
@@ -10,10 +10,13 @@ State: harness steps 1 (24dabc0) and 2 of the chat-bridge plan are done. Open:
    Detail to settle first: the five open questions at the end of HARNESS.md
    (identity, where routing lives, learned budgets at install, token
    estimates, scope of `site/model`).
-2. [ ] harness step 3: a backend interface in ollama-repl (`lib/gateway.js`
-   with the freellmapi and bridge backends; availability, `/gateway`,
-   `/model list`, `/standby`, delegation discovery read it). Needs step 2.
-   Then steps 4 to 6 of HARNESS.md (routing in the bridge, a more capable
+2. [x] (done 2026-11-19) harness step 3: `Gateway` answers for both backends
+   (`kind`, `isBridge`, `hasLimits`), `loadAvailability()` has a bridge path,
+   `/gateway`, `/model list`, `/standby` and delegation discovery read it; a
+   separate `lib/gateway.js` was not needed. Open from it: bridge sites show
+   strength "unknown" (no scores; a guess by name would be invented), the
+   standby switch-over for a bridge is untested, `x-ratelimit-*` of a bridge
+   still says "/min" in the status line (`gw N/M/min`). Next: steps 4 to 6 of HARNESS.md (routing in the bridge, a more capable
    bridge, docs).
 3. [ ] `ollama-repl --provider bridge` live check: names and the context
    meter in `/model list` (only the data was tested, not the screen).
