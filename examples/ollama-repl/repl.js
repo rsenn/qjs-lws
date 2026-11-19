@@ -1822,11 +1822,11 @@ function skipModel(name, reason = 'manual') {
 /** Skips every model whose name matches `pattern` (exact or glob). Returns the
     number skipped - used by `/model skip <pattern>` to batch-skip a failing
     provider family. */
-function skipModels(pattern, reason = 'manual') {
+function skipModels(pattern, reason = 'manual', known = null) {
   const re = isModelGlob(pattern) ? modelGlobRe(pattern) : null;
   let n = 0;
 
-  for(const name of allModelNames()) {
+  for(const name of allModelNames(known)) {
     if(re ? re.test(name) : name === pattern) {
       skipModel(name, reason);
       n++;
@@ -1852,9 +1852,9 @@ function unskipModels(pattern) {
 /** every model name known to this session: the installed/remote list plus the
     ones already skipped (so a pattern can hit them even after they left the
     filtered list) */
-function allModelNames() {
+function allModelNames(known = null) {
   const names = new Set(skippedModels.keys());
-  for(const m of getFilteredModels(ollamaModels() ?? null, null)) names.add(m.name);
+  for(const m of getFilteredModels(known ?? ollamaModels() ?? null, null)) names.add(m.name);
   return names;
 }
 
@@ -2883,16 +2883,20 @@ async function main() {
       if(arg === 'skip' || arg.startsWith('skip ') || arg === 'unskip' || arg.startsWith('unskip ')) {
         const [verb, pattern] = arg.split(/\s+/);
         const wasAuto = /^auto(:|$)/.test(opts.model);
-        const target = pattern || (opts.model !== 'auto' ? opts.model : (stats.last()?.routedVia ?? stats.last()?.model ?? 'auto'));
+        let target = pattern || (opts.model !== 'auto' ? opts.model : (stats.last()?.routedVia ?? stats.last()?.model ?? 'auto'));
+
+        /* a route like kilo/nvidia/nemotron-3-ultra-550b-a55b:free names the provider row: the catalog id it belongs to */
+        if(!pattern && known && !known.includes(target)) target = known.find(n => target.includes(`/${n}`)) ?? known.find(n => target.split('/').pop().startsWith(n)) ?? target;
 
         if(verb === 'skip') {
-          const n = skipModels(target, 'manual');
+          const n = skipModels(target, 'manual', known);
           if(!n) return void console.log(red(`error: no model matches "${target}"`));
           console.log(dim(n === 1 ? skipNote(target, 'manual') : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`));
         } else {
           const n = unskipModels(target);
           if(!n) return void console.log(red(`error: "${target}" is not skipped`));
           console.log(dim(`unskipped ${n} model(s) matching "${target}"`));
+          return;
         }
 
         /* immediately switch to the next highest-ranked non-skipped model */
