@@ -587,6 +587,14 @@ the raw events.
   requests - see above)
 - `/status` - model/connection/session info
 - `/model [NAME|list]` - show the model in use; `NAME` switches to another installed model (`ollama list`; never pulls one) and keeps the conversation, the prompt and `ollama-repl-ctl list` follow; `list` shows the installed ones. Also works over `--listen`.
+  - `/model list` - table of the available models: number, name (coloured by strength tier, violet strongest to green weakest or unknown), provider, strength label, advertised token limits and status (available, unavailable, or cooldown with the minutes left).
+  - `/model skip [PATTERN]` / `/model unskip [PATTERN]` - put the model in use (or the one the gateway last routed to, or every model matching `PATTERN`) on a 10 minute cooldown and switch to the next best model that is not skipped; `unskip` lifts it. Skipped models are left out of automatic selection.
+  - `/model GLOB` (a pattern with `*`, e.g. `qwen*`) - switch to the first matching model; repeating the same pattern cycles through the matches. Currently broken, see BUGS: ollama-repl-model-glob-assigns-const.
+- `!COMMAND` - at the start of a prompt: run the shell command yourself (merged stdout and stderr, shown with a `$` prefix), hand the output to the model as a `run_command` result that names the command, and start a model round at once so the model reacts to it.
+- `/export` - export the whole conversation as a plain-text transcript (speaker labels, tool calls inline, nothing clipped): copy it to the clipboard when a clipboard tool is installed, or save it to `<YYYY-MM-DD-HHMMSS>-<session>.txt` in the working directory.
+- `/fallback [MODEL|off]` - show, set or clear the fallback model (`--fallback-model`) used when the current one fails.
+- `/provider [NAME]` - show the provider; with a name it only records the choice, the running client is not replaced (BUGS: ollama-repl-restart-command-stub).
+- `/restart` - a stub that points at the `restart_harness` tool (same BUGS entry).
 - `/tools`, `/stream [on|off]` - list the model's tools, show or toggle streaming
 - `/mode [NAME]`, `/verbose [on|off]` - see [Terminal interface](#terminal-interface-tui)
 - `/usage`, `/last [N]`, `/requests [N]`, `/gateway [usage|providers|forecast|quota|models [FILTER]]` - where requests went and what they cost, see [Free models through freellmapi](#free-models-through-freellmapi---provider-freellm)
@@ -610,6 +618,37 @@ the raw events.
 - `/binding <text>` - force-attach the native-binding reference material
   (see below) for this prompt, even if it doesn't happen to contain a
   word the auto-detect heuristic looks for
+
+## Sub-agents, restarting and failover on upstream errors
+
+Added overnight on 2026-11-19 (commit 2fcdcc1, which had no description);
+documented afterwards, and only read, not run - see TODO.md.
+
+- **`spawn_agent`** (tool): runs a bounded task in an isolated conversation
+  and gives only its final summary back to the parent. Arguments: `task`,
+  optional `model` (another model for the sub-agent), `max_turns` (default
+  10) and `read_only` (when true the write tools, `run_command`, `for_each`
+  and `ask_user` are withheld). The status line shows the `sub-agent`
+  phase while it runs.
+- **`restart_harness`** (tool) and **`--resume FILE`**: the tool validates
+  the harness, writes the session (messages, provider, model, fallback
+  model, mode, temperature, `--num-ctx`, rounds, streaming, thinking,
+  bridge options, the skip list) to a temp file
+  `ollama-repl-resume-*.json` and starts `repl.js --resume FILE`;
+  `--resume` loads that state, then deletes the file. Known broken, see
+  BUGS: ollama-repl-restart-harness-scope.
+- **`--fallback-model NAME`**: model to switch to when the current one
+  fails; also set with `/fallback`.
+- **Failover on upstream failures**: besides rate limits and logins, a
+  5xx status, a `timeout`/`gateway_error`/`upstream_error` code or a
+  message such as "no response after", "timed out", "502", "503", "bad
+  gateway" now counts as a model failure (`Failover.isUpstreamFailure`,
+  `lib/failover.js`). The note says "upstream failure" and the model is
+  reported as `(MODEL: REASON - skipped for 10m)`.
+- **Repeated tool calls**: results of identical tool calls within one turn
+  are cached and returned again; rounds made only of repeats withdraw the
+  tools (`MAX_REPEAT_ROUNDS`).
+- `read_file` returns up to 64 KB (was 16 KB).
 
 ## Demo: writing a native QuickJS binding
 

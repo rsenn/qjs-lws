@@ -228,11 +228,32 @@
     const t = (await (await fetch('http://127.0.0.1:9222/json')).json()).find(t => t.type == 'page');
     await new WebSocketStream(t.webSocketDebuggerUrl).opened;   // rejects: HS: ws upgrade response not 101
 
-- ollama-repl-unhandled-syscallerror-at-startup (examples/ollama-repl/repl.js main): a bare
-  "Possibly unhandled promise rejection: SyscallError {  }" (no message, no stack) printed
-  twice at startup with --listen, right after an install; seven later runs with the same
-  flags, on the installed and on the build qjsm, did not show it. the rejecting call is
-  unknown; candidates are the startup gateway login (cdp), the background proxy probe and
-  the control socket.
+- ollama-repl-model-glob-assigns-const (examples/ollama-repl/repl.js:2293): /model with a glob
+  pattern assigns the matched name to arg, which is declared const at line 2234, so the first
+  glob switch throws a TypeError (confirmed by reading: const assignment is a runtime error in
+  QuickJS).
 
-    ollama-repl --provider freellm --stream --yes --listen --model auto   # intermittent
+    /model qwen*   # TypeError: 'arg' is read-only
+
+- ollama-repl-restart-harness-scope (examples/ollama-repl/repl.js:900): restartHarness() is a
+  module-level function but reads baseMessageCount, a local of main() (line 1763), so the
+  restart_harness tool throws a ReferenceError before it writes the state file. its popen()
+  also only spawns a child and never replaces the running process, and the validation command
+  uses the relative path examples/ollama-repl/repl.js, which exists only in this repo. not
+  run, found by reading.
+
+    ask the model to call restart_harness
+
+- ollama-repl-restart-command-stub (examples/ollama-repl/repl.js:2340): /restart only prints
+  that the restart_harness tool should be used, it restarts nothing. /provider (line 2313)
+  only sets opts.provider and prints that a restart is needed, the running client is not
+  replaced, so the status line and the real endpoint disagree until a restart that /restart
+  cannot do.
+
+    /provider gemini
+
+- ollama-repl-model-list-prints-promise (examples/ollama-repl/repl.js:2244): showModelList() is
+  async and prints its table itself, but /model list wraps the call in console.log(), so the
+  returned Promise is printed as well. not run, found by reading.
+
+    /model list

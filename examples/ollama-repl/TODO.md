@@ -1,5 +1,34 @@
 # TODO
 
+## Overnight agent session 2026-11-19, documented afterwards (in progress)
+
+Commit 2fcdcc1 ("...", +523 lines in repl.js) was made from an unattended
+`/goal` loop without notes. 2026-11-19 12:50: read through the history and
+documented it in README.md ("Sub-agents, restarting and failover on
+upstream errors", REPL commands). Done by the same pass: the fs.rmSync
+regression (commit 44811d7) and a stale installed lib/ (cmake . before
+cmake --install, the lib/ copies are made at configure time).
+
+Open, none of it run yet (read only):
+- restart_harness: baseMessageCount is out of scope, popen does not
+  replace the process, the relative validation path (BUGS:
+  ollama-repl-restart-harness-scope). /restart and /provider are stubs
+  (ollama-repl-restart-command-stub).
+- /model GLOB throws on a const (ollama-repl-model-glob-assigns-const);
+  /model list prints a Promise (ollama-repl-model-list-prints-promise).
+- spawn_agent: untested; check that read_only really withholds every write
+  tool and that the sub-client is destroyed on failure.
+- --help text (USAGE in repl.js) does not list --resume and
+  --fallback-model; /help does not list /fallback, /provider, /restart.
+- The skip list and the model strength tiers (MODEL_STRENGTH_PATTERNS) are
+  hard-coded name patterns; unknown models get tier 9.
+- Unclear what REPORT_COMMANDS and /remote-control changed; not read in
+  detail.
+- Commit 2fcdcc1 is on origin/main with its "..." message, not rewritten.
+- Untracked leftovers in the repo root: two 2026-11-19-*-qwen2.5-coder.txt
+  exports, auto.json (an earlier commit, ec08869, deleted a tracked one),
+  out.c, qwen2.5-coder.json.
+
 ## /cd fixes, modes, verbose, full gateway status (2026-11-19)
 
 Done: /cd with ~, ~user, quotes and -. Tab completion for ~/ and absolute
