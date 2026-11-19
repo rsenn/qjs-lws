@@ -1,5 +1,73 @@
 # TODO
 
+## Advisor review, 2026-11-19 (Opus advisor): five asks, in this order (in progress)
+
+Asked: more colour for the raw content in Ctrl-O verbose mode, other UX
+improvements, better control of model routing through the freellmapi
+gateway, compaction and auto-compaction, and self-improvement (edit its own
+code and restart safely). The advisor's order and findings, one commit per
+step:
+
+0. [x] housekeeping: the skills quickjs-scripting and comment-style are
+   loaded for this code (the index makes them AUTO); this section is the
+   task list. "Other UX improvements" is too vague to build: concrete ones
+   still to be named by the user. Known gaps until then: --help (USAGE in
+   repl.js) lacks --resume and --fallback-model, /help lacks /fallback,
+   /provider and /restart.
+1. [x] smoke.sh (this directory): imports every lib/*.js on its own, then
+   starts the REPL in a pty in an empty directory, sends /help /mode /tools
+   /status /model /verbose /quit and fails on any error, exception or
+   unhandled rejection. `qjsm repl.js --help` is not enough: every bug of
+   2026-11-19 (skipNote not imported, opts out of scope, const arg) passed
+   it. prepareRestart() in repl.js still uses only --help.
+2. [ ] compaction and auto-compaction
+   - do not write a second compactor: expose lib/handoff.js buildHandoff
+     as /compact, now wired only to bridge failover
+   - trigger from the ctxWindow the status line computes, at about 80%
+     (the 2026-11-19 screenshot showed 120%, 245k of 205k)
+   - suspected bug, confirm and log in BUGS: elideOldToolResults budgets
+     on opts.numCtx; with --num-ctx 524288 on freellm that is about 1.3M
+     characters, so elision never fires while the real window is 205k;
+     it must use the effective window
+   - the summarizer is local qwen3:4b-instruct: a 245k-token transcript can
+     overflow it, so chunk or cap what renderTranscript returns
+   - keep baseMessageCount right and call saveSession() after compacting
+3. [ ] self-improvement and safe restart (holes in the restart path)
+   - scriptArgs[0] may be relative while validation runs with cwd
+     opts.root and /cd can move cwd: realpath it once at startup
+   - the installed /usr/local/bin/ollama-repl ignores edits under
+     examples/ollama-repl/ (bin/lib is a configure-time copy): either
+     self-improve only when run from source, or make restart run
+     `cmake . && cmake --install .` first
+   - no fallback: the parent does exit(exec(child)); if the edited child
+     dies at startup the session is gone. Snapshot the touched files (git
+     stash or the undo journal) before self-edits; if smoke.sh fails, or
+     the child exits non-zero within a few seconds, restore them and run
+     the old code
+   - process stacking: every restart leaves the parent blocked in exec, N
+     restarts = N qjsm processes; document it or find a real execve in
+     qjs-modules
+   - edits to the harness's own files must need approval even in auto mode
+     (the overnight --yes loop produced the truncated text-tool-calls.js)
+   - prepareRestart should run smoke.sh instead of --help
+4. [ ] freellmapi routing control. First read ~/Sources/freellmapi
+   server/src/routes/proxy.ts (about line 421) and the auto:<profile> and
+   sticky-bucket code in routes/anthropic.ts and routes/responses.ts; build
+   only on knobs the server reads. Found so far by grep: auto, auto:smart,
+   auto:free, auto:<group>, sticky scope, x-session-id, x-freellm-compress,
+   x-freellm-cache. /model skip while on auto does not stop the gateway
+   from routing to that model: check for an exclusion parameter, else the
+   honest control is a profile or pinning an explicit model. Cheapest win:
+   send x-session-id equal to the session name (sticky routing).
+5. [ ] Ctrl-O verbose colouring: reuse the code-block highlighter of
+   lib/markdown.js (or the qjs-modules one listed in tool-registry) for
+   JSON args and results; colour by role; dim boring headers; keep every
+   width computation in panel() and wrapping ANSI-aware. The control socket
+   strips ANSI, so ctl output stays safe; plain --no-tui output stays
+   uncoloured.
+
+After every change under lib/ run `cmake .` before `cmake --install`.
+
 ## Overnight agent session 2026-11-19, documented afterwards (in progress)
 
 Commit 2fcdcc1 ("...", +523 lines in repl.js) was made from an unattended
