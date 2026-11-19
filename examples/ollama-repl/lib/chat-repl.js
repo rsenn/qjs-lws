@@ -65,6 +65,9 @@ export class ChatREPL extends REPL {
   /** slash commands Tab completes at the start of the line ('/cd', ...) */
   commandNames = [];
 
+  /** () => skill names, completed after '/skill ' */
+  skillNames = null;
+
   get busy() {
     return this.#busy;
   }
@@ -144,6 +147,12 @@ export class ChatREPL extends REPL {
     if(start === 0 && word.startsWith('/') && !word.includes('/', 1)) {
       const names = this.commandNames.filter(n => n.startsWith(word));
       if(names.length) return { tab: names.map(n => n + ' '), pos: word.length, ctx: {} };
+    }
+
+    const skill = this.skillNames && /^\/skill\s+(\S*)$/.exec(line.slice(0, pos));
+    if(skill) {
+      const names = this.skillNames().filter(n => n.startsWith(skill[1]));
+      return { tab: names.map(n => n + ' '), pos: skill[1].length, ctx: {} };
     }
 
     const dirsOnly = /^\/cd\s+$/.test(line.slice(0, start));

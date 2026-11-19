@@ -91,6 +91,11 @@ step:
      taken from its info (not updated on /mode), no way to cancel a running
      peer task, the ghost completion exists only in the TUI (the plain
      line editor shows none)
+   - /skill (lib/skills.js): list, load, unload, Tab completion. Open: the
+     model cannot load a skill itself (no tool), skills are not listed in
+     the system prompt, plugin skills (~/.claude/plugins) and a skill's
+     `allowed-tools` / `argument-hint` are ignored, a compaction may
+     summarize a loaded skill away
    - not solved: N restarts = N waiting qjsm processes (no execve in
      QuickJS); a process started from the fallback is not a source tree
      itself, it finds the target from the root like an installed one

@@ -497,6 +497,17 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
 - Tab completion of a `/command` shows what Tab would add, dark grey after
   the cursor (`/gat` -> `/gat`**`eway`**): the part all matching commands
   share, nothing when they differ at once (`/mo`: mode, model, mouse).
+- `/skill` lists the skills found in `~/.config/ollama-repl/skills/` (its
+  own; a directory with a `SKILL.md`, or a plain `NAME.md`) and
+  `~/.claude/skills/` (the Claude Code ones, symlinks followed; the first
+  directory wins on a name clash). `/skill NAME` puts the skill's text (the
+  front matter dropped, cut at 30000 characters) into the conversation as a
+  message that names its file, so the model follows it and can read the
+  files next to it; `/skill NAME request...` then answers the request as a
+  normal prompt. A name may be abbreviated when it is unique, Tab completes
+  it. `/skill loaded` and `/skill off [NAME]` show and unload (loading again
+  replaces the old copy). A loaded skill is part of the conversation: it
+  survives `/restart` and is summarized by a compaction like any message.
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
   says, each in its own panel: the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),

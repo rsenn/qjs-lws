@@ -77,6 +77,7 @@ import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/standby.js';
 import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting } from './lib/config.js';
 import { findPeers, askPeer, peerAnswer } from './lib/peer.js';
+import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './lib/skills.js';
 import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
 import { loadAvailability, kindsText, limitsText, limitedText, backText } from './lib/availability.js';
 import { Tui } from './lib/tui.js';
@@ -1576,6 +1577,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /compact [N]    - summarize the older turns now with a local model and keep the last N (default 3) verbatim; also done automatically at --compact-at percent of the context window
 /standby [on|off|probe|switch|MODEL|auto] - the warm standby model: what the gateway would use next, probed with a tool call (--standby starts it on); switch takes it over, MODEL pins one, spawn_agent with model "standby" runs a sub-agent on it
 /config [set KEY VALUE|unset KEY] - the global settings in ~/.config/ollama-repl/settings.json: defaults for options (provider, model, mode, compactAt, standby, ...), a command-line option wins; without arguments shows saved and current values
+/skill [NAME [request]|off [NAME]|loaded] - load a skill (SKILL.md from ~/.config/ollama-repl/skills/ or ~/.claude/skills/) into the conversation, then answer the request if one follows; without arguments lists the skills; off unloads one (or all)
 /delegate [on|off|add MODEL [KIND..]|remove MODEL|pin KIND [MODEL]|ban MODEL|unban MODEL|good|bad|forget] - sub-agent delegation: the model is told it may hand docs, build wiring, summaries and repetitive jobs to weaker models; the harness discovers candidates (gateway or Ollama), picks per kind by what worked before and remembers it; good/bad rates the last delegated run
 /restart        - restart the harness with current session state (serializes to temp file and re-execs)
 /usage          - tokens and requests of this session, per routed model and platform
@@ -1599,7 +1601,7 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/standby', '/delegate', '/config', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
+  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
@@ -2894,6 +2896,47 @@ async function main() {
       }
     }
 
+    if(prompt === '/skill' || prompt.startsWith('/skill ')) {
+      const [first = '', ...more] = prompt.slice('/skill'.length).trim().split(/\s+/).filter(Boolean);
+      const loadedNames = () => messages.filter(m => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('(skill "')).map(m => /^\(skill "([^"]+)"/.exec(m.content)[1]);
+
+      if(!first) {
+        const all = listSkills();
+        if(!all.length) return void console.log(dim(`(no skills: ${skillDirs().map(d => d.path).join(' or ')} hold SKILL.md directories)`));
+
+        const have = new Set(loadedNames());
+        const w = listWidth();
+        const lines = compactTable([['skill', 'from', 'description'], ...all.map(sk => [`${have.has(sk.name) ? '● ' : ''}${sk.name}`, sk.source, sk.description || '-'])], w, 2, [28, 6, 0], (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : c === 0 ? fgHex('#2dd4bf', text) : dim(text)));
+        console.log(`${waveNote(`${all.length} skills${have.size ? `, ${have.size} loaded (●)` : ''}`)}\n${lines.join('\n')}\n${dim('/skill NAME [request] loads one, /skill off NAME unloads it')}`);
+        return;
+      }
+
+      if(first === 'loaded') return void console.log(loadedNames().length ? loadedNames().join(', ') : '(no skill loaded)');
+
+      if(first === 'off' || first === 'unload') {
+        const marker = more[0] ? skillMarker(more[0]) : '(skill "';
+        const before = messages.length;
+        for(let i = messages.length - 1; i >= 0; i--) if(messages[i].role === 'user' && typeof messages[i].content === 'string' && messages[i].content.startsWith(marker)) messages.splice(i, 1);
+        if(messages.length === before) return void console.log(dim(more[0] ? `(skill "${more[0]}" is not loaded)` : '(no skill loaded)'));
+        saveSession();
+        return void console.log(waveNote(`unloaded ${before - messages.length} skill${before - messages.length > 1 ? 's' : ''}`));
+      }
+
+      const sk = findSkill(first);
+      if(!sk) return void console.log(red(`error: no skill "${first}" (/skill lists them)`));
+      if(sk.ambiguous) return void console.log(red(`error: "${first}" matches ${sk.ambiguous.join(', ')}`));
+
+      /* the newest copy replaces an older one, so reloading does not pile up */
+      for(let i = messages.length - 1; i >= 0; i--) if(messages[i].role === 'user' && typeof messages[i].content === 'string' && messages[i].content.startsWith(skillMarker(sk.name))) messages.splice(i, 1);
+      messages.push({ role: 'user', content: skillMessage(sk) });
+      saveSession();
+      console.log(waveNote(`skill ${sk.name} loaded (${fmtNum(sk.body.length)} chars${sk.cut ? ', cut' : ''}) from ${sk.path}`));
+
+      /* /skill NAME request...: then the request is an ordinary prompt */
+      if(more.length) return runLine(more.join(' '));
+      return;
+    }
+
     if(prompt === '/config' || prompt.startsWith('/config ')) {
       const [verb = '', key, ...value] = prompt.slice('/config'.length).trim().split(/\s+/).filter(Boolean);
 
@@ -3280,6 +3323,7 @@ async function main() {
     repl.addCleanupHandler(() => tui.close());
   }
 
+  repl.skillNames = () => ['off', 'loaded', ...listSkills().map(sk => sk.name)];
   repl.commandNames = [...new Set([...HELP_TEXT.matchAll(/(?:^|, )(\/[a-z]+)/gm)].map(m => m[1]))].sort();
 
   /* a key press outside the TUI has no status line: say it in one line and draw the prompt again */

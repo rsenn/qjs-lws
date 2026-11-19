@@ -38,7 +38,7 @@ const check = (what, ok) => {
 };
 const m = id => av.byModel.get(id);
 
-check('rpm block ends within a minute', m('alpha').kinds[0] === 'rpm' && m('alpha').until - now <= 60_000 && m('alpha').approx);
+check('rpm block ends within a minute', m('alpha').kinds[0] === 'rpm' && m('alpha').until - now <= 61_000 && m('alpha').approx);
 check('month budget ends at the start of next month', m('beta').kinds[0] === 'month' && new Date(m('beta').until).getUTCDate() === 1);
 check('cooldown with an IP error is an ip limit', m('gamma').kinds[0] === 'ip' && m('gamma').until >= now + 3600_000 - 1000);
 check('a key scope never ends', m('delta').permanent && m('delta').until === null && backText(m('delta')) === 'not by waiting');

@@ -5,7 +5,7 @@
 # variable, since those only fail when a command runs. This script
 #
 #   1. imports every lib/*.js on its own (truncated file, missing export),
-#      and runs test-rawcolor.js, test-availability.js and test-delegates.js
+#      and runs test-rawcolor.js, test-availability.js, test-delegates.js and test-skills.js
 #   2. starts the REPL in a pty in an empty directory, sends a fixed set of
 #      commands and fails on any error, exception or unhandled rejection
 #
@@ -31,6 +31,9 @@ OUT=$(cd "$DIR" && qjsm test-rawcolor.js 2>&1) || { echo "FAIL rawcolor: $OUT"; 
 
 # 1d. the delegate memory ranks and learns
 OUT=$(cd "$DIR" && qjsm test-delegates.js 2>&1) || { echo "FAIL delegates: $OUT"; FAILED=1; }
+
+# 1e. skills are found in both directories
+OUT=$(cd "$DIR" && qjsm test-skills.js 2>&1) || { echo "FAIL skills: $OUT"; FAILED=1; }
 
 # 1c. the gateway limits are worked out right (fake gateway)
 OUT=$(cd "$DIR" && qjsm test-availability.js 2>&1) || { echo "FAIL availability: $OUT"; FAILED=1; }
