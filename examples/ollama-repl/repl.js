@@ -121,6 +121,8 @@ const USAGE = [
   ['--failsafe', 'no system prompt, project scan, file attachment, tool loop or File: auto-write: just the bare conversation.'],
   ['--mode MODE', `what the model may do without asking: ${MODES.join(', ')} (default ${DEFAULT_MODE}). plan: read-only, answers with a plan. auto: nothing asks. manual: every file change and command asks. edits: file changes run, commands ask. Shift-Tab (or Alt-Tab) cycles them.`],
   ['--yes, -y', 'same as --mode auto: run_command and file changes without asking (unattended agents).'],
+  ['--fallback-model NAME', 'model to switch to when the current one fails (also /fallback).'],
+  ['--resume FILE', 'continue the session saved in FILE by /restart or the restart_harness tool (the file is deleted after loading).'],
   ['--verbose', 'start with the verbose view on (Ctrl-O toggles it): reasoning text, full tool results, every request and response with the gateway headers.'],
   '',
   '@Chat sites (--provider bridge)',
@@ -1293,7 +1295,7 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
+  ['model and gateway', ['/model', '/provider', '/fallback', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 

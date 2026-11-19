@@ -10,10 +10,10 @@ step:
 
 0. [x] housekeeping: the skills quickjs-scripting and comment-style are
    loaded for this code (the index makes them AUTO); this section is the
-   task list. "Other UX improvements" is too vague to build: concrete ones
-   still to be named by the user. Known gaps until then: --help (USAGE in
-   repl.js) lacks --resume and --fallback-model, /help lacks /fallback,
-   /provider and /restart.
+   task list. Done 2026-11-19: --help lists --resume and --fallback-model,
+   /help lists /provider /fallback /restart. "Other UX improvements" beyond
+   that: none named yet, the UX items come with tasks 2 to 5 (/compact,
+   routing commands, colour).
 1. [x] smoke.sh (this directory): imports every lib/*.js on its own, then
    starts the REPL in a pty in an empty directory, sends /help /mode /tools
    /status /model /verbose /quit and fails on any error, exception or
