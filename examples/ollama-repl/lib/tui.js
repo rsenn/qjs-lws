@@ -78,8 +78,14 @@ export class Tui {
   #paintRule;
   /* the transcript as lines, for scrolling back: done lines, the one being written, the SGR in effect */
   #hist = [];
+  /* per history line: 0 always shown, 1 only in the verbose view, 2 only outside it */
+  #kinds = [];
   #cur = '';
   #sgr = '';
+  /** what the lines written now are: 0 always shown, 1 verbose view only, 2 compact view only (see setVerbose) */
+  kind = 0;
+  /** the verbose view is on: lines of kind 1 show, lines of kind 2 are hidden */
+  verbose = false;
   /** lines the view is scrolled up from the end of the transcript, 0: following it */
   scrollOff = 0;
   /** whether the terminal reports the mouse (the wheel scrolls the transcript) */
@@ -244,7 +250,17 @@ export class Tui {
    * where this one ended.
    */
   write(text) {
-    if(this.#held) return void this.#held.push(text);
+    if(this.#held) return void this.#held.push({ text, kind: this.kind });
+
+    /* a line the current view hides is still kept in the history, wrapped like a shown one, for when the view changes */
+    const dry = !this.#shows(this.kind);
+    const kept = dry ? { row: this.oRow, col: this.oCol, cur: this.#cur, sgr: this.#sgr } : null;
+
+    if(dry) {
+      this.#cur = '';
+      this.#sgr = '';
+      this.oCol = 0;
+    }
 
     const bottom = this.top - 1;
     let s = SAVE + goto(this.oRow, Math.min(this.oCol, this.cols - 1) + 1) + CSI + '0m'; // the input's color is saved with the cursor
@@ -258,7 +274,11 @@ export class Tui {
       else scrolled = true;
 
       this.#hist.push(this.#cur + (this.#sgr ? CSI + '0m' : ''));
-      if(this.#hist.length > HISTORY_MAX) this.#hist.splice(0, this.#hist.length - HISTORY_MAX);
+      this.#kinds.push(this.kind);
+      if(this.#hist.length > HISTORY_MAX) {
+        this.#hist.splice(0, this.#hist.length - HISTORY_MAX);
+        this.#kinds.splice(0, this.#kinds.length - HISTORY_MAX);
+      }
       this.#cur = this.#sgr;
       added++;
     };
@@ -323,6 +343,14 @@ export class Tui {
       this.oCol += w;
     }
 
+    if(dry) {
+      this.#cur = kept.cur;
+      this.#sgr = kept.sgr;
+      this.oRow = kept.row;
+      this.oCol = kept.col;
+      return true;
+    }
+
     /* scrolled back: the new text is in the history, the view stays where the user put it */
     if(this.scrollOff > 0) {
       this.scrollOff += added;
@@ -347,11 +375,30 @@ export class Tui {
    * scrolls the transcript view by n lines, negative goes back. returns
    * whether it moved. back at the end the view follows the output again.
    */
+  #shows(kind) {
+    return kind === 0 || (kind === 1) === this.verbose;
+  }
+
+  #shownLines() {
+    return this.#hist.filter((_, i) => this.#shows(this.#kinds[i]));
+  }
+
+  /** switches the view: lines of kind 1 (verbose only) and 2 (compact only) appear or go, the past ones too */
+  setVerbose(on) {
+    if(this.verbose === !!on) return;
+    this.verbose = !!on;
+    if(this.#closed || this.#held) return;
+
+    this.scrollOff = 0;
+    this.#drawHistory();
+    this.drawRule();
+  }
+
   scrollBy(n) {
     if(this.#closed || this.#held) return false;
 
     const height = this.top - 1;
-    const max = Math.max(0, this.#hist.length + 1 - height);
+    const max = Math.max(0, this.#shownLines().length + 1 - height);
     const off = Math.max(0, Math.min(max, this.scrollOff - n));
     if(off === this.scrollOff) return false;
 
@@ -369,7 +416,7 @@ export class Tui {
   /* the transcript rows drawn from the history, ending scrollOff lines before its end */
   #drawHistory() {
     const height = this.top - 1;
-    const all = [...this.#hist, this.#cur];
+    const all = [...this.#shownLines(), this.#cur];
     const end = all.length - this.scrollOff;
     const view = all.slice(Math.max(0, end - height), end);
     let s = SAVE;
@@ -404,7 +451,14 @@ export class Tui {
       this.resize();
     } else this.#layout();
 
-    for(const t of held) this.write(t);
+    const kind = this.kind;
+
+    for(const h of held) {
+      this.kind = h.kind;
+      this.write(h.text);
+    }
+
+    this.kind = kind;
   }
 
   drawRule() {

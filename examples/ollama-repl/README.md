@@ -530,7 +530,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   captures stdout and would swallow the streamed reply). Anything that
   changes the conversation (`/model`, `/clear`, `/compact`, a prompt, ...)
   still waits its turn, and piped input keeps its order.
-- Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
+- Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and (in the TUI, for the past of the session too: the panels are always kept, hidden, and a toggle redraws the transcript, the compact tool lines going away while it is on)
   says, each in its own panel: the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),
   the reasoning, every tool call with its arguments and its full result,
@@ -720,7 +720,7 @@ the raw events.
   requests - see above)
 - `/status` - model/connection/session info
 - `/model [NAME|list]` - show the model in use; `NAME` switches to another installed model (`ollama list`; never pulls one) and keeps the conversation, the prompt and `ollama-repl-ctl list` follow; `list` shows the installed ones. Also works over `--listen`.
-  - `/model list` - table of the available models: number, name (coloured by strength tier, violet strongest to green weakest or unknown), provider, strength label, advertised token limits and status. Models on cooldown are left out until it ends.
+  - `/model list` - table of the available models: number, name (coloured by strength tier, violet strongest to green weakest or unknown; on a gateway the strength column is the gateway's intelligence score in percent, else guessed from the name), provider, strength label, advertised token limits and status. Models on cooldown are left out until it ends.
   - `/model skip [PATTERN]` / `/model unskip [PATTERN]` - put the model in use (or the one the gateway last routed to, or every model matching `PATTERN`) on a 10 minute cooldown and switch to the next best model that is not skipped; `unskip` lifts it. Skipped models are left out of automatic selection.
   - `/model GLOB` (a pattern with `*`, e.g. `qwen*`) - switch to the first matching model; repeating the same pattern cycles through the matches.
 - `!COMMAND` - at the start of a prompt: run the shell command yourself (merged stdout and stderr, shown with a `$` prefix), hand the output to the model as a `run_command` result that names the command, and start a model round at once so the model reacts to it.

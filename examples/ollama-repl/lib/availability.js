@@ -118,7 +118,7 @@ export async function loadAvailability(gateway) {
   const now = Date.now();
   const get = p => gateway.api(p).catch(() => null);
 
-  const [models, chain, rateRes, tokenRes, penRes, keyRes] = await Promise.all([gateway.models(true), get('/api/models'), get('/api/fallback/rate-limit-usage'), get('/api/fallback/token-usage'), get('/api/fallback/penalty-inspector'), get('/api/keys')]);
+  const [models, chain, rateRes, tokenRes, penRes, keyRes, routing] = await Promise.all([gateway.models(true), get('/api/models'), get('/api/fallback/rate-limit-usage'), get('/api/fallback/token-usage'), get('/api/fallback/penalty-inspector'), get('/api/keys'), get('/api/fallback/routing')]);
 
   const rate = new Map((rateRes?.rows ?? []).map(r => [key(r.platform, r.modelId), r]));
   const budget = new Map((tokenRes?.models ?? []).map(m => [key(m.platform, m.modelId), m]));
@@ -139,6 +139,12 @@ export async function loadAvailability(gateway) {
       if(r.keyCount) add(id, r);
     }
   }
+
+  /* the gateway's intelligence score (0..1) of a model id: the best of its provider rows */
+  const intelOf = new Map();
+  for(const r of routing?.scores ?? [])
+    for(const id of new Set([groupId(r.displayName), r.modelId]))
+      if(typeof r.intelligence === 'number' && r.intelligence > (intelOf.get(id) ?? -1)) intelOf.set(id, r.intelligence);
 
   const byRow = new Map();
 
@@ -173,6 +179,7 @@ export async function loadAvailability(gateway) {
       kinds: [...new Set(flat.map(b => b.kind))],
       blocks: flat,
       rows: rows.length,
+      intelligence: intelOf.get(m.id) ?? null,
       platforms: [...(platformsOf.get(m.id) ?? [])].sort(),
     });
   }

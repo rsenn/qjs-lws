@@ -722,9 +722,27 @@ const panels = [];
 const keepPanel = (title, text) => panels.push({ title: stripAnsi(title), text });
 
 /** a panel at most half the screen high into the transcript, the full text kept */
-function showPanel(title, text, opts = {}) {
+function showPanel(title, text, { kind = 0, ...opts } = {}) {
   const n = keepPanel(title, text);
-  console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts }));
+  inKind(kind, () => console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts })));
+}
+
+/** runs `fn` with what it writes to the TUI transcript tagged: 1 shown in the verbose view only, 2 outside it only (Tui.kind) */
+function inKind(kind, fn) {
+  if(!tui?.active || !kind) return fn();
+
+  tui.kind = kind;
+  try {
+    return fn();
+  } finally {
+    tui.kind = 0;
+  }
+}
+
+/** the verbose switch, applied to the transcript already written, too (the TUI keeps the verbose panels either way) */
+function setVerbose(on) {
+  ui.verbose = on;
+  tui?.setVerbose(on);
 }
 
 /* how many messages of a conversation the verbose request panel has shown */
@@ -788,14 +806,15 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
   abortRef.current = () => client.abort();
 
-  const verbose = ui.verbose && !opts.quiet;
-  const panes = verbose && tui?.active;
+  /* in the TUI the verbose panels are always written, tagged: the verbose view shows the ones of the past, too */
+  const panes = !!tui?.active && !opts.quiet;
+  const verbose = (ui.verbose || panes) && !opts.quiet;
 
   /* TUI verbose: what goes out, the messages new since the last request */
   if(panes) {
     const from = shownMessages.get(messages) ?? 0;
     shownMessages.set(messages, messages.length);
-    showPanel(`→ ${client.model} · ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${from ? `, ${messages.length - from} new` : ''}`, messagesText(messages.slice(from)) || '(nothing new)', { border: '#c084fc' });
+    showPanel(`→ ${client.model} · ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${from ? `, ${messages.length - from} new` : ''}`, messagesText(messages.slice(from)) || '(nothing new)', { border: '#c084fc', kind: 1 });
   } else if(verbose) console.log(dim(`-> ${client.model}: ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${opts.stream ? ', streamed' : ''}${chatOptions.toolChoice ? `, tool_choice ${chatOptions.toolChoice}` : ''}`));
 
   /* verbose: reasoning text as it streams, dim, before the reply */
@@ -804,7 +823,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
   /* TUI verbose: the reasoning as one panel, before the reply */
   const showReasoning = () => {
-    if(reasoning) showPanel('◌ reasoning', `\x1b[2;3m${reasoning.trim()}\x1b[0m`, { border: '#64748b' });
+    if(reasoning) showPanel('◌ reasoning', `\x1b[2;3m${reasoning.trim()}\x1b[0m`, { border: '#64748b', kind: 1 });
     reasoning = '';
   };
 
@@ -828,7 +847,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   const response = result => {
     const m = result?.meta;
     if(!verbose || !m) return;
-    if(panes) return showPanel(`← ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` via ${m.provider}` : ''} · ${fmtMs(m.ms)}`, colorMeta(formatMeta({ ...m, reasoning: result.reasoning })), { border: '#c084fc' });
+    if(panes) return showPanel(`← ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` via ${m.provider}` : ''} · ${fmtMs(m.ms)}`, colorMeta(formatMeta({ ...m, reasoning: result.reasoning })), { border: '#c084fc', kind: 1 });
     console.log(dim([`<- ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` (${m.provider})` : ''} ${fmtMs(m.ms)}, finish ${m.finish ?? '-'}${m.usage ? `, ${m.usage.prompt}+${m.usage.completion} tok` : ''}`, ...Object.entries(m.headers ?? {}).map(([k, v]) => `   ${k}: ${v}`)].join('\n')));
   };
 
@@ -1351,8 +1370,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       const asked = needsApproval(opts.mode, tc.name) || selfEdit;
 
       if(tui?.active && !opts.quiet) {
-        if(ui.verbose) showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc' });
-        else console.log(toolLine(tc.name, tc.args ?? {}));
+        showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
+        inKind(2, () => console.log(toolLine(tc.name, tc.args ?? {})));
       }
 
       /* Handle special tools that need access to repl.js context */
@@ -1412,12 +1431,12 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       }
 
       /* TUI: a file change as a numbered diff, anything else as one summary line */
-      if(tui?.active && !opts.quiet && !ui.verbose) {
-        if(WRITE_TOOLS.has(tc.name) && !asked && !/^(error|\(declined)/.test(output)) showPanel(`✔ ${tc.name} ${tc.args?.path ?? ''}`, numberedDiff(tc.name, tc.args ?? {}, loadFile(underRoot(opts.root, tc.args?.path)), true), { border: '#4ade80' });
-        else console.log(toolResult(output));
+      if(tui?.active && !opts.quiet) {
+        if(WRITE_TOOLS.has(tc.name) && !asked && !/^(error|\(declined)/.test(output)) showPanel(`✔ ${tc.name} ${tc.args?.path ?? ''}`, numberedDiff(tc.name, tc.args ?? {}, loadFile(underRoot(opts.root, tc.args?.path)), true), { border: '#4ade80', kind: 2 });
+        else inKind(2, () => console.log(toolResult(output)));
       }
 
-      if(ui.verbose && !opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc' });
+      if(!opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
       else if(ui.verbose && !opts.quiet) {
         const lines = output.split('\n');
         const shown = lines.slice(0, 200).join('\n');
@@ -1645,7 +1664,10 @@ const MODEL_STRENGTH_PATTERNS = [
 ];
 
 /** Returns strength tier (0=strongest, 9=weakest/unknown) and label for a model name. */
-function modelStrength(modelName) {
+function modelStrength(modelName, intelligence = null) {
+  /* the gateway scores every model it routes to (0..1): that beats guessing from the name */
+  if(typeof intelligence === 'number') return { tier: Math.min(8, Math.floor((1 - intelligence) * 10)), label: `${Math.round(intelligence * 100)}%` };
+
   const lower = modelName.toLowerCase();
   for(const { pattern, tier, label } of MODEL_STRENGTH_PATTERNS) {
     if(pattern.test(lower)) return { tier, label };
@@ -1734,7 +1756,7 @@ function getFilteredModels(known, remote, avail = availability) {
     for(const m of remote) {
       const skipped = skippedModels.get(m.name);
       if(skipped && skipped.until > now) continue;
-      const strength = modelStrength(m.name);
+      const strength = modelStrength(m.name, avail?.byModel.get(m.name)?.intelligence);
       models.push({
         name: m.name,
         displayName: m.displayName || '',
@@ -2429,6 +2451,7 @@ async function main() {
       paintRule: (cols, label) => gradientRule(cols, label),
       onResize: cols => repl && ((repl.columns = cols), repl.render()),
     });
+    tui.verbose = ui.verbose;
     tui.start();
   }
 
@@ -2770,7 +2793,7 @@ async function main() {
     }
 
     if(prompt === '/verbose' || prompt === '/verbose on' || prompt === '/verbose off') {
-      if(prompt !== '/verbose') ui.verbose = prompt.endsWith('on');
+      if(prompt !== '/verbose') setVerbose(prompt.endsWith('on'));
       tui?.drawStatus();
       return void console.log(`verbose: ${ui.verbose ? 'on' : 'off'}`);
     }
@@ -3454,7 +3477,7 @@ async function main() {
   };
 
   repl.onToggleVerbose = () => {
-    ui.verbose = !ui.verbose;
+    setVerbose(!ui.verbose);
     keyNote(`(verbose: ${ui.verbose ? 'on' : 'off'})`);
   };
 
