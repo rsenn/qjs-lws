@@ -70,6 +70,12 @@ step:
      day window's exact reset is unknown (shown <= 24 h), IP limits are only
      a text heuristic (the gateway has no such state), the model list has no
      /model list FILTER yet, auto routing itself is the gateway's business
+   - /standby (lib/standby.js): warm second model of the gateway, switch
+     over by hand or on a transient failure, sub-agent model. Untested live:
+     the automatic switch-over on a real 429/5xx and spawn_agent with
+     model "standby". Open: the standby is not kept across /restart, no
+     per-turn cost accounting for the probes, "next" follows the gateway's
+     scores, not its real chain walk (the gateway exposes no next-hop)
    - not solved: N restarts = N waiting qjsm processes (no execve in
      QuickJS); a process started from the fallback is not a source tree
      itself, it finds the target from the root like an installed one

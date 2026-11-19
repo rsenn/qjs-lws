@@ -74,6 +74,7 @@ import { UsageStats, routeLine, routeName, formatMeta, formatTable, fmtNum, fmtM
 import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAllowed, needsApproval, describeWrite, WRITE_TOOLS } from './lib/modes.js';
 import { expandHome, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/freellm.js';
+import { pickNext, probeModel, isTransient } from './lib/standby.js';
 import { loadAvailability, kindsText, limitsText, limitedText, backText } from './lib/availability.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
@@ -137,6 +138,7 @@ const USAGE = [
   '@Failover (when a chat model hits its limit)',
   ['--no-failover', 'stay on the chosen model instead of switching to another.'],
   ['--self-edit', 'let the model change ollama-repl\'s own files (when it runs from the source tree) without asking, even in auto mode; without it every such edit asks and is never remembered.'],
+  ['--standby', 'with a freellmapi gateway: keep the model the gateway would use next probed and warm, as a switch-over target and sub-agent model (/standby)'],
   ['--compact-at PCT', 'compact the conversation (older turns summarized by a local model, as for a failover) when it uses this percent of the context window (default 80, 0 = never). /compact does it at once.'],
   ['--no-handoff', 'replay the whole conversation to the next model instead of compacting it.'],
   ['--handoff-turns N', 'turns kept verbatim when compacting (default 3); older ones are summarized.'],
@@ -182,6 +184,7 @@ function parseArgs(argv) {
     else if(arg === '--no-handoff') opts.noHandoff = true;
     else if(arg === '--self-edit') opts.selfEdit = true;
     else if(arg === '--compact-at') opts.compactAt = +argv[++i];
+    else if(arg === '--standby') opts.standby = true;
     else if(arg === '--handoff-turns') opts.handoffTurns = +argv[++i];
     else if(arg === '--handoff-model') opts.handoffModel = argv[++i];
     else if(arg === '--cdp-host') opts.cdpHost = argv[++i];
@@ -738,6 +741,14 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
     try {
       return await chatRoundOnce(client, messages, opts, abortRef, chatOptions);
     } catch(e) {
+      /* a gateway model that fails with a limit or an outage: the warm standby takes the turn */
+      if(!failoverHook && standbyHook && standbyReady() && isTransient(e) && !tried.has(standby.id) && client === standbyHook.client()) {
+        const to = standby.id;
+        tried.add(to);
+        if(!opts.quiet) console.log(waveNote(`${client.model} failed (${String(e.detail ?? e.message).split('\n')[0].slice(0, 80)}), the standby ${to} takes over`));
+        standbyHook.switchTo(to);
+        continue;
+      }
       if(!failoverHook || !Failover.applies(e)) throw e;
 
       const to = await failoverHook.failover.next(tried);
@@ -1094,7 +1105,9 @@ let restarting = false;
  * Returns the sub-agent's final summary.
  */
 async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, askUser, abortRef, forEach, args) {
-  const { task, model: subModel, max_turns = 10, read_only = false } = args;
+  const { task, max_turns = 10, read_only = false } = args;
+  /* "standby" names the warm standby model, when there is one */
+  const subModel = args.model === 'standby' ? (standbyReady() ? standby.id : undefined) : args.model;
   
   // Create a new client for the sub-agent (or reuse parent if same model)
   let subClient = parentClient;
@@ -1461,6 +1474,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /fallback [NAME|off] - show or set fallback model for auto-failover
 /route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new] - freellmapi routing: show what the gateway does with this session, pick a sort axis, a named chain or one pinned model; new restarts sticky routing
 /compact [N]    - summarize the older turns now with a local model and keep the last N (default 3) verbatim; also done automatically at --compact-at percent of the context window
+/standby [on|off|probe|switch|MODEL|auto] - the warm standby model: what the gateway would use next, probed with a tool call (--standby starts it on); switch takes it over, MODEL pins one, spawn_agent with model "standby" runs a sub-agent on it
 /restart        - restart the harness with current session state (serializes to temp file and re-execs)
 /usage          - tokens and requests of this session, per routed model and platform
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
@@ -1483,12 +1497,12 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
+  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/standby', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/route', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
+const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/route', '/standby', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -1585,7 +1599,13 @@ function modelsForGlob(pattern, known) {
 /* what the gateway limits right now (lib/availability.js), loaded by /model and /gateway; null without a dashboard session */
 let availability = null;
 let unavailableModels = new Set(); /* names the endpoint lists as unavailable (no key, disabled): hidden, not selectable */
-let gatewayRef = null; /* main()'s gateway, for the helpers outside it */
+let gatewayRef = null;
+
+/* the standby model (lib/standby.js): probed and warm, ready to take over or to run a sub-agent */
+const standby = { on: false, id: null, name: '', state: 'off', ms: 0, toolOk: false, servedBy: '', error: '', at: 0, busy: false, pinned: null, bad: new Map(), switchedAt: 0 };
+const STANDBY_TTL_MS = 10 * 60_000;
+let standbyHook = null; /* set by main(): { switchTo(id) } */
+const standbyReady = () => standby.on && standby.state === 'ready' && standby.id; /* main()'s gateway, for the helpers outside it */
 
 /** runs fn on fresh availability data of the gateway (needs a dashboard session) */
 async function withAvailability(fn) {
@@ -1871,6 +1891,7 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
     const o = proxyInfo.probe?.overhead;
     two.push(`proxy ${proxyInfo.measuring ? 'measuring…' : o == null ? 'on' : `${o > 1000 ? '\x1b[33m' : ''}${signedMs(o)}\x1b[39m`}${last && last.proxied === false ? ' (last direct)' : ''}`);
   }
+  if(standby.on) two.push(standby.state === 'ready' ? `standby ${standby.id} ✓ ${fmtMs(standby.ms)}${standby.toolOk ? '' : ' (no tools)'}` : standby.state === 'probing' ? 'standby probing…' : `\x1b[33mstandby ${standby.state}\x1b[39m`);
   if(last?.fallbacks) two.push(`\x1b[33m${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
   two.push(busy ? 'Ctrl-C cancels' : 'Shift-Tab mode · Ctrl-O verbose · /help');
 
@@ -1919,6 +1940,7 @@ async function main() {
     client.onMeta = meta => {
       meta.proxied = proxied(proxyInfo.settings, meta.platform);
       stats.add(meta);
+      if(standby.on && standbyHook) standbyHook.refresh().catch(() => {});
       tui?.drawStatus();
 
       /* the gateway's quota counters moved, and the model that answered may have another window */
@@ -1949,6 +1971,84 @@ async function main() {
     }
   };
 
+  /* the standby: probes the model the gateway would use next, in the background, after turns */
+  const makeClient = model => {
+    const c = new OpenAIClient({ ...opts, model });
+    c.extraHeaders = { 'x-session-id': `${opts.sessionId ?? 'ollama-repl'}-standby` };
+    return c;
+  };
+
+  const currentIds = () => [opts.model, stats.last()?.routedVia, stats.last()?.model].filter(Boolean);
+
+  async function refreshStandby(force = false) {
+    if(!standby.on || !gateway?.enabled || standby.busy) return;
+
+    const now = Date.now();
+    const lim = availability?.byModel.get(standby.id);
+    const good = standby.state === 'ready' && now - standby.at < STANDBY_TTL_MS && !currentIds().includes(standby.id) && !lim?.blocked;
+    if(!force && good) return;
+
+    standby.busy = true;
+    standby.state = 'probing';
+    tui?.drawStatus();
+
+    try {
+      if(gateway.dashboard) availability = await loadAvailability(gateway).catch(() => availability);
+
+      for(const [id, until] of standby.bad) if(until < now) standby.bad.delete(id);
+
+      /* the candidates in the gateway's order; one that fails its probe is set aside for 10 minutes */
+      for(let attempt = 0; attempt < 3; attempt++) {
+        const av = gateway.dashboard ? availability : null;
+        const exclude = [...currentIds(), ...standby.bad.keys()];
+
+        /* nothing routed yet on auto: the gateway's first choice is what the first request will use, the standby is the one after it */
+        if(!standby.pinned && !stats.last()?.routedVia && /^auto(:|$)/.test(opts.model)) {
+          const first = await pickNext(gateway, av, { exclude });
+          if(first) exclude.push(first.id);
+        }
+
+        const pick = standby.pinned ? { id: standby.pinned, name: standby.pinned } : await pickNext(gateway, av, { exclude });
+
+        if(!pick) {
+          Object.assign(standby, { id: null, name: '', state: 'none', error: 'no other usable model', at: Date.now() });
+          return;
+        }
+
+        const c = makeClient(pick.id);
+        const r = await probeModel(c, pick.id);
+        c.destroy();
+
+        if(r.ok) {
+          Object.assign(standby, { id: pick.id, name: pick.name ?? pick.id, state: 'ready', ms: r.ms, toolOk: r.toolOk, servedBy: r.servedBy ?? '', error: '', at: Date.now() });
+          return;
+        }
+
+        standby.bad.set(pick.id, Date.now() + STANDBY_TTL_MS);
+        Object.assign(standby, { id: pick.id, name: pick.name ?? pick.id, state: 'failed', error: r.error ?? 'no answer', at: Date.now() });
+        if(standby.pinned) return;
+      }
+    } catch(e) {
+      Object.assign(standby, { state: 'failed', error: String(e.message).split('\n')[0] });
+    } finally {
+      standby.busy = false;
+      tui?.drawStatus();
+    }
+  }
+
+  standbyHook = {
+    client: () => client,
+    refresh: refreshStandby,
+    switchTo: name => {
+      opts.model = name;
+      client.model = name;
+      repl.setPromptName?.(name);
+      control?.update({ model: name });
+      standby.state = 'used';
+      updateCtxWindow?.();
+    },
+  };
+
   if(opts.provider === 'openai' && !bridgeProc) {
     gateway = gatewayRef = new Gateway(client);
 
@@ -1960,6 +2060,10 @@ async function main() {
       client.extraHeaders = { 'x-session-id': opts.sessionId };
       if(await gateway.login({ cdp: { host: opts.cdpHost, port: opts.cdpPort } })) await loadProxy(true);
       await gateway.refresh(true);
+      if(opts.standby) {
+        standby.on = true;
+        refreshStandby().catch(() => {});
+      }
     } else if(opts.label === 'freellm') console.log(dim(`(${client.baseUrl} does not answer /v1/usage - no freellmapi gateway there, /gateway is off)`));
   }
 
@@ -2638,6 +2742,53 @@ async function main() {
       opts.fallbackModel = arg;
       console.log(`fallback model set to: ${arg}`);
       return;
+    }
+
+    if(prompt === '/standby' || prompt.startsWith('/standby ')) {
+      if(!gateway?.enabled) return void console.log(dim('(/standby needs a freellmapi gateway: --provider freellm)'));
+      const arg = prompt.slice('/standby'.length).trim();
+
+      const show = () => {
+        const age = standby.at ? `${Math.round((Date.now() - standby.at) / 1000)}s ago` : '-';
+        const lines = [waveNote(`standby  ${standby.on ? standby.state : 'off'}${standby.pinned ? ' (pinned)' : ''}`)];
+        if(standby.id) lines.push(`  ${dim('model')}    ${standby.id}${standby.name && standby.name !== standby.id ? ` (${standby.name})` : ''}${standby.servedBy ? `, served by ${standby.servedBy}` : ''}`);
+        if(standby.state === 'ready') lines.push(`  ${dim('probe')}    answered in ${fmtMs(standby.ms)}, tool calls ${standby.toolOk ? 'work' : 'not seen (usable as a chat model only)'}, ${age}`);
+        if(standby.error) lines.push(`  ${dim('error')}    ${standby.error}`);
+        if(standby.bad.size) lines.push(`  ${dim('set aside')} ${[...standby.bad.keys()].join(', ')} (failed their probe, retried in 10 min)`);
+        lines.push(`  ${dim('use')}      /standby switch, spawn_agent with model "standby"; /standby probe | on | off | MODEL | auto`);
+        return lines.join('\n');
+      };
+
+      if(!arg) return void console.log(show());
+
+      if(arg === 'off') {
+        standby.on = false;
+        standby.state = 'off';
+        return void console.log(show());
+      }
+
+      if(arg === 'switch') {
+        if(!standbyReady()) return void console.log(red('error: no standby model is ready (/standby probe)'));
+        const from = opts.model;
+        standbyHook.switchTo(standby.id);
+        console.log(`${waveNote(`switched ${from} -> ${opts.model}, the conversation is kept`)}`);
+        refreshStandby(true).catch(() => {});
+        return;
+      }
+
+      if(arg === 'on' || arg === 'probe' || arg === 'auto' || (arg && !['on', 'probe', 'auto'].includes(arg))) {
+        standby.on = true;
+        if(arg === 'auto') standby.pinned = null;
+        else if(arg !== 'on' && arg !== 'probe') {
+          if(unavailableModels.has(arg)) return void console.log(red(`error: ${arg} has no key or is disabled in the gateway`));
+          standby.pinned = arg;
+          standby.bad.delete(arg);
+        }
+
+        console.log(dim('(probing ...)'));
+        await refreshStandby(true);
+        return void console.log(show());
+      }
     }
 
     if(prompt === '/restart') {

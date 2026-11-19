@@ -445,6 +445,20 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   behind each model id and moves the limited models to a second table with
   their return time; models the gateway has no key for (or that are disabled) are hidden, `/model list all` appends them; they get no number, a glob skips them and
   `/model NAME` refuses them with the reason.
+- `/standby` (`--standby` starts it on, freellmapi gateway only) keeps a
+  second model warm: the one the gateway would use after the current one
+  (its routing scores, best first, only models that are enabled, keyed and
+  not limited, see `/gateway limited`). It is probed in the background after
+  turns, at most every 10 minutes, with one small pinned request that offers
+  a `ping` tool, so it shows whether the model answers, how fast and whether
+  it can call tools (a model that fails its probe is set aside for 10
+  minutes and the next one is tried). `/standby switch` takes it over at
+  once, `/standby MODEL` pins a choice, `/standby auto` unpins, `probe`
+  refreshes now. When the current model fails with a limit or an outage
+  (429, 5xx, dead connection) the turn is retried on the standby by itself,
+  with a note. `spawn_agent` with `model: "standby"` runs a sub-agent on it.
+  The status line shows `standby MODEL ✓ 3.1s`. The probes use the
+  gateway's free quota, so it is off unless asked for.
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
   says, each in its own panel: the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),

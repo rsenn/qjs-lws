@@ -328,7 +328,7 @@ export const TOOLS = [
       type: 'object',
       properties: {
         task: { type: 'string', description: 'The task for the sub-agent to perform' },
-        model: { type: 'string', description: 'Optional model name to use for the sub-agent' },
+        model: { type: 'string', description: 'Optional model name to use for the sub-agent; "standby" uses the warm standby model of the gateway (when /standby is on), which spares the main model\'s quota' },
         max_turns: { type: 'integer', description: 'Maximum tool-calling rounds for the sub-agent (default 10)' },
         read_only: { type: 'boolean', description: 'If true, restrict the sub-agent to read-only tools (default false)' },
       },
