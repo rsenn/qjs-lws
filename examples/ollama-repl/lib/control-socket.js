@@ -14,7 +14,8 @@
  *   {type:'ready'}                  every submitted line has been handled
  *   {type:'info', ...}              session info changed (the model, after /model)
  */
-import { mkdir, remove, setReadHandler, kill, getpid, readdir } from 'os';
+import { mkdir, setReadHandler, kill, getpid, readdir } from 'os';
+import { rmSync as remove } from 'fs';
 import { getenv, loadFile, open } from 'std';
 import { TextDecoder } from 'textcode';
 import { AF_UNIX, SOCK_STREAM, SockAddr, Socket } from 'sockets';

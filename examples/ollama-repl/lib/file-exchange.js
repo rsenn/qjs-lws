@@ -6,7 +6,8 @@
  * the change can be reviewed or undone (`patch -R < <model>-diffs/NNN-*.diff`).
  */
 import { loadFile, open as fopen } from 'std';
-import { getpid, mkdir, remove, stat } from 'os';
+import { getpid, mkdir, stat } from 'os';
+import { rmSync as remove } from 'fs';
 import { runCommand } from './run-command.js';
 
 export class FileExchange {

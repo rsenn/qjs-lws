@@ -39,7 +39,16 @@ export class Failover {
 
   /** whether `err` is a refusal another model could make up for */
   static applies(err) {
-    return !!err && (err.isRateLimit || err.code === 'login_required');
+    return !!err && (err.isRateLimit || err.code === 'login_required' || Failover.isUpstreamFailure(err));
+  }
+
+  /** an upstream 5xx / timeout / gateway error: the route died, another model might serve it */
+  static isUpstreamFailure(err) {
+    if(err?.status >= 500) return true;
+    if(err?.code === 'upstream_error' || err?.code === 'timeout' || err?.code === 'gateway_error') return true;
+
+    const m = err?.message ?? '';
+    return /no response after|timed? out|timeout|502|503|bad gateway|gateway timeou?t|upstream (error|unavailable)/i.test(m);
   }
 
   /**
@@ -61,7 +70,12 @@ export class Failover {
 
 /** one line for the user: what happened and where the turn goes now */
 export function failoverNote(err, from, to) {
-  const why = err.code === 'login_required' ? 'login needed' : 'limit reached';
+  const why = err.code === 'login_required' ? 'login needed' : Failover.isUpstreamFailure(err) ? 'upstream failure' : 'limit reached';
   const when = err.retryAfter ? `, back in ~${err.retryAfter >= 3600 ? `${Math.round(err.retryAfter / 3600)}h` : `${Math.ceil(err.retryAfter / 60)}min`}` : '';
   return `(${from}: ${why}${when} - switching to ${to})`;
+}
+
+/** one line for the user: a model was skipped because it failed */
+export function skipNote(from, reason) {
+  return `(${from}: ${reason} - skipped for 10m)`;
 }

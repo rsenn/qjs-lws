@@ -5,14 +5,15 @@
  * earlier LIST:/READ:/RUN: plain-text-in-the-reply-body protocol with
  * real, provider-native function calling.
  */
-import { stat, remove, S_IFREG } from 'os';
+import { stat, S_IFREG } from 'os';
+import { rmSync as remove } from 'fs';
 import { loadFile, open as fopen } from 'std';
 import { walk, fileMode } from './match.js';
 import { runCommand } from './run-command.js';
 import { qjsProjectDirs } from './reference-files.js';
 
 const LISTABLE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 'h', 'cpp', 'hpp', 'html', 'css', 'md', 'cmake', 'txt', 'sh']);
-const MAX_READ_BYTES = 16 * 1024;
+const MAX_READ_BYTES = 64 * 1024;
 const MAX_GREP_LINES = 60;
 const MAX_LIST_ENTRIES = 300;
 
@@ -306,6 +307,29 @@ export const TOOLS = [
       type: 'object',
       properties: { question: { type: 'string', description: 'The question to ask the user' } },
       required: ['question'],
+    },
+  },
+  {
+    name: 'restart_harness',
+    description: 'Restarts the ollama-repl harness with the current session state. Validates the harness first, serializes state to a temp file, and re-execs with --resume. Use when the harness itself needs restarting (e.g., after code changes).',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'spawn_agent',
+    description: 'Spawns a sub-agent with an isolated conversation to handle a bounded task. The sub-agent runs with read-only tools when read_only is true, and returns only its final summary to the parent conversation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: 'The task for the sub-agent to perform' },
+        model: { type: 'string', description: 'Optional model name to use for the sub-agent' },
+        max_turns: { type: 'integer', description: 'Maximum tool-calling rounds for the sub-agent (default 10)' },
+        read_only: { type: 'boolean', description: 'If true, restrict the sub-agent to read-only tools (default false)' },
+      },
+      required: ['task'],
     },
   },
 ];

@@ -49,6 +49,7 @@
  */
 import { exit, getenv, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
 import { clearTimeout, getcwd, getpid, isatty, realpath, setTimeout, stat, readdir, S_IFDIR } from 'os';
+import { rmSync as removeFile } from 'fs';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
@@ -155,7 +156,7 @@ const USAGE = [
 ];
 
 function parseArgs(argv) {
-  const opts = { mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect' };
+  const opts = { mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -190,6 +191,8 @@ function parseArgs(argv) {
     else if(arg === '--mode') opts.mode = argv[++i];
     else if(arg === '--verbose') ui.verbose = true;
     else if(arg === '--listen') opts.listen = argv[i + 1] && !argv[i + 1].startsWith('-') ? argv[++i] : '';
+    else if(arg === '--resume') opts.resume = argv[++i];
+    else if(arg === '--fallback-model') opts.fallbackModel = argv[++i];
     else if(arg === '--help' || arg === '-h') {
       console.log(formatUsage(USAGE));
       exit(0);
@@ -207,6 +210,7 @@ function parseArgs(argv) {
   }
 
   opts.modelGiven = opts.model !== undefined;
+  if(opts.resume) opts.resume = expandHome(opts.resume);
 
   /* freellm: an OpenAI-compatible endpoint, found out to be a gateway in main() */
   if(opts.provider === 'freellm') {
@@ -845,6 +849,123 @@ function elideOldToolResults(messages, numCtx) {
   }
 }
 
+/**
+ * Serializes session state and restarts the harness with --resume.
+ * Validates the harness first via qjsm --help.
+ */
+async function restartHarness(opts, messages, client) {
+  // Validate harness by running qjsm --help
+  const { output, status } = await runCommand('qjsm examples/ollama-repl/repl.js --help', { cwd: opts.root, timeout: 10000 });
+  if(status !== 0) {
+    return `error: harness validation failed:\n${output}`;
+  }
+
+  // Create temp file for session state
+  const tempPath = `${getenv('TMPDIR') || '/tmp'}/ollama-repl-resume-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  // Serialize skipped models (only non-expired)
+  const now = Date.now();
+  const skipped = [];
+  for(const [name, info] of skippedModels) {
+    if(info.until > now) {
+      skipped.push({ name, until: info.until, reason: info.reason });
+    }
+  }
+
+  // Serialize state
+  const state = {
+    messages,
+    provider: opts.provider,
+    model: opts.model,
+    fallbackModel: opts.fallbackModel,
+    root: opts.root,
+    mode: opts.mode,
+    temperature: opts.temperature,
+    numCtx: opts.numCtx,
+    maxRounds: opts.maxRounds,
+    stream: opts.stream,
+    think: opts.think,
+    noSystem: opts.noSystem,
+    noTools: opts.noTools,
+    noFailover: opts.noFailover,
+    noHandoff: opts.noHandoff,
+    handoffTurns: opts.handoffTurns,
+    handoffModel: opts.handoffModel,
+    scan: opts.scan,
+    allowPaid: opts.allowPaid,
+    cdpHost: opts.cdpHost,
+    cdpPort: opts.cdpPort,
+    baseMessageCount,
+    sessionName: opts.name,
+    skippedModels: skipped,
+  };
+
+  const f = fopen(tempPath, 'w');
+  if(!f) return `error: cannot write temp file ${tempPath}`;
+  f.puts(JSON.stringify(state, null, 2));
+  f.close();
+
+  // Restore terminal and re-exec
+  console.log(`\nRestarting harness with session state from ${tempPath}...`);
+  
+  // The re-exec will replace this process
+  const cmd = `qjsm examples/ollama-repl/repl.js --resume "${tempPath}"`;
+  popen(cmd, 'r');
+  
+  // This line won't be reached if popen succeeds
+  return 'restart initiated (should not see this)';
+}
+
+/**
+ * Spawns a sub-agent with isolated conversation history.
+ * Returns the sub-agent's final summary.
+ */
+async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, askUser, abortRef, forEach, args) {
+  const { task, model: subModel, max_turns = 10, read_only = false } = args;
+  
+  // Create a new client for the sub-agent (or reuse parent if same model)
+  let subClient = parentClient;
+  let originalModel = opts.model;
+  
+  if(subModel && subModel !== opts.model) {
+    // Need to create a new client with the specified model
+    const subOpts = { ...opts, model: subModel };
+    if(opts.provider === 'gemini') subClient = new (await import('./lib/gemini-client.js')).GeminiClient(subOpts);
+    else if(opts.provider === 'openai') subClient = new (await import('./lib/openai-client.js')).OpenAIClient(subOpts);
+    else subClient = new (await import('./lib/ollama-client.js')).OllamaClient(subOpts);
+  }
+
+  // Build isolated messages for sub-agent
+  const systemPrompt = parentMessages[0]?.role === 'system' ? parentMessages[0].content : SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '');
+  
+  const subMessages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `You are a sub-agent handling this task: ${task}\n\n${read_only ? 'You are in READ-ONLY mode. You may only use inspection tools (list_directory, read_file, grep). Do not make any changes.' : 'You have full access to all tools. Complete the task and provide a summary.'}` }
+  ];
+
+  // Filter tools if read_only
+  const subOpts = { 
+    ...opts, 
+    maxRounds: max_turns,
+    omitTools: read_only ? ['edit_file', 'write_file', 'insert_above', 'run_command', 'for_each', 'ask_user'] : undefined
+  };
+
+  // Update status to show sub-agent activity
+  if(tui?.active) setPhase('sub-agent', { tool: `spawn_agent: ${task.slice(0, 50)}` });
+
+  try {
+    const reply = await runToolLoop(subClient, subMessages, subOpts, log, confirmRun, askUser, abortRef, forEach);
+    return `Sub-agent completed task "${task}":\n\n${reply}`;
+  } catch(e) {
+    return `Sub-agent failed: ${e.message}`;
+  } finally {
+    // Restore original model if we switched
+    if(subClient !== parentClient) {
+      subClient.destroy();
+    }
+    if(tui?.active) setPhase('idle');
+  }
+}
+
 /* rounds made only of already-seen tool calls before tools are withdrawn */
 const MAX_REPEAT_ROUNDS = 2;
 
@@ -878,6 +999,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
   /* loop guard: calls already made this turn (name+args -> times seen) and
      how many rounds in a row consisted only of repeats */
   const seenCalls = new Map();
+  /* cache of tool call results (sig -> { output, round }) for returning on duplicates */
+  const toolCache = new Map();
   let repeatRounds = 0;
   const writesAtStart = writeCount; // this loop's own changes, not an earlier item's
 
@@ -920,8 +1043,11 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       if(seen > 0) {
         repeats++;
-        const output = `error: you already made this exact ${tc.name} call (${seen}x) - repeating it will not change the result. Try a different approach (different arguments, read_file to re-check the current contents first) or stop and explain what is blocking you.`;
-        if(!opts.quiet) console.log(dim(`(repeated ${tc.name} call skipped)`));
+        const cached = toolCache.get(sig);
+        const output = cached
+          ? `(cached result from earlier ${tc.name} call): ${cached.output}`
+          : `error: you already made this exact ${tc.name} call (${seen}x) - repeating it will not change the result. Try a different approach (different arguments, read_file to re-check the current contents first) or stop and explain what is blocking you.`;
+        if(!opts.quiet) console.log(dim(`(repeated ${tc.name} call - ${cached ? 'returned cached result' : 'skipped'})`));
         log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
         messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
         continue;
@@ -935,6 +1061,29 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         else console.log(toolLine(tc.name, tc.args ?? {}));
       }
 
+      /* Handle special tools that need access to repl.js context */
+      if(tc.name === 'restart_harness') {
+        output = await restartHarness(opts, messages, client);
+        toolCache.set(sig, { output, round });
+        // restart_harness exits the process, so we won't reach here
+        messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
+        continue;
+      }
+
+      if(tc.name === 'spawn_agent') {
+        setPhase('tool', { tool: tc.name });
+        const stop = tui?.active && !opts.quiet ? tuiSpinner(`spawning agent for: ${tc.args.task.slice(0, 60)}`) : () => {};
+        try {
+          output = await spawnAgent(client, messages, opts, log, confirmRun, askUser, abortRef, forEach, tc.args);
+          toolCache.set(sig, { output, round });
+        } finally {
+          stop();
+          setPhase('idle');
+        }
+        messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
+        continue;
+      }
+
       /* the mode may have changed since the tools were offered (Shift-Tab mid-turn) */
       if(!toolAllowed(opts.mode, tc.name)) output = `error: ${tc.name} is not available in ${opts.mode} mode - only read the code and answer with a plan`;
       else if(needsApproval(opts.mode, tc.name) && tc.name !== 'run_command' && !(await approveWrite?.(describeWrite(tc.name, tc.args ?? {}), tc.name, tc.args ?? {}))) output = '(declined by the user - nothing was changed)';
@@ -943,6 +1092,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         const stop = tui?.active && !opts.quiet ? tuiSpinner(`running ${tc.name}`) : () => {};
         try {
           output = await executeTool(tc.name, tc.args, opts.root, confirmRun, askUser, forEach);
+          // cache the result for duplicate detection
+          toolCache.set(sig, { output, round });
         } finally {
           stop();
           setPhase('idle');
@@ -1110,7 +1261,10 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /verbose [on|off] - show reasoning, full tool results, every request and response with all gateway headers (Ctrl-O toggles)
 /remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it
 /rename NAME    - rename the session (ollama-repl-ctl -s NAME picks it)
-/model [NAME|list] - show the provider/model/endpoint in use; switch to another installed model (conversation kept) or list them
+/model [NAME|list|skip|unskip] - show provider/model/endpoint; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip
+/provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
+/fallback [NAME|off] - show or set fallback model for auto-failover
+/restart        - restart the harness with current session state (serializes to temp file and re-execs)
 /usage          - tokens and requests of this session, per routed model and platform
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
 /requests [N]   - the last N (10) requests of this session, one line each
@@ -1137,7 +1291,7 @@ const HELP_SECTIONS = [
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
+const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -1155,6 +1309,54 @@ function ollamaModels() {
    matched (in /model list order), and which one is selected, so repeating
    `/model qwen*` steps through every match. Reset on any non-glob switch. */
 let modelCycle = null;
+
+/* Skipped models: Map<modelName, { until: timestamp, reason: string }>
+   Models in this map are excluded from auto-selection and marked in /model list. */
+const skippedModels = new Map();
+const SKIP_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+
+/* Model strength tiers for sorting (strongest to weakest).
+   Based on common model naming patterns - can be extended. */
+const MODEL_STRENGTH_PATTERNS = [
+  { pattern: /opus|gpt-4[o0]|claude-3-5-sonnet|gemini-1\.5-pro|gemini-2\.0/, tier: 0, label: 'Opus/GPT-4o+' },
+  { pattern: /sonnet|gpt-4-turbo|claude-3-sonnet|gemini-1\.5-flash/, tier: 1, label: 'Sonnet/GPT-4T' },
+  { pattern: /haiku|gpt-3\.5|gemini-1\.0|qwen-max|llama-3-70b/, tier: 2, label: 'Haiku/GPT-3.5' },
+  { pattern: /qwen2\.5-72b|llama-3-8b|mistral-large|command-r\+/, tier: 3, label: '72B/Large' },
+  { pattern: /qwen2\.5-32b|codestral|phi-3|gemma-2-27b/, tier: 4, label: '32B/Medium' },
+  { pattern: /qwen2\.5-14b|llama-3\.1-8b|gemma-2-9b|phi-3-mini/, tier: 5, label: '14B/Small' },
+  { pattern: /qwen2\.5-7b|llama-3\.2-3b|gemma-2-2b|smollm/, tier: 6, label: '7B/Tiny' },
+  { pattern: /qwen2\.5-3b|llama-3\.2-1b|gemma-1\.1-2b/, tier: 7, label: '3B/Micro' },
+  { pattern: /qwen2\.5-1\.5b|llama-3\.2-0\.5b|gemma-1\.1-1b/, tier: 8, label: '1.5B/Nano' },
+];
+
+/** Returns strength tier (0=strongest, 9=weakest/unknown) and label for a model name. */
+function modelStrength(modelName) {
+  const lower = modelName.toLowerCase();
+  for(const { pattern, tier, label } of MODEL_STRENGTH_PATTERNS) {
+    if(pattern.test(lower)) return { tier, label };
+  }
+  return { tier: 9, label: 'unknown' };
+}
+
+/** Rainbow gradient colors for model strength: purple (strongest) through red (weakest). */
+const STRENGTH_COLORS = [
+  '#8b5cf6', // violet (tier 0)
+  '#a855f7', // purple
+  '#d946ef', // fuchsia
+  '#ec4899', // pink
+  '#f43f5e', // rose
+  '#ef4444', // red
+  '#f97316', // orange
+  '#eab308', // yellow
+  '#84cc16', // lime
+  '#22c55e', // green (tier 9)
+];
+
+/** ANSI color for a model's strength tier. */
+function strengthColor(tier) {
+  const clamped = Math.max(0, Math.min(9, tier));
+  return STRENGTH_COLORS[clamped];
+}
 
 /** True if `name` is a glob pattern (`*`/`?`/`[...]`), like a file glob. */
 function isModelGlob(name) {
@@ -1181,6 +1383,179 @@ function modelGlobRe(pattern) {
 function modelsForGlob(pattern, known) {
   const re = modelGlobRe(pattern);
   return (known ?? []).filter(m => re.test(m));
+}
+
+/** Returns all available models with metadata, filtering out skipped ones. */
+function getFilteredModels(known, remote) {
+  const now = Date.now();
+  const models = [];
+  
+  if(remote) {
+    for(const m of remote) {
+      const skipped = skippedModels.get(m.name);
+      if(skipped && skipped.until > now) continue;
+      const strength = modelStrength(m.name);
+      models.push({
+        name: m.name,
+        displayName: m.displayName || '',
+        provider: m.provider || 'unknown',
+        available: m.available !== false,
+        strength: strength.tier,
+        strengthLabel: strength.label,
+        inputTokens: m.inputTokenLimit,
+        outputTokens: m.outputTokenLimit,
+        skipped: skipped ? true : false,
+        skipUntil: skipped ? skipped.until : null,
+      });
+    }
+  } else if(known) {
+    for(const name of known) {
+      const skipped = skippedModels.get(name);
+      if(skipped && skipped.until > now) continue;
+      const strength = modelStrength(name);
+      models.push({
+        name,
+        displayName: '',
+        provider: 'ollama',
+        available: true,
+        strength: strength.tier,
+        strengthLabel: strength.label,
+        inputTokens: null,
+        outputTokens: null,
+        skipped: skipped ? true : false,
+        skipUntil: skipped ? skipped.until : null,
+      });
+    }
+  }
+  
+  // Sort by strength (strongest first), then by name
+  return models.sort((a, b) => a.strength - b.strength || a.name.localeCompare(b.name));
+}
+
+/** Resolves a model pattern (exact, glob, or number) to a model name. */
+function resolveModel(pattern, known, remote) {
+  if(/^\d+$/.test(pattern)) {
+    const idx = +pattern - 1;
+    const models = getFilteredModels(known, remote);
+    return models[idx]?.name;
+  }
+  
+  if(isModelGlob(pattern)) {
+    const matches = modelsForGlob(pattern, known);
+    return matches[0];
+  }
+  
+  // Exact match
+  const models = getFilteredModels(known, remote);
+  return models.find(m => m.name === pattern)?.name;
+}
+
+/** Marks a model as skipped with cooldown. */
+function skipModel(name, reason = 'manual') {
+  const until = Date.now() + SKIP_COOLDOWN_MS;
+  skippedModels.set(name, { until, reason });
+}
+
+/** Skips every model whose name matches `pattern` (exact or glob). Returns the
+    number skipped - used by `/model skip <pattern>` to batch-skip a failing
+    provider family. */
+function skipModels(pattern, reason = 'manual') {
+  const re = isModelGlob(pattern) ? modelGlobRe(pattern) : null;
+  let n = 0;
+
+  for(const name of allModelNames()) {
+    if(re ? re.test(name) : name === pattern) {
+      skipModel(name, reason);
+      n++;
+    }
+  }
+  return n;
+}
+
+/** Removes a model from the skipped list, or every model matching a pattern. */
+function unskipModels(pattern) {
+  const re = isModelGlob(pattern) ? modelGlobRe(pattern) : null;
+  let n = 0;
+
+  for(const name of [...skippedModels.keys()]) {
+    if(re ? re.test(name) : name === pattern) {
+      skippedModels.delete(name);
+      n++;
+    }
+  }
+  return n;
+}
+
+/** every model name known to this session: the installed/remote list plus the
+    ones already skipped (so a pattern can hit them even after they left the
+    filtered list) */
+function allModelNames() {
+  const names = new Set(skippedModels.keys());
+  for(const m of getFilteredModels(ollamaModels() ?? null, null)) names.add(m.name);
+  return names;
+}
+
+/** Clears expired skips. */
+function cleanupSkips() {
+  const now = Date.now();
+  for(const [name, info] of skippedModels) {
+    if(info.until <= now) skippedModels.delete(name);
+  }
+}
+
+/** Shows the model list with strength coloring and skip status. */
+async function showModelList(remote, known) {
+  cleanupSkips();
+  const models = getFilteredModels(known, remote);
+  
+  if(!models.length) {
+    return console.log('(no models available)');
+  }
+  
+  console.log(`Models for ${opts.provider} (${models.length} available):\n`);
+  
+  // Build table rows
+  const rows = [['#', 'name', 'provider', 'strength', 'capabilities', 'status']];
+  
+  for(const [i, m] of models.entries()) {
+    const color = strengthColor(m.strength);
+    const strengthText = m.strengthLabel;
+    const capabilities = [];
+    if(m.inputTokens) capabilities.push(`${m.inputTokens} in`);
+    if(m.outputTokens) capabilities.push(`${m.outputTokens} out`);
+    if(capabilities.length === 0) capabilities.push('?');
+    
+    let status = m.available ? '✓' : '✗';
+    if(m.skipped) {
+      const remaining = Math.ceil((m.skipUntil - Date.now()) / 1000 / 60);
+      status = `⏸ cooldown ${remaining}m`;
+    }
+    
+    const nameCol = `\x1b[38;2;${color.slice(1).match(/.{2}/g).map(h => parseInt(h, 16)).join(';')}m${m.name}\x1b[0m`;
+    
+    rows.push([
+      String(i + 1),
+      nameCol,
+      m.provider,
+      strengthText,
+      capabilities.join(', '),
+      status,
+    ]);
+  }
+  
+  // Calculate column widths
+  const cols = rows[0].map((_, ci) => Math.max(...rows.map(r => stripAnsi(r[ci]).length)));
+  
+  // Print table
+  for(const [ri, row] of rows.entries()) {
+    const line = row.map((cell, ci) => {
+      const padded = cell + ' '.repeat(cols[ci] - stripAnsi(cell).length);
+      return ri === 0 ? `\x1b[1m${padded}\x1b[0m` : padded;
+    }).join(' │ ');
+    console.log(line);
+  }
+  
+  console.log('\nUsage: /model <number|name|pattern|skip|unskip>');
 }
 
 /** --name, else the model name; made unique among the live sessions (name, name-2, ...). */
@@ -1211,11 +1586,12 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   const t = stats.totals();
   const last = stats.last();
   const effective = last && !last.error ? routeName(last) : null;
+  const routedVia = last?.routedVia ?? last?.model ?? null;
   const dimmed = s => `\x1b[2m${s}\x1b[22m`;
 
   const left = `${modeBadge(opts.mode, MODE_COLOR[opts.mode])} ${dimmed(shortPath(realpath(opts.root)[0] ?? opts.root, Math.max(12, Math.floor(cols / 4))))}${ui.verbose ? ' \x1b[33mverbose\x1b[0m' : ''}${remote ? ` \x1b[36mremote:${remote}\x1b[0m` : ''}`;
   const center = effective
-    ? `\x1b[1m${effective}\x1b[22m${last.provider ? dimmed(` via ${last.provider}`) : ''}${effective !== opts.model && !effective.endsWith(opts.model) ? dimmed(` (asked ${opts.model})`) : ''}`
+    ? `\x1b[1m${effective}\x1b[22m${routedVia && routedVia !== effective ? dimmed(` → ${routedVia}`) : ''}${last.provider ? dimmed(` via ${last.provider}`) : ''}${effective !== opts.model && !effective.endsWith(opts.model) ? dimmed(` (asked ${opts.model})`) : ''}`
     : `${opts.label ?? opts.provider}/${opts.model}${dimmed(' (no reply yet)')}`;
 
   /* context in use after the last reply: its prompt plus its answer, else a chars/4 estimate */
@@ -1377,13 +1753,63 @@ async function main() {
   let sentFiles = new SentFiles(opts.model, opts.root);
   let fileExchange = new FileExchange(opts.model, opts.root);
   const store = new SessionStore(opts.model);
-  const saved = store.load();
 
-  const messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') }];
-  /* a resumed session carries the system prompt of the run that saved it */
-  if(opts.noSystem && messages[0]?.role === 'system') {
-    messages.shift();
-    if(saved) saved.baseMessageCount = Math.max(0, saved.baseMessageCount - 1);
+  /* Handle --resume: load serialized state from temp file */
+  let saved = store.load();
+  let messages;
+  let baseMessageCount = 0;
+
+  if(opts.resume) {
+    const stateText = loadFile(opts.resume);
+    if(!stateText) {
+      console.log(red(`error: cannot read resume file ${opts.resume}`));
+      exit(1);
+    }
+    try {
+      const state = JSON.parse(stateText);
+      messages = state.messages;
+      baseMessageCount = state.baseMessageCount ?? 0;
+      
+      /* Restore opts from state, but keep CLI args */
+      opts.provider = state.provider ?? opts.provider;
+      opts.model = state.model ?? opts.model;
+      opts.fallbackModel = state.fallbackModel ?? opts.fallbackModel;
+      opts.root = state.root ?? opts.root;
+      opts.mode = state.mode ?? opts.mode;
+      opts.temperature = state.temperature ?? opts.temperature;
+      opts.numCtx = state.numCtx ?? opts.numCtx;
+      opts.maxRounds = state.maxRounds ?? opts.maxRounds;
+      opts.stream = state.stream ?? opts.stream;
+      opts.think = state.think ?? opts.think;
+      opts.noSystem = state.noSystem ?? opts.noSystem;
+      opts.noTools = state.noTools ?? opts.noTools;
+      opts.noFailover = state.noFailover ?? opts.noFailover;
+      opts.noHandoff = state.noHandoff ?? opts.noHandoff;
+      opts.handoffTurns = state.handoffTurns ?? opts.handoffTurns;
+      opts.handoffModel = state.handoffModel ?? opts.handoffModel;
+      opts.scan = state.scan ?? opts.scan;
+      opts.allowPaid = state.allowPaid ?? opts.allowPaid;
+      opts.cdpHost = state.cdpHost ?? opts.cdpHost;
+      opts.cdpPort = state.cdpPort ?? opts.cdpPort;
+      opts.name = state.sessionName ?? opts.name;
+      
+      console.log(dim(`(resumed session from ${opts.resume}: ${messages.length} messages)`));
+      
+      // Clean up temp file
+      removeFile(opts.resume);
+    } catch(e) {
+      console.log(red(`error: failed to parse resume file: ${e.message}`));
+      exit(1);
+    }
+  } else {
+    saved = store.load();
+    messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') }];
+    baseMessageCount = saved ? saved.baseMessageCount : messages.length;
+    /* a resumed session carries the system prompt of the run that saved it */
+    if(opts.noSystem && messages[0]?.role === 'system') {
+      messages.shift();
+      if(saved) saved.baseMessageCount = Math.max(0, saved.baseMessageCount - 1);
+    }
   }
 
   const saveSession = () => store.save(messages, baseMessageCount);
@@ -1457,7 +1883,7 @@ async function main() {
   console.log('ready!');
 
   // /reset clears conversation history, not the auto-loaded project scan.
-  let baseMessageCount = saved ? saved.baseMessageCount : messages.length;
+  baseMessageCount = saved ? saved.baseMessageCount : messages.length;
   saveSession();
   const startedAt = Date.now();
 
@@ -1812,8 +2238,40 @@ async function main() {
       const known = opts.provider === 'ollama' ? ollamaModels() : remote ? remote.map(m => m.name) : null;
 
       if(arg === 'list') {
-        if(remote) return void console.log(remote.filter(m => m.available).map(m => `${m.name.padEnd(32)} ${m.displayName}`).join('\n'));
-        return void console.log(known ? known.join('\n') : '(model list is only available for --provider ollama and openai endpoints that serve /models)');
+        if(remote) return void console.log(showModelList(remote, null));
+        return void console.log(known ? showModelList(null, known) : '(model list is only available for --provider ollama and openai endpoints that serve /models)');
+      }
+
+      /* /model skip [pattern] and /model unskip [pattern]: skip the active or
+         last-routed model (no args) or every model matching a pattern, with a
+         10m cooldown, and move on to the next non-skipped one. */
+      if(arg === 'skip' || arg.startsWith('skip ') || arg === 'unskip' || arg.startsWith('unskip ')) {
+        const [verb, pattern] = arg.split(/\s+/);
+        const target = pattern || (opts.model !== 'auto' ? opts.model : (stats.last()?.routedVia ?? stats.last()?.model ?? 'auto'));
+
+        if(verb === 'skip') {
+          const n = skipModels(target, 'manual');
+          if(!n) return void console.log(red(`error: no model matches "${target}"`));
+          console.log(dim(n === 1 ? skipNote(target, 'manual') : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`));
+        } else {
+          const n = unskipModels(target);
+          if(!n) return void console.log(red(`error: "${target}" is not skipped`));
+          console.log(dim(`unskipped ${n} model(s) matching "${target}"`));
+        }
+
+        /* immediately switch to the next highest-ranked non-skipped model */
+        cleanupSkips();
+        const next = getFilteredModels(known, remote).find(m => m.name !== opts.model);
+        if(next) {
+          opts.model = next.name;
+          client.model = next.name;
+          repl.setPromptName(next.name);
+          control?.update({ model: next.name });
+          console.log(dim(`(switching to ${next.name})`));
+        } else {
+          console.log(dim('(no other model available to switch to)'));
+        }
+        return;
       }
 
       /* glob pattern: /model qwen* cycles through every matching model on each
@@ -1846,6 +2304,41 @@ async function main() {
       await updateCtxWindow();
       console.log(`(model: ${opts.provider}/${arg} - the conversation so far is kept)`);
       if(opts.provider === 'ollama') console.log(dim(await thinkNote(client)));
+      return;
+    }
+
+    if(prompt === '/provider' || prompt.startsWith('/provider ')) {
+      const arg = prompt.slice('/provider'.length).trim();
+      if(!arg) return void console.log(`current provider: ${opts.provider}`);
+      if(!['ollama', 'gemini', 'openai', 'freellm', 'bridge'].includes(arg)) {
+        return void console.log(red(`error: unknown provider "${arg}" (ollama, gemini, openai, freellm, bridge)`));
+      }
+      // Switching provider requires restart with new client
+      console.log(`Provider switch to ${arg} requires restart. Use /restart after changing.`);
+      opts.provider = arg;
+      return;
+    }
+
+    if(prompt === '/fallback' || prompt.startsWith('/fallback ')) {
+      const arg = prompt.slice('/fallback'.length).trim();
+      if(!arg) {
+        if(opts.fallbackModel) return void console.log(`fallback model: ${opts.fallbackModel}`);
+        return void console.log('no fallback model set');
+      }
+      if(arg === 'off' || arg === 'none') {
+        opts.fallbackModel = undefined;
+        return void console.log('fallback model disabled');
+      }
+      opts.fallbackModel = arg;
+      console.log(`fallback model set to: ${arg}`);
+      return;
+    }
+
+    if(prompt === '/restart') {
+      console.log('Restarting harness with current session state...');
+      // This will be handled by the restart_harness tool
+      // We just need to trigger it - but it's a tool, so the model needs to call it
+      console.log('Use the restart_harness tool or run with --resume <file>');
       return;
     }
 
