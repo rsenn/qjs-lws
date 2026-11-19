@@ -479,6 +479,24 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   lucky run does not win (a prior), an untried model gets tried now and then,
   and a model that fails three times in a row for a kind is left out of it
   for a day. `/delegate` shows the ranking per kind and the memory.
+- Delegation to another instance: `ollama-repl --worker --provider gemini
+  --root .` starts a worker (it listens like `--listen`, is named
+  `worker-PROVIDER`, never delegates itself). A session on the same project
+  root finds workers through the control sockets (the protocol of
+  `ollama-repl-ctl`) and counts them among the delegates, tried first: the
+  task goes in as one input line after a `/reset` (so every task starts
+  clean), what the worker prints until it is idle again is the answer (spinner,
+  echo and timing lines removed), a read-only task runs with `/mode plan`.
+  A worker that is busy or waits for an approval at its own terminal is
+  reported to the primary, not counted against it. Any other live session
+  can be named by hand: `spawn_agent` with `model: "peer:NAME"` or
+  `/delegate add peer:NAME` (no `/reset` then: it keeps its conversation).
+  `/delegate` lists the workers it found. Workers run their own provider,
+  model, tools and approvals, so a Gemini or a local Ollama instance can do
+  the documentation while the primary stays on the gateway.
+- Tab completion of a `/command` shows what Tab would add, dark grey after
+  the cursor (`/gat` -> `/gat`**`eway`**): the part all matching commands
+  share, nothing when they differ at once (`/mo`: mode, model, mouse).
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
   says, each in its own panel: the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),

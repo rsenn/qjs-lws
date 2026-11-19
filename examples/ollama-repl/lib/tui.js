@@ -449,13 +449,20 @@ export class Tui {
    * the line editor's text in the input rows, prompt before it, cont
    * before each line after a newline, the cursor at index cursor. only
    * rows that changed are written, nothing below them is erased, so
-   * typing does not flicker.
+   * typing does not flicker. `ghost` is a completion hint drawn dark grey
+   * after the text; the cursor stays at `cursor`.
    */
-  drawEditor(prompt, cont, text, cursor) {
+  drawEditor(prompt, cont, text, cursor, ghost = '') {
     if(this.#closed || this.#held) return;
 
-    let { lines, row, col } = layoutInput([prompt, cont], text.replaceAll('\t', ' '), cursor, this.cols);
+    let { lines, row, col } = layoutInput([prompt, cont], text.replaceAll('\t', ' ') + ghost, cursor, this.cols);
     this.ensureInputRows(lines.length);
+
+    /* a completion hint after the text, dark grey, only when it fits on the row of the cursor; the cursor stays before it */
+    if(ghost && lines.length && lines[lines.length - 1].endsWith(ghost)) {
+      const last = lines.length - 1;
+      lines[last] = `${lines[last].slice(0, -ghost.length)}${CSI}38;5;240m${ghost}${CSI}0m`;
+    }
 
     /* more rows than fit: keep the cursor's row in view */
     const skip = Math.max(0, Math.min(row - this.inputRows + 1, lines.length - this.inputRows));

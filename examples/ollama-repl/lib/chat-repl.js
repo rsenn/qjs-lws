@@ -168,6 +168,25 @@ export class ChatREPL extends REPL {
     return { tab, pos: word.length, ctx: {} };
   }
 
+  /**
+   * What Tab would add to a slash command typed at the start of the line,
+   * shown dark grey after the cursor: the part the matching commands have
+   * in common ('/mo' -> 'de', for /mode and /model). '' when nothing would
+   * be added, the cursor is not at the end or the line is not a command name.
+   */
+  ghost() {
+    const line = this.cmd;
+    if(this.cursorPos !== line.length || !line.startsWith('/') || /\s/.test(line)) return '';
+
+    const names = this.commandNames.filter(n => n.startsWith(line));
+    if(!names.length) return '';
+
+    let common = names[0];
+    for(const n of names) while(!n.startsWith(common)) common = common.slice(0, -1);
+
+    return common.slice(line.length);
+  }
+
   /* Enter always submits: the base REPL's continuation() parses the line
      as JavaScript and keeps it open while a bracket/quote/regex is
      unterminated, so "/model list" (a leading "/" starts a regex literal)
@@ -506,7 +525,7 @@ export class ChatREPL extends REPL {
     if(this.#pager) return this.#pager.resize(); // only a resize reaches here while it is open
     if(this.#dialog) return this.#drawDialog(); // the dialog owns the input rows until it is answered
 
-    this.tui.drawEditor(this.prompt, ' '.repeat(this.plen) + this.ps2, this.cmd, this.cursorPos);
+    this.tui.drawEditor(this.prompt, ' '.repeat(this.plen) + this.ps2, this.cmd, this.cursorPos, this.ghost());
     this.renderRow = 0;
     this.lastCmd = this.cmd;
     this.lastCursorPos = this.cursorPos;

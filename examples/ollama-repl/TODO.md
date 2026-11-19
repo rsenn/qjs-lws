@@ -84,6 +84,13 @@ step:
      user's votes (the primary model's own verdict is not collected); the
      primary is not told which models are candidates; Gemini provider has no
      delegation
+   - --worker and delegation to peers (lib/peer.js): found by root, /reset,
+     read-only via /mode plan. Seen live: findPeers + askPeer got PONG from a
+     worker. Untested: a primary model delegating by itself, the read-only
+     mode switch, a worker waiting for approval. Open: a worker's mode is
+     taken from its info (not updated on /mode), no way to cancel a running
+     peer task, the ghost completion exists only in the TUI (the plain
+     line editor shows none)
    - not solved: N restarts = N waiting qjsm processes (no execve in
      QuickJS); a process started from the fallback is not a source tree
      itself, it finds the target from the root like an installed one

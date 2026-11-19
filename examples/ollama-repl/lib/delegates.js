@@ -35,7 +35,7 @@ const BENCH_MS = 24 * 3600_000;
 /** the instruction the primary model gets (added to the system prompt) */
 export const DELEGATE_NOTES = `
 
-You can hand bounded, low-risk jobs to cheaper sub-agent models with spawn_agent: writing or updating documentation, build-system wiring (CMake, Makefile, package manifests), summarizing files or logs, simple repetitive edits across many files. Give a self-contained task (exact paths, what the result must look like) and set kind to docs, build, summary or repetitive. Leave model empty: the harness picks the model that worked best for that kind in the past. Sub-agents are weaker: read what they return or changed before you rely on it, and do design work, debugging and anything security-relevant yourself.`;
+You can hand bounded, low-risk jobs to cheaper sub-agent models with spawn_agent: writing or updating documentation, build-system wiring (CMake, Makefile, package manifests), summarizing files or logs, simple repetitive edits across many files. Give a self-contained task (exact paths, what the result must look like) and set kind to docs, build, summary or repetitive. Leave model empty: the harness picks the model that worked best for that kind in the past, which may be another ollama-repl instance on another provider. Sub-agents are weaker: read what they return or changed before you rely on it, and do design work, debugging and anything security-relevant yourself.`;
 
 export const stateFile = () => `${configDir()}/delegates.json`;
 

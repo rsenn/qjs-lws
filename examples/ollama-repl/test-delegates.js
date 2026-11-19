@@ -1,5 +1,6 @@
 /* test-delegates.js: the delegate memory ranks by what worked, learns from runs and votes, keeps itself on disk */
 import { Delegates, discoverGateway } from './lib/delegates.js';
+import { peerAnswer } from './lib/peer.js';
 import { getenv } from 'std';
 import { remove } from 'os';
 
@@ -40,6 +41,8 @@ check('the memory survives a restart', again.stats('b', 'docs').ok === 2 && agai
 /* discovery without a dashboard: the gateway's order of ready models, minus the excluded */
 const gateway = { dashboard: false, models: async () => [{ id: 'auto', execution_status: 'ready' }, { id: 'x', execution_status: 'ready' }, { id: 'y', execution_status: 'exhausted' }, { id: 'p', execution_status: 'ready' }] };
 check('discovery skips auto, exhausted and excluded', (await discoverGateway(gateway, null, { exclude: ['p'] })).join() === 'x');
+
+check('a peer answer loses spinner, echo, mark and timing lines', peerAnswer('[remote]> x\nsifting the ooze...   \n≋≈☼ PONG\n\n\nPlundered in 3.2s - auto -> kilo/x (A), 3.2s\n') === 'PONG');
 
 remove(path);
 console.log('test-delegates ok');

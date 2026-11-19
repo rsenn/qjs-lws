@@ -76,6 +76,7 @@ import { expandHome, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/standby.js';
 import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting } from './lib/config.js';
+import { findPeers, askPeer, peerAnswer } from './lib/peer.js';
 import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
 import { loadAvailability, kindsText, limitsText, limitedText, backText } from './lib/availability.js';
 import { Tui } from './lib/tui.js';
@@ -140,6 +141,7 @@ const USAGE = [
   '@Failover (when a chat model hits its limit)',
   ['--no-failover', 'stay on the chosen model instead of switching to another.'],
   ['--self-edit', 'let the model change ollama-repl\'s own files (when it runs from the source tree) without asking, even in auto mode; without it every such edit asks and is never remembered.'],
+  ['--worker', 'run as a worker for other ollama-repl instances: listens (--listen), never delegates itself; a session on the same --root may hand it tasks (spawn_agent kind ..., /delegate), so jobs can run on another --provider'],
   ['--no-delegate', 'do not tell the model it may hand documentation, build wiring, summaries and repetitive jobs to weaker sub-agent models (/delegate)'],
   ['--standby', 'with a freellmapi gateway: keep the model the gateway would use next probed and warm, as a switch-over target and sub-agent model (/standby)'],
   ['--compact-at PCT', 'compact the conversation (older turns summarized by a local model, as for a failover) when it uses this percent of the context window (default 80, 0 = never). /compact does it at once.'],
@@ -181,6 +183,7 @@ function parseArgs(argv) {
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--no-failover') opts.noFailover = true;
     else if(arg === '--no-delegate') opts.noDelegate = true;
+    else if(arg === '--worker') opts.worker = true;
     else if(arg === '--no-tools') opts.noTools = true;
     else if(arg === '--no-tui') opts.noTui = true;
     else if(arg === '--scan') opts.scan = true;
@@ -225,6 +228,12 @@ function parseArgs(argv) {
   if(!MODES.includes(opts.mode)) {
     console.log(red(`error: --mode must be one of ${MODES.join(', ')}, got "${opts.mode}"`));
     exit(1);
+  }
+
+  if(opts.worker) {
+    opts.noDelegate = true;
+    opts.listen ??= '';
+    opts.name ??= `worker-${opts.provider}`;
   }
 
   opts.modelGiven = opts.model !== undefined;
@@ -1146,15 +1155,50 @@ async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, a
   let subModel = args.model === 'standby' ? (standbyReady() ? standby.id : undefined) : args.model;
   let chosen = null;
 
-  /* no model named: the one that worked best for this kind of job, among the discovered and the set ones */
+  let peer = null;
+
+  /* no model named: the one that worked best for this kind of job, among the discovered and the set ones;
+     workers (other ollama-repl instances, maybe on another provider) come first in the order of discovery */
   if((!subModel || subModel === 'auto') && delegates.enabled && delegateNotesOn) {
     const prefix = delegateKey(opts, '');
-    const ranked = delegates.rank(kind, (await delegateCandidates(opts)).map(id => delegateKey(opts, id))).filter(r => r.id.startsWith(prefix));
-    subModel = ranked[0]?.id.slice(prefix.length);
+    const peers = findPeers({ root: opts.root, selfPid: getpid() }).filter(p => !p.busy);
+    const ranked = delegates.rank(kind, [...peers.map(p => `peer:${p.name}`), ...(await delegateCandidates(opts)).map(id => delegateKey(opts, id))]).filter(r => r.id.startsWith(prefix) || r.id.startsWith('peer:'));
+    const best = ranked[0]?.id;
+
+    if(best?.startsWith('peer:')) peer = peers.find(p => `peer:${p.name}` === best) ?? null;
+    else subModel = best?.slice(prefix.length);
     if(subModel && subModel !== opts.model) chosen = delegateKey(opts, subModel);
+  } else if(typeof subModel === 'string' && subModel.startsWith('peer:')) {
+    peer = findPeers({ root: opts.root, selfPid: getpid(), all: true }).find(p => `peer:${p.name}` === subModel);
+    if(!peer) return `Sub-agent failed: no ollama-repl session "${subModel.slice(5)}" listens on this project (ollama-repl-ctl list)`;
   } else if(subModel && subModel !== opts.model) chosen = delegateKey(opts, subModel);
   if(subModel === 'auto') subModel = undefined;
   const t0 = Date.now();
+
+  /* another ollama-repl instance does the job: its own provider, model and tools, isolated by /reset when it is a worker */
+  if(peer) {
+    const id = `peer:${peer.name}`;
+    if(tui?.active) setPhase('sub-agent', { tool: `spawn_agent via ${peer.name}: ${task.slice(0, 40)}` });
+
+    try {
+      const pre = [...(peer.worker ? ['/reset'] : []), ...(read_only && peer.mode !== 'plan' ? ['/mode plan'] : [])];
+      const line = `[task delegated by ollama-repl ${opts.name ?? 'primary'}: do it yourself, never delegate it further, finish with a short summary of what you did and changed] ${read_only ? '(read-only: change nothing) ' : ''}${task}`;
+      const r = await askPeer(peer, pre, line, { timeoutMs: (max_turns * 90 + 120) * 1000 });
+      if(read_only && peer.mode !== 'plan') await askPeer(peer, [], `/mode ${peer.mode}`, { timeoutMs: 20000 });
+
+      /* the peer waiting for its user, or busy: not the model's fault, nothing is remembered */
+      if(r.waiting || r.busy) return `Sub-agent not run (${peer.name}): ${r.error}. Do the task yourself or use another model.`;
+
+      const answer = peerAnswer(r.text);
+      const ok = r.ok && answer.length > 0;
+      delegates.record(id, kind, { ok, ms: Date.now() - t0 });
+      lastDelegate = { id, kind };
+      if(!ok) return `Sub-agent failed (${peer.name}): ${r.error ?? 'empty answer'}`;
+      return `Sub-agent (${peer.name}: ${peer.provider}/${peer.model}, ${kind}, ${((Date.now() - t0) / 1000).toFixed(0)}s) completed task "${task}":\n\n${answer}\n\n(Another instance did this, possibly a weaker model: check it before relying on it.)`;
+    } finally {
+      if(tui?.active) setPhase('idle');
+    }
+  }
   
   // Create a new client for the sub-agent (or reuse parent if same model)
   let subClient = parentClient;
@@ -2925,6 +2969,9 @@ async function main() {
         lines.push(`  ${dim(kind.padEnd(11))}${ranked.length ? ranked.map(r => `${plain(r.id)}${r.pinned ? ' (pinned)' : ''}${r.tried ? ` ${r.ok}/${r.ok + r.fail}` : ''}`).join(', ') : '(no candidate: the primary model does it itself)'}`);
       }
 
+      const peerList = findPeers({ root: opts.root, selfPid: getpid(), all: true });
+      lines.push(`  ${dim('workers'.padEnd(11))}${peerList.length ? peerList.map(p => `${p.name} (${p.provider}/${p.model}${p.worker ? '' : ', not a worker: no /reset'})`).join(', ') : `(none on this project: ollama-repl --worker --provider gemini --root ${opts.root})`}`);
+
       const mem = memoryLines(delegates, fmtMs);
       if(mem.length) lines.push('', dim('memory:'), ...mem.map(l => `  ${l}`));
       if(delegates.data.banned.length) lines.push('', `${dim('banned')}  ${delegates.data.banned.map(plain).join(', ')}`);
@@ -3337,7 +3384,7 @@ async function main() {
     const name = sessionName(opts);
     opts.name = name;
     control = new ControlSocket(
-      { name, model: opts.model, provider: opts.provider, root: opts.root, cwd: getcwd()[0], mode: opts.mode },
+      { name, model: opts.model, provider: opts.provider, root: opts.root, cwd: getcwd()[0], mode: opts.mode, worker: !!opts.worker },
       line => {
         // as if typed: shown on the terminal so the user sees who asked
         if(!tui?.active) console.log(`${piped ? '' : '\r\x1b[K'}${green(`[remote]> ${line}`)}`);
