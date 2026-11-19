@@ -79,6 +79,7 @@ import { exitIp, measure, newExit, proxied, proxySettings } from './lib/proxy-pr
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
+import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
 import { replyMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
@@ -718,8 +719,10 @@ function messagesText(msgs) {
   return msgs
     .map(m => {
       const head = `\x1b[1;38;2;${(ROLE_COLOR[m.role] ?? '#ffffff').match(/\w\w/g).map(h => parseInt(h, 16)).join(';')}m${m.role}${m.name ? ` ${m.name}` : ''}\x1b[0m`;
-      const calls = (m.toolCalls ?? m.tool_calls ?? []).map(tc => `→ ${tc.name ?? tc.function?.name}(${JSON.stringify(tc.args ?? tc.function?.arguments ?? {})})`);
-      return [head, ...(typeof m.content == 'string' ? [m.content] : m.content ? [JSON.stringify(m.content)] : []), ...calls].join('\n');
+      const calls = (m.toolCalls ?? m.tool_calls ?? []).map(tc => `\x1b[38;2;192;132;252m→ ${tc.name ?? tc.function?.name}\x1b[0m(${colorJson(JSON.stringify(tc.args ?? tc.function?.arguments ?? {}))})`);
+      /* the system prompt is long and known: dim; everything else by what each line is */
+      const body = typeof m.content == 'string' ? (m.role === 'system' ? `\x1b[2m${m.content}\x1b[0m` : colorContent(m.content, { code: m.role === 'tool' && m.name === 'read_file' })) : m.content ? colorJson(JSON.stringify(m.content)) : null;
+      return [head, ...(body === null ? [] : [body]), ...calls].join('\n');
     })
     .join('\n\n');
 }
@@ -775,7 +778,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
   /* TUI verbose: the reasoning as one panel, before the reply */
   const showReasoning = () => {
-    if(reasoning) showPanel('◌ reasoning', `\x1b[2m${reasoning.trim()}\x1b[0m`, { border: '#64748b' });
+    if(reasoning) showPanel('◌ reasoning', `\x1b[2;3m${reasoning.trim()}\x1b[0m`, { border: '#64748b' });
     reasoning = '';
   };
 
@@ -799,7 +802,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   const response = result => {
     const m = result?.meta;
     if(!verbose || !m) return;
-    if(panes) return showPanel(`← ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` via ${m.provider}` : ''} · ${fmtMs(m.ms)}`, formatMeta({ ...m, reasoning: result.reasoning }), { border: '#c084fc' });
+    if(panes) return showPanel(`← ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` via ${m.provider}` : ''} · ${fmtMs(m.ms)}`, colorMeta(formatMeta({ ...m, reasoning: result.reasoning })), { border: '#c084fc' });
     console.log(dim([`<- ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` (${m.provider})` : ''} ${fmtMs(m.ms)}, finish ${m.finish ?? '-'}${m.usage ? `, ${m.usage.prompt}+${m.usage.completion} tok` : ''}`, ...Object.entries(m.headers ?? {}).map(([k, v]) => `   ${k}: ${v}`)].join('\n')));
   };
 
@@ -1198,7 +1201,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       const asked = needsApproval(opts.mode, tc.name) || selfEdit;
 
       if(tui?.active && !opts.quiet) {
-        if(ui.verbose) showPanel(`⚙ ${tc.name}`, JSON.stringify(tc.args ?? {}, null, 2), { border: '#c084fc' });
+        if(ui.verbose) showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc' });
         else console.log(toolLine(tc.name, tc.args ?? {}));
       }
 
@@ -1253,10 +1256,13 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         else console.log(toolResult(output));
       }
 
-      if(ui.verbose && !opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output || '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc' });
+      if(ui.verbose && !opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc' });
       else if(ui.verbose && !opts.quiet) {
         const lines = output.split('\n');
-        console.log(dim(`[${tc.name} result, ${output.length} chars]\n${lines.slice(0, 200).join('\n')}${lines.length > 200 ? `\n... (${lines.length - 200} more lines)` : ''}`));
+        const shown = lines.slice(0, 200).join('\n');
+        console.log(dim(`[${tc.name} result, ${output.length} chars]`));
+        console.log(piped ? shown : colorContent(shown, { code: tc.name === 'read_file' }));
+        if(lines.length > 200) console.log(dim(`... (${lines.length - 200} more lines)`));
       }
       log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
       messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });

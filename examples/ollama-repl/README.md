@@ -452,6 +452,31 @@ written by the base REPL and do not go through the transcript.
 The TUI needs a qjsm built from qjs-modules after 2026-11-19 (its
 `terminal` module gained the widgets used here).
 
+### Colours in verbose mode
+
+Ctrl-O (`/verbose`) shows the raw content in colour (`lib/rawcolor.js`, in
+the theme palette). The colouring only adds colour: with the escape
+sequences removed the text is exactly what was sent or received
+(`test-rawcolor.js`, run by `smoke.sh`).
+
+- **request panel**: the system prompt dim, every other message by what its
+  lines are: a JSON document (keys teal, strings lime, numbers amber,
+  `true`/`false`/`null` violet), fenced code highlighted, `File: path`
+  headers, diff lines (`+` green, `-` red, `@@` violet), grep lines
+  (`path:line:`), error lines red, and the `[handoff]`/`[compacted]` notes
+  violet. The calls of the assistant show their arguments as coloured JSON.
+- **tool call panel**: the arguments as `key: value`; a text with line
+  breaks (an edit's old and new text, a file being written) is a block of
+  highlighted lines under its key, not one line of `\n` escapes.
+- **tool result panel**: the same colouring, a file read by `read_file`
+  highlighted as code.
+- **response panel** (gateway): keys dim, the status by class (2xx green,
+  4xx amber, 5xx red), routes teal, numbers with their units amber, the
+  `x-*` headers violet.
+- **reasoning**: dim italic.
+- On a terminal without the TUI (`--no-tui`) tool results are coloured the
+  same way; piped output stays plain.
+
 ## Coding work
 
 Tools the model has: `list_directory`, `read_file` (optional line range),

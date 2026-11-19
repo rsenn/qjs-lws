@@ -1,0 +1,51 @@
+/**
+ * test-rawcolor.js: lib/rawcolor.js must never change the visible text,
+ * only add colors. Run by smoke.sh (qjsm test-rawcolor.js), exit status 1 on
+ * a failure.
+ */
+import { stripAnsi } from 'terminal';
+import { exit } from 'std';
+import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
+
+let failed = 0;
+const check = (name, ok) => {
+  if(!ok) {
+    failed++;
+    console.log(`FAIL ${name}`);
+  }
+};
+
+const samples = {
+  json: '{"path": "lib/a.js", "n": 3, "ok": true, "x": null, "list": [1, 2.5, -4e3], "s": "a \\"q\\" b"}',
+  jsonPretty: JSON.stringify({ a: { b: [1, 'two', false] }, c: 'x:y' }, null, 2),
+  diff: 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n-old\n+new\n context',
+  grep: 'lib/a.js:12:  const x = 1;\nrepl.js:3:import y',
+  fenced: 'text\n```js\nconst a = "s"; // c\n```\nafter',
+  file: 'File: lib/a.js\nbody',
+  error: 'error: no such file\nFAIL here\n(declined by the user)',
+  notes: '[compacted] The conversation outgrew\n[handoff] x',
+  empty: '',
+  plain: 'just some words, no structure at all',
+};
+
+for(const [name, text] of Object.entries(samples)) {
+  check(`colorContent keeps the text of ${name}`, stripAnsi(colorContent(text)) === text);
+  check(`colorContent code keeps the text of ${name}`, stripAnsi(colorContent(text, { code: true })) === text);
+  check(`colorJson keeps the text of ${name}`, stripAnsi(colorJson(text)) === text);
+}
+
+const meta = 'requested   auto:fast\nmodel       kilo/x\nstatus      200\ntime        3.2s total, 80ms to headers\nheaders\n  x-routed-via: kilo/x\n  retry-after: 3';
+check('colorMeta keeps the text', stripAnsi(colorMeta(meta)) === meta);
+check('colorMeta colors the status green', /\x1b\[38;2;74;222;128m200/.test(colorMeta(meta)));
+check('colorMeta colors a 503 red', /\x1b\[38;2;248;113;113m503/.test(colorMeta('status      503')));
+
+check('colorJson colors a key teal', /\x1b\[38;2;45;212;191m"path"/.test(colorJson(samples.json)));
+check('colorContent colors a + line green', /\x1b\[38;2;74;222;128m\+new/.test(colorContent(samples.diff)));
+
+const args = stripAnsi(colorArgs({ path: 'a.js', old_string: 'one\ntwo', n: 2 }));
+check('colorArgs shows keys', args.includes('path:') && args.includes('old_string:') && args.includes('n: 2'));
+check('colorArgs shows a multi-line string as lines', args.includes('│ one') && args.includes('│ two'));
+check('colorArgs on nothing', stripAnsi(colorArgs({})) === '(no arguments)');
+
+console.log(failed ? `${failed} failed` : 'rawcolor ok');
+exit(failed ? 1 : 0);

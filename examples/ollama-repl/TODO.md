@@ -57,12 +57,15 @@ step:
    object in the body) is only selectable, not configurable; x-freellm-cache
    and x-freellm-compress are read by the gateway, not sent by us; profile
    management (dashboard API) is not exposed.
-5. [ ] Ctrl-O verbose colouring: reuse the code-block highlighter of
-   lib/markdown.js (or the qjs-modules one listed in tool-registry) for
-   JSON args and results; colour by role; dim boring headers; keep every
-   width computation in panel() and wrapping ANSI-aware. The control socket
-   strips ANSI, so ctl output stays safe; plain --no-tui output stays
-   uncoloured.
+5. [x] (done 2026-11-19, tested in a pty with a real tool call)
+   Ctrl-O verbose colouring: lib/rawcolor.js (colorJson, colorContent,
+   colorArgs, colorMeta), wired into the request, tool call, tool result,
+   response and reasoning panes and the --no-tui verbose lines;
+   test-rawcolor.js (in smoke.sh) checks that stripping the colours gives
+   back the input. Open: no per-language highlighting (markdown.js
+   highlight() is one generic tokenizer); the /last panel and the plain
+   --verbose lines of a request are not coloured; the unified diff of an
+   edit tool call is not rendered as a diff in the call panel.
 
 After every change under lib/ run `cmake .` before `cmake --install`.
 

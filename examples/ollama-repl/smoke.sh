@@ -4,7 +4,8 @@
 # `qjsm repl.js --help` passes with a missing import or an out-of-scope
 # variable, since those only fail when a command runs. This script
 #
-#   1. imports every lib/*.js on its own (truncated file, missing export)
+#   1. imports every lib/*.js on its own (truncated file, missing export),
+#      and runs test-rawcolor.js
 #   2. starts the REPL in a pty in an empty directory, sends a fixed set of
 #      commands and fails on any error, exception or unhandled rejection
 #
@@ -23,6 +24,9 @@ for f in "$DIR"/lib/*.js; do
   OUT=$(qjsm -e "import('$f').then(() => 0, e => import('std').then(s => { console.log(e.message); s.exit(1); }))" 2>&1) ||
     { echo "FAIL import $f: $OUT"; FAILED=1; }
 done
+
+# 1b. the colouring of the verbose view only adds colour
+OUT=$(cd "$DIR" && qjsm test-rawcolor.js 2>&1) || { echo "FAIL rawcolor: $OUT"; FAILED=1; }
 
 # 2. the REPL starts and runs commands
 WORK=$(mktemp -d) || exit 1
