@@ -47,7 +47,7 @@
  *     also prints lws's own ERR/WARN/USER lines straight to the terminal,
  *     independent of `TRAFFIC`.
  */
-import { exit, getenv, loadFile, popen, out as stdout, err as stderr } from 'std';
+import { exit, getenv, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
 import { clearTimeout, getcwd, getpid, isatty, realpath, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
@@ -1054,9 +1054,39 @@ function summarizeMessages(msgs) {
     .join('\n');
 }
 
+/* A clean, plain-text full transcript of the conversation for /export -
+   each message with its speaker label and any tool calls alongside, no
+   clipping (unlike handoff's renderTranscript, which truncates for a
+   context summary). */
+function renderExport(msgs) {
+  const out = [];
+
+  for(const m of msgs) {
+    const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+    const calls = (m.toolCalls ?? []).map(tc => `  [called ${tc.name} ${JSON.stringify(tc.args ?? {})}]`);
+    const label = m.role === 'user' ? 'You' : m.role === 'tool' ? `Tool${m.name ? ` (${m.name})` : ''}` : `${m.role[0].toUpperCase()}${m.role.slice(1)}`;
+    out.push(`${label}: ${content}`);
+    if(calls.length) out.push(calls.join('\n'));
+  }
+
+  return out.join('\n\n');
+}
+
 /** Total char count across `msgs` - a rough proxy for outgoing request
     size (see DEMO.md 5 on why this is a diagnostic, not a target), shown
     alongside the message count in /context. */
+/** The first installed clipboard tool (`wl-copy`, `xclip`, `xsel`,
+    `pbcopy`), or null if none - for /export's "Copy to clipboard". */
+function pickClipboardTool() {
+  for(const n of ['wl-copy', 'xclip', 'xsel', 'pbcopy']) {
+    const probe = popen(`command -v ${n} 2>/dev/null`, 'r');
+    const found = probe?.readAsString().trim();
+    probe?.close();
+    if(found) return n;
+  }
+  return null;
+}
+
 function totalChars(msgs) {
   return msgs.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length), 0);
 }
@@ -1095,6 +1125,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /files          - dump this session's file exchange (sent, received, diffs)
 /context        - inspect the full context about to be sent to the model (system prompt + project scan + conversation) - raw, inspect()-colored, with -x; a one-line-per-message summary without it
 /log            - inspect just the conversation so far (no system prompt/project scan) - same raw-with--x/summary-without split as /context
+/export         - export the conversation: copy it to the clipboard or save it to a file (<YYYY-MM-DD-HHMMSS>-<session>.txt in the working directory)
 Anything else is sent to the model as a prompt.`;
 
 /** /help sections in the TUI: title, the commands under it (the rest go under "more") */
@@ -1102,7 +1133,7 @@ const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
   ['model and gateway', ['/model', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
-  ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit']],
+  ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
@@ -1879,6 +1910,34 @@ async function main() {
       const turns = messages.slice(baseMessageCount);
       if(opts.debug) console.log(turns);
       else console.log(turns.length ? summarizeMessages(turns) : '(no conversation yet)');
+      return;
+    }
+
+    if(prompt === '/export') {
+      const transcript = renderExport(messages.slice(baseMessageCount)) || '(empty conversation)';
+
+      const k = await repl.choose('Select export method', ['Copy to clipboard', 'Save to file']);
+
+      if(k === 0) {
+        const tool = pickClipboardTool();
+        if(!tool) return void console.log(red('(no clipboard tool found: install wl-clipboard (wl-copy), xclip, xsel or pbcopy, or pick "Save to file")'));
+
+        const p = popen(tool === 'wl-copy' ? 'wl-copy' : tool === 'xclip' ? 'xclip -selection clipboard' : tool === 'xsel' ? 'xsel --clipboard --input' : 'pbcopy', 'w');
+        p.puts(transcript);
+        p.close();
+        console.log(`\x1b[32m✓ Conversation copied to clipboard\u001b[0m (${tool})`);
+        return;
+      }
+
+      const ts = new Date().toISOString().slice(0, 19).replace('T', '-').replaceAll(':', '');
+      const name = sessionName(opts).replaceAll(/[:/]/g, '-');
+      const path = `${getcwd()[0]}/${ts}-${name}.txt`;
+      const f = fopen(path, 'w');
+      if(!f) return void console.log(red(`(cannot write ${path})`));
+
+      f.puts(transcript);
+      f.close();
+      console.log(`\x1b[32m✓ Conversation exported to:\u001b[0m ${path}`);
       return;
     }
 
