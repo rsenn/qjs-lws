@@ -74,6 +74,7 @@ import { UsageStats, routeLine, routeName, formatMeta, formatTable, fmtNum, fmtM
 import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAllowed, needsApproval, describeWrite, WRITE_TOOLS } from './lib/modes.js';
 import { expandHome, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/freellm.js';
+import { loadAvailability, kindsText, limitsText, limitedText, backText } from './lib/availability.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
@@ -1464,7 +1465,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /usage          - tokens and requests of this session, per routed model and platform
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
 /requests [N]   - the last N (10) requests of this session, one line each
-/gateway [usage|providers|forecast|quota [FILTER]|models [FILTER]|login] - ask the freellmapi gateway: month usage of all clients, upstream health, provider quotas, per-model quotas (dashboard session), models ready now. login fetches the dashboard token from the browser (CDP, --cdp-port), opening a dashboard tab if needed
+/gateway [usage|providers|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login] - ask the freellmapi gateway: month usage of all clients, upstream health, provider quotas, per-model quotas (dashboard session), models ready now; limits shows tokens and requests used per minute/day/month and when each limit ends, limited lists the models that cannot serve a request now and when they are back (/model list shows them too, not selectable). login fetches the dashboard token from the browser (CDP, --cdp-port), opening a dashboard tab if needed
 /tools          - list the tools the model can call
 /system         - print the system prompt
 /system default [N[-M]] - (re)set it to the default prompt, or only its lines N..M
@@ -1578,11 +1579,29 @@ function modelGlobRe(pattern) {
 /** The model names in `known` matching glob `pattern`, in `known`'s order. */
 function modelsForGlob(pattern, known) {
   const re = modelGlobRe(pattern);
-  return (known ?? []).filter(m => re.test(m));
+  return (known ?? []).filter(m => re.test(m) && !availability?.byModel.get(m)?.blocked);
+}
+
+/* what the gateway limits right now (lib/availability.js), loaded by /model and /gateway; null without a dashboard session */
+let availability = null;
+let gatewayRef = null; /* main()'s gateway, for the helpers outside it */
+
+/** runs fn on fresh availability data of the gateway (needs a dashboard session) */
+async function withAvailability(fn) {
+  if(!gatewayRef?.dashboard) return '(limits need a dashboard session: /gateway login)';
+  availability = await loadAvailability(gatewayRef);
+  return fn(availability);
+}
+
+/** the providers behind a model id: the gateway's platforms (a unified id may have several), else the owner it names */
+function providerText(m, avail) {
+  const p = avail?.byModel.get(m.name)?.platforms ?? [];
+  if(p.length) return p.length > 2 ? `${p.slice(0, 2).join(',')}+${p.length - 2}` : p.join(',');
+  return m.ownedBy && m.ownedBy !== 'freellmapi' ? m.ownedBy : m.provider || '-';
 }
 
 /** Returns all available models with metadata, filtering out skipped ones. */
-function getFilteredModels(known, remote) {
+function getFilteredModels(known, remote, avail = availability) {
   const now = Date.now();
   const models = [];
   
@@ -1594,8 +1613,9 @@ function getFilteredModels(known, remote) {
       models.push({
         name: m.name,
         displayName: m.displayName || '',
-        provider: m.provider || 'unknown',
+        provider: providerText(m, avail),
         available: m.available !== false,
+        limited: avail?.byModel.get(m.name),
         strength: strength.tier,
         strengthLabel: strength.label,
         inputTokens: m.inputTokenLimit,
@@ -1632,7 +1652,7 @@ function getFilteredModels(known, remote) {
 function resolveModel(pattern, known, remote) {
   if(/^\d+$/.test(pattern)) {
     const idx = +pattern - 1;
-    const models = getFilteredModels(known, remote);
+    const models = getFilteredModels(known, remote).filter(m => !m.limited?.blocked);
     return models[idx]?.name;
   }
   
@@ -1702,7 +1722,10 @@ function cleanupSkips() {
 /** Shows the model list with strength coloring and skip status. */
 async function showModelList(remote, known, provider) {
   cleanupSkips();
-  const models = getFilteredModels(known, remote);
+  if(gatewayRef?.dashboard) availability = await loadAvailability(gatewayRef).catch(() => availability);
+  const all = getFilteredModels(known, remote);
+  const models = all.filter(m => !m.limited?.blocked);
+  const limited = all.filter(m => m.limited?.blocked).sort((a, b) => (a.limited.until ?? Infinity) - (b.limited.until ?? Infinity) || a.name.localeCompare(b.name));
   
   if(!models.length) {
     return console.log('(no models available)');
@@ -1751,6 +1774,12 @@ async function showModelList(remote, known, provider) {
     console.log(line);
   }
   
+  if(limited.length) {
+    const now = availability.at;
+    console.log(`\n${waveNote(`${limited.length} model${limited.length > 1 ? 's' : ''} limited right now, not selectable until they recover`)}`);
+    console.log(formatTable([['name', 'provider', 'limit', 'back'], ...limited.map(m => [dim(m.name), m.provider, kindsText(m.limited), backText(m.limited, now)])]));
+  }
+
   console.log('\nUsage: /model <number|name|pattern|skip|unskip>');
 }
 
@@ -1891,7 +1920,7 @@ async function main() {
   };
 
   if(opts.provider === 'openai' && !bridgeProc) {
-    gateway = new Gateway(client);
+    gateway = gatewayRef = new Gateway(client);
 
     if(await gateway.detect()) {
       if(!opts.modelGiven) opts.model = client.model = 'auto';
@@ -2452,8 +2481,8 @@ async function main() {
         return void console.log(ok ? `(dashboard session from ${gateway.tokenSource}: per-model quotas on)` : `(${gateway.dashboardNote})`);
       }
 
-      const show = { usage: () => gateway.usageText(), providers: () => gateway.providersText(), forecast: () => gateway.forecastText(), quota: () => gateway.quotaText(rest.join(' ')), models: () => gateway.modelsText(rest.join(' ')) }[what];
-      if(!show) return void console.log('usage: /gateway [usage|providers|forecast|quota [FILTER]|models [FILTER]|login]');
+      const show = { usage: () => gateway.usageText(), providers: () => gateway.providersText(), forecast: () => gateway.forecastText(), quota: () => gateway.quotaText(rest.join(' ')), models: () => gateway.modelsText(rest.join(' ')), limits: () => withAvailability(av => limitsText(av, rest.join(' '))), limited: () => withAvailability(av => limitedText(av, rest.join(' '))) }[what];
+      if(!show) return void console.log('usage: /gateway [usage|providers|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login]');
 
       try {
         console.log(await show());
@@ -2499,7 +2528,7 @@ async function main() {
 
         /* immediately switch to the next highest-ranked non-skipped model */
         cleanupSkips();
-        const next = getFilteredModels(known, remote).find(m => m.name !== opts.model);
+        const next = getFilteredModels(known, remote).find(m => m.name !== opts.model && !m.limited?.blocked);
         if(next) {
           opts.model = next.name;
           client.model = next.name;
@@ -2531,6 +2560,10 @@ async function main() {
         const ofN = matches.length === 1 ? ' (only model matching)' : ` (${modelCycle.index + 1} of ${matches.length})`;
         console.log(`(pattern "${modelCycle.pattern}" matched: ${matches.join(', ')} - switching to ${arg}${ofN})`);
       } else {
+        if(gateway?.dashboard && (!availability || Date.now() - availability.at > 30000)) availability = await loadAvailability(gateway).catch(() => null);
+        const lim = availability?.byModel.get(arg);
+        if(lim?.blocked) return void console.log(red(`error: ${arg} is limited right now (${kindsText(lim)}), back: ${backText(lim, availability.at)} - /model list shows when`));
+
         /* only models already installed (or offered): switching never pulls one */
         if(known && !known.includes(arg) && !known.includes(`${arg}:latest`)) return void console.log(red(`error: no such model "${arg}" (/model list shows the installed ones)`));
         modelCycle = null; /* an exact switch resets any pattern cycle */

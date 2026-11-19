@@ -431,6 +431,20 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   `/proxy off` and `/proxy on` switch the global proxy of the gateway
   (dashboard setting `enabled`, the URL stays saved, effective for the next
   request; needs a dashboard session, also works through `ollama-repl-ctl`).
+- `/gateway limits [FILTER]` and `/gateway limited [FILTER]` (dashboard
+  session needed) say what the gateway limits: per provider row the
+  requests and tokens used of each period (minute, day, month budget) and
+  what stops it now - a minute or day window, the monthly budget or a key
+  cap, a cooldown (exact end), a key without credits or outside the model's
+  scope, and cooldowns whose errors point at the IP or region (marked
+  `IP limit?`: `/proxy exit` or `/proxy off` may lift them). The gateway
+  only says a model is exhausted; the end is worked out from the key
+  cooldowns, the windows (a minute window frees within 60 s, a day window
+  within 24 h, shown `<=`) and the budget (start of the next UTC month). A
+  key scope never ends by waiting. `/model list` shows the real providers
+  behind each model id and moves the limited models to a second table with
+  their return time; they get no number, a glob skips them and
+  `/model NAME` refuses them with the reason.
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
   says, each in its own panel: the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),

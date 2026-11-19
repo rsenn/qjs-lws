@@ -63,6 +63,13 @@ step:
      $XDG_RUNTIME_DIR/o<pid>.s, a too long path is an error and a failed
      --listen ends the run. Two sessions plus ollama-repl-ctl tested. A
      session started before this holds the abstract name: restart it
+   - /gateway limits|limited, /model list: lib/availability.js works out per
+     model id what the gateway limits and when it ends (key cooldowns, rate
+     windows, monthly budget and key caps, key scope, IP/region hints from
+     the errors); the provider column shows the real platforms. Open: the
+     day window's exact reset is unknown (shown <= 24 h), IP limits are only
+     a text heuristic (the gateway has no such state), the model list has no
+     /model list FILTER yet, auto routing itself is the gateway's business
    - not solved: N restarts = N waiting qjsm processes (no execve in
      QuickJS); a process started from the fallback is not a source tree
      itself, it finds the target from the root like an installed one
