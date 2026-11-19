@@ -1843,11 +1843,13 @@ async function main() {
       console.log(`(exit ${status}${timedOut ? ', timed out' : ''})`);
       console.log(output || '(no output)');
 
-      /* Send the output to the model as a tool result so the model can react */
+      /* Send the output to the model as a tool result, explicitly telling it
+         which command was run and that its output (stdout+stderr, merged)
+         now follows, so it can react to it. */
       const turnStart = messages.length;
       messages.push({ role: 'user', content: prompt });
-      messages.push({ role: 'tool', name: 'run_command', toolCallId: '!-user', content: output || '(no output)' });
-      log.toolResults(`${cmd}\n${output || '(no output)'}`);
+      messages.push({ role: 'tool', name: 'run_command', toolCallId: '!-user', content: `The user ran the shell command: ${cmd}\nIts output (stdout and stderr merged) follows:\n\n${output || '(no output)'}` });
+      log.toolResults(`$ ${cmd}\n${output || '(no output)'}`);
       saveSession();
       return;
     }
