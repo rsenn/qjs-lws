@@ -8,6 +8,10 @@
 	ollama-repl-model-list-prints-promise, found while documenting the
 	overnight work.
 
+	* BUGS: Remove ollama-repl-model-glob-assigns-const,
+	ollama-repl-restart-harness-scope, ollama-repl-restart-command-stub and
+	ollama-repl-model-list-prints-promise (fixed in examples/ollama-repl).
+
 2026-11-14  Roman Senn  <roman.l.senn@gmail.com>
 
 	* cmake/BuildLibwebsockets.cmake (build_libwebsockets): Enable

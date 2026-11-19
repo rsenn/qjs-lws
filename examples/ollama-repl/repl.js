@@ -48,12 +48,12 @@
  *     independent of `TRAFFIC`.
  */
 import { exit, getenv, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
-import { clearTimeout, getcwd, getpid, isatty, realpath, setTimeout, stat, readdir, S_IFDIR } from 'os';
+import { clearTimeout, exec, getcwd, getpid, isatty, realpath, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { rmSync } from 'fs';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
-import { Failover, failoverNote } from './lib/failover.js';
+import { Failover, failoverNote, skipNote } from './lib/failover.js';
 import { buildHandoff, HANDOFF_MODEL } from './lib/handoff.js';
 import { startBridge, pickModel } from './lib/bridge-process.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
@@ -853,32 +853,30 @@ function elideOldToolResults(messages, numCtx) {
 }
 
 /**
- * Serializes session state and restarts the harness with --resume.
- * Validates the harness first via qjsm --help.
+ * Prepares a restart: validates the harness (`qjsm SCRIPT --help`), writes
+ * the session state to a temp file and builds the command line of the new
+ * process - the arguments this one was started with (minus an earlier
+ * --resume, and --model when the provider changes) plus `overrides`
+ * (e.g. { provider: 'gemini' }) and --resume FILE.
+ *
+ * @returns {Promise<string | { argv: string[] }>} an error message, or the argv for qjsm
  */
-async function restartHarness(opts, messages, client) {
-  // Validate harness by running qjsm --help
-  const { output, status } = await runCommand('qjsm examples/ollama-repl/repl.js --help', { cwd: opts.root, timeout: 10000 });
-  if(status !== 0) {
-    return `error: harness validation failed:\n${output}`;
-  }
+async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) {
+  const script = scriptArgs[0];
+  const { output, status } = await runCommand(`qjsm '${script}' --help`, { cwd: opts.root, timeout: 10000 });
+  if(status !== 0) return `error: harness validation failed:\n${output}`;
 
-  // Create temp file for session state
   const tempPath = `${getenv('TMPDIR') || '/tmp'}/ollama-repl-resume-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
-  // Serialize skipped models (only non-expired)
   const now = Date.now();
   const skipped = [];
-  for(const [name, info] of skippedModels) {
-    if(info.until > now) {
-      skipped.push({ name, until: info.until, reason: info.reason });
-    }
-  }
+  for(const [name, info] of skippedModels) if(info.until > now) skipped.push({ name, until: info.until, reason: info.reason });
 
-  // Serialize state
+  /* the original command line decides provider, endpoint and options again;
+     the state only carries what changed while running */
+  const providerChange = overrides.provider !== undefined;
   const state = {
     messages,
-    provider: opts.provider,
-    model: opts.model,
+    model: providerChange ? undefined : opts.model,
     fallbackModel: opts.fallbackModel,
     root: opts.root,
     mode: opts.mode,
@@ -907,16 +905,21 @@ async function restartHarness(opts, messages, client) {
   f.puts(JSON.stringify(state, null, 2));
   f.close();
 
-  // Restore terminal and re-exec
-  console.log(`\nRestarting harness with session state from ${tempPath}...`);
-  
-  // The re-exec will replace this process
-  const cmd = `qjsm examples/ollama-repl/repl.js --resume "${tempPath}"`;
-  popen(cmd, 'r');
-  
-  // This line won't be reached if popen succeeds
-  return 'restart initiated (should not see this)';
+  const args = [];
+  const given = scriptArgs.slice(1);
+  for(let i = 0; i < given.length; i++) {
+    if(given[i] === '--resume' || (providerChange && (given[i] === '--model' || given[i] === '--provider'))) i++;
+    else args.push(given[i]);
+  }
+  if(providerChange) args.push('--provider', overrides.provider);
+  args.push('--resume', tempPath);
+
+  return { argv: ['qjsm', script, ...args] };
 }
+
+/* set by main(): ends this process and runs the restarted one in its place;
+   resolves only with an error message (success never returns) */
+let restartHook = null;
 
 /**
  * Spawns a sub-agent with isolated conversation history.
@@ -1066,9 +1069,9 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       /* Handle special tools that need access to repl.js context */
       if(tc.name === 'restart_harness') {
-        output = await restartHarness(opts, messages, client);
+        output = (await restartHook?.()) ?? 'error: restart is not available here';
         toolCache.set(sig, { output, round });
-        // restart_harness exits the process, so we won't reach here
+        // a successful restart exits the process, only an error gets here
         messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
         continue;
       }
@@ -1507,7 +1510,7 @@ function cleanupSkips() {
 }
 
 /** Shows the model list with strength coloring and skip status. */
-async function showModelList(remote, known) {
+async function showModelList(remote, known, provider) {
   cleanupSkips();
   const models = getFilteredModels(known, remote);
   
@@ -1515,7 +1518,7 @@ async function showModelList(remote, known) {
     return console.log('(no models available)');
   }
   
-  console.log(`Models for ${opts.provider} (${models.length} available):\n`);
+  console.log(`Models for ${provider} (${models.length} available):\n`);
   
   // Build table rows
   const rows = [['#', 'name', 'provider', 'strength', 'capabilities', 'status']];
@@ -1795,6 +1798,7 @@ async function main() {
       opts.cdpHost = state.cdpHost ?? opts.cdpHost;
       opts.cdpPort = state.cdpPort ?? opts.cdpPort;
       opts.name = state.sessionName ?? opts.name;
+      for(const m of state.skippedModels ?? []) if(m.until > Date.now()) skippedModels.set(m.name, { until: m.until, reason: m.reason });
       
       console.log(dim(`(resumed session from ${opts.resume}: ${messages.length} messages)`));
       
@@ -2231,7 +2235,7 @@ async function main() {
     }
 
     if(prompt === '/model' || prompt.startsWith('/model ')) {
-      const arg = prompt.slice('/model'.length).trim();
+      let arg = prompt.slice('/model'.length).trim();
 
       if(!arg) return void console.log(`${opts.provider}/${opts.model} @ ${endpoint}`);
 
@@ -2241,8 +2245,9 @@ async function main() {
       const known = opts.provider === 'ollama' ? ollamaModels() : remote ? remote.map(m => m.name) : null;
 
       if(arg === 'list') {
-        if(remote) return void console.log(showModelList(remote, null));
-        return void console.log(known ? showModelList(null, known) : '(model list is only available for --provider ollama and openai endpoints that serve /models)');
+        if(remote) return void (await showModelList(remote, null, opts.provider));
+        if(known) return void (await showModelList(null, known, opts.provider));
+        return void console.log('(model list is only available for --provider ollama and openai endpoints that serve /models)');
       }
 
       /* /model skip [pattern] and /model unskip [pattern]: skip the active or
@@ -2312,13 +2317,13 @@ async function main() {
 
     if(prompt === '/provider' || prompt.startsWith('/provider ')) {
       const arg = prompt.slice('/provider'.length).trim();
-      if(!arg) return void console.log(`current provider: ${opts.provider}`);
+      if(!arg) return void console.log(`current provider: ${opts.label ?? opts.provider}`);
       if(!['ollama', 'gemini', 'openai', 'freellm', 'bridge'].includes(arg)) {
         return void console.log(red(`error: unknown provider "${arg}" (ollama, gemini, openai, freellm, bridge)`));
       }
-      // Switching provider requires restart with new client
-      console.log(`Provider switch to ${arg} requires restart. Use /restart after changing.`);
-      opts.provider = arg;
+      /* the client, endpoint and key all depend on the provider: start a new process with it */
+      console.log(dim(`(restarting with --provider ${arg}, the conversation is kept)`));
+      console.log(red(await restartHook({ provider: arg })));
       return;
     }
 
@@ -2338,10 +2343,8 @@ async function main() {
     }
 
     if(prompt === '/restart') {
-      console.log('Restarting harness with current session state...');
-      // This will be handled by the restart_harness tool
-      // We just need to trigger it - but it's a tool, so the model needs to call it
-      console.log('Use the restart_harness tool or run with --resume <file>');
+      console.log(dim('(restarting with the current session state)'));
+      console.log(red(await restartHook()));
       return;
     }
 
@@ -2617,6 +2620,16 @@ async function main() {
   repl.onIdle = () => control?.event({ type: 'ready' });
   repl.onPrompt = (kind, text) => control?.event({ type: 'waiting', kind, text });
   repl.addCleanupHandler(() => control?.close());
+
+  /* /restart, /provider and the restart_harness tool: give the terminal back, run the new
+     process in the foreground, leave with its status */
+  restartHook = async overrides => {
+    const r = await prepareRestart(opts, messages, baseMessageCount, overrides);
+    if(typeof r === 'string') return r;
+
+    for(const handler of repl.cleanupHandlers) handler.call(repl);
+    exit(exec(r.argv, { block: true }));
+  };
 
   /* the control socket, from --listen or later from /remote-control */
   startControl = path => {

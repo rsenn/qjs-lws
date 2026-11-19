@@ -9,13 +9,15 @@ upstream errors", REPL commands). Done by the same pass: the fs.rmSync
 regression (commit 44811d7) and a stale installed lib/ (cmake . before
 cmake --install, the lib/ copies are made at configure time).
 
-Open, none of it run yet (read only):
-- restart_harness: baseMessageCount is out of scope, popen does not
-  replace the process, the relative validation path (BUGS:
-  ollama-repl-restart-harness-scope). /restart and /provider are stubs
-  (ollama-repl-restart-command-stub).
-- /model GLOB throws on a const (ollama-repl-model-glob-assigns-const);
-  /model list prints a Promise (ollama-repl-model-list-prints-promise).
+Fixed 2026-11-19 (live-tested in a pty): /model GLOB (const arg),
+/model list (printed a Promise; also read opts, a main() local, and
+/model skip used the unimported skipNote), restart_harness, /restart and
+/provider (one prepareRestart()/restartHook path: validate, state file,
+foreground child with the original arguments, exit with its status);
+--resume now also restores the skip list.
+
+Open, not run yet:
+- restart_harness as a model tool call (the slash commands share its path).
 - spawn_agent: untested; check that read_only really withholds every write
   tool and that the sub-client is destroyed on failure.
 - --help text (USAGE in repl.js) does not list --resume and

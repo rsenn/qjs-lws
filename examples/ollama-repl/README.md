@@ -587,14 +587,14 @@ the raw events.
   requests - see above)
 - `/status` - model/connection/session info
 - `/model [NAME|list]` - show the model in use; `NAME` switches to another installed model (`ollama list`; never pulls one) and keeps the conversation, the prompt and `ollama-repl-ctl list` follow; `list` shows the installed ones. Also works over `--listen`.
-  - `/model list` - table of the available models: number, name (coloured by strength tier, violet strongest to green weakest or unknown), provider, strength label, advertised token limits and status (available, unavailable, or cooldown with the minutes left).
+  - `/model list` - table of the available models: number, name (coloured by strength tier, violet strongest to green weakest or unknown), provider, strength label, advertised token limits and status. Models on cooldown are left out until it ends.
   - `/model skip [PATTERN]` / `/model unskip [PATTERN]` - put the model in use (or the one the gateway last routed to, or every model matching `PATTERN`) on a 10 minute cooldown and switch to the next best model that is not skipped; `unskip` lifts it. Skipped models are left out of automatic selection.
-  - `/model GLOB` (a pattern with `*`, e.g. `qwen*`) - switch to the first matching model; repeating the same pattern cycles through the matches. Currently broken, see BUGS: ollama-repl-model-glob-assigns-const.
+  - `/model GLOB` (a pattern with `*`, e.g. `qwen*`) - switch to the first matching model; repeating the same pattern cycles through the matches.
 - `!COMMAND` - at the start of a prompt: run the shell command yourself (merged stdout and stderr, shown with a `$` prefix), hand the output to the model as a `run_command` result that names the command, and start a model round at once so the model reacts to it.
 - `/export` - export the whole conversation as a plain-text transcript (speaker labels, tool calls inline, nothing clipped): copy it to the clipboard when a clipboard tool is installed, or save it to `<YYYY-MM-DD-HHMMSS>-<session>.txt` in the working directory.
 - `/fallback [MODEL|off]` - show, set or clear the fallback model (`--fallback-model`) used when the current one fails.
-- `/provider [NAME]` - show the provider; with a name it only records the choice, the running client is not replaced (BUGS: ollama-repl-restart-command-stub).
-- `/restart` - a stub that points at the `restart_harness` tool (same BUGS entry).
+- `/provider [NAME]` - show the provider; with a name, restart into that provider (see `/restart`) with the conversation kept. `--model` is dropped, the new provider's default applies.
+- `/restart` - start a new process with the same command line and the current session (messages, model, mode, fallback model, skip list), in the same terminal.
 - `/tools`, `/stream [on|off]` - list the model's tools, show or toggle streaming
 - `/mode [NAME]`, `/verbose [on|off]` - see [Terminal interface](#terminal-interface-tui)
 - `/usage`, `/last [N]`, `/requests [N]`, `/gateway [usage|providers|forecast|quota|models [FILTER]]` - where requests went and what they cost, see [Free models through freellmapi](#free-models-through-freellmapi---provider-freellm)
@@ -631,12 +631,14 @@ documented afterwards, and only read, not run - see TODO.md.
   and `ask_user` are withheld). The status line shows the `sub-agent`
   phase while it runs.
 - **`restart_harness`** (tool) and **`--resume FILE`**: the tool validates
-  the harness, writes the session (messages, provider, model, fallback
-  model, mode, temperature, `--num-ctx`, rounds, streaming, thinking,
-  bridge options, the skip list) to a temp file
+  the harness (`qjsm SCRIPT --help`), writes the session (messages,
+  model, fallback model, mode, the skip list and the other runtime
+  options) to a temp file
   `ollama-repl-resume-*.json` and starts `repl.js --resume FILE`;
-  `--resume` loads that state, then deletes the file. Known broken, see
-  BUGS: ollama-repl-restart-harness-scope.
+  `--resume` loads that state, then deletes the file. The new process
+  runs in the foreground with the arguments of this one (minus an earlier
+  `--resume`), this one waits and exits with its status; the same path
+  serves `/restart` and `/provider`.
 - **`--fallback-model NAME`**: model to switch to when the current one
   fails; also set with `/fallback`.
 - **Failover on upstream failures**: besides rate limits and logins, a
