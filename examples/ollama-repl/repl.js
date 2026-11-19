@@ -49,7 +49,7 @@
  */
 import { exit, getenv, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
 import { clearTimeout, getcwd, getpid, isatty, realpath, setTimeout, stat, readdir, S_IFDIR } from 'os';
-import { rmSync as removeFile } from 'fs';
+import { rmSync } from 'fs';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
@@ -82,6 +82,9 @@ import { done as doneQuip, quip } from './lib/quips.js';
 import { banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
+
+/* rmSync throws on a missing file, os.remove did not */
+const removeFile = path => rmSync(path, { force: true });
 
 /* Bounds the tool-calling loop (see TOOLS/lib/tool-requests.js and
    runToolLoop() below) - a tool-call round costs a real network round trip

@@ -7,7 +7,10 @@
  */
 import { loadFile, open as fopen } from 'std';
 import { getpid, mkdir, stat } from 'os';
-import { rmSync as remove } from 'fs';
+import { rmSync } from 'fs';
+
+/* rmSync throws on a missing file, os.remove did not */
+const remove = path => rmSync(path, { force: true });
 import { runCommand } from './run-command.js';
 
 export class FileExchange {

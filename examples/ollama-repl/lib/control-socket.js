@@ -15,10 +15,13 @@
  *   {type:'info', ...}              session info changed (the model, after /model)
  */
 import { mkdir, setReadHandler, kill, getpid, readdir } from 'os';
-import { rmSync as remove } from 'fs';
+import { rmSync } from 'fs';
 import { getenv, loadFile, open } from 'std';
 import { TextDecoder } from 'textcode';
 import { AF_UNIX, SOCK_STREAM, SockAddr, Socket } from 'sockets';
+
+/* rmSync throws on a missing file, the sock/json files often are */
+const remove = path => rmSync(path, { force: true });
 
 export function controlDir() {
   const base = getenv('XDG_RUNTIME_DIR') || `${getenv('HOME')}/.cache`;
