@@ -76,6 +76,14 @@ step:
      model "standby". Open: the standby is not kept across /restart, no
      per-turn cost accounting for the probes, "next" follows the gateway's
      scores, not its real chain walk (the gateway exposes no next-hop)
+   - lib/config.js, lib/delegates.js: ~/.config/ollama-repl/{settings,
+     delegates}.json, /config, /delegate. Untested live: a real model using
+     spawn_agent with kind and the harness-chosen model (ranking, recording
+     and discovery are unit tested / seen in /delegate). Open: "ok" means
+     the sub-agent finished and said something, quality comes only from the
+     user's votes (the primary model's own verdict is not collected); the
+     primary is not told which models are candidates; Gemini provider has no
+     delegation
    - not solved: N restarts = N waiting qjsm processes (no execve in
      QuickJS); a process started from the fallback is not a source tree
      itself, it finds the target from the root like an installed one

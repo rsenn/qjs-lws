@@ -459,6 +459,26 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   with a note. `spawn_agent` with `model: "standby"` runs a sub-agent on it.
   The status line shows `standby MODEL ✓ 3.1s`. The probes use the
   gateway's free quota, so it is off unless asked for.
+- Global configuration lives in `~/.config/ollama-repl/` (`$XDG_CONFIG_HOME`
+  honoured): `settings.json` holds defaults for command-line options
+  (provider, model, mode, compactAt, standby, ...; a command-line option
+  wins), `delegates.json` what the sub-agent models did. `/config` shows
+  saved and current values, `/config set KEY VALUE` and `/config unset KEY`
+  write the file (used by the next start).
+- Delegation: unless `--no-delegate` or `/delegate off`, the primary model's
+  system prompt says it may hand documentation, build-system wiring,
+  summaries and simple repetitive jobs to weaker sub-agents
+  (`spawn_agent`, with `kind` docs|build|summary|repetitive). With no model
+  named the harness chooses: candidates are discovered (the gateway's
+  enabled, usable, tool-capable models that are reliable and fast but not the
+  strongest, or the installed Ollama models no stronger than the primary),
+  plus the ones set by hand (`/delegate add MODEL [KIND..]`, `pin KIND MODEL`,
+  `ban`), ranked by a memory in `delegates.json`: per model and kind the runs
+  that finished and answered, those that failed or came back empty, the
+  mean time and your votes (`/delegate good|bad` rates the last run). One
+  lucky run does not win (a prior), an untried model gets tried now and then,
+  and a model that fails three times in a row for a kind is left out of it
+  for a day. `/delegate` shows the ranking per kind and the memory.
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
   says, each in its own panel: the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),

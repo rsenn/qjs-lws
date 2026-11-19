@@ -323,12 +323,13 @@ export const TOOLS = [
   },
   {
     name: 'spawn_agent',
-    description: 'Spawns a sub-agent with an isolated conversation to handle a bounded task. The sub-agent runs with read-only tools when read_only is true, and returns only its final summary to the parent conversation.',
+    description: 'Spawns a sub-agent with an isolated conversation to handle a bounded task, on a cheaper model where one is available (documentation, build wiring, summaries, simple repetitive jobs). The sub-agent runs with read-only tools when read_only is true, and returns only its final summary to the parent conversation.',
     parameters: {
       type: 'object',
       properties: {
         task: { type: 'string', description: 'The task for the sub-agent to perform' },
-        model: { type: 'string', description: 'Optional model name to use for the sub-agent; "standby" uses the warm standby model of the gateway (when /standby is on), which spares the main model\'s quota' },
+        kind: { type: 'string', enum: ['docs', 'build', 'summary', 'repetitive', 'other'], description: 'What kind of job it is: docs (documentation), build (build-system wiring), summary (summarizing files or logs), repetitive (simple repeated edits). The harness picks the weaker model that did this kind best before' },
+        model: { type: 'string', description: 'Usually leave empty so the harness chooses by kind. Optional model name to use for the sub-agent; "standby" uses the warm standby model of the gateway (when /standby is on), which spares the main model\'s quota' },
         max_turns: { type: 'integer', description: 'Maximum tool-calling rounds for the sub-agent (default 10)' },
         read_only: { type: 'boolean', description: 'If true, restrict the sub-agent to read-only tools (default false)' },
       },

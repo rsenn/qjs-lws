@@ -75,6 +75,8 @@ import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAl
 import { expandHome, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/standby.js';
+import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting } from './lib/config.js';
+import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
 import { loadAvailability, kindsText, limitsText, limitedText, backText } from './lib/availability.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
@@ -138,6 +140,7 @@ const USAGE = [
   '@Failover (when a chat model hits its limit)',
   ['--no-failover', 'stay on the chosen model instead of switching to another.'],
   ['--self-edit', 'let the model change ollama-repl\'s own files (when it runs from the source tree) without asking, even in auto mode; without it every such edit asks and is never remembered.'],
+  ['--no-delegate', 'do not tell the model it may hand documentation, build wiring, summaries and repetitive jobs to weaker sub-agent models (/delegate)'],
   ['--standby', 'with a freellmapi gateway: keep the model the gateway would use next probed and warm, as a switch-over target and sub-agent model (/standby)'],
   ['--compact-at PCT', 'compact the conversation (older turns summarized by a local model, as for a failover) when it uses this percent of the context window (default 80, 0 = never). /compact does it at once.'],
   ['--no-handoff', 'replay the whole conversation to the next model instead of compacting it.'],
@@ -167,7 +170,7 @@ const USAGE = [
 ];
 
 function parseArgs(argv) {
-  const opts = { mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80, sessionId: undefined };
+  const opts = { ...{ mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80, sessionId: undefined }, ...globalSettings() };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -177,6 +180,7 @@ function parseArgs(argv) {
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--no-failover') opts.noFailover = true;
+    else if(arg === '--no-delegate') opts.noDelegate = true;
     else if(arg === '--no-tools') opts.noTools = true;
     else if(arg === '--no-tui') opts.noTui = true;
     else if(arg === '--scan') opts.scan = true;
@@ -1011,7 +1015,38 @@ function routeTarget(arg) {
 }
 
 /** QUICKJS notes and, when the harness itself is in the project, how to change it safely */
-const systemNotes = root => (isQuickJsProject(root) ? QJS_NOTES : '') + (editsHarness(root) ? SELF_NOTES() : '');
+/* the memory of which sub-agent models did well (lib/delegates.js), and whether the primary is told it may delegate */
+const delegates = new Delegates();
+let delegateNotesOn = false;
+let statsRef = null; /* main()'s stats, for the helpers outside it */
+let lastDelegate = null; /* { id, kind } of the newest delegated run, for /delegate good|bad */
+let delegateCache = { at: 0, ids: [] };
+
+const systemNotes = root => (isQuickJsProject(root) ? QJS_NOTES : '') + (editsHarness(root) ? SELF_NOTES() : '') + (delegateNotesOn && delegates.enabled ? DELEGATE_NOTES : '');
+
+/** the memory's key of a model: the provider keeps a gateway's name apart from an Ollama one */
+const delegateKey = (opts, id) => `${opts.label ?? opts.provider}:${id}`;
+
+/** models that may take a delegated job, best discovered first (cached 10 minutes): the gateway's reliable and fast ones, or the installed Ollama models that are no stronger than the primary */
+async function delegateCandidates(opts) {
+  if(Date.now() - delegateCache.at < STANDBY_TTL_MS && delegateCache.provider === opts.provider) return delegateCache.ids;
+
+  let ids = [];
+  const exclude = [opts.model, statsRef?.last()?.routedVia, statsRef?.last()?.model].filter(Boolean);
+
+  try {
+    if(opts.provider === 'openai' && gatewayRef?.enabled) {
+      if(gatewayRef.dashboard) availability = await loadAvailability(gatewayRef).catch(() => availability);
+      ids = await discoverGateway(gatewayRef, gatewayRef.dashboard ? availability : null, { exclude });
+    } else if(opts.provider === 'ollama') {
+      const mine = modelStrength(opts.model).tier;
+      ids = (ollamaModels() ?? []).filter(m => m !== opts.model && !/embed/i.test(m) && modelStrength(m).tier >= mine);
+    }
+  } catch(e) {}
+
+  delegateCache = { at: Date.now(), provider: opts.provider, ids };
+  return ids;
+}
 
 /**
  * Prepares a restart: validates the harness (`qjsm SCRIPT --help`), writes
@@ -1106,8 +1141,20 @@ let restarting = false;
  */
 async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, askUser, abortRef, forEach, args) {
   const { task, max_turns = 10, read_only = false } = args;
+  const kind = KINDS.includes(args.kind) ? args.kind : 'other';
   /* "standby" names the warm standby model, when there is one */
-  const subModel = args.model === 'standby' ? (standbyReady() ? standby.id : undefined) : args.model;
+  let subModel = args.model === 'standby' ? (standbyReady() ? standby.id : undefined) : args.model;
+  let chosen = null;
+
+  /* no model named: the one that worked best for this kind of job, among the discovered and the set ones */
+  if((!subModel || subModel === 'auto') && delegates.enabled && delegateNotesOn) {
+    const prefix = delegateKey(opts, '');
+    const ranked = delegates.rank(kind, (await delegateCandidates(opts)).map(id => delegateKey(opts, id))).filter(r => r.id.startsWith(prefix));
+    subModel = ranked[0]?.id.slice(prefix.length);
+    if(subModel && subModel !== opts.model) chosen = delegateKey(opts, subModel);
+  } else if(subModel && subModel !== opts.model) chosen = delegateKey(opts, subModel);
+  if(subModel === 'auto') subModel = undefined;
+  const t0 = Date.now();
   
   // Create a new client for the sub-agent (or reuse parent if same model)
   let subClient = parentClient;
@@ -1142,9 +1189,18 @@ async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, a
 
   try {
     const reply = await runToolLoop(subClient, subMessages, subOpts, log, confirmRun, askUser, abortRef, forEach);
-    return `Sub-agent completed task "${task}":\n\n${reply}`;
+    /* a model that finished and said something did its job; whether the work was good is for the user's /delegate good|bad */
+    if(chosen) {
+      delegates.record(chosen, kind, { ok: String(reply ?? '').trim().length > 0, ms: Date.now() - t0 });
+      lastDelegate = { id: chosen, kind };
+    }
+    return `Sub-agent (${subModel ?? opts.model}, ${kind}, ${((Date.now() - t0) / 1000).toFixed(0)}s) completed task "${task}":\n\n${reply}${chosen ? '\n\n(A weaker model did this: check it before relying on it.)' : ''}`;
   } catch(e) {
-    return `Sub-agent failed: ${e.message}`;
+    if(chosen) {
+      delegates.record(chosen, kind, { ok: false, ms: Date.now() - t0 });
+      lastDelegate = { id: chosen, kind };
+    }
+    return `Sub-agent failed (${subModel ?? opts.model}): ${e.message}`;
   } finally {
     // Restore original model if we switched
     if(subClient !== parentClient) {
@@ -1475,6 +1531,8 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new] - freellmapi routing: show what the gateway does with this session, pick a sort axis, a named chain or one pinned model; new restarts sticky routing
 /compact [N]    - summarize the older turns now with a local model and keep the last N (default 3) verbatim; also done automatically at --compact-at percent of the context window
 /standby [on|off|probe|switch|MODEL|auto] - the warm standby model: what the gateway would use next, probed with a tool call (--standby starts it on); switch takes it over, MODEL pins one, spawn_agent with model "standby" runs a sub-agent on it
+/config [set KEY VALUE|unset KEY] - the global settings in ~/.config/ollama-repl/settings.json: defaults for options (provider, model, mode, compactAt, standby, ...), a command-line option wins; without arguments shows saved and current values
+/delegate [on|off|add MODEL [KIND..]|remove MODEL|pin KIND [MODEL]|ban MODEL|unban MODEL|good|bad|forget] - sub-agent delegation: the model is told it may hand docs, build wiring, summaries and repetitive jobs to weaker models; the harness discovers candidates (gateway or Ollama), picks per kind by what worked before and remembers it; good/bad rates the last delegated run
 /restart        - restart the harness with current session state (serializes to temp file and re-execs)
 /usage          - tokens and requests of this session, per routed model and platform
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
@@ -1497,12 +1555,12 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/standby', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
+  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/standby', '/delegate', '/config', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/route', '/standby', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
+const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -1930,7 +1988,7 @@ async function main() {
   }
 
   /* every request's route and tokens, for /usage, /last and the status line */
-  const stats = new UsageStats();
+  const stats = (statsRef = new UsageStats());
   /* context window of the model that answered last, for the status line */
   let ctxWindow;
 
@@ -2173,6 +2231,7 @@ async function main() {
     }
   } else {
     saved = store.load();
+    delegateNotesOn = !opts.noDelegate && !opts.failsafe && !opts.noSystem && !opts.noTools && (opts.provider === 'openai' || opts.provider === 'ollama');
     messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : SYSTEM_PROMPT + systemNotes(opts.root) }];
     baseMessageCount = saved ? saved.baseMessageCount : messages.length;
     /* a resumed session carries the system prompt of the run that saved it */
@@ -2789,6 +2848,88 @@ async function main() {
         await refreshStandby(true);
         return void console.log(show());
       }
+    }
+
+    if(prompt === '/config' || prompt.startsWith('/config ')) {
+      const [verb = '', key, ...value] = prompt.slice('/config'.length).trim().split(/\s+/).filter(Boolean);
+
+      if(verb === 'set' || verb === 'unset') {
+        if(!key) return void console.log(`usage: /config ${verb} KEY${verb === 'set' ? ' VALUE' : ''}   (${Object.keys(SETTINGS).join(', ')})`);
+        const err = verb === 'set' ? (value.length ? setSetting(key, value.join(' ')) : `usage: /config set ${key} VALUE`) : unsetSetting(key);
+        if(err) return void console.log(red(`error: ${err}`));
+        return void console.log(waveNote(`${verb === 'set' ? `${key} = ${value.join(' ')}` : `${key} unset`} in ${settingsPath()}, used by the next start (a command-line option still wins)`));
+      }
+
+      if(verb) return void console.log('usage: /config [set KEY VALUE|unset KEY]');
+
+      const saved = globalSettings();
+      const rows = Object.keys(SETTINGS).map(k => [k, k in saved ? String(saved[k]) : dim('-'), String(opts[k] ?? '')]);
+      return void console.log(`${waveNote(`config  ${configDir()}`)}\n${formatTable([['setting', 'saved', 'now'], ...rows])}\n${dim('settings.json holds defaults for the options, delegates.json what the sub-agent models did')}`);
+    }
+
+    if(prompt === '/delegate' || prompt.startsWith('/delegate ')) {
+      const [verb = '', ...rest] = prompt.slice('/delegate'.length).trim().split(/\s+/).filter(Boolean);
+      const key = id => (id.includes(':') && /^(openai|freellm|ollama|bridge|gemini):/.test(id) ? id : delegateKey(opts, id));
+      const plain = id => id.replace(/^[a-z]+:/, '');
+      const refreshPrompt = () => {
+        if(messages[0]?.role === 'system' && messages[0].content.startsWith(SYSTEM_PROMPT)) messages[0].content = SYSTEM_PROMPT + systemNotes(opts.root);
+      };
+
+      if(verb === 'on' || verb === 'off') {
+        delegates.enabled = verb === 'on';
+        refreshPrompt();
+        return void console.log(waveNote(`delegation ${verb}${verb === 'on' ? '' : ': the model is no longer told it may delegate, spawn_agent still works'}`));
+      }
+
+      if(verb === 'add') {
+        if(!rest[0]) return void console.log('usage: /delegate add MODEL [docs|build|summary|repetitive|other ...]  (the kinds it is pinned for)');
+        const kinds = rest.slice(1).filter(k => KINDS.includes(k));
+        delegates.add(key(rest[0]), kinds);
+        delegateCache.at = 0;
+        return void console.log(waveNote(`${rest[0]} is a delegate${kinds.length ? ` for ${kinds.join(', ')}` : ''}`));
+      }
+
+      if(verb === 'remove' || verb === 'ban' || verb === 'unban') {
+        if(!rest[0]) return void console.log(`usage: /delegate ${verb} MODEL`);
+        if(verb === 'remove') delegates.remove(key(rest[0]));
+        else delegates.ban(key(rest[0]), verb === 'ban');
+        delegateCache.at = 0;
+        return void console.log(waveNote(`${rest[0]} ${verb === 'remove' ? 'removed from the delegates set by hand' : verb === 'ban' ? 'will not get delegated work' : 'may get delegated work again'}`));
+      }
+
+      if(verb === 'pin') {
+        if(!KINDS.includes(rest[0])) return void console.log(`usage: /delegate pin ${KINDS.join('|')} [MODEL]  (no MODEL unpins)`);
+        delegates.pin(rest[0], rest[1] ? key(rest[1]) : null);
+        return void console.log(waveNote(rest[1] ? `${rest[1]} leads for ${rest[0]}` : `${rest[0]} is chosen by memory again`));
+      }
+
+      if(verb === 'good' || verb === 'bad') {
+        const target = rest[0] ? { id: key(rest[0]), kind: rest[1] && KINDS.includes(rest[1]) ? rest[1] : lastDelegate?.kind ?? 'other' } : lastDelegate;
+        if(!target) return void console.log(red('error: no delegated run yet (or name a model: /delegate good MODEL [KIND])'));
+        delegates.vote(target.id, target.kind, verb === 'good' ? 1 : -1);
+        return void console.log(waveNote(`noted: ${plain(target.id)} did ${verb} work for ${target.kind}`));
+      }
+
+      if(verb === 'forget') {
+        delegates.forget();
+        return void console.log(waveNote('the memory of delegated runs is cleared (set-by-hand delegates stay)'));
+      }
+
+      if(verb) return void console.log('usage: /delegate [on|off|add MODEL [KIND..]|remove MODEL|pin KIND [MODEL]|ban MODEL|unban MODEL|good|bad|forget]');
+
+      const cands = await delegateCandidates(opts);
+      const lines = [waveNote(`delegation  ${delegates.enabled ? (delegateNotesOn ? 'on, the model is told it may delegate' : 'on, but off for this provider or mode') : 'off'}`)];
+
+      for(const kind of KINDS) {
+        const ranked = delegates.rank(kind, cands.map(id => delegateKey(opts, id))).slice(0, 3);
+        lines.push(`  ${dim(kind.padEnd(11))}${ranked.length ? ranked.map(r => `${plain(r.id)}${r.pinned ? ' (pinned)' : ''}${r.tried ? ` ${r.ok}/${r.ok + r.fail}` : ''}`).join(', ') : '(no candidate: the primary model does it itself)'}`);
+      }
+
+      const mem = memoryLines(delegates, fmtMs);
+      if(mem.length) lines.push('', dim('memory:'), ...mem.map(l => `  ${l}`));
+      if(delegates.data.banned.length) lines.push('', `${dim('banned')}  ${delegates.data.banned.map(plain).join(', ')}`);
+      lines.push('', dim(`candidates are found on the ${opts.provider === 'openai' ? 'gateway' : 'Ollama host'}: reliable, fast, tool-capable, not the strongest; /delegate add MODEL pins your own. File: ${configDir()}/delegates.json`));
+      return void console.log(lines.join('\n'));
     }
 
     if(prompt === '/restart') {
