@@ -47,7 +47,7 @@
  *     also prints lws's own ERR/WARN/USER lines straight to the terminal,
  *     independent of `TRAFFIC`.
  */
-import { exit, getenv, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
+import { exit, getenv, getenviron, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
 import { clearTimeout, exec, getcwd, getpid, isatty, kill, realpath, setTimeout, stat, readdir, S_IFDIR, ttyGetWinSize } from 'os';
 import { rmSync } from 'fs';
 import { OllamaClient } from './lib/ollama-client.js';
@@ -1183,6 +1183,19 @@ async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) 
 /* set by main(): ends this process and runs the restarted one in its place;
    resolves only with an error message (success never returns) */
 let restartHook = null;
+const RESTART_EXIT = 75;
+
+/** the pid of this process's parent (os has no getppid): the PPid line of /proc/self/status */
+function parentPid() {
+  try {
+    const f = fopen('/proc/self/status', 'r');
+    const text = f.readAsString();
+    f.close();
+    return +/^PPid:\s*(\d+)/m.exec(text)[1];
+  } catch(e) {
+    return 0;
+  }
+}
 let restarting = false;
 
 /**
@@ -3641,27 +3654,61 @@ async function main() {
     }
   };
 
-  /* /restart, /provider and the restart_harness tool: give the terminal back, run the new
-     process in the foreground, leave with its status */
+  /* /restart, /provider and the restart_harness tool: run the new process in the foreground, leave with its
+     status. Restarts do not nest: a process that was itself started by a restart (OLLAMA_REPL_RESTART_FILE
+     names a file) writes what to run next there and exits with RESTART_EXIT; the process that started it
+     (the first one, which keeps the terminal) runs that, so a session restarted ten times is still two
+     processes, not eleven */
   restartHook = async overrides => {
     const r = await prepareRestart(opts, messages, baseMessageCount, overrides);
     if(typeof r === 'string') return r;
 
     if(r.moved) console.log(waveNote(`restarting from the source tree ${r.moved} (this session runs the installed copy, which does not see its edits)`));
 
-    const started = Date.now();
+    let started = Date.now();
     restarting = true;
     for(const handler of repl.cleanupHandlers) handler.call(repl);
 
-    let code = exec(r.argv, { block: true });
+    /* only the process that started this one may take the request: a session this one started (a worker, say)
+       inherits the variables but has another parent */
+    const via = getenv('OLLAMA_REPL_RESTART_FILE');
 
-    /* the edited harness died at startup (not a signal, not a quit): run the version this one started from */
-    if(code > 0 && code < 128 && Date.now() - started < 15000 && r.fallback) {
-      console.log(waveNote(`the restarted harness failed after ${Math.round((Date.now() - started) / 1000)}s (status ${code}), running the previous version`));
-      code = exec(r.fallback, { block: true });
+    if(via && +getenv('OLLAMA_REPL_RESTART_PARENT') === parentPid()) {
+      const f = fopen(via, 'w');
+      f.puts(JSON.stringify({ argv: r.argv, fallback: r.fallback, backup: r.backup }));
+      f.close();
+      exit(RESTART_EXIT);
     }
 
-    rmSync(r.backup, { force: true });
+    /* each run gets the file; a run that asks for the next one leaves its request in it */
+    const file = `/tmp/ollama-repl-restart-${getpid()}.json`;
+    const run = (argv, block = true) => exec(argv, { block, env: { ...getenviron(), OLLAMA_REPL_RESTART_FILE: file, OLLAMA_REPL_RESTART_PARENT: String(getpid()) } });
+    let req = r;
+    let code;
+
+    for(;;) {
+      code = run(req.argv);
+
+      /* the edited harness died at startup (not a signal, not a quit, not a restart): run the version this one started from */
+      if(code > 0 && code < 128 && code !== RESTART_EXIT && Date.now() - started < 15000 && req.fallback) {
+        console.log(waveNote(`the restarted harness failed after ${Math.round((Date.now() - started) / 1000)}s (status ${code}), running the previous version`));
+        code = run(req.fallback);
+      }
+
+      rmSync(req.backup, { force: true });
+      if(code !== RESTART_EXIT) break;
+
+      /* the restarted harness restarted again */
+      try {
+        req = JSON.parse(loadFile(file));
+      } catch(e) {
+        break;
+      }
+      rmSync(file, { force: true });
+      started = Date.now();
+    }
+
+    rmSync(file, { force: true });
     removeSnapshot();
     purgeSnapshots();
     exit(code);

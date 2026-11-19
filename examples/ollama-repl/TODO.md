@@ -824,6 +824,16 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- restarts no longer nest (2026-11-19): a process started by a restart writes
+  the next command to `/tmp/ollama-repl-restart-<first pid>.json` and exits
+  with 75; the first process (it holds the terminal) runs it, with the
+  fallback to the previous version as before. Ten restarts are two
+  processes, not eleven. The child only trusts the request file when its
+  parent is the pid in `OLLAMA_REPL_RESTART_PARENT` (a worker started by the
+  harness inherits the variables). Tested with three `ollama-repl-ctl
+  restart` in tmux and `/exit` (status 0, file gone). Sessions started before
+  this build still hold their old chain until they exit.
+
 - chat-bridge harness step 6 (2026-11-19): `failoverHook` only for a bridge
   with a pinned site (not `auto`, not "all models exhausted"), detection via
   `gateway.isBridge`; `Failover.detect()`/`enabled` removed. Tested against a
