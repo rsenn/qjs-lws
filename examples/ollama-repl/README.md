@@ -494,9 +494,21 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   `/delegate` lists the workers it found. Workers run their own provider,
   model, tools and approvals, so a Gemini or a local Ollama instance can do
   the documentation while the primary stays on the gateway.
+- Tab completes the arguments of the commands too, not only file names:
+  `/mode pl` -> plan, `/proxy`, `/verbose`, `/stream`, `/mouse` (on, off,
+  probe, exit), `/split`, `/provider`, `/gateway` subcommands, `/model` (list,
+  all, skip, unskip and the model names), `/fallback`, `/route` (axes and
+  models), `/standby`, `/delegate` (verbs, model names, kinds), `/config set`
+  (the setting names, then true/false, the mode or the provider names),
+  `/skill` (skill names), `/system` (default, file, off), `/help` (command
+  names). The model names are the ones that can be chosen now: the gateway's
+  ready ones (limited and unavailable models are left out), the host's or the
+  endpoint's list. `/cd`, `/run`, `/each` and unknown commands still complete
+  file names.
 - Tab completion of a `/command` shows what Tab would add, dark grey after
   the cursor (`/gat` -> `/gat`**`eway`**): the part all matching commands
-  share, nothing when they differ at once (`/mo`: mode, model, mouse).
+  share, nothing when they differ at once (`/mo`: mode, model, mouse). The
+  same hint shows for an argument (`/mode pl` -> `an`).
 - `/skill` lists the skills found in `~/.config/ollama-repl/skills/` (its
   own; a directory with a `SKILL.md`, or a plain `NAME.md`) and
   `~/.claude/skills/` (the Claude Code ones, symlinks followed; the first

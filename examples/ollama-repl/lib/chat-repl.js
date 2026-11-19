@@ -74,8 +74,12 @@ export class ChatREPL extends REPL {
   immediate = null;
   onImmediate = null;
 
-  /** () => skill names, completed after '/skill ' */
-  skillNames = null;
+  /**
+   * (command, words before the cursor's word, the word) => candidate words
+   * for the argument of a slash command, [] when it takes none, null to
+   * leave it to the filename completion
+   */
+  argCompleter = null;
 
   get busy() {
     return this.#busy;
@@ -185,11 +189,8 @@ export class ChatREPL extends REPL {
       if(names.length) return { tab: names.map(n => n + ' '), pos: word.length, ctx: {} };
     }
 
-    const skill = this.skillNames && /^\/skill\s+(\S*)$/.exec(line.slice(0, pos));
-    if(skill) {
-      const names = this.skillNames().filter(n => n.startsWith(skill[1]));
-      return { tab: names.map(n => n + ' '), pos: skill[1].length, ctx: {} };
-    }
+    const arg = this.argCandidates(line.slice(0, pos));
+    if(arg) return { tab: arg.names.map(n => n + ' '), pos: arg.word.length, ctx: {} };
 
     const dirsOnly = /^\/cd\s+$/.test(line.slice(0, start));
     const slash = word.lastIndexOf('/');
@@ -214,6 +215,25 @@ export class ChatREPL extends REPL {
   }
 
   /**
+   * The candidates for the argument being typed after a slash command
+   * ('/mode pl' -> plan), or null when the line is not such a command or the
+   * command leaves its argument to the filename completion.
+   *
+   * @param {string} text  the line up to the cursor
+   * @returns {{names: string[], word: string}|null}
+   */
+  argCandidates(text) {
+    const m = /^(\/[a-z-]+)\s+([\s\S]*)$/.exec(text);
+    if(!m || !this.argCompleter) return null;
+
+    const words = m[2].split(/\s+/);
+    const word = words.pop();
+    const names = this.argCompleter(m[1], words, word);
+
+    return names ? { names: names.filter(n => n.startsWith(word)), word } : null;
+  }
+
+  /**
    * What Tab would add to a slash command typed at the start of the line,
    * shown dark grey after the cursor: the part the matching commands have
    * in common ('/mo' -> 'de', for /mode and /model). '' when nothing would
@@ -221,7 +241,17 @@ export class ChatREPL extends REPL {
    */
   ghost() {
     const line = this.cmd;
-    if(this.cursorPos !== line.length || !line.startsWith('/') || /\s/.test(line)) return '';
+    if(this.cursorPos !== line.length || !line.startsWith('/')) return '';
+
+    /* an argument: what the matching candidates have in common beyond the typed word */
+    if(/\s/.test(line)) {
+      const arg = this.argCandidates(line);
+      if(!arg?.names.length) return '';
+
+      let common = arg.names[0];
+      for(const n of arg.names) while(!n.startsWith(common)) common = common.slice(0, -1);
+      return common.slice(arg.word.length);
+    }
 
     const names = this.commandNames.filter(n => n.startsWith(line));
     if(!names.length) return '';

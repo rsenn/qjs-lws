@@ -1878,6 +1878,106 @@ function compactTable(rows, width, flex, caps, paint) {
   );
 }
 
+/* Tab completion of a slash command's arguments (ChatREPL.argCompleter): the words a command takes, not file names.
+   Returns the candidates, [] when the command takes no more words, null to leave the word to the file completion. */
+let modelNamesCache = null; /* names of /model list or the Ollama host, for the ones the gateway does not catalog */
+
+/** model names that can be chosen now: the gateway's ready models, else what /model last listed, else the Ollama host */
+function completionModels() {
+  if(gatewayRef?.enabled) return gatewayRef.modelsCached().filter(m => (m.execution_status ?? 'ready') === 'ready' && !availability?.byModel.get(m.id)?.blocked).map(m => m.id);
+  if(modelNamesCache) return modelNamesCache;
+  return completionOllama ? (ollamaModelsCache ??= ollamaModels() ?? []) : [];
+}
+let completionOllama = false;
+let ollamaModelsCache = null;
+
+function completeArgs(cmd, args, word) {
+  const n = args.length;
+  const MODE_NAMES = MODES;
+  const onoff = ['on', 'off'];
+  const kinds = KINDS;
+
+  switch(cmd) {
+    case '/mode':
+      return n === 0 ? MODE_NAMES : [];
+    case '/verbose':
+    case '/stream':
+    case '/mouse':
+      return n === 0 ? onoff : [];
+    case '/proxy':
+      return n === 0 ? ['on', 'off', 'probe', 'exit'] : [];
+    case '/split':
+      return n === 0 ? ['diff', 'git', 'status', 'off'] : [];
+    case '/provider':
+      return n === 0 ? ['ollama', 'gemini', 'openai', 'freellm', 'bridge'] : [];
+    case '/fallback':
+      return n === 0 ? ['off', ...completionModels()] : [];
+    case '/model':
+      if(n === 0) return ['list', 'skip', 'unskip', ...completionModels()];
+      if(n === 1 && args[0] === 'list') return ['all'];
+      if(n === 1 && (args[0] === 'skip' || args[0] === 'unskip')) return completionModels();
+      return [];
+    case '/route':
+      if(n === 0) return ['list', ...ROUTE_AXES.map(a => a[0]), 'auto', 'profile', 'new', ...completionModels()];
+      return [];
+    case '/standby':
+      return n === 0 ? ['on', 'off', 'probe', 'switch', 'auto', ...completionModels()] : [];
+    case '/delegate':
+      if(n === 0) return ['on', 'off', 'add', 'remove', 'pin', 'ban', 'unban', 'good', 'bad', 'forget'];
+      if(n === 1 && ['add', 'remove', 'ban', 'unban', 'good', 'bad'].includes(args[0])) return completionModels();
+      if(n === 1 && args[0] === 'pin') return kinds;
+      if(n === 2 && args[0] === 'pin') return completionModels();
+      if(n >= 2 && (args[0] === 'add' || args[0] === 'good' || args[0] === 'bad')) return kinds;
+      return [];
+    case '/config':
+      if(n === 0) return ['set', 'unset'];
+      if(n === 1) return Object.keys(SETTINGS);
+      if(n === 2 && args[0] === 'set') {
+        const type = SETTINGS[args[1]];
+        if(args[1] === 'mode') return MODE_NAMES;
+        if(args[1] === 'provider') return ['ollama', 'gemini', 'openai', 'freellm', 'bridge'];
+        if(type === 'boolean') return ['true', 'false'];
+      }
+      return [];
+    case '/skill':
+      if(n === 0) return ['off', 'loaded', ...listSkills().map(sk => sk.name)];
+      if(n === 1 && args[0] === 'off') return listSkills().map(sk => sk.name);
+      return [];
+    case '/gateway':
+      return n === 0 ? ['usage', 'providers', 'forecast', 'quota', 'limits', 'limited', 'models', 'login'] : [];
+    case '/system':
+      if(n === 0) return ['default', 'file', 'off'];
+      return n === 1 && args[0] === 'file' ? null : [];
+    case '/remote-control':
+      return n === 0 && !/^[/.~]/.test(word) ? ['off'] : null;
+    case '/help':
+      return n === 0 ? HELP_TEXT.match(/^\/[a-z-]+/gm).map(c => c.slice(1)) : [];
+    case '/compact':
+    case '/last':
+    case '/requests':
+    case '/view':
+    case '/rename':
+    case '/restart':
+    case '/undo':
+    case '/diff':
+    case '/status':
+    case '/usage':
+    case '/tools':
+    case '/about':
+    case '/reset':
+    case '/clear':
+    case '/exit':
+    case '/quit':
+    case '/files':
+    case '/context':
+    case '/log':
+    case '/export':
+      return [];
+    default:
+      return null; /* /cd, /run, /each, /js, /binding, an unknown command: file names */
+  }
+}
+
 /** Shows the model list with strength coloring and skip status. */
 async function showModelList(remote, known, provider, showAll = false) {
   cleanupSkips();
@@ -2004,6 +2104,7 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
 
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
+  completionOllama = opts.provider === 'ollama';
   initHarness(opts.root);
   snapshotHarness();
 
@@ -2170,6 +2271,9 @@ async function main() {
       }
     } else if(opts.label === 'freellm') console.log(dim(`(${client.baseUrl} does not answer /v1/usage - no freellmapi gateway there, /gateway is off)`));
   }
+
+  /* a plain OpenAI-compatible endpoint (a chat-bridge): its model names for Tab completion */
+  if(opts.provider === 'openai' && !gateway?.enabled) client.listModels().then(r => (modelNamesCache = r.filter(m => m.available !== false).map(m => m.name))).catch(() => {});
 
   if(bridgeProc && opts.model === undefined) {
     const models = await client.listModels().catch(() => []);
@@ -2742,6 +2846,7 @@ async function main() {
       const known = opts.provider === 'ollama' ? ollamaModels() : remote ? remote.map(m => m.name) : null;
 
       unavailableModels = new Set((remote ?? []).filter(m => m.available === false).map(m => m.name));
+      if(remote && !gatewayRef?.enabled) modelNamesCache = remote.filter(m => m.available !== false).map(m => m.name);
 
       if(arg === 'list' || arg === 'list all') {
         if(remote) return void (await showModelList(remote, null, opts.provider, arg === 'list all'));
@@ -3332,7 +3437,7 @@ async function main() {
     repl.addCleanupHandler(() => tui.close());
   }
 
-  repl.skillNames = () => ['off', 'loaded', ...listSkills().map(sk => sk.name)];
+  repl.argCompleter = completeArgs;
   repl.commandNames = [...new Set([...HELP_TEXT.matchAll(/(?:^|, )(\/[a-z]+)/gm)].map(m => m[1]))].sort();
 
   /* a key press outside the TUI has no status line: say it in one line and draw the prompt again */

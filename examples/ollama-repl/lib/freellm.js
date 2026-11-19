@@ -226,6 +226,11 @@ export class Gateway {
    *
    * @returns {Promise<object[]>} /v1/models entries
    */
+  /** the catalog as last loaded, [] before the first models() (for completion, which cannot wait) */
+  modelsCached() {
+    return this.#models ?? [];
+  }
+
   async models(refresh = false) {
     if(!this.#models || refresh) this.#models = (await this.#client.getJSON('/models')).data ?? [];
     return this.#models;
