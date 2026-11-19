@@ -318,6 +318,12 @@ dashboard login, so it is not queried.
 
 ## Terminal interface (TUI)
 
+On a terminal a model's reply starts with a small beach scene in the
+theme gradient, `≋≈☼` (waves rising into the sun), instead of the old
+`provider>` prefix; piped output (scripts, `ollama-repl-ctl`) keeps
+`provider> `. Status notes of newer features start with a teal `≋`
+(`waveNote()` in `lib/look.js`).
+
 On a terminal, ollama-repl keeps its input and three status rows at the
 bottom of the screen, in its own teal-to-amber look (`lib/tui.js` for
 the layout, `lib/look.js` for the style, both on qjs-modules' `terminal`

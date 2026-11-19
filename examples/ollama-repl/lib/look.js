@@ -16,6 +16,12 @@ export const STOPS = ['#2dd4bf', '#a3e635', '#fbbf24'];
 export const ACCENT = STOPS[0];
 export const WARN = STOPS[2];
 
+/** the marker in front of a model reply: waves rising into the sun, in the gradient (single-width glyphs only) */
+export const replyMark = () => `${gradient('≋≈☼', STOPS)} `;
+
+/** a status note: a wave in the accent colour, then the text dimmed */
+export const waveNote = text => `${style('≋', { fg: ACCENT })} ${style(text, { dim: true })}`;
+
 /** a horizontal line in the gradient, with an optional label */
 export const gradientRule = (cols, label = '') => gradient(rule(cols, { label }), STOPS);
 

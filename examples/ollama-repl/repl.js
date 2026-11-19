@@ -79,7 +79,7 @@ import { exitIp, measure, newExit, proxied, proxySettings } from './lib/proxy-pr
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
-import { banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
+import { replyMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
@@ -813,7 +813,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
           if(panes) showReasoning();
           if(!tui?.active) stopSpinner(); // in the TUI it runs on in its own row until the round is done
           if(thinking) stdout.puts('\n');
-          stdout.puts(`\n${opts.label ?? opts.provider}> `);
+          stdout.puts(`\n${piped ? `${opts.label ?? opts.provider}> ` : replyMark()}`);
           first = false;
         }
 
@@ -842,7 +842,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
       reasoning = result.reasoning ?? '';
       showReasoning();
     } else if(verbose && result.reasoning) console.log(dim(`\nthinking: ${result.reasoning}`));
-    if(result.content && !opts.quiet) console.log(`\n${opts.label ?? opts.provider}> ${piped ? result.content : new MarkdownStream().push(result.content + '\n')}\n`);
+    if(result.content && !opts.quiet) console.log(`\n${piped ? `${opts.label ?? opts.provider}> ` : replyMark()}${piped ? result.content : new MarkdownStream().push(result.content + '\n')}\n`);
     response(result);
     cogitated(result);
     return result;
