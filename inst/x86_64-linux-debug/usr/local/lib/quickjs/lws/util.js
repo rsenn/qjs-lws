@@ -1,0 +1,174 @@
+import { getpid, kill, SIGUSR1 } from 'os';
+
+const LC = console.config?.({ depth: 1, compact: true, maxArrayLength: 10, maxStringLength: 100 });
+
+export const CONNECTING = 0;
+export const OPEN = 1;
+export const CLOSING = 2;
+export const CLOSED = 3;
+
+export const states = { CONNECTING, OPEN, CLOSING, CLOSED };
+
+export class ConnectionError extends Error {
+  constructor(message) {
+    super('ConnectionError: ' + message.replace(/.*fail:\s*/g, ''));
+  }
+}
+
+export function waitWrite(wsi) {
+  return new Promise((resolve, reject) => wsi.wantWrite(resolve));
+}
+
+/**
+ * wsi.close() throws (native "s->wsi == NULL") if the connection already
+ * closed - unlike a normal close(), which is idempotent. That's a routine
+ * race whenever both ends of a relay/pipe react to the same disconnect (one
+ * side's `cancel`/`close`/`abort` firing after the other already tore the
+ * connection down), so callers that close reactively rather than because a
+ * caller explicitly asked to should go through this instead of `wsi.close()`
+ * directly.
+ */
+export function safeClose(wsi, ...args) {
+  try {
+    wsi.close(...args);
+  } catch(e) {}
+}
+
+export function assert(cond, message) {
+  if(!cond) throw new Error('assertion failed: ' + message);
+}
+
+export function typeIsObject(x) {
+  return (typeof x == 'object' && x !== null) || typeof x == 'function';
+}
+
+export function isAsyncIterable(obj) {
+  return typeof obj == 'object' && obj !== null && typeof obj[Symbol.asyncIterator] == 'function';
+}
+
+export function isIterable(obj) {
+  return typeof obj == 'object' && obj !== null && typeof obj[Symbol.iterator] == 'function';
+}
+
+export function iteratorProperty(obj) {
+  if(typeof obj == 'object' && obj !== null) for(let prop of [Symbol.asyncIterator, Symbol.iterator]) if (prop in obj && typeof obj[prop] == 'function') return prop;
+}
+
+export function iteratorFunction(obj) {
+  if(typeof obj == 'object' && obj !== null) return obj[Symbol.asyncIterator] ?? obj[Symbol.iterator];
+}
+
+export function wrapFunction(fn, wrapper = a => a) {
+  const { length, name } = fn;
+  return define(
+    function(...args) {
+      return wrapper.call(this, fn.apply(this, args));
+    },
+    { length, name },
+  );
+}
+
+/**
+ * Checks if @param a is the prototype of @param b
+ * @param  {object}  a    Prototype to check
+ * @param  {object}  b    Object
+ * @return {boolean}
+ */
+export function isPrototypeOf(a, b) {
+  try {
+    return Object.prototype.isPrototypeOf.call(a, b);
+  } catch(e) {}
+}
+
+export function stripAnsi(str) {
+  return str.replaceAll(/(.*\r|\x1b\[[^A-Za-z]*[A-Za-z])/g, '');
+}
+
+export function padEnd(str, n, s = ' ') {
+  const { length } = stripAnsi(str);
+  if(length < n) str += s.repeat(n - length);
+  return str;
+}
+
+export function interactive() {
+  kill(getpid(), SIGUSR1);
+}
+
+export function weakMapper(create, map = new WeakMap()) {
+  return (key, value) => (value !== undefined ? map.set(key, value) : (value = map.get(key)) || map.set(key, (value = create(key))), value);
+}
+
+export function setFunctionName(fn, name) {
+  try {
+    Object.defineProperty(fn, 'name', {
+      value: name,
+      configurable: true,
+    });
+  } catch(e) {}
+}
+
+/**
+ * Assigns all objects in @params to @param obj
+ *
+ * @param  {object}    obj    Object to which we assign
+ * @param  {...object} args   Multiple property bags
+ * @return {object}           The supplied object with new properties assigned
+ */
+export function assign(obj, ...args) {
+  for(let props of args)
+    for(let prop of [...Object.getOwnPropertyNames(props), ...Object.getOwnPropertySymbols(props)]) Object.defineProperty(obj, prop, { value: props[prop], configurable: true, writable: true });
+}
+
+/**
+ * Defines properties
+ *
+ * @param  {object} obj    Destination object on which to define properties
+ * @param  {object} props  Source properties
+ * @param  {object} opts   Property descriptors
+ * @return {object}       The object given in \param obj
+ */
+export function define(obj, props, opts = { writable: true, configurable: true }) {
+  for(let prop of [...Object.getOwnPropertyNames(props), ...Object.getOwnPropertySymbols(props)]) {
+    //console.log('prop', prop);
+    Object.defineProperty(obj, prop, { value: props[prop], ...opts });
+  }
+  return obj;
+}
+
+/**
+ * Creates a function that maps one value to another.
+ * If called with 1 argument, the get() method will be invoked,
+ * if called with 2 arguments the set() method will be invoked.
+ *
+ * @param  {Map|WeakMap} target  The map
+ * @return {Function}            Mapping function
+ */
+export function mapper(target = new WeakMap()) {
+  return (...args) => (args.length > 1 ? (target.set(...args), undefined) : target.get(...args));
+}
+
+/**
+ * Builds a `fire(wsi, type, props)` helper that looks up the EventTarget for
+ * `wsi` via `lookup` (typically a `mapper()`) and dispatches `type` on it,
+ * carrying `props` along - the common "wsi -> wrapper object -> dispatch"
+ * step every `Ws*Protocol`/`raw()` adapter's `open`/`message`/`close`/`error`
+ * callbacks need.
+ *
+ * @param  {(wsi) => EventTarget} lookup
+ * @return {(wsi, type: string, props?: object) => void}
+ */
+export function makeFireEvent(lookup) {
+  return (wsi, type, props) => lookup(wsi).dispatchEvent({ type, target: lookup(wsi), ...props });
+}
+
+const TypedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+
+export function isView(obj) {
+  return isPrototypeOf(TypedArrayPrototype, obj) || isPrototypeOf(DataView.prototype, obj);
+}
+
+export function once(fn, thisArg) {
+  let ret,
+    ran = false;
+  return (...args) => (ran ? ret : ((ran = true), (ret = fn.apply(thisArg, args))));
+}

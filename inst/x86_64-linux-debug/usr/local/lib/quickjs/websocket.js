@@ -1,0 +1,387 @@
+import createContext, { ContextRefCounter } from './lws/context.js';
+import { EventTargetProperties } from './lws/events.js';
+import { client, ws as wsServer, reassembleFragments } from './lws/protocols.js';
+import { define, mapper, makeFireEvent, waitWrite, states, CONNECTING, OPEN, CLOSING, CLOSED } from './lws/util.js';
+import { toArrayBuffer } from 'lws.so';
+
+export { CONNECTING, OPEN, CLOSING, CLOSED } from './lws/util.js';
+
+const ALLOWED_PROTOCOLS = ['ws:', 'wss:', 'http:', 'https:'];
+
+function messageByteLength(message) {
+  return typeof message === 'string' ? toArrayBuffer(message).byteLength : message.byteLength;
+}
+
+/**
+ * Server-wide topic -> subscriber registry backing `WebSocket#subscribe()`/
+ * `#unsubscribe()`/`#publish()` and `Server#publish()` (lib/serve.js) -
+ * Bun's `ws.subscribe(topic)`/`server.publish(topic, message)` pub/sub,
+ * without the app having to track its own list of live sockets. One
+ * instance per `WebSocket.protocol()` registration (i.e. per server's WS
+ * mountpoint) - topics don't cross servers, matching Bun's own per-server
+ * scope.
+ */
+class TopicRegistry {
+  #topics = new Map(); // topic -> Set<WebSocket>
+  #subscriptions = new WeakMap(); // WebSocket -> Set<topic>
+
+  subscribe(ws, topic) {
+    let subs = this.#topics.get(topic);
+    if(!subs) this.#topics.set(topic, (subs = new Set()));
+    subs.add(ws);
+
+    let topics = this.#subscriptions.get(ws);
+    if(!topics) this.#subscriptions.set(ws, (topics = new Set()));
+    topics.add(topic);
+  }
+
+  unsubscribe(ws, topic) {
+    this.#topics.get(topic)?.delete(ws);
+    this.#subscriptions.get(ws)?.delete(topic);
+  }
+
+  isSubscribed(ws, topic) {
+    return this.#topics.get(topic)?.has(ws) ?? false;
+  }
+
+  /** Returns the number of sockets currently subscribed to `topic`. */
+  subscriberCount(topic) {
+    return this.#topics.get(topic)?.size ?? 0;
+  }
+
+  /** Returns an array of topics `ws` is currently subscribed to. */
+  getSubscriptions(ws) {
+    const topics = this.#subscriptions.get(ws);
+    return topics ? [...topics] : [];
+  }
+
+  /** Sends `message` to every subscriber of `topic` except `exclude` (a
+      `ws.publish()` call excludes itself; `Server#publish()` excludes
+      nothing). Returns the total bytes handed to `wsi.write()` across all
+      recipients - lws doesn't expose a per-write backpressure/bytes-sent
+      result to check against, so this is "bytes attempted", not a
+      confirmed-delivered count. */
+  publish(topic, message, exclude) {
+    const subs = this.#topics.get(topic);
+    if(!subs || !subs.size) return 0;
+
+    const len = messageByteLength(message);
+    let sent = 0;
+
+    for(const ws of subs) {
+      if(ws === exclude) continue;
+      ws.send(message);
+      sent += len;
+    }
+
+    return sent;
+  }
+
+  /** Drops every subscription `ws` still has - called once, on close. */
+  cleanup(ws) {
+    const topics = this.#subscriptions.get(ws);
+    if(!topics) return;
+
+    for(const topic of topics) this.#topics.get(topic)?.delete(ws);
+    this.#subscriptions.delete(ws);
+  }
+}
+
+export class WebSocket extends EventTargetProperties(['open', 'error', 'message', 'drain', 'close']) {
+  #wsi = null;
+  #url = null;
+
+  constructor(url, options_or_protocols) {
+    super();
+
+    if(url) {
+      if(!ALLOWED_PROTOCOLS.find(p => url.toString().startsWith(p)))
+        throw new SyntaxError(`Failed to create WebSocketStream. Cause: Invalid URL protocol. Possible values are: ${ALLOWED_PROTOCOLS.map(protocol => `"${protocol}"`).join(', ')}.`);
+
+      this.#url = url.toString();
+
+      if(typeof options_or_protocols == 'string') options_or_protocols = [options_or_protocols];
+
+      const options = Array.isArray(options_or_protocols) ? {} : options_or_protocols;
+      const protocols = Array.isArray(options_or_protocols) ? options_or_protocols : options_or_protocols?.protocols;
+
+      this.readyState = CONNECTING;
+
+      this.#wsi = WebSocket.#create(this, options, ctx =>
+        ctx.clientConnect(url, {
+          protocol: protocols ? protocols.toString() : 'ws',
+          localProtocolName: 'ws',
+        }),
+      );
+    }
+  }
+
+  close(code, reason) {
+    return this.#wsi.close(code, reason);
+  }
+
+  send(data) {
+    const ret = this.#wsi.write(data);
+
+    // Arms a one-shot 'drain' event once the write queue this left behind
+    // (if any) is fully flushed - wantWrite() is a no-op if a wait is
+    // already pending, so overlapping send()s while backed up don't stack
+    // up extra listeners.
+    if(this.#wsi.bufferedAmount > 0) this.#wsi.wantWrite(() => this.dispatchEvent({ type: 'drain', target: this }));
+
+    return ret;
+  }
+
+  /** Node's `socket.writableNeedDrain`-equivalent: true if a send() right
+      now would buffer instead of going out immediately. */
+  get writableNeedDrain() {
+    return this.#wsi.sendPipeChoked;
+  }
+
+  /** WHATWG/Bun/Deno `bufferedAmount`: bytes still queued to be sent. */
+  get bufferedAmount() {
+    return this.#wsi.bufferedAmount;
+  }
+
+  /** Node's `tlsSocket.getPeerCertificate()`-equivalent: `{ subjectCN,
+      issuerCN, validFrom, validTo, verified }`, or `null` if this isn't a
+      `wss://` connection / no peer cert was presented. */
+  get peerCertificate() {
+    return this.#wsi.peerCertificate;
+  }
+
+  /** Node's `tlsSocket.isSessionReused()`-equivalent. */
+  get tlsSessionReused() {
+    return this.#wsi.tlsSessionReused;
+  }
+
+  get protocol() {
+    const { headers } = this.#wsi;
+
+    return headers?.['sec-websocket-protocol'] ?? headers?.[''];
+  }
+
+  get extensions() {
+    const { extensions } = this.#wsi;
+
+    return Array.isArray(extensions) ? extensions.join(',') : '';
+  }
+
+  get url() {
+    return this.#url;
+  }
+
+  get remoteAddress() {
+    return this.#wsi.peer?.host;
+  }
+
+  get remotePort() {
+    return this.#wsi.peer?.port;
+  }
+
+  get localAddress() {
+    return this.#wsi.local?.host;
+  }
+
+  get localPort() {
+    return this.#wsi.local?.port;
+  }
+
+  static #ctx;
+  static #sockets;
+  /* WebSocket has no listen()/bind() equivalent - the static #ctx here is
+     only ever used for outbound clientConnect()s (server-accepted sockets
+     go through .protocol()'s own, separate context, below) - so a plain
+     ContextRefCounter is enough, no markServer() carve-out needed like
+     TCPSocket's. */
+  static #ref = new ContextRefCounter(() => {
+    WebSocket.#ctx?.destroy();
+    WebSocket.#ctx = undefined;
+    WebSocket.#sockets = undefined;
+  });
+
+  static lws(ws) {
+    return ws.#wsi;
+  }
+
+  static #accept(wsi) {
+    const socket = new WebSocket();
+
+    socket.#wsi = wsi;
+    socket.readyState = OPEN;
+    return socket;
+  }
+
+  static #create(ws, options, connectFn) {
+    const sockets = (this.#sockets ??= mapper());
+    const fire = makeFireEvent(sockets);
+
+    this.#ctx ??= createContext({
+      ...options,
+      protocols: [
+        {
+          name: 'ws',
+          ...client({
+            open: wsi => ((sockets(wsi).readyState = OPEN), fire(wsi, 'open')),
+            error: (wsi, message) => ((sockets(wsi).readyState = CLOSING), fire(wsi, 'error', { message }), this.#ref.release(wsi)),
+            close: (wsi, code, reason) => ((sockets(wsi).readyState = CLOSED), fire(wsi, 'close', { code, reason }), this.#ref.release(wsi)),
+            message: reassembleFragments((wsi, data, size) => fire(wsi, 'message', { data, size })),
+          }),
+        },
+      ],
+    });
+
+    if(connectFn) {
+      const wsi = connectFn(this.#ctx);
+
+      this.#ref.add(wsi);
+      sockets(wsi, ws);
+      return wsi;
+    }
+  }
+
+  /**
+   * Synthesizes a `createServer()`-compatible protocol descriptor that adapts
+   * every WS connection accepted under it into a `WebSocket`, handed to
+   * `callback` once established. Mirrors `TCPSocket.protocol()`
+   * (lib/tcpsocket.js) and `WebSocketStream.protocol()`
+   * (lib/websocketstream.js).
+   *
+   * @param  {string}   name      Protocol name (matches `mounts[].protocol`
+   *                              / the negotiated `Sec-WebSocket-Protocol`)
+   * @param  {Function} callback  `(ws: WebSocket) => void`, called once per
+   *                              established connection
+   * @return {object}             A protocol descriptor for `createServer()`'s
+   *                              `protocols` array - also carries a
+   *                              `publish(topic, message)` (server-wide,
+   *                              excludes nobody) that `serve()` exposes as
+   *                              `server.publish()`
+   */
+  static protocol(name, callback) {
+    const sockets = new WeakMap();
+    const topics = new TopicRegistry();
+
+    const descriptor = {
+      name,
+      ...wsServer({
+        open: wsi => {
+          const socket = WebSocket.#accept(wsi);
+
+          socket.subscribe = topic => topics.subscribe(socket, topic);
+          socket.unsubscribe = topic => topics.unsubscribe(socket, topic);
+          socket.isSubscribed = topic => topics.isSubscribed(socket, topic);
+          socket.publish = (topic, message) => topics.publish(topic, message, socket);
+
+          Object.defineProperty(socket, 'subscriptions', {
+            get() {
+              return topics.getSubscriptions(socket);
+            },
+            enumerable: true,
+          });
+
+          socket.cork = callback => {
+            const queue = [];
+            const originalSend = socket.send.bind(socket);
+            socket.send = data => {
+              queue.push(data);
+              return undefined;
+            };
+
+            const result = callback(socket);
+
+            if(result instanceof Promise) {
+              return result
+                .then(() => {
+                  socket.send = originalSend;
+                  for(const data of queue) socket.send(data);
+                })
+                .catch(err => {
+                  socket.send = originalSend;
+                  throw err;
+                });
+            } else {
+              socket.send = originalSend;
+              for(const data of queue) socket.send(data);
+              return result;
+            }
+          };
+
+          sockets.set(wsi, socket);
+          callback(socket);
+        },
+        message: reassembleFragments((wsi, data, size) => {
+          const socket = sockets.get(wsi);
+
+          socket?.dispatchEvent({ type: 'message', target: socket, data, size });
+        }),
+        close: (wsi, code, reason) => {
+          const socket = sockets.get(wsi);
+
+          if(socket) {
+            topics.cleanup(socket);
+            socket.readyState = CLOSED;
+            socket.dispatchEvent({ type: 'close', target: socket, code, reason });
+          }
+        },
+      }),
+    };
+
+    descriptor.publish = (topic, message) => topics.publish(topic, message);
+    descriptor.subscriberCount = topic => topics.subscriberCount(topic);
+
+    return descriptor;
+  }
+
+  static waitWrite(ws) {
+    return waitWrite(ws.#wsi);
+  }
+
+  /**
+   * Connects to a WebSocket server and returns a Promise that resolves when
+   * the connection is established. Bun-style convenience method.
+   *
+   * @param  {string}  url        WebSocket URL (ws://, wss://, http://, https://)
+   * @param  {string|string[]} [protocols]  Subprotocol(s) to request
+   * @return {Promise<WebSocket>} Resolves with the connected WebSocket
+   */
+  static connect(url, protocols) {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(url, protocols);
+
+      ws.addEventListener('open', () => resolve(ws), { once: true });
+      ws.addEventListener(
+        'error',
+        event => {
+          reject(new Error(event.message || 'WebSocket connection failed'));
+        },
+        { once: true },
+      );
+      ws.addEventListener(
+        'close',
+        event => {
+          // If close fires before open, the connection failed
+          reject(new Error(`WebSocket closed before opening: ${event.code} ${event.reason || ''}`));
+        },
+        { once: true },
+      );
+    });
+  }
+
+  /**
+   * Checks if an object is a WebSocket instance. Deno-style type guard.
+   *
+   * @param  {*} obj  Object to check
+   * @return {boolean} True if obj is a WebSocket instance
+   */
+  static isWebSocket(obj) {
+    return obj instanceof WebSocket;
+  }
+}
+
+define(WebSocket, states);
+define(WebSocket.prototype, states);
+
+WebSocket.prototype[Symbol.toStringTag] = 'WebSocket';
+
+define(WebSocket.prototype, { binaryType: 'arraybuffer' }, { writable: true });
+define(WebSocket.prototype, { readyState: undefined }, { writable: true, enumerable: true });

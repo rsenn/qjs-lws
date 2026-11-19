@@ -1,0 +1,816 @@
+/**
+ * Adapters that bridge lws's native `on<CallbackReason>` protocol callbacks
+ * to a small set of role-shaped handlers, so the same handler set works
+ * whether the wsi underneath is HTTP, WS or a raw TCP socket.
+ *
+ * Each adapter is a class: it owns whatever per-wsi lifecycle state its role
+ * needs (a WeakMap keyed by wsi), and exposes its `on<Name>` methods as
+ * class-field arrow functions - own, enumerable, bound instance properties -
+ * so an instance spreads directly into a `protocols: [...]` descriptor:
+ *
+ *   protocols: [{ name: 'chat', ...ws({ open, message, close }) }]
+ *
+ * `http()` is the odd one out: an lws connection (`wsi`) outlives any single
+ * HTTP request/response on it (keep-alive), so each `onHttp` gets a fresh
+ * `ServerRequest`/`ServerResponse` pair (./request.js/./response.js) and the
+ * handler is called `fn(req, resp)` - not `fn(wsi, ...)` - with body chunks
+ * and completion routed onto that pair automatically.
+ */
+import { Headers } from './headers.js';
+import { URL } from './url.js';
+import { Request, ServerRequest } from './request.js';
+import { Response, ServerResponse } from './response.js';
+import { ReadableStream, WritableStream } from './streams.js';
+import { safeClose, waitWrite } from './util.js';
+import { LWS_WRITE_HTTP, LWS_WRITE_HTTP_FINAL } from 'lws.so';
+import { MultipartMixin } from './multipart.js';
+import { SimpleQueue } from './simple-queue.js';
+import { concatArrayBuffer } from './stream-utils.js';
+
+/* Standalone multipart handle for HttpProtocol's `post` option below - the
+   same MultipartMixin ServerRequest itself uses, on a bare object instead
+   of a full request, for callers who just want `for await(const part of
+   parser)`/`parser.formData()` without the rest of ServerRequest. */
+class MultipartHandle extends MultipartMixin(class {}) {}
+
+const isMultipart = headers => /^multipart\/form-data/i.test((headers && headers['content-type']) || '');
+
+/* Per HTTP, a request only carries a body if it declares Content-Length > 0
+   or chunked Transfer-Encoding - lws never fires onHttpBody/
+   onHttpBodyCompletion otherwise (a bodyless GET, most commonly), so that's
+   the only reliable signal onHttp has for deciding whether to expect one. */
+const hasBody = headers => {
+  if(!headers) return false;
+  const cl = headers['content-length'];
+  if(cl != null && Number(cl) > 0) return true;
+  return /chunked/i.test(headers['transfer-encoding'] || '');
+};
+
+/**
+ * HTTP server role: `fn(req: ServerRequest, resp: ServerResponse)`, once per
+ * request. `hooks` covers the rarer server-side callbacks, each passed
+ * through as-is (`wsi`, plus whatever lws hands that reason):
+ *
+ *   - `headers(wsi, buf, len)`   - LWS_CALLBACK_ADD_HEADERS
+ *   - `html(wsi, buf, len)`      - LWS_CALLBACK_PROCESS_HTML
+ *   - `access(wsi, uri, mask)`   - LWS_CALLBACK_CHECK_ACCESS_RIGHTS: `uri`
+ *     is the request path as an ArrayBuffer (read-only - not a writable
+ *     scratch buffer like `headers`/`html`'s `buf`), `mask` is the mount's
+ *     `authentication_mode` bitmask (see `mounts.md`), not a byte length -
+ *     lws itself reuses the same native struct for a different purpose
+ *     here, see lws-protocol.c's own comment on this reason for the details
+ *   - `upgrade(wsi, type)`      - LWS_CALLBACK_HTTP_CONFIRM_UPGRADE
+ *   - `auth(wsi, ...)`          - LWS_CALLBACK_VERIFY_BASIC_AUTHORIZATION
+ */
+export class HttpProtocol {
+  #fn;
+  #headers;
+  #html;
+  #access;
+  #upgrade;
+  #auth;
+  #requests = new WeakMap();
+
+  constructor(fn, { name, headers, html, access, upgrade, auth, post } = {}) {
+    this.#fn = fn;
+    this.#headers = headers;
+    this.#html = html;
+    this.#access = access;
+    this.#upgrade = upgrade;
+    this.#auth = auth;
+
+    if(post) {
+      Object.assign(
+        this,
+        HttpProtocol.post(wsi => {
+          const handle = new MultipartHandle();
+          handle._startMultipart(wsi);
+          post(wsi, handle);
+          return { write: buf => handle._writeMultipart(buf), close: () => handle._closeMultipart() };
+        }),
+      );
+    }
+
+    if(name) this.name = name;
+  }
+
+  onHttp = wsi => {
+    const req = new ServerRequest(wsi);
+    const resp = new ServerResponse(wsi);
+
+    if(hasBody(req.headers)) {
+      /* Content-Type is already known (headers arrive before body) - a
+         multipart request starts its own parse (MultipartMixin,
+         ./multipart.js - ServerRequest's own base class), fed alongside
+         the usual Body sink below, so req.formData() can drain it
+         incrementally instead of buffering the whole body via .text(). */
+      if(isMultipart(req.headers)) req._startMultipart(wsi);
+
+      this.#requests.set(wsi, req);
+    } else {
+      /* No body is coming - onHttpBody/onHttpBodyCompletion will never
+         fire for this request, so close the Body sink right away instead
+         of leaving .text()/.json()/.formData() awaiting a body forever. */
+      req._closeBody();
+    }
+
+    this.#fn(req, resp);
+  };
+
+  onHttpBody = (wsi, buf) => {
+    const req = this.#requests.get(wsi);
+    if(!req) return;
+
+    req._writeMultipart(buf);
+    req._appendBody(buf);
+  };
+  onHttpBodyCompletion = wsi => {
+    const req = this.#requests.get(wsi);
+    if(!req) return;
+
+    req._closeMultipart();
+    req._closeBody();
+  };
+  onClosedHttp = wsi => this.#requests.delete(wsi);
+
+  onAddHeaders = (wsi, buf, len) => this.#headers?.(wsi, buf, len);
+  onProcessHtml = (wsi, buf, len) => this.#html?.(wsi, buf, len);
+  onCheckAccessRights = (wsi, uri, mask) => this.#access?.(wsi, uri, mask);
+  onHttpConfirmUpgrade = (wsi, type) => this.#upgrade?.(wsi, type);
+  onVerifyBasicAuthorization = (wsi, ...args) => this.#auth?.(wsi, ...args);
+
+  static post(callback) {
+    const controllers = new WeakMap();
+
+    const finish = wsi => {
+      controllers.get(wsi)?.close();
+      controllers.delete(wsi);
+    };
+
+    return {
+      onHttpBody: (wsi, buf) => {
+        let controller = controllers.get(wsi);
+
+        if(!controller) controllers.set(wsi, (controller = callback(wsi)));
+
+        if(buf && buf.byteLength) controller.write(buf);
+      },
+      onHttpBodyCompletion: finish,
+      //onClosedHttp: finish,
+    };
+  }
+}
+
+/**
+ * HTTP client role: `fn(req: Request, resp: Response)`, once the response
+ * status/headers arrive - `resp.body` then streams the rest as it comes in.
+ * 3xx redirects are followed automatically (lws does this itself, on a
+ * fresh wsi of its own - see `onClientHttpRedirect` below), same as a
+ * default WHATWG `fetch()`; `fn` only ever sees the final response.
+ *
+ * `hooks`:
+ *   - `error(req, err)`              - connection/transfer failed
+ *   - `redirect(req, url, status)`   - LWS_CALLBACK_CLIENT_HTTP_REDIRECT
+ *                                      (informational - the redirect is
+ *                                      followed either way)
+ *   - `read(req, data, len)`         - LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ
+ *                                      (informational - `resp.body` is
+ *                                      already fed from this internally)
+ *   - `handshake(wsi, buf, len)`     - LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER
+ *                                      (fires after this class's own header/
+ *                                      body-length writes, to add more)
+ *   - `filter(wsi)`                  - LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH
+ */
+export class HttpClientProtocol {
+  #fn;
+  #onError;
+  #onRedirect;
+  #onRead;
+  #onHandshake;
+  #onFilter;
+  #pending;
+  #redirecting = false;
+  #sessions = new WeakMap();
+
+  constructor(fn, { name, error, redirect, read, handshake, filter } = {}) {
+    this.#fn = fn;
+    this.#onError = error;
+    this.#onRedirect = redirect;
+    this.#onRead = read;
+    this.#onHandshake = handshake;
+    this.#onFilter = filter;
+
+    if(name) this.name = name;
+  }
+
+  /**
+   * Starts a client HTTP request on `ctx` and returns a promise for
+   * `{ req, wsi }`. `options` is the same shape `Request`'s constructor and
+   * `LWSContext#clientConnect` both accept (method, headers, body, ...) -
+   * `body` may be a `String`, an `ArrayBuffer`/view, or a `ReadableStream`
+   * (anything `Request`/`Body` accepts). If a body is present on `url`
+   * (when it's already a `Request`) or on `options`, and no explicit
+   * `method` was given, the request defaults to POST instead of GET.
+   *
+   * The body is fully read up front (awaited here, before the connection
+   * even opens) so its exact byte length is known for the `content-length`
+   * header - lws's HTTP/1.1 client body write needs that declared ahead of
+   * the request line being sent, there's no chunked-encoding fallback here.
+   */
+  async connect(ctx, url, options = {}) {
+    const hasBody = options.body != null || (url instanceof Request && url._bodyInit != null);
+    const req = new Request(url, hasBody && !options.method ? { ...options, method: 'POST' } : options);
+    const body = req.body != null ? new Uint8Array(await req.arrayBuffer()) : null;
+
+    let controller;
+    const stream = new ReadableStream({ start: c => (controller = c) });
+
+    // Response will be created in onEstablishedClientHttp() when we have status/headers
+    this.#pending = { req, stream, controller, body, ctx, alpn: options.alpn };
+
+    const wsi = ctx.clientConnect(req.url, { method: req.method, protocol: 'http', localProtocolName: this.name ?? 'http', ...options });
+    return { req, wsi };
+  }
+
+  #session(wsi) {
+    let session = this.#sessions.get(wsi);
+
+    if(!session && this.#pending) {
+      session = this.#pending;
+      this.#pending = undefined;
+      this.#sessions.set(wsi, session);
+    }
+
+    return session;
+  }
+
+  onServerNewClientInstantiated = wsi => void this.#session(wsi);
+
+  onClientFilterPreEstablish = wsi => this.#onFilter?.(wsi);
+
+  onClientAppendHandshakeHeader = (wsi, buf, len) => {
+    const session = this.#session(wsi);
+    if(!session) return;
+
+    for(const [name, value] of session.req.headers) wsi.addHeader(name, value, buf, len);
+
+    if(session.body) {
+      if(!session.req.headers.has('content-length')) wsi.addHeader('content-length', String(session.body.byteLength), buf, len);
+      wsi.bodyPending = 1;
+    }
+
+    this.#onHandshake?.(wsi, buf, len);
+  };
+
+  /* Fires once lws is ready for the (POST/PUT/...) request body - writing it
+     any earlier would corrupt the request framing. `body` was already fully
+     read (see connect()) so this only ever *queues* one write - matches
+     what content-length above declared.
+
+     This callback itself CAN fire again for the same body though: a large
+     body over a slow/TLS connection often doesn't fully drain from
+     wsi.write()'s internal queue in one round (lws_write() is bounded by
+     the TLS record size, unlike a raw TCP write which usually accepts
+     everything at once) - lws-socket.c's socket_flush() re-arms the
+     writeable callback to finish draining what's left, and that re-armed
+     callback is this same reason (LWS_CALLBACK_CLIENT_HTTP_WRITEABLE), so
+     it lands right back here. Clearing `session.body` after the first
+     queue is what makes the `!session.body` guard above turn that
+     re-entry into a no-op - without it, this used to call wsi.write()
+     again with the *entire* original body every time it re-fired,
+     silently queuing extra duplicate bytes past what Content-Length
+     promised and corrupting the request framing (confirmed directly: a
+     body as small as ~5-7KB posted over TLS intermittently hung forever
+     or got the connection dropped with a bare "closed" error, while the
+     exact same size over plain HTTP - never hitting this re-entrant path
+     in one write - worked every time; see BUGS:
+     tls-client-large-body-hangs-or-closes).
+
+     A single wsi.write() call itself used to have its own separate size
+     limit, once past this callback entirely: an HTTP body over 16384
+     bytes (0x4000 - HTTP/2's own default max DATA-frame size; this
+     project's traffic negotiates h2 via ALPN) handed to wsi.write() in
+     one call reliably closed the connection before a response ever
+     arrived, because nothing split it into frame-sized pieces. Fixed
+     natively now, not here - lws-socket.c's socket_flush() itself caps
+     each individual lws_write() call for an HTTP body write to that size
+     and re-enters for the rest, the same way it already retries a write
+     that doesn't fully drain in one round (see above) - so wsi.write()
+     here can hand over the whole body in one call, any size, same as it
+     always could for a body under that limit (see BUGS:
+     tls-client-large-body-closes-above-16kb).
+
+     wsi.write() only *queues* the body and synchronously flushes as much
+     of it as socket_flush() can push in one round - capped per
+     lws_write() call at that same 16384-byte limit (lws-socket.c), so a
+     body bigger than that still has bytes sitting in the queue
+     (wsi.bufferedAmount) when this call returns. Clearing bodyPending
+     unconditionally right after wsi.write() used to tell lws the body
+     was fully sent while it wasn't - lws then stopped asking for
+     CLIENT_HTTP_WRITEABLE, leaving the rest of the body stuck in the
+     queue forever and the server hanging on a Content-Length it never
+     received in full (confirmed directly: exactly 16384 bytes went out,
+     then the connection went stale with no response - found via a real
+     ollama-repl session's LLL_USER log showing the same). Only clear
+     bodyPending once nothing is left buffered; leaving it set means lws
+     keeps delivering CLIENT_HTTP_WRITEABLE, and socket_flush() (called
+     by the dispatcher before this handler runs) keeps draining the queue
+     each round until wsi.bufferedAmount reaches 0. */
+  onClientHttpWriteable = wsi => {
+    const session = this.#session(wsi);
+    if(!session) return;
+
+    if(session.body) {
+      wsi.write(session.body.buffer, LWS_WRITE_HTTP_FINAL);
+      session.body = null; // queued exactly once - a re-fired callback must not re-queue it
+    }
+
+    if(wsi.bufferedAmount === 0) wsi.bodyPending = 0;
+  };
+
+  /* lws's own internal redirect-follow (client-http.c) only flips the
+     LCCSCF_USE_SSL bit for the new wsi - every other ssl_connection flag
+     (LCCSCF_ALLOW_SELFSIGNED/ALLOW_EXPIRED/SKIP_SERVER_CERT_HOSTNAME_CHECK/
+     ALLOW_INSECURE) carries over unchanged from the original request. For a
+     plain http:// -> https:// redirect (the common CDN case) the original
+     request had none of those set (client_connect_info_from_uri() in
+     lws-context.c clears them for an "http" scheme), so the redirected
+     connection ends up doing full certificate + hostname verification,
+     which used to fail outright with "bio_create failed" (see
+     cmake/BuildLibwebsockets.cmake's LWS_HAVE_X509_VERIFY_PARAM_set1_host
+     seed - the other half of this fix). Returning
+     nonzero here (lws-callbacks.h: "return nonzero to hang up") stops lws
+     from following it itself; reconnecting ourselves below runs the new URL
+     back through client_connect_info_from_uri() (via ctx.clientConnect()),
+     which sets the right permissive flags for an https target the same way
+     a direct https:// fetch() already gets them. */
+  onClientHttpRedirect = (wsi, url, status) => {
+    const session = this.#session(wsi);
+    if(!session) return 0;
+
+    this.#sessions.delete(wsi);
+    this.#redirecting = true;
+
+    /* Reuse the same `session.req` object (just repoint its `.url`) rather
+       than building a new Request - fetch.js's `settled` WeakMap is keyed by
+       that exact object identity to find the Promise to resolve/reject, and
+       a fresh Request here would silently strand that Promise forever. */
+    session.req.url = new URL(url, session.req.url).href;
+    session.redirected = true;
+
+    // 301/302/303 redirect to GET regardless of the original method; 307/308 preserve it.
+    const method = status === 307 || status === 308 ? session.req.method : 'GET';
+
+    let controller;
+    session.stream = new ReadableStream({ start: c => (controller = c) });
+    session.controller = controller;
+    session.body = null;
+
+    this.#pending = session;
+    // Carry the original request's ALPN preference across the scheme change too - lws has no way to infer it.
+    session.ctx.clientConnect(session.req.url, { method, protocol: 'http', localProtocolName: this.name ?? 'http', alpn: session.alpn });
+
+    this.#onRedirect?.(session.req, url, status);
+
+    return 1;
+  };
+
+  onEstablishedClientHttp = (wsi, status) => {
+    const session = this.#session(wsi);
+    if(!session) return;
+
+    // Create Response now with status and headers (was previously mutated after creation)
+    session.resp = new Response(session.stream, {
+      status,
+      url: session.req.url,
+      headers: new Headers(wsi.headers),
+      redirected: session.redirected === true,
+    });
+    session.established = true;
+    this.#fn(session.req, session.resp);
+  };
+
+  /* Just the "data's ready, go read it" signal - the actual bytes (already
+     correctly sized) arrive via onReceiveClientHttpRead below, which
+     wsi.httpClientRead() re-enters synchronously from inside lws itself
+     (see libwebsockets/lib/roles/http/client/client-http.c).
+
+     wsi.httpClientRead() returns undefined when lws_http_client_read()
+     reports its documented failure ("read error, close the wsi" - every
+     libwebsockets example does `if (lws_http_client_read(...) < 0) return
+     -1;`), not just when there's nothing to read yet - the previous
+     silently-ignore-it version left lws never told to close, so a wsi
+     that had already failed to read stayed stuck forever re-firing this
+     same callback instead (see BUGS: fetch-crawl-recv-http-spin).
+     Returning -1 here is what actually tells lws to close it. */
+  onReceiveClientHttp = wsi => {
+    const buf = new ArrayBuffer(0xff0 * 16);
+
+    try {
+      if(wsi.httpClientRead(buf) === undefined) return -1;
+    } catch(e) {
+      return -1;
+    }
+  };
+
+  onReceiveClientHttpRead = (wsi, data, len) => {
+    const session = this.#session(wsi);
+
+    session?.controller.enqueue(new Uint8Array(data));
+    this.#onRead?.(session?.req, data, len);
+  };
+
+  /* Must clear #sessions here, same as every other terminal callback below -
+     a pipelined/keep-alive connection reuses the same wsi for its next
+     request, and #session() returns whatever's already sitting under that
+     wsi key before ever consulting #pending. Leaving this entry behind
+     after a normal completion meant a second request pipelined onto the
+     same connection silently resolved against the *first* request's
+     session - wrong response body, no error. */
+  onCompletedClientHttp = wsi => {
+    const session = this.#session(wsi);
+    this.#sessions.delete(wsi);
+
+    if(session) {
+      session.completed = true;
+      session.controller.close();
+    }
+  };
+
+  /* A response with no content-length and no chunked encoding is delimited
+     by the connection closing (HTTP/1.0-style) - lws has no other way to
+     tell us the body finished, so LWS_CALLBACK_COMPLETED_CLIENT_HTTP never
+     fires for it. Treat "closed after we got a response" as that response
+     having finished, same as a real browser/HTTP client would; only a close
+     before establishment, or before any bytes at all, is an actual error. */
+  onClosedClientHttp = wsi => {
+    const session = this.#session(wsi);
+    this.#sessions.delete(wsi);
+
+    if(!session) return;
+
+    if(!session.established) {
+      this.#onError?.(session.req, new Error('closed'));
+      return;
+    }
+
+    if(!session.completed) {
+      session.completed = true;
+      try {
+        session.controller.close();
+      } catch(e) {}
+    }
+  };
+
+  /* Fires when a wsi is dropped without going through onClosedClientHttp -
+     the expected case is right after onClientHttpRedirect above (lws
+     dropping the old wsi once it's following the redirect on a new one),
+     which #redirecting distinguishes from a genuine abrupt drop. */
+  onClientHttpDropProtocol = wsi => {
+    if(this.#redirecting) {
+      this.#redirecting = false;
+      return;
+    }
+
+    const session = this.#session(wsi);
+    this.#sessions.delete(wsi);
+
+    if(!session) return;
+
+    if(!session.established) this.#onError?.(session.req, new Error('dropped'));
+    else if(!session.completed)
+      try {
+        session.controller.error(new Error('dropped'));
+      } catch(e) {}
+  };
+
+  /* Rejecting a redirect in onClientHttpRedirect above (return 1, to
+     reconnect ourselves with corrected ssl flags) makes lws treat it as a
+     connection failure on the OLD wsi and fire this - not a real error, we
+     already started our own replacement connection. Checked but NOT cleared
+     here: onClientHttpDropProtocol fires right after for the same wsi (lws
+     sends CLIENT_CONNECTION_ERROR then tears the wsi down) and is what
+     actually owns clearing #redirecting - if this cleared it first,
+     DropProtocol would fall through to #session(wsi), which can steal the
+     NEW request's #pending (already set by the reconnect above) and
+     wrongly pair it with this dying old wsi. */
+  onClientConnectionError = (wsi, msg) => {
+    if(this.#redirecting) return;
+
+    const session = this.#session(wsi);
+    this.#sessions.delete(wsi);
+
+    this.#onError?.(session?.req, new Error(msg));
+  };
+}
+
+/**
+ * Captures the code/reason lws only ever delivers via the separate
+ * `onWsPeerInitiatedClose` callback, so both WS roles below can hand their
+ * `close` handler a single `close(wsi, code, reason)` call regardless of
+ * whether the peer or we initiated the close.
+ */
+class WsCloseTracker {
+  #pending = new WeakMap();
+
+  peerClose = (wsi, code, reason) => {
+    this.#pending.set(wsi, { code, reason });
+    return 0;
+  };
+
+  take(wsi) {
+    const info = this.#pending.get(wsi);
+    this.#pending.delete(wsi);
+    return info ?? {};
+  }
+}
+
+/**
+ * Wraps a `message(wsi, data, len)` handler that expects one complete
+ * message per call into the `(wsi, data, len, frame?)` shape `onReceive`/
+ * `onClientReceive` actually deliver (see doc/native/ws-server.md's
+ * "Receiving multi-fragment messages") - splice it in wherever a WS message
+ * might exceed the per-connection rx buffer (default 4096 bytes,
+ * `rx_buffer_size` protocol option), instead of every caller hand-rolling
+ * the same per-wsi accumulation:
+ *
+ *   new WsProtocol({ name: 'jsonrpc', message: reassembleFragments(handleOneMessage) })
+ *
+ * `frame` is only present for a genuinely multi-fragment delivery (native
+ * contract - see lws-protocol.c); a normal single-piece message passes
+ * straight through with no buffering. Chunks are queued per-wsi (a WeakMap,
+ * so a wsi that closes mid-message is cleaned up on its own) until
+ * `frame.final`, then reassembled - `concatArrayBuffer()` (./stream-utils.js)
+ * for a binary message, plain string concatenation for a text one (chunks
+ * of one message are always the same type, since a continuation frame
+ * inherits its type from the frame that opened the message) - and `message`
+ * is called exactly once with the complete data.
+ *
+ * @param  {(wsi, data, len) => void} message
+ * @return {(wsi, data, len, frame?) => void}
+ */
+export function reassembleFragments(message) {
+  const pending = new WeakMap();
+
+  return (wsi, data, len, frame) => {
+    if(!frame?.multifragment) {
+      message(wsi, data, len);
+      return;
+    }
+
+    let queue = pending.get(wsi);
+
+    if(!queue) pending.set(wsi, (queue = new SimpleQueue()));
+
+    queue.push(data);
+
+    if(!frame.final) return;
+
+    pending.delete(wsi);
+
+    const chunks = [...queue];
+    const whole = typeof chunks[0] === 'string' ? chunks.join('') : concatArrayBuffer(chunks);
+
+    message(wsi, whole, typeof whole === 'string' ? whole.length : whole.byteLength);
+  };
+}
+
+/** WS server role: `{ open(wsi), message(wsi, data, size), close(wsi, code, reason) }`. */
+export class WsProtocol {
+  #open;
+  #message;
+  #close;
+  #closed = new WsCloseTracker();
+
+  constructor({ name, open, message, close } = {}) {
+    this.#open = open;
+    this.#message = message;
+    this.#close = close;
+
+    if(name) this.name = name;
+  }
+
+  onEstablished = (...args) => this.#open?.(...args);
+  onReceive = (...args) => this.#message?.(...args);
+  onWsPeerInitiatedClose = this.#closed.peerClose;
+  onClosed = wsi => {
+    const { code, reason } = this.#closed.take(wsi);
+    this.#close?.(wsi, code, reason);
+  };
+}
+
+/** WS client role: `{ open(wsi), message(wsi, data, size), close(wsi, code, reason), error(wsi, message) }`. */
+export class WsClientProtocol {
+  #open;
+  #message;
+  #close;
+  #error;
+  #closed = new WsCloseTracker();
+  #pending;
+
+  constructor({ name, open, message, close, error } = {}) {
+    this.#open = open;
+    this.#message = message;
+    this.#close = close;
+    this.#error = error;
+
+    if(name) this.name = name;
+  }
+
+  /**
+   * Initiates a WebSocket client connection to `url` on `ctx` and returns
+   * `{ wsi }` immediately after the connection is queued. Like
+   * `HttpClientProtocol.connect()`, this returns before the WebSocket
+   * handshake completes - use the `open` callback to know when the
+   * connection is ready to send messages.
+   *
+   * `options` accepts the same fields as `LWSContext#clientConnect()`
+   * (method, protocol, headers, sslConnection, alpn, etc.) - `method` and
+   * `localProtocolName` default to `'GET'` and `'ws'` respectively for a
+   * standard WebSocket upgrade.
+   */
+  connect(ctx, url, options = {}) {
+    const wsi = ctx.clientConnect(url, {
+      protocol: options.protocols ?? 'ws',
+      localProtocolName: this.name ?? 'ws',
+      ...options,
+    });
+
+    return { wsi };
+  }
+
+  onClientEstablished = wsi => {
+    if(this.#pending?.resolve) {
+      this.#pending.resolve(wsi);
+      this.#pending = undefined;
+    }
+    this.#open?.(wsi);
+  };
+  onClientReceive = (...args) => this.#message?.(...args);
+  onWsPeerInitiatedClose = this.#closed.peerClose;
+  onClientClosed = wsi => {
+    const { code, reason } = this.#closed.take(wsi);
+    this.#close?.(wsi, code, reason);
+  };
+  onClientConnectionError = (wsi, msg) => {
+    if(this.#pending?.reject) {
+      this.#pending.reject(new Error(msg));
+      this.#pending = undefined;
+    }
+    this.#error?.(wsi, msg);
+  };
+}
+
+/**
+ * RAW role (client + server share one callback namespace in lws):
+ * `{ open(wsi), message(wsi, data, size), close(wsi), error(wsi, message) }`.
+ * `open` fires for both an accepted server connection (`onRawAdopt`) and an
+ * established client connection (`onRawConnected`) - check `wsi.client` to
+ * tell them apart.
+ */
+export class RawProtocol {
+  #open;
+  #message;
+  #close;
+  #error;
+
+  constructor({ name, open, message, close, error } = {}) {
+    this.#open = open;
+    this.#message = message;
+    this.#close = close;
+    this.#error = error;
+
+    if(name) this.name = name;
+  }
+
+  onRawAdopt = (...args) => this.#open?.(...args);
+  onRawConnected = (...args) => this.#open?.(...args);
+  onRawRx = (...args) => this.#message?.(...args);
+  onRawClose = (...args) => this.#close?.(...args);
+  onClientConnectionError = (wsi, msg) => this.#error?.(wsi, msg);
+}
+
+/**
+ * Promisified `{ opened, closed }` (each resolving to `{ readable, writable,
+ * ...extra }`) fed directly from open/message/close/error events - no
+ * EventTarget/dispatchEvent in between. This is what `WebSocketStream`
+ * (lib/websocketstream.js) and `TCPSocketStream` (lib/tcpsocketstream.js) are
+ * built on, independently of the evented `WebSocket`/`TCPSocket` classes -
+ * `extra(wsi, ...)` supplies whatever role-specific fields `opened` should
+ * carry (`protocol`/`extensions` for WS, `remoteAddress`/... for raw) and
+ * `closeInfo(wsi, ...)` likewise for what `closed` resolves with
+ * (`{closeCode, reason}` for WS, `{}` for raw).
+ *
+ * One instance backs any number of concurrent connections, same as the
+ * role adapters above - `session()`'s own `open`/`message`/`close`/`error`
+ * methods (matching the `ws()`/`client()`/`raw()` handler shape exactly, so
+ * they spread straight into one of those) route events to the right
+ * session by wsi. Two ways to register one:
+ *
+ *   - `session()` - wsi not known yet (about to `ctx.clientConnect()`); the
+ *     *next* open/message/close/error this instance receives claims it,
+ *     the same "pending" handoff `HttpClientProtocol` uses above.
+ *   - `session(wsi)` - wsi already exists (server accept/establish);
+ *     `opened` resolves immediately, no need to wait for a native `open`.
+ */
+export class StreamAdapter {
+  #extra;
+  #closeInfo;
+  #pending;
+  #sessions = new WeakMap();
+
+  constructor({ extra = () => ({}), closeInfo = () => ({}) } = {}) {
+    this.#extra = extra;
+    this.#closeInfo = closeInfo;
+  }
+
+  session(wsi) {
+    const box = { wsi, controller: undefined };
+
+    const readable = new ReadableStream({
+      start: c => (box.controller = c),
+      cancel: () => box.wsi && safeClose(box.wsi),
+    });
+
+    const writable = new WritableStream({
+      write: async chunk => {
+        await waitWrite(box.wsi);
+        box.wsi.write(chunk);
+      },
+      close: () => box.wsi && safeClose(box.wsi),
+      abort: reason => box.wsi && safeClose(box.wsi, undefined, reason),
+    });
+
+    let resolveOpened, rejectOpened, resolveClosed;
+    const opened = new Promise((resolve, reject) => {
+      resolveOpened = resolve;
+      rejectOpened = reject;
+    });
+    const closed = new Promise(resolve => (resolveClosed = resolve));
+
+    const entry = { box, readable, writable, resolveOpened, rejectOpened, resolveClosed };
+
+    if(wsi) {
+      this.#sessions.set(wsi, entry);
+      resolveOpened({ readable, writable, ...this.#extra(wsi) });
+    } else {
+      this.#pending = entry;
+    }
+
+    return { opened, closed };
+  }
+
+  #session(wsi) {
+    let session = this.#sessions.get(wsi);
+
+    if(!session && this.#pending) {
+      session = this.#pending;
+      session.box.wsi = wsi;
+      this.#pending = undefined;
+      this.#sessions.set(wsi, session);
+    }
+
+    return session;
+  }
+
+  open = (wsi, ...args) => {
+    const session = this.#session(wsi);
+
+    session?.resolveOpened({ readable: session.readable, writable: session.writable, ...this.#extra(wsi, ...args) });
+  };
+
+  message = (wsi, data) => this.#session(wsi)?.box.controller.enqueue(data);
+
+  close = (wsi, ...args) => {
+    const session = this.#session(wsi);
+    this.#sessions.delete(wsi);
+    if(!session) return;
+
+    try {
+      session.box.controller.close();
+    } catch(e) {}
+
+    session.resolveClosed(this.#closeInfo(wsi, ...args));
+  };
+
+  error = (wsi, message) => {
+    const session = this.#session(wsi);
+    this.#sessions.delete(wsi);
+    if(!session) return;
+
+    const err = new Error(message);
+
+    try {
+      session.box.controller.error(err);
+    } catch(e) {}
+
+    session.rejectOpened(err);
+  };
+}
+
+export const http = (fn, hooks) => new HttpProtocol(fn, hooks);
+export const httpClient = (fn, hooks) => new HttpClientProtocol(fn, hooks);
+export const ws = handlers => new WsProtocol(handlers);
+export const client = handlers => new WsClientProtocol(handlers);
+export const raw = handlers => new RawProtocol(handlers);
+export const stream = opts => new StreamAdapter(opts);
