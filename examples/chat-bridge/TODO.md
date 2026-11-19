@@ -59,8 +59,70 @@ quotas, scores and optional routing inside the bridge, with an interface in
 ollama-repl so both backends share the limits, `/model list`, `/standby` and
 delegation code. Gap analysis, design decisions, six steps and open
 questions: [doc/HARNESS.md](doc/HARNESS.md). Step 1 (model metadata) is
-next; the backlog items 1, 4, 5, 9, 11 and 13 below are parts of steps 1, 2,
+planned below, in progress; the backlog items 1, 4, 5, 9, 11 and 13 below are parts of steps 1, 2,
 4 and 5.
+
+### Harness step 1: model metadata (planned 2026-11-19, in progress)
+
+Scope: chat-bridge.js only, plus its tests. No harness change except that
+delegation and standby may read `capabilities` later (step 3).
+
+Tasks, in this order, each with its test:
+
+1. **`SITES` fields** (chat-bridge.js): optional `name` (display name),
+   `context` (window in tokens, `null` when unknown), `capabilities`
+   (`tools`, `vision`, `reasoning`, `stream`, default tools true, stream
+   true, vision false, reasoning false). `tools: false` for chatgpt, duck,
+   deepai (PROVIDERS.md: they ignore the tool preamble). No window is
+   invented: `context` stays `null` until measured, except where the site
+   states a prompt limit (`maxPrompt`, duck 16000 characters) - then the
+   window is `maxPrompt / 3.5` rounded down. Overridable per site in
+   `$CHAT_BRIDGE_SITES` like every other field (it already merges whole
+   entries; a partial override of one field is the open item in section 5 of
+   backlog).
+2. **`/v1/models` entries** (`Bridge.models()`): add `name`,
+   `context_window` and `context_length` (both, as the gateway does; omitted
+   when null), `execution_status` (`ready`; `exhausted` while the site cools
+   down after a rate limit; `needsKey` for a billing-guarded or logged-out
+   site), `supported_parameters` (`temperature`, `max_tokens`, `stream` and,
+   for tool-capable sites, `tools`, `tool_choice`), `capabilities`. Keep the
+   existing fields (`available`, `unavailable`, `resets_at`, `billing`,
+   `max_prompt_chars`) so the current failover keeps working.
+   Test: `test/probe.js` checks the new fields on the fake site, including a
+   forced rate limit turning `execution_status` to `exhausted`.
+3. **Estimated `usage`** in the chat completion body and in the final SSE
+   chunk: `prompt_tokens` = characters of the sent prompt / 4,
+   `completion_tokens` = characters of the reply / 4, `total_tokens`, plus
+   `estimated: true`. The replay prompt that was really typed counts, not the
+   request's message list. Test: non-zero, sum is consistent.
+4. **Response headers** on every completion (JSON, SSE, refusals where a site
+   is known): `x-routed-via: SITE/default` (model id as the bridge knows
+   it), `x-request-id` (the `chatcmpl-` id), `x-response-ms` (time to the
+   last character; time to the first reply text for SSE). The harness reads
+   `x-routed-via` and `x-request-id` already (lib/openai-client.js). Test:
+   headers present and consistent with the body id.
+5. **Shape parity test** (`test/shape.js`): a saved freellmapi `/v1/models`
+   entry as fixture (`test/fixtures/freellm-model.json`); every field name the
+   harness reads (list in doc/HARNESS.md section 1: `name`, `context_window`,
+   `context_length`, `execution_status`, `unavailable_reason` is gateway
+   only and not required) must exist on a bridge entry or be listed as
+   deliberately absent. Run by `test/run.sh`.
+6. **Docs**: README (models section, response headers), PROVIDERS.md (the
+   capability and window columns), this file (move the step to Done), the
+   BUGS file only if something is found.
+
+Acceptance: `/v1/models` of the fake-site bridge carries all the new fields;
+`ollama-repl --provider bridge` shows names in `/model list` and a context
+meter for a site with a window; `test/run.sh` passes; an old client that
+ignores the new fields is unaffected (fields are additive).
+
+Decisions taken (change them here if wrong): estimates are `chars / 4` and
+flagged; unknown windows stay null rather than guessed; `execution_status`
+is derived from the existing cooldown and billing guard, no new state.
+
+Not in this step (later steps of doc/HARNESS.md): counters, learned budgets,
+`/v1/usage`, `/v1/providers`, `/v1/quota-forecast`, `x-ratelimit-*` headers,
+scores, routing, the harness backend interface.
 
 ## Backlog
 
