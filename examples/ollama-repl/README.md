@@ -428,6 +428,9 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   for a new exit (`tor-change-exitnode.sh`), shows the exit address
   before and after and measures again. The status rows show the measured
   overhead (`proxy +430ms`), `/last` whether a request was proxied.
+  `/proxy off` and `/proxy on` switch the global proxy of the gateway
+  (dashboard setting `enabled`, the URL stays saved, effective for the next
+  request; needs a dashboard session, also works through `ollama-repl-ctl`).
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
   says, each in its own panel: the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),

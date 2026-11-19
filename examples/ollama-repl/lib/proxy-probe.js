@@ -36,6 +36,17 @@ export async function proxySettings(gateway) {
   return { url: s.proxyUrl ?? '', mode: s.proxyMode, enabled: !!s.enabled, active: !!s.active, bypass: s.bypassPlatforms ?? [], keyProxies };
 }
 
+/**
+ * switches the gateway's global upstream proxy on or off (PUT /api/settings/proxy {enabled}); the proxy URL
+ * stays saved. Takes effect for the next request, no gateway restart.
+ *
+ * @returns {Promise<object>} the new settings, as proxySettings() reads them
+ */
+export async function setProxyEnabled(gateway, enabled) {
+  await gateway.api('/api/settings/proxy', { method: 'PUT', body: { enabled } });
+  return proxySettings(gateway);
+}
+
 /** whether requests to platform go through a proxy: its key's own, else the global one unless bypassed */
 export function proxied(settings, platform) {
   if(!settings || !platform) return null;

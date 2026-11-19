@@ -62,14 +62,14 @@ export class Gateway {
     this.#origin = client.baseUrl.replace(/\/v1$/, '');
   }
 
-  #api(path) {
-    return this.#client.fetchJSON(this.#origin + path, { token: this.#token });
+  #api(path, opts) {
+    return this.#client.fetchJSON(this.#origin + path, { ...opts, token: this.#token });
   }
 
-  /** GET a dashboard API path (/api/...) with the session token, after login() */
-  api(path) {
+  /** GET (or with opts.method/body, e.g. PUT) a dashboard API path (/api/...) with the session token, after login() */
+  api(path, opts) {
     if(!this.#token) throw new Error('no dashboard session: /gateway login');
-    return this.#api(path);
+    return this.#api(path, opts);
   }
 
   /**

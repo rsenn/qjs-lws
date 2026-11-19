@@ -222,7 +222,7 @@ Asked while C was finishing. Most freellmapi models go out through a socks
 proxy (the runit service "anon" on this machine, tor-based but faster);
 tor-change-exitnode.sh changes the route through it.
 
-D1. [x] (done: lib/proxy-probe.js, /proxy [probe|exit], proxied flag per
+D1. [x] (done: lib/proxy-probe.js, /proxy [on|off|probe|exit], proxied flag per
     request in /last, "proxy +NNNms" in the status rows; found: global
     proxy socks5://192.168.178.52:9050 = anon, active, no bypass, no
     per-key proxies; measured +0.2..0.8s to the first byte; one probe run

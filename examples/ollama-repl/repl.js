@@ -75,7 +75,7 @@ import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAl
 import { expandHome, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { Tui } from './lib/tui.js';
-import { exitIp, measure, newExit, proxied, proxySettings } from './lib/proxy-probe.js';
+import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
@@ -1442,7 +1442,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /exit, /quit    - quit
 /help           - this text
 /split [diff|git|status|off] - a pane right of the transcript: this session's file changes as diffs (default), git diff of the project, or the live status (what happens now, the request, sockets with their traffic, memory). /split alone toggles
-/proxy [probe|exit] - the socks proxy the gateway sends upstream requests through: settings, latency it adds (probe measures direct vs proxied, 3 runs each), time to first byte per platform; exit asks for a new exit (tor-change-exitnode.sh) and measures again
+/proxy [on|off|probe|exit] - the socks proxy the gateway sends upstream requests through: settings, latency it adds (probe measures direct vs proxied, 3 runs each), time to first byte per platform; on/off switches it for the gateway's upstream requests (the URL stays saved); exit asks for a new exit (tor-change-exitnode.sh) and measures again
 /view [N]       - panel N (the last one) full-screen in a pager: arrows, PgUp/PgDn, Home/End, mouse wheel, q back
 /mouse [on|off] - the mouse wheel scrolls the transcript (on, the default: select text with Shift-drag) or the terminal handles the mouse (off)
 /about          - the session panel shown at startup: version, model, endpoint, gateway, mode, root, log
@@ -2293,6 +2293,20 @@ async function main() {
       await loadProxy(false);
       const url = proxyInfo.settings?.url;
 
+      if(arg === 'on' || arg === 'off') {
+        if(!proxyInfo.settings) return void console.log(red('error: proxy settings need a dashboard session: /gateway login'));
+        if(arg === 'on' && !url) return void console.log(red('error: the gateway has no proxy URL set (dashboard: Settings, Proxy)'));
+
+        try {
+          proxyInfo.settings = await setProxyEnabled(gateway, arg === 'on');
+        } catch(e) {
+          return void console.log(red(`error: ${e.detail ?? e.message.split('\n')[0]}`));
+        }
+
+        tui?.drawStatus();
+        return void console.log(`${waveNote(`gateway proxy ${arg === 'on' ? 'on' : 'off'}`)}\n${proxyText(stats)}`);
+      }
+
       if((arg === 'probe' || arg === 'exit') && !url) return void console.log(red('error: the gateway has no proxy set'));
 
       if(arg === 'exit') {
@@ -2315,7 +2329,7 @@ async function main() {
           proxyInfo.measuring = false;
         }
         tui?.drawStatus();
-      } else if(arg) return void console.log('usage: /proxy [probe|exit]');
+      } else if(arg) return void console.log('usage: /proxy [on|off|probe|exit]');
 
       return void console.log(proxyText(stats));
     }
