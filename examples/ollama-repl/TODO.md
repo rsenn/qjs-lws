@@ -1,5 +1,45 @@
 # TODO
 
+## Next tasks (recorded 2026-11-19, in this order)
+
+State: harness step 1 of the chat-bridge plan is done (24dabc0). Open:
+
+1. [ ] chat-bridge harness step 2: counters, learned budgets, `/v1/usage`,
+   `/v1/providers`, `/v1/quota-forecast`, persisted cooldowns,
+   `x-ratelimit-*` (chat-bridge/doc/HARNESS.md section 4, chat-bridge/TODO.md).
+   Detail to settle first: the five open questions at the end of HARNESS.md
+   (identity, where routing lives, learned budgets at install, token
+   estimates, scope of `site/model`).
+2. [ ] harness step 3: a backend interface in ollama-repl (`lib/gateway.js`
+   with the freellmapi and bridge backends; availability, `/gateway`,
+   `/model list`, `/standby`, delegation discovery read it). Needs step 2.
+   Then steps 4 to 6 of HARNESS.md (routing in the bridge, a more capable
+   bridge, docs).
+3. [ ] `ollama-repl --provider bridge` live check: names and the context
+   meter in `/model list` (only the data was tested, not the screen).
+4. [ ] strength column: the gateway's intelligence scores are coarse (many
+   models sit at the 74% or 50% default, auto/kilo-auto/free-router at 50%);
+   find a better source (benchmarks table by model family, or the gateway's
+   own measured results) and use it as a tie-break inside a score group.
+5. [ ] verbose view: panels are kept for the whole session (HISTORY_MAX
+   lines); a very long session drops the oldest verbose panels first. Ctrl-O
+   in the non-TUI (plain) mode still shows only new traffic.
+6. [ ] untested live (from earlier work): a real model delegating with
+   `spawn_agent` `kind`; the peer read-only mode switch; a worker waiting for
+   approval; the standby automatic switch-over on a real 429/5xx; ghost
+   completion exists only in the TUI; a compaction may summarize a loaded
+   skill away; the primary is not told which delegate candidates exist; N
+   restarts leave N waiting qjsm processes.
+7. [ ] housekeeping: restart the running sessions (`auto`, `worker-freellm`
+   in tmux `worker1`) to pick up Esc, argument completion, retroactive
+   verbose and the strength column; five untracked scratch files in the repo
+   root stay on purpose (the two 2026-11-19-*-qwen2.5-coder.txt, auto.json,
+   out.c, qwen2.5-coder.json); `~/Sources/rsenn/skills/quickjs-scripting`
+   has uncommitted edits for the user to commit.
+8. [ ] delegation lesson: two agents edited chat-bridge.js at once and the
+   weaker worker left a half-done edit; give each delegated task its own file
+   or a lock, and review the diff before the next dispatch.
+
 ## Advisor review, 2026-11-19 (Opus advisor): five asks, in this order (in progress)
 
 Asked: more colour for the raw content in Ctrl-O verbose mode, other UX
