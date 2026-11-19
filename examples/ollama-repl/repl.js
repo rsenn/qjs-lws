@@ -1767,6 +1767,8 @@ function getFilteredModels(known, remote, avail = availability) {
         displayName: m.displayName || '',
         provider: providerText(m, avail),
         available: m.available !== false,
+        status: m.status,
+        tools: m.tools,
         limited: avail?.byModel.get(m.name),
         strength: strength.tier,
         strengthLabel: strength.label,
@@ -2965,7 +2967,10 @@ async function main() {
 
         /* immediately switch to the next highest-ranked non-skipped model */
         cleanupSkips();
-        const next = getFilteredModels(known, remote).find(m => m.name !== opts.model && m.available && !m.limited?.blocked);
+        /* what the gateway says now: a stale picture would pin another model of the exhausted provider */
+        if(gateway?.hasLimits && (!availability || Date.now() - availability.at > 5000)) availability = await loadAvailability(gateway).catch(() => availability);
+        const fresh = gateway?.enabled ? await client.listModels().catch(() => remote) : remote;
+        const next = getFilteredModels(known, fresh).find(m => m.name !== opts.model && m.available && !m.limited?.blocked && m.status !== 'exhausted' && (m.tools !== false || opts.noTools));
         if(next) {
           opts.model = next.name;
           client.model = next.name;

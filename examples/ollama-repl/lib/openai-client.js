@@ -587,6 +587,7 @@ export class OpenAIClient {
       ownedBy: m.owned_by,
       contextWindow: m.context_window ?? m.context_length,
       status: m.execution_status,
+      tools: Array.isArray(m.supported_parameters) ? m.supported_parameters.includes('tools') : undefined,
     }));
   }
 
