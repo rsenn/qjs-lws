@@ -42,6 +42,11 @@ const BRIGHT_WHITE = '\x1b[97m';
 export class ChatREPL extends REPL {
   #busy = false;
   #queue = [];
+  #chordX = false;
+  #front = false;
+  #frontQueued = false;
+  /** called whenever the queue of pending prompts changed (repl.js saves the session and redraws the status) */
+  onQueue = null;
   #root;
 
   #onAbort;
@@ -115,9 +120,69 @@ export class ChatREPL extends REPL {
     this.commands['\x1b[Z'] = cycle; // Shift-Tab
     this.commands['\x1b\t'] = cycle; // Alt-Tab, where the window manager lets it through
     this.commands['\x0f'] = () => void this.onToggleVerbose?.(); // Ctrl-O
+    /* Ctrl-X Ctrl-S sends the typed prompt now, ahead of the queue, cancelling the running request; Ctrl-S alone stays the search */
+    const search = this.commands['\x13'];
+    this.commands['\x18'] = () => void (this.#chordX = true);
+    this.commands['\x13'] = function(k) {
+      if(!this.#chordX) return search.call(this, k);
+      this.#chordX = false;
+      this.#sendNow();
+    };
     /* PgUp/PgDn scroll the transcript back and forth (the TUI keeps its own history) */
     this.commands['\x1b[5~'] = () => void this.tui?.scrollBy(-Math.max(1, this.tui.top - 2));
     this.commands['\x1b[6~'] = () => void this.tui?.scrollBy(Math.max(1, this.tui.top - 2));
+  }
+
+  /** the prompts waiting behind the running one, oldest first */
+  get queue() {
+    return [...this.#queue];
+  }
+
+  /** removes the pending prompt number `n` (1-based), returns it or undefined */
+  dropQueued(n) {
+    const [gone] = this.#queue.splice(n - 1, 1);
+    if(gone !== undefined) this.#queueChanged();
+    return gone;
+  }
+
+  clearQueue() {
+    const n = this.#queue.length;
+    this.#queue.length = 0;
+    if(n) this.#queueChanged();
+    return n;
+  }
+
+  /** puts prompts saved with a session back: they run one after the other, the first at once when nothing runs */
+  restoreQueue(list) {
+    for(const expr of list) {
+      if(this.#busy) this.#queue.push(expr);
+      else this.#run(expr);
+    }
+
+    this.#queueChanged();
+  }
+
+  #queueChanged() {
+    this.onQueue?.();
+    if(this.#tuiOn) this.tui.drawStatus();
+  }
+
+  /** Ctrl-X Ctrl-S: the typed line goes first, a running request is cancelled for it; idle it is just submitted */
+  #sendNow() {
+    if(!this.cmd.trim()) return;
+
+    this.#front = true;
+    this.#frontQueued = false;
+    this.handleKey('\r');
+    this.#front = false;
+
+    if(this.#frontQueued) this.#onAbort?.();
+    this.#frontQueued = false;
+  }
+
+  handleKey(keys) {
+    if(keys !== '\x18' && keys !== '\x13') this.#chordX = false;
+    return super.handleKey(keys);
   }
 
   /** New prompt text (the model name) after a /model switch. */
@@ -335,7 +400,13 @@ export class ChatREPL extends REPL {
     }
 
     if(this.#busy) {
-      this.#queue.push(expr);
+      if(this.#front) {
+        this.#queue.unshift(expr);
+        this.#frontQueued = true;
+      } else this.#queue.push(expr);
+
+      if(this.#tuiOn) this.tui.write(`\x1b[2m(${this.#front ? 'sent now, the running request is cancelled' : `queued, ${this.#queue.length} waiting`})\x1b[0m\n`);
+      this.#queueChanged();
       return true;
     }
 
@@ -352,7 +423,11 @@ export class ChatREPL extends REPL {
       .then(() => {
         this.#busy = false;
 
-        if(this.#queue.length) this.#run(this.#queue.shift());
+        if(this.#queue.length) {
+          const next = this.#queue.shift();
+          this.#queueChanged();
+          this.#run(next);
+        }
         else {
           /* TUI: keys typed while the model worked stay in the input */
           const typed = this.#tuiOn ? this.cmd : '';

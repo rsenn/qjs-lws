@@ -18,7 +18,7 @@ export class SessionStore {
     return this.#path;
   }
 
-  /** @returns {{ messages: object[], baseMessageCount: number }|null} null if there's nothing (valid) to resume. */
+  /** @returns {{ messages: object[], baseMessageCount: number, queue: string[] }|null} null if there's nothing (valid) to resume. */
   load() {
     const text = loadFile(this.#path);
     if(text == null) return null;
@@ -32,12 +32,12 @@ export class SessionStore {
 
     if(!Array.isArray(data?.messages)) return null;
 
-    return { messages: data.messages, baseMessageCount: Number.isInteger(data.baseMessageCount) ? data.baseMessageCount : 0 };
+    return { messages: data.messages, baseMessageCount: Number.isInteger(data.baseMessageCount) ? data.baseMessageCount : 0, queue: Array.isArray(data.queue) ? data.queue.filter(q => typeof q === 'string') : [] };
   }
 
-  save(messages, baseMessageCount) {
+  save(messages, baseMessageCount, queue = []) {
     const f = fopen(this.#path, 'w');
-    f.puts(JSON.stringify({ messages, baseMessageCount }, null, 2));
+    f.puts(JSON.stringify({ messages, baseMessageCount, queue }, null, 2));
     f.close();
   }
 }

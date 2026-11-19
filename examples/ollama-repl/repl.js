@@ -1086,6 +1086,9 @@ async function delegateCandidates(opts) {
  *
  * @returns {Promise<string | { argv: string[] }>} an error message, or the argv for qjsm
  */
+/** the prompts waiting in the queue (main() points this at the REPL), kept across a restart */
+let queuedPrompts = () => [];
+
 async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) {
   /* the source tree (running, or found next to the project when the installed copy runs): the real check, the
      REPL starts and runs commands (smoke.sh); with no source tree the running script only has to load */
@@ -1127,6 +1130,7 @@ async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) 
     sessionName: opts.name,
     sessionId: opts.sessionId,
     skippedModels: skipped,
+    queue: queuedPrompts(),
   };
 
   const f = fopen(tempPath, 'w');
@@ -1588,6 +1592,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /mode [NAME]    - show or set the mode: ${MODES.map(m => `${m} (${MODE_INFO[m]})`).join(', ')}. Shift-Tab or Alt-Tab cycles it
 /verbose [on|off] - show reasoning, full tool results, every request and response with all gateway headers (Ctrl-O toggles)
 /remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it
+/queue [list|clear|drop N] - the prompts waiting behind the running request (Enter queues one while the model works, Ctrl-X Ctrl-S sends the typed one now and cancels the running request); the queue is saved with the session and runs again after a restart
 /rename NAME    - rename the session (ollama-repl-ctl -s NAME picks it)
 /model [NAME|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
@@ -1621,11 +1626,11 @@ const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
   ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
-  ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit', '/export']],
+  ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
+const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -1819,6 +1824,13 @@ function skipModel(name, reason = 'manual') {
   skippedModels.set(name, { until, reason });
 }
 
+/** the providers named in a gateway's "all models exhausted" error (its attempt trail), [] for any other error */
+function exhaustedPlatforms(error) {
+  if(!/all models (rate-limited|exhausted|unavailable)/i.test(error ?? '')) return [];
+  const trail = /Attempt trail:([^]*?)(?:\. Last error|$)/.exec(error)?.[1] ?? '';
+  return [...new Set([...trail.matchAll(/(?:^|;)\s*([\w.-]+)\/\S+ key\d+:/g)].map(m => m[1]))];
+}
+
 /** Skips every model whose name matches `pattern` (exact or glob). Returns the
     number skipped - used by `/model skip <pattern>` to batch-skip a failing
     provider family. */
@@ -1978,6 +1990,8 @@ function completeArgs(cmd, args, word) {
     case '/last':
     case '/requests':
     case '/view':
+    case '/queue':
+      return n === 0 ? ['list', 'clear', 'drop'] : [];
     case '/rename':
     case '/restart':
     case '/undo':
@@ -2083,7 +2097,7 @@ async function thinkNote(client) {
  *    edits  ~/src/x          qwen3-coder via Cerebras        ctx ███····· 34% 44k/128k
  *   last 1.2k+300 · session 5 req 20k tok · req/min ██·· 3/10 · ... · Shift-Tab mode
  */
-function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, cols) {
+function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, cols, queued = 0) {
   const t = stats.totals();
   const last = stats.last();
   const effective = last && !last.error ? routeName(last) : null;
@@ -2119,7 +2133,8 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   }
   if(standby.on) two.push(standby.state === 'ready' ? `standby ${standby.id} ✓ ${fmtMs(standby.ms)}${standby.toolOk ? '' : ' (no tools)'}` : standby.state === 'probing' ? 'standby probing…' : `\x1b[33mstandby ${standby.state}\x1b[39m`);
   if(last?.fallbacks) two.push(`\x1b[33m${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
-  two.push(busy ? 'Esc cancels' : 'Shift-Tab mode · Ctrl-O verbose · /help');
+  if(queued) two.push(`\x1b[33m${queued} queued\x1b[39m`);
+  two.push(busy ? 'Esc cancels · Ctrl-X Ctrl-S sends now' : 'Shift-Tab mode · Ctrl-O verbose · /help');
 
   return [gradientRule(cols), statusBar([left, center, right], cols - 1), dimmed(two.join(' · '))];
 }
@@ -2351,6 +2366,7 @@ async function main() {
 
   /* Handle --resume: load serialized state from temp file */
   let saved = store.load();
+  let pendingQueue = [];
   let messages;
   let baseMessageCount = 0;
 
@@ -2391,6 +2407,7 @@ async function main() {
       opts.cdpPort = state.cdpPort ?? opts.cdpPort;
       opts.name = state.sessionName ?? opts.name;
       opts.sessionId = state.sessionId ?? opts.sessionId;
+      pendingQueue = Array.isArray(state.queue) ? state.queue.filter(q => typeof q === 'string') : [];
       for(const m of state.skippedModels ?? []) if(m.until > Date.now()) skippedModels.set(m.name, { until: m.until, reason: m.reason });
       
       console.log(dim(`(resumed session from ${opts.resume}: ${messages.length} messages)`));
@@ -2403,6 +2420,7 @@ async function main() {
     }
   } else {
     saved = store.load();
+    pendingQueue = saved?.queue ?? [];
     delegateNotesOn = !opts.noDelegate && !opts.failsafe && !opts.noSystem && !opts.noTools && (opts.provider === 'openai' || opts.provider === 'ollama');
     messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : SYSTEM_PROMPT + systemNotes(opts.root) }];
     baseMessageCount = saved ? saved.baseMessageCount : messages.length;
@@ -2413,7 +2431,7 @@ async function main() {
     }
   }
 
-  const saveSession = () => store.save(messages, baseMessageCount);
+  const saveSession = () => store.save(messages, baseMessageCount, repl?.queue ?? []);
 
   /* context window of the model, for the status line */
   const updateCtxWindow = async () => (ctxWindowNow = ctxWindow = gateway?.enabled ? await gateway.contextWindow(opts.model) : opts.provider === 'ollama' ? opts.numCtx : undefined);
@@ -2446,7 +2464,7 @@ async function main() {
   let repl;
   if(!piped && !opts.noTui && isatty(0) && isatty(1)) {
     tui = new Tui({
-      status: () => statusLines(opts, stats, messages, ctxWindow, repl?.busy, gateway, control && opts.name, tui.cols),
+      status: () => statusLines(opts, stats, messages, ctxWindow, repl?.busy, gateway, control && opts.name, tui.cols, repl?.queue.length),
       statusRows: 3,
       paintRule: (cols, label) => gradientRule(cols, label),
       onResize: cols => repl && ((repl.columns = cols), repl.render()),
@@ -2814,6 +2832,22 @@ async function main() {
       return;
     }
 
+    if(prompt === '/queue' || prompt.startsWith('/queue ')) {
+      const arg = prompt.slice('/queue'.length).trim();
+      const q = repl.queue;
+
+      if(arg === 'clear') return void console.log(dim(`dropped ${repl.clearQueue()} queued prompt(s)`));
+
+      const drop = /^drop\s+(\d+)$/.exec(arg);
+      if(drop) {
+        const gone = repl.dropQueued(+drop[1]);
+        return void console.log(gone === undefined ? red(`error: no queued prompt ${drop[1]}`) : dim(`dropped: ${gone.slice(0, 60)}`));
+      }
+
+      if(arg && arg !== 'list') return void console.log('usage: /queue [list|clear|drop N]');
+      return void console.log(q.length ? q.map((t, i) => `${i + 1}. ${t.length > 100 ? `${t.slice(0, 99)}…` : t}`).join('\n') : '(no prompts queued)');
+    }
+
     if(prompt === '/rename' || prompt.startsWith('/rename ')) {
       const name = prompt.slice('/rename'.length).trim();
       if(!name) return void console.log(`(session name: ${opts.name ?? sessionName(opts)})`);
@@ -2888,7 +2922,19 @@ async function main() {
         /* a route like kilo/nvidia/nemotron-3-ultra-550b-a55b:free names the provider row: the catalog id it belongs to */
         if(!pattern && known && !known.includes(target)) target = known.find(n => target.includes(`/${n}`)) ?? known.find(n => target.split('/').pop().startsWith(n)) ?? target;
 
-        if(verb === 'skip') {
+        /* the gateway ran out of models ("All models rate-limited ... Attempt trail: kilo/x key1: rate_limit; ..."):
+           a bare /model skip then drops every model of the providers that failed, not just the last one */
+        const spent = verb === 'skip' && !pattern ? exhaustedPlatforms(stats.last()?.error) : [];
+        let byProvider = 0;
+        if(spent.length) {
+          const names = (known ?? []).filter(m => availability?.byModel.get(m)?.platforms.some(p => spent.includes(p)));
+          for(const m of names) byProvider += skipModels(m, 'provider exhausted', known);
+          if(byProvider) console.log(dim(`the gateway ran out of models: skipped the ${byProvider} model(s) of ${spent.join(', ')}`));
+        }
+
+        if(verb === 'skip' && byProvider) {
+          /* done above */
+        } else if(verb === 'skip') {
           const n = skipModels(target, 'manual', known);
           if(!n) return void console.log(red(`error: no model matches "${target}"`));
           console.log(dim(n === 1 ? skipNote(target, 'manual') : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`));
@@ -3453,7 +3499,7 @@ async function main() {
      model works they act at once (output goes straight to the transcript, not into a panel, because a panel
      captures stdout and would swallow the streamed reply). Piped input keeps its order. */
   if(!piped) {
-    const INSTANT = [/^\/verbose(\s|$)/, /^\/proxy(\s+(on|off))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+off)?$/, /^\/delegate(\s+(on|off))?$/, /^\/config$/, /^\/skill(\s+loaded)?$/, /^\/rename\s/];
+    const INSTANT = [/^\/verbose(\s|$)/, /^\/proxy(\s+(on|off))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+off)?$/, /^\/delegate(\s+(on|off))?$/, /^\/config$/, /^\/skill(\s+loaded)?$/, /^\/rename\s/, /^\/queue(\s|$)/];
     repl.immediate = line => INSTANT.some(re => re.test(line.trim()));
     repl.onImmediate = runLine;
   }
@@ -3631,6 +3677,16 @@ async function main() {
     client.destroy();
     bridgeProc?.stop();
   });
+
+  queuedPrompts = () => repl.queue;
+  repl.onQueue = () => saveSession();
+
+  /* the prompts that were still waiting when the session was saved run again, in their order */
+  if(pendingQueue.length)
+    setTimeout(() => {
+      console.log(dim(`(${pendingQueue.length} queued prompt${pendingQueue.length > 1 ? 's' : ''} restored from the saved session: /queue shows them, /queue clear drops them)`));
+      repl.restoreQueue(pendingQueue);
+    }, 0);
 
   await repl.run();
 }

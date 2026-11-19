@@ -952,3 +952,15 @@ end to end.
   prompt is just that - an instruction. Smaller/less-steerable models may
   still emit one unprompted on occasion; review `modified: path` lines
   before trusting them blindly, same as you would any AI-applied edit.
+
+## Prompt queue and skipping exhausted providers
+
+- Enter while the model works queues the prompt (`/queue` lists the queue,
+  `/queue drop N` and `/queue clear` remove entries; the status line shows `N
+  queued`). Ctrl-X Ctrl-S sends the typed prompt now: it goes first and the
+  running request is cancelled. The queue is saved with the session (the
+  `queue` field of `<model>.json`, and of a restart's resume file) and runs
+  again, in order, when the session is resumed.
+- When the gateway ends a request with "All models rate-limited ... Attempt
+  trail: ...", the next bare `/model skip` skips every model of the
+  providers named in that trail, not only the last one.
