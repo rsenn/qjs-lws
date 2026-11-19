@@ -443,7 +443,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   within 24 h, shown `<=`) and the budget (start of the next UTC month). A
   key scope never ends by waiting. `/model list` is one line per model (it fits the window: below 72 columns the strength column goes, below 56 the provider too) and shows the real providers
   behind each model id and moves the limited models to a second table with
-  their return time; they get no number, a glob skips them and
+  their return time; models the gateway has no key for (or that are disabled) are hidden, `/model list all` appends them; they get no number, a glob skips them and
   `/model NAME` refuses them with the reason.
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
   says, each in its own panel: the messages new since the last request

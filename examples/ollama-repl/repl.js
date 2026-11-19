@@ -1456,7 +1456,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /verbose [on|off] - show reasoning, full tool results, every request and response with all gateway headers (Ctrl-O toggles)
 /remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it
 /rename NAME    - rename the session (ollama-repl-ctl -s NAME picks it)
-/model [NAME|list|skip|unskip] - show provider/model/endpoint; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip
+/model [NAME|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
 /fallback [NAME|off] - show or set fallback model for auto-failover
 /route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new] - freellmapi routing: show what the gateway does with this session, pick a sort axis, a named chain or one pinned model; new restarts sticky routing
@@ -1579,11 +1579,12 @@ function modelGlobRe(pattern) {
 /** The model names in `known` matching glob `pattern`, in `known`'s order. */
 function modelsForGlob(pattern, known) {
   const re = modelGlobRe(pattern);
-  return (known ?? []).filter(m => re.test(m) && !availability?.byModel.get(m)?.blocked);
+  return (known ?? []).filter(m => re.test(m) && !unavailableModels.has(m) && !availability?.byModel.get(m)?.blocked);
 }
 
 /* what the gateway limits right now (lib/availability.js), loaded by /model and /gateway; null without a dashboard session */
 let availability = null;
+let unavailableModels = new Set(); /* names the endpoint lists as unavailable (no key, disabled): hidden, not selectable */
 let gatewayRef = null; /* main()'s gateway, for the helpers outside it */
 
 /** runs fn on fresh availability data of the gateway (needs a dashboard session) */
@@ -1652,7 +1653,7 @@ function getFilteredModels(known, remote, avail = availability) {
 function resolveModel(pattern, known, remote) {
   if(/^\d+$/.test(pattern)) {
     const idx = +pattern - 1;
-    const models = getFilteredModels(known, remote).filter(m => !m.limited?.blocked);
+    const models = getFilteredModels(known, remote).filter(m => m.available && !m.limited?.blocked);
     return models[idx]?.name;
   }
   
@@ -1754,18 +1755,19 @@ function compactTable(rows, width, flex, caps, paint) {
 }
 
 /** Shows the model list with strength coloring and skip status. */
-async function showModelList(remote, known, provider) {
+async function showModelList(remote, known, provider, showAll = false) {
   cleanupSkips();
   if(gatewayRef?.dashboard) availability = await loadAvailability(gatewayRef).catch(() => availability);
   const all = getFilteredModels(known, remote);
-  const models = all.filter(m => !m.limited?.blocked);
+  const models = all.filter(m => m.available && !m.limited?.blocked);
+  const hidden = all.filter(m => !m.available && !m.limited?.blocked);
   const limited = all.filter(m => m.limited?.blocked).sort((a, b) => (a.limited.until ?? Infinity) - (b.limited.until ?? Infinity) || a.name.localeCompare(b.name));
   
   if(!models.length) {
     return console.log('(no models available)');
   }
   
-  console.log(`Models for ${provider} (${models.length} available${limited.length ? `, ${limited.length} limited` : ''}):`);
+  console.log(`Models for ${provider} (${models.length} available${limited.length ? `, ${limited.length} limited` : ''}${hidden.length ? `, ${hidden.length} ${showAll ? 'without key or disabled' : 'hidden: /model list all'}` : ''}):`);
 
   /* one line per model: a column is as wide as its longest cell (up to its cap), the name takes what is left,
      so a window of 80 columns or more never wraps */
@@ -1802,7 +1804,13 @@ async function showModelList(remote, known, provider) {
     for(const l of compactTable([['name', ...(wide ? ['provider'] : []), 'limit', 'back'], ...rows], width, 0, [0, ...(wide ? [14] : []), 13, 18], (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : c === 0 ? dim(text) : text))) console.log(l);
   }
 
-  console.log('\nUsage: /model <number|name|pattern|skip|unskip>');
+  if(showAll && hidden.length) {
+    console.log(`\n${waveNote(`${hidden.length} without a key or disabled in the gateway, not selectable`)}`);
+    const wide = width >= 56;
+    for(const l of compactTable([['name', ...(wide ? ['provider'] : [])], ...hidden.map(m => [m.name, ...(wide ? [m.provider] : [])])], width, 0, [0, 14], (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : dim(text)))) console.log(l);
+  }
+
+  console.log('\nUsage: /model <number|name|pattern|skip|unskip>  (list all: also the unavailable ones)');
 }
 
 /** --name, else the model name; made unique among the live sessions (name, name-2, ...). */
@@ -2524,9 +2532,11 @@ async function main() {
       const remote = opts.provider === 'openai' ? await client.listModels().catch(() => null) : null;
       const known = opts.provider === 'ollama' ? ollamaModels() : remote ? remote.map(m => m.name) : null;
 
-      if(arg === 'list') {
-        if(remote) return void (await showModelList(remote, null, opts.provider));
-        if(known) return void (await showModelList(null, known, opts.provider));
+      unavailableModels = new Set((remote ?? []).filter(m => m.available === false).map(m => m.name));
+
+      if(arg === 'list' || arg === 'list all') {
+        if(remote) return void (await showModelList(remote, null, opts.provider, arg === 'list all'));
+        if(known) return void (await showModelList(null, known, opts.provider, arg === 'list all'));
         return void console.log('(model list is only available for --provider ollama and openai endpoints that serve /models)');
       }
 
@@ -2550,7 +2560,7 @@ async function main() {
 
         /* immediately switch to the next highest-ranked non-skipped model */
         cleanupSkips();
-        const next = getFilteredModels(known, remote).find(m => m.name !== opts.model && !m.limited?.blocked);
+        const next = getFilteredModels(known, remote).find(m => m.name !== opts.model && m.available && !m.limited?.blocked);
         if(next) {
           opts.model = next.name;
           client.model = next.name;
@@ -2585,6 +2595,8 @@ async function main() {
         if(gateway?.dashboard && (!availability || Date.now() - availability.at > 30000)) availability = await loadAvailability(gateway).catch(() => null);
         const lim = availability?.byModel.get(arg);
         if(lim?.blocked) return void console.log(red(`error: ${arg} is limited right now (${kindsText(lim)}), back: ${backText(lim, availability.at)} - /model list shows when`));
+
+        if(gatewayRef && unavailableModels.has(arg)) return void console.log(red(`error: ${arg} has no key or is disabled in the gateway - /model list all shows such models`));
 
         /* only models already installed (or offered): switching never pulls one */
         if(known && !known.includes(arg) && !known.includes(`${arg}:latest`)) return void console.log(red(`error: no such model "${arg}" (/model list shows the installed ones)`));
