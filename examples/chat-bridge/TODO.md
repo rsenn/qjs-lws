@@ -51,6 +51,17 @@ replaying the whole conversation to it.
 
 All four steps are done (see Done).
 
+## Harness support (plan of 2026-11-19)
+
+Make `--provider bridge` as informed as `--provider freellm`: model
+metadata, usage/providers/forecast endpoints, per-request headers, learned
+quotas, scores and optional routing inside the bridge, with an interface in
+ollama-repl so both backends share the limits, `/model list`, `/standby` and
+delegation code. Gap analysis, design decisions, six steps and open
+questions: [doc/HARNESS.md](doc/HARNESS.md). Step 1 (model metadata) is
+next; the backlog items 1, 4, 5, 9, 11 and 13 below are parts of steps 1, 2,
+4 and 5.
+
 ## Backlog
 
 **Wanted, not started** (decided 2026-11-04, one at a time; numbers are the

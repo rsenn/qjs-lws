@@ -96,6 +96,10 @@ step:
      the system prompt, plugin skills (~/.claude/plugins) and a skill's
      `allowed-tools` / `argument-hint` are ignored, a compaction may
      summarize a loaded skill away
+   - bridge parity (plan: ../chat-bridge/doc/HARNESS.md): --provider bridge
+     has none of the gateway functions (limits, /route, /standby, usage
+     meters); needs chat-bridge to serve the metadata and a backend
+     interface here (lib/gateway.js with freellmapi and bridge backends)
    - not solved: N restarts = N waiting qjsm processes (no execve in
      QuickJS); a process started from the fallback is not a source tree
      itself, it finds the target from the root like an installed one
