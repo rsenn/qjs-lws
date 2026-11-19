@@ -182,6 +182,20 @@ Several sites host many models. Proposal: put the model in the request's
 
 ## Done
 
+- harness step 4, routing inside the bridge (2026-11-19): `auto` and
+  `auto:smart|fast|reliable|cheap|balanced` (`Bridge.route()`: reliability,
+  speed and the static `rank` of a site from doc/PROVIDERS.md), failover to the
+  next site on a refusal before any reply text with the transcript replayed
+  (`--max-replay`, default 60000), `x-fallback-attempts` and
+  `x-fallback-trail`, the gateway's own "All models rate-limited ... Attempt
+  trail" error when every site fails, sticky sites per `x-session-id`, `auto`
+  entries in `/v1/models`, `"$replace": true` in `$CHAT_BRIDGE_SITES` and
+  `"auto": false` per site. Tests: probe.js with two fake sites (alpha,
+  omega), run.sh runs the harness's `/route smart`. The harness: `/route` and
+  the session id work for a bridge, `--provider bridge` starts on `auto`.
+  Not done: a mid-stream failure cannot move to another site, the ranks are
+  static (no live score), the client-side failover (lib/failover.js) still
+  exists beside it - decide in step 6 which one stays
 - harness step 3, the harness reads the bridge (2026-11-19): see
   ollama-repl/TODO.md and its README section "chat-bridge as a backend";
   test/run.sh runs the harness against the fake-site bridge (`/gateway

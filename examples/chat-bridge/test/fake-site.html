@@ -18,6 +18,7 @@
      [[tool]]   a tool_call block, arguments nested (the asked-for shape)
      [[flat]]   a tool call with flat arguments and copy-button text before it
      [[limit]]  no answer, a daily-limit notice instead
+     [[limit@PORT]] the same, only on the page served on that port
      [[ignore]] never takes the prompt (the box is not emptied)
      otherwise  "echo: " and the last line of the prompt
    Opened as 127.0.0.1 (not localhost) the reply elements use another class
@@ -49,7 +50,7 @@ box.addEventListener('keydown', e => {
   if(!t.trim() || t.includes('[[ignore]]')) return;
   box.value = '';
   add('user', t);
-  if(t.includes('[[limit]]')) return add('notice', 'You have reached your daily message limit. Please try again in 3 hours.');
+  if(t.includes('[[limit]]') || t.includes(`[[limit@${location.port}]]`)) return add('notice', 'You have reached your daily message limit. Please try again in 3 hours.');
 
   const full = text(t), d = add(cls, '');
   let n = 0;

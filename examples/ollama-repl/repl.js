@@ -2302,7 +2302,9 @@ async function main() {
     gateway = gatewayRef = new Gateway(client);
 
     if((await gateway.detect()) && gateway.isBridge) {
-      /* a chat-bridge: usage, health and limits per site, no routing profiles, dashboard, proxy or sticky sessions */
+      /* a chat-bridge: usage, health and limits per site, auto and auto:AXIS routing, no named profiles, dashboard or proxy */
+      opts.sessionId ??= `ollama-repl-${Date.now().toString(36)}-${getpid().toString(36)}`;
+      client.extraHeaders = { 'x-session-id': opts.sessionId };
       await gateway.refresh(true);
       if(gateway.hasLimits) availability = await loadAvailability(gateway).catch(() => null);
       if(opts.standby) {
@@ -2329,7 +2331,7 @@ async function main() {
 
   if(bridgeProc && opts.model === undefined) {
     const models = await client.listModels().catch(() => []);
-    opts.model = pickModel(models);
+    opts.model = models.some(m => m.name === 'auto') ? 'auto' : pickModel(models);
 
     if(!opts.model) {
       console.log(red('error: no model available on the bridge right now (all rate limited?), try again later'));
@@ -3231,7 +3233,7 @@ async function main() {
 
     if(prompt === '/route' || prompt.startsWith('/route ')) {
       const arg = prompt.slice('/route'.length).trim();
-      if(!gateway?.enabled || gateway.isBridge) return void console.log(dim('(/route needs a freellmapi gateway: --provider freellm; a chat-bridge picks no route itself yet)'));
+      if(!gateway?.enabled) return void console.log(dim('(/route needs a gateway that routes: --provider freellm, or a chat-bridge)'));
 
       const last = stats.last();
       const sticky = opts.sessionId ? `x-session-id ${opts.sessionId}` : '-';

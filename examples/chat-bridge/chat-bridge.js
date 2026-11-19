@@ -59,23 +59,30 @@ import { getenv, exit, loadFile, open as fopen } from 'std';
    adopted (see ACTIVE below). input = prompt box, reply = assistant messages (the
    last one is read) */
 const SITES = {
-  deepseek: { name: 'DeepSeek', host: 'chat.deepseek.com', home: 'https://chat.deepseek.com/', input: 'textarea', reply: '.ds-markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
-  qwen: { name: 'Qwen', host: 'chat.qwen.ai', home: 'https://chat.qwen.ai/', input: 'textarea.message-input-textarea, textarea', reply: '.qwen-markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
-  gemini: { name: 'Gemini', host: 'gemini.google.com', home: 'https://gemini.google.com/app', input: 'rich-textarea .ql-editor, div[contenteditable="true"]', reply: 'message-content, .model-response-text', context: null, capabilities: { tools: true, vision: true, reasoning: false, stream: true } },
-  kimi: { name: 'Kimi', host: 'www.kimi.ai', home: 'https://www.kimi.ai/chat/', input: 'div[contenteditable="true"], textarea', reply: '.markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
-  mistral: { name: 'Mistral', host: 'chat.mistral.ai', home: 'https://chat.mistral.ai/chat', input: 'textarea, div[contenteditable="true"]', reply: '[data-message-part-type="answer"]', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
-  chatgpt: { name: 'ChatGPT', host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt, div.ProseMirror[contenteditable="true"]', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"], [data-markdown-text-style="assistant-message"]', context: null, capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
+  deepseek: { name: 'DeepSeek', rank: 1, host: 'chat.deepseek.com', home: 'https://chat.deepseek.com/', input: 'textarea', reply: '.ds-markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  qwen: { name: 'Qwen', rank: 2, host: 'chat.qwen.ai', home: 'https://chat.qwen.ai/', input: 'textarea.message-input-textarea, textarea', reply: '.qwen-markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  gemini: { name: 'Gemini', rank: 3, host: 'gemini.google.com', home: 'https://gemini.google.com/app', input: 'rich-textarea .ql-editor, div[contenteditable="true"]', reply: 'message-content, .model-response-text', context: null, capabilities: { tools: true, vision: true, reasoning: false, stream: true } },
+  kimi: { name: 'Kimi', rank: 4, host: 'www.kimi.ai', home: 'https://www.kimi.ai/chat/', input: 'div[contenteditable="true"], textarea', reply: '.markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  mistral: { name: 'Mistral', rank: 5, host: 'chat.mistral.ai', home: 'https://chat.mistral.ai/chat', input: 'textarea, div[contenteditable="true"]', reply: '[data-message-part-type="answer"]', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  chatgpt: { name: 'ChatGPT', rank: 6, host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt, div.ProseMirror[contenteditable="true"]', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"], [data-markdown-text-style="assistant-message"]', context: null, capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
   venice: { host: 'venice.ai', home: 'https://venice.ai/chat', input: 'textarea', reply: '.prose', skip: 'no reply read in a test (anonymous use is rate-limited and gated), so not worth the fragility' },
-  duck: { name: 'Duck', host: 'duck.ai', home: 'https://duck.ai/chat', maxPrompt: 16000, input: 'textarea', reply: 'div.space-y-4.whitespace-normal', context: Math.floor(16000/3.5), capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
-  deepai: { name: 'DeepAI', host: 'deepai.org', home: 'https://deepai.org/chat', input: '#persistentChatbox', reply: '.markdownContainer', context: null, capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
-  openrouter: { name: 'OpenRouter', host: 'openrouter.ai', home: 'https://openrouter.ai/chat', input: 'textarea', reply: '[data-message-bubble="assistant"]', billing: 'metered', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  duck: { name: 'Duck', rank: 8, host: 'duck.ai', home: 'https://duck.ai/chat', maxPrompt: 16000, input: 'textarea', reply: 'div.space-y-4.whitespace-normal', context: Math.floor(16000/3.5), capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
+  deepai: { name: 'DeepAI', rank: 9, host: 'deepai.org', home: 'https://deepai.org/chat', input: '#persistentChatbox', reply: '.markdownContainer', context: null, capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
+  openrouter: { name: 'OpenRouter', rank: 7, host: 'openrouter.ai', home: 'https://openrouter.ai/chat', input: 'textarea', reply: '[data-message-bubble="assistant"]', billing: 'metered', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
   aistudio: { host: 'aistudio.google.com', home: 'https://aistudio.google.com/prompts/new_chat', input: 'textarea', reply: 'ms-text-chunk', billing: 'metered', skip: 'free Gemini API key exists, and gemini is already covered by the gemini site' },
   groq: { host: 'console.groq.com', home: 'https://console.groq.com/playground', input: 'textarea', reply: '.prose', billing: 'metered', skip: 'API playground behind a login, not a chat, and groq has an OpenAI-compatible API' },
 };
 
 /* extra sites (tests, private deployments): $CHAT_BRIDGE_SITES names a JSON
-   file { name: { host, home, input, reply, ... } } merged over SITES */
-if(getenv('CHAT_BRIDGE_SITES')) Object.assign(SITES, JSON.parse(loadFile(getenv('CHAT_BRIDGE_SITES')) ?? '{}'));
+   file { name: { host, home, input, reply, ... } } merged over SITES (with
+   "$replace": true they replace the built-in sites) */
+if(getenv('CHAT_BRIDGE_SITES')) {
+  const extra = JSON.parse(loadFile(getenv('CHAT_BRIDGE_SITES')) ?? '{}');
+  /* "$replace": true drops the built-in sites first (a test that must not route to a real one) */
+  if(extra.$replace) for(const k of Object.keys(SITES)) delete SITES[k];
+  delete extra.$replace;
+  Object.assign(SITES, extra);
+}
 
 /* every site has a billing class, default 'free': a consumer chat that can
    only cost money if a human clicks Upgrade (the bridge never clicks
@@ -533,6 +540,7 @@ class Bridge {
   opening = new Map(); /* site name -> tabs being created */
   waiters = [];
   cooldown = new Map(); /* site name -> { until (ms), err } for a refusing site */
+  sticky = new Map(); /* x-session-id -> the site that last answered it (auto routing keeps a conversation on one site) */
   #browser;
   #opening = Promise.resolve();
 
@@ -794,7 +802,58 @@ class Bridge {
     return { object: 'quota_forecast', source: 'chat-bridge', generated_at: new Date().toISOString(), low_balance_threshold: { pct: 0.2, absolute: 0, absolute_min_limit: 0 }, pools };
   }
 
+  /**
+   * The sites that can take a request now, best first, for `auto` and `auto:AXIS`. Ready sites only (not on
+   * cooldown, not logged out, not billing-guarded), tool-capable ones when the request has tools. The score mixes
+   * what the bridge measured (reliability: the share of good answers with a prior; speed: the median latency) with
+   * the static `rank` of a site (doc/PROVIDERS.md verdicts); `cheap` prefers the site used least this month, so the
+   * free quotas wear evenly. A conversation stays on its site (x-session-id) while the site is ready.
+   */
+  route(axis, { tools = false, session = null } = {}) {
+    const ids = Object.keys(ACTIVE).filter(id => this.status(id) == 'healthy' && ACTIVE[id].auto !== false && (!tools || ACTIVE[id].capabilities?.tools !== false));
+    const ranks = Object.values(ACTIVE).map(s => s.rank ?? 9);
+    const worst = Math.max(...ranks);
+    const W = { smart: [0.2, 0.1, 0.7, 0], fast: [0.2, 0.7, 0.1, 0], reliable: [0.7, 0.15, 0.15, 0], cheap: [0.1, 0, 0, 0.9], balanced: [0.4, 0.2, 0.4, 0] }[axis] ?? [0.4, 0.2, 0.4, 0];
+
+    const score = id => {
+      const s = this.stats.site(id);
+      const med = this.stats.median(id);
+      const reliability = (s.ok + 1) / (s.requests + 2);
+      const speed = med == null ? 0.5 : 1 / (1 + med / 20000);
+      const smart = 1 - ((ACTIVE[id].rank ?? 9) - 1) / worst;
+      const cheap = 1 / (1 + s.requests / 50);
+      return W[0] * reliability + W[1] * speed + W[2] * smart + W[3] * cheap;
+    };
+
+    const order = ids.sort((a, b) => score(b) - score(a) || (ACTIVE[a].rank ?? 9) - (ACTIVE[b].rank ?? 9));
+    const home = session && this.sticky.get(session);
+    return home && order.includes(home) ? [home, ...order.filter(id => id != home)] : order;
+  }
+
   models() {
+    return [...this.siteModels(), ...this.autoModels()];
+  }
+
+  /* auto and auto:AXIS: the bridge picks the site (route) */
+  autoModels() {
+    const ready = Object.keys(ACTIVE).filter(id => this.status(id) == 'healthy');
+    const tools = ready.some(id => ACTIVE[id].capabilities?.tools !== false);
+    const names = { auto: 'Auto (balanced)', 'auto:smart': 'Auto, smartest first', 'auto:fast': 'Auto, fastest first', 'auto:reliable': 'Auto, most reliable first', 'auto:cheap': 'Auto, least used first', 'auto:balanced': 'Auto, balanced' };
+
+    return Object.entries(names).map(([id, name]) => ({
+      id,
+      object: 'model',
+      owned_by: 'chat-bridge',
+      name,
+      billing: 'free',
+      available: ready.length > 0,
+      execution_status: ready.length ? 'ready' : 'exhausted',
+      supported_parameters: ['temperature', 'max_tokens', 'stream', ...(tools ? ['tools', 'tool_choice'] : [])],
+      capabilities: { tools, vision: false, reasoning: false, stream: true },
+    }));
+  }
+
+  siteModels() {
     return Object.keys(ACTIVE).map(id => {
       const c = this.cooling(id);
       const billing = ACTIVE[id].billing ?? 'free';
@@ -849,12 +908,20 @@ function completions(bridge) {
     const tools = body.tools?.length ? body.tools : null;
     if(!messages?.length) return json({ error: { message: 'messages required' } }, 400);
 
-    const name = Object.keys(ACTIVE).find(n => model.includes(n));
-    if(ACTIVE[name]?.billing == 'metered' && !bridge.o.allowPaid)
+    /* one attempt on one site: its Response. ctx.failed says why when the site gave no reply, so the router can try
+       the next one (a refusal, a timeout, a prompt too long); ctx.attempts are the sites that failed before it */
+    const attempt = async (name, ctx = { attempts: [] }) => {
+    const fail = (kind, message) => (ctx.failed = { kind, message });
+    if(ACTIVE[name]?.billing == 'metered' && !bridge.o.allowPaid) {
+      fail('billing');
       return refusalResponse(new SiteRefusal('billing', `${name} is pay-as-you-go and can cost money, so the bridge refuses it; start the bridge with --allow-paid to use it anyway`));
+    }
 
     const cool = bridge.cooling(name);
-    if(cool) return refusalResponse(cool.err, (cool.until - Date.now()) / 1000, { 'x-routed-via': `${name}/default` });
+    if(cool) {
+      fail(cool.err.kind, cool.err.message);
+      return refusalResponse(cool.err, (cool.until - Date.now()) / 1000, { 'x-routed-via': `${name}/default` });
+    }
 
     let chat, gen, full;
     try {
@@ -864,14 +931,21 @@ function completions(bridge) {
       const body = tools ? plan.prompt + TOOL_REMINDER : plan.prompt;
       full = plan.fresh && tools ? `${toolPreamble(tools)}\n\n${body}` : body;
       const max = ACTIVE[name]?.maxPrompt;
+      if(ctx.attempts.length && full.length > bridge.o.maxReplay) {
+        bridge.release(chat);
+        fail('replay_too_long');
+        return json({ error: { message: `the conversation is ${full.length} characters, more than the ${bridge.o.maxReplay} the bridge replays on another site after a failure (--max-replay)`, type: 'invalid_request_error', code: 'context_length_exceeded' } }, 400);
+      }
       if(max && full.length > max) {
         bridge.release(chat);
+        fail('too_long');
         return json({ error: { message: `${name} takes at most ${max} characters per message, this prompt has ${full.length}`, type: 'invalid_request_error', code: 'context_length_exceeded' } }, 400);
       }
       gen = chat.ask(full);
     } catch(e) {
       if(chat) bridge.release(chat);
       bridge.stats.record(name, { ok: false, ms: Date.now() - t0, promptChars: full?.length, kind: 'error', message: e.message });
+      fail('error', e.message);
       return json({ error: { message: e.message } }, 502);
     }
 
@@ -888,6 +962,7 @@ function completions(bridge) {
         'x-routed-via': `${name}/default`,
         'x-request-id': id,
         'x-response-ms': String(Date.now() - t0),
+        ...(ctx.attempts.length ? { 'x-fallback-attempts': String(ctx.attempts.length), 'x-fallback-trail': ctx.attempts.map(a => `${a.site}/default key1: ${a.kind}`).join('; ') } : {}),
         /* the learned budget; the reset is an estimate (the window as the last notice named it, else a day from now) */
         ...(b ? { 'x-ratelimit-limit': String(b.limit), 'x-ratelimit-remaining': String(b.remaining), 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + (w ?? 86400)) } : {}),
       };
@@ -916,6 +991,7 @@ function completions(bridge) {
       } catch(e) {
         chat.history = [];
         done(false, '', e);
+        fail(e.kind ?? 'timeout', e.message);
         if(e instanceof SiteRefusal) {
           bridge.refused(name, e);
           return refusalResponse(e, e.retry, hdr());
@@ -944,6 +1020,7 @@ function completions(bridge) {
       chat.history = [];
       bridge.release(chat);
       done(false, '', e);
+      fail(e.kind ?? 'timeout', e.message);
       if(e instanceof SiteRefusal) {
         bridge.refused(name, e);
         return refusalResponse(e, e.retry, hdr());
@@ -984,12 +1061,45 @@ function completions(bridge) {
       }),
       { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...hdr() } },
     );
+    };
+
+    const auto = /^auto(?::(smart|fast|reliable|cheap|balanced))?$/.exec(model);
+    if(!auto) return attempt(Object.keys(ACTIVE).find(n => model.includes(n)));
+
+    /* auto: the best ready site, the next one when it refuses before any reply text (the conversation is replayed
+       there as one transcript); a streamed answer that already began cannot move */
+    const session = req.headers.get('x-session-id') ?? req.headers.get('x-chat-bridge-conversation');
+    const ctx = { attempts: [], session };
+
+    for(const name of bridge.route(auto[1] ?? 'balanced', { tools: !!tools, session })) {
+      ctx.failed = null;
+      const res = await attempt(name, ctx);
+      if(!ctx.failed) {
+        if(session) bridge.sticky.set(session, name);
+        return res;
+      }
+      ctx.attempts.push({ site: name, ...ctx.failed });
+    }
+
+    /* nothing answered: the gateway's wording, so a client that reads its errors (the harness skip) understands it */
+    const trail = ctx.attempts.map(a => `${a.site}/default key1: ${a.kind}`).join('; ');
+    const soonest = Math.min(...[...bridge.cooldown.values()].map(c => c.until).filter(u => u > Date.now()));
+    const retry = Number.isFinite(soonest) ? Math.ceil((soonest - Date.now()) / 1000) : null;
+    const limited = !ctx.attempts.length || ctx.attempts.every(a => ['rate_limit', 'login', 'billing'].includes(a.kind));
+    const message = ctx.attempts.length
+      ? `All models ${limited ? 'rate-limited' : 'failed'} after ${ctx.attempts.length} attempt${ctx.attempts.length == 1 ? '' : 's'}.${retry ? ` Soonest cooldown reset ~${retry}s.` : ''} Attempt trail: ${trail}. Last error: ${ctx.attempts.at(-1).message ?? ctx.attempts.at(-1).kind}`
+      : `All models exhausted: no site can serve this request right now${tools ? ' (tool-capable sites only)' : ''}.${retry ? ` Soonest cooldown reset ~${retry}s.` : ''}`;
+    return json({ error: { message, type: limited ? 'rate_limit_error' : 'api_error', code: limited ? 'routing_exhausted' : 'upstream_failed', param: null } }, limited ? 429 : 502, {
+      ...(retry && limited ? { 'retry-after': String(retry) } : {}),
+      'x-fallback-attempts': String(ctx.attempts.length),
+      ...(trail ? { 'x-fallback-trail': trail } : {}),
+    });
   };
 }
 
 function parseArgs(argv) {
-  const o = { port: 9222, host: '127.0.0.1', listen: 8089, max: 3, idle: 2.5, timeout: 180, site: null, allowPaid: getenv('CHAT_BRIDGE_ALLOW_PAID') == '1', newTabs: false, rest: [] };
-  const num = new Set(['port', 'listen', 'max', 'idle', 'timeout']);
+  const o = { maxReplay: 60000, port: 9222, host: '127.0.0.1', listen: 8089, max: 3, idle: 2.5, timeout: 180, site: null, allowPaid: getenv('CHAT_BRIDGE_ALLOW_PAID') == '1', newTabs: false, rest: [] };
+  const num = new Set(['port', 'listen', 'max', 'idle', 'timeout', 'maxReplay']);
   for(let i = 0; i < argv.length; i++) {
     if(argv[i] == '--allow-paid') {
       o.allowPaid = true;
@@ -999,7 +1109,7 @@ function parseArgs(argv) {
       o.newTabs = true;
       continue;
     }
-    const m = /^--(\w+)$/.exec(argv[i]);
+    const m = /^--(\w+)$/.exec(argv[i].replace(/^--max-replay$/, '--maxReplay'));
     if(m && m[1] in o && m[1] != 'rest') o[m[1]] = num.has(m[1]) ? +argv[++i] : argv[++i];
     else o.rest.push(argv[i]);
   }

@@ -100,6 +100,44 @@ await check('a changed layout (reply selector matches nothing) is an error', asy
   expect(res.status >= 400, `status ${res.status}: ${(await res.text()).slice(0, 200)}`);
 });
 
+/* auto routing: alpha (rank 1) and omega (rank 2) are two working pages; alpha's port is the third argument */
+const portA = scriptArgs[2];
+const route = (body, headers) => call({ model: 'auto', ...body }, headers);
+const via = res => res.headers.get('x-routed-via');
+
+await check('auto is a model, with its axes', async () => {
+  const ids = (await (await fetch(`${base}/models`)).json()).data.map(m => m.id);
+  for(const id of ['auto', 'auto:smart', 'auto:fast', 'auto:reliable', 'auto:cheap', 'auto:balanced']) expect(ids.includes(id), `no ${id} in ${ids}`);
+});
+
+await check('auto picks the best ranked ready site', async () => {
+  const res = await route({ messages: [{ role: 'user', content: '[[pong]]' }] }, { 'x-session-id': 's1' });
+  expect(res.status == 200 && via(res) == 'alpha/default', `${res.status} ${via(res)}`);
+});
+
+await check('a conversation stays on its site while auto:cheap would prefer another', async () => {
+  const res = await route({ model: 'auto:cheap', messages: [{ role: 'user', content: '[[pong]]' }] }, { 'x-session-id': 's1' });
+  expect(via(res) == 'alpha/default', 'routed via ' + via(res));
+  const other = await route({ model: 'auto:cheap', messages: [{ role: 'user', content: '[[pong]]' }] });
+  expect(via(other) == 'omega/default', 'without a session: ' + via(other));
+});
+
+await check('auto tries the next site when the first refuses, and says so in the headers', async () => {
+  const res = await route({ messages: [{ role: 'user', content: `[[pong]] [[limit@${portA}]]` }] });
+  expect(res.status == 200 && via(res) == 'omega/default', `${res.status} via ${via(res)}`);
+  expect(res.headers.get('x-fallback-attempts') == '1' && res.headers.get('x-fallback-trail') == 'alpha/default key1: rate_limit', 'trail ' + res.headers.get('x-fallback-trail'));
+  expect((await res.json()).choices[0].message.content == 'pong', 'the reply');
+});
+
+await check('when every site refuses it is the gateway\'s all-models error with the trail', async () => {
+  const res = await route({ messages: [{ role: 'user', content: '[[limit]]' }] });
+  const j = await res.json();
+  expect(res.status == 429 && j.error.code == 'routing_exhausted' && /All models rate-limited after 1 attempt/.test(j.error.message) && /omega\/default key1: rate_limit/.test(j.error.message), `${res.status} ${JSON.stringify(j)}`);
+  expect(+res.headers.get('retry-after') > 0 && res.headers.get('x-fallback-trail') == 'omega/default key1: rate_limit', 'headers');
+  const again = await (await route({ messages: [{ role: 'user', content: '[[pong]]' }] })).json();
+  expect(/All models exhausted/.test(again.error.message), again.error.message);
+});
+
 /* last: a rate-limited site cools down, later requests fail at once */
 await check('a limit notice is a 429 rate_limit_exceeded with Retry-After', async () => {
   const res = await say('[[limit]]');

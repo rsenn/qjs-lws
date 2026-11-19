@@ -11,6 +11,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHROME="${CHROME:-google-chrome}"
 CDP="${CDP_PORT:-9333}" SITE="${SITE_PORT:-18080}" BRIDGE="${BRIDGE_PORT:-18089}"
+SITEA="${SITE_A_PORT:-18081}" SITEB="${SITE_B_PORT:-18082}" # two more pages for the routing tests
 W="$(mktemp -d)"
 PIDS=()
 
@@ -20,11 +21,15 @@ cleanup() {
   for _ in 1 2 3 4 5; do rm -rf "$W" 2>/dev/null && break; sleep 1; done # chrome may still be writing its profile
 }
 trap cleanup EXIT
+trap 'exit 143' TERM INT
 
 cat > "$W/sites.json" <<JSON
 {
-  "fake":    { "host": "localhost:$SITE", "home": "http://localhost:$SITE/", "input": "textarea", "reply": ".reply", "name": "Fake", "context": 8000 },
-  "rotted": { "host": "127.0.0.1:$SITE", "home": "http://127.0.0.1:$SITE/", "input": "textarea", "reply": ".reply" }
+  "\$replace": true,
+  "fake":    { "host": "localhost:$SITE", "home": "http://localhost:$SITE/", "input": "textarea", "reply": ".reply", "name": "Fake", "context": 8000, "auto": false },
+  "rotted": { "host": "127.0.0.1:$SITE", "home": "http://127.0.0.1:$SITE/", "input": "textarea", "reply": ".reply", "auto": false },
+  "alpha":  { "host": "localhost:$SITEA", "home": "http://localhost:$SITEA/", "input": "textarea", "reply": ".reply", "rank": 1 },
+  "omega":  { "host": "localhost:$SITEB", "home": "http://localhost:$SITEB/", "input": "textarea", "reply": ".reply", "rank": 2 }
 }
 JSON
 
@@ -34,25 +39,29 @@ wait_port() { for _ in $(seq 100); do (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/n
 PIDS+=($!)
 qjsm "$HERE/fake-site-server.js" "$SITE" "$HERE" >"$W/site.log" 2>&1 </dev/null &
 PIDS+=($!)
-wait_port "$CDP" && wait_port "$SITE" || exit 2
+for port in "$SITEA" "$SITEB"; do
+  qjsm "$HERE/fake-site-server.js" "$port" "$HERE" >"$W/site-$port.log" 2>&1 </dev/null &
+  PIDS+=($!)
+done
+wait_port "$CDP" && wait_port "$SITE" && wait_port "$SITEA" && wait_port "$SITEB" || exit 2
 # the bridge only navigates blank tabs that exist (see --new-tabs): headless
 # Chrome starts with one, two more make three chats possible
-for _ in 1 2; do curl -s -X PUT "http://127.0.0.1:$CDP/json/new?about:blank" >/dev/null; done
+for _ in 1 2 3 4; do curl -s -X PUT "http://127.0.0.1:$CDP/json/new?about:blank" >/dev/null; done
 
 CHAT_BRIDGE_STATE="$W/state.json" CHAT_BRIDGE_SITES="$W/sites.json" qjsm "$HERE/../chat-bridge.js" --port "$CDP" --listen "$BRIDGE" --idle 1 --timeout 10 serve >"$W/bridge.log" 2>&1 </dev/null &
 PIDS+=($!)
 wait_port "$BRIDGE" || { cat "$W/bridge.log"; exit 2; }
 
-qjsm "$HERE/probe.js" "http://127.0.0.1:$BRIDGE/v1"
+qjsm "$HERE/probe.js" "http://127.0.0.1:$BRIDGE/v1" "$SITEA"
 rc=$?
 # last: the limit test of the probe has made the learned quota of the fake site visible
 qjsm "$HERE/shape.js" "http://127.0.0.1:$BRIDGE/v1" fake || rc=1
 # the harness reads the bridge like a gateway: its limits, health and usage show up in the commands
 if [ $rc -eq 0 ]; then
   H="$HERE/../../ollama-repl/repl.js"
-  out=$(printf '/gateway providers\n/gateway limited\n/gateway usage\n/model list all\n/exit\n' | OPENAI_API_URL="http://127.0.0.1:$BRIDGE/v1" XDG_CONFIG_HOME="$W/cfg" timeout 60 qjsm "$H" --provider openai --model fake 2>&1 | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
+  out=$(printf '/gateway providers\n/gateway limited\n/gateway usage\n/model list all\n/route smart\n/exit\n' | OPENAI_API_URL="http://127.0.0.1:$BRIDGE/v1" XDG_CONFIG_HOME="$W/cfg" timeout 60 qjsm "$H" --provider openai --model fake 2>&1 | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g')
   echo "$out" > "$W/harness.txt"
-  if echo "$out" | grep -q "fake .*rate_limited" && echo "$out" | grep -q "cannot serve a request" && echo "$out" | grep -q "gateway month" && echo "$out" | grep -qE "^fake +fake +cooldown in "; then echo "✅ the harness shows the bridge's providers, limits and usage"; else echo "❌ the harness does not read the bridge"; echo "$out" | tail -25; rc=1; fi
+  if echo "$out" | grep -q "fake .*rate_limited" && echo "$out" | grep -q "cannot serve a request" && echo "$out" | grep -q "gateway month" && echo "$out" | grep -qE "^fake +fake +cooldown in " && echo "$out" | grep -q "routing: auto:smart"; then echo "✅ the harness shows the bridge's providers, limits and usage"; else echo "❌ the harness does not read the bridge"; echo "$out" | tail -25; rc=1; fi
 fi
 
 # a restart keeps the limit the probe ran into (state.json): the site is still exhausted, with its reset time

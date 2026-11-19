@@ -975,7 +975,7 @@ picture from the bridge's own endpoints: a site is a model and a provider at
 once, a site that hit its limit is blocked until its cooldown ends (`/gateway
 limits`, `/gateway limited`, `/model list`), its learned request budget stands
 in the day window. `gateway.hasLimits` (a dashboard session or a bridge) guards
-what needs per-model limits. Not for a bridge: `/route`, `/proxy`, `/gateway
-login|quota`, the `auto` model and sticky sessions. The standby and delegation
+what needs per-model limits. `/route` works for a bridge (`auto` and `auto:smart|fast|reliable|cheap|balanced`, a pinned site; no named profiles), the session id keeps a conversation on its site, and `--provider bridge` starts on `auto`. Not for a bridge: `/proxy`, `/gateway
+login|quota`. The standby and delegation
 discovery skip sites that cannot call tools. A plain `--provider openai` against
 a bridge URL (`OPENAI_API_URL`) works the same as `--provider bridge`.

@@ -250,6 +250,32 @@ known site has the headers `x-routed-via: SITE/default`, `x-request-id` (the
 Errors: bad JSON → 400, no messages → 400, tab/site problems → 502, no reply
 before `--timeout` → 504, site refusals as in [Refusals](#refusals).
 
+### Routing: auto and auto:AXIS
+
+`model: "auto"` (and `auto:smart|fast|reliable|cheap|balanced`) lets the
+bridge pick the site, like a freellmapi gateway. It takes the ready sites
+(not on cooldown, not logged out, not billing-guarded; only tool-capable ones
+when the request has `tools`; never one with `"auto": false`) and orders them
+by a score of what it measured (reliability: the share of good answers, with a
+prior; speed: the median latency) and the static `rank` of the site (the
+verdicts of doc/PROVIDERS.md, 1 best). The axis sets the weights; `cheap`
+prefers the site used least this month, so the free quotas wear evenly.
+
+When the chosen site refuses before any reply text (a limit, a login, a prompt
+it does not take, a timeout, a missing tab), the request goes to the next one
+and the conversation is replayed there as one transcript, at most `--max-replay`
+characters (default 60000; longer is a 400 `context_length_exceeded`, not a
+truncated chat). A streamed answer that already began cannot move. The
+answer carries `x-routed-via`, `x-fallback-attempts` and `x-fallback-trail`
+(`alpha/default key1: rate_limit; ...`). When every site fails the error is
+the gateway's: `All models rate-limited after N attempts. Soonest cooldown
+reset ~Ns. Attempt trail: ...` (429 `routing_exhausted`, with Retry-After), or
+`All models exhausted: no site can serve this request right now` when none
+was left to try, so a client that reads those messages (the harness's `/model
+skip`) works unchanged. A conversation (`x-session-id`, or
+`x-chat-bridge-conversation`) stays on the site that answered it while that
+site is ready.
+
 ### Counters, learned budgets and the state file
 
 The bridge counts per site and per month: requests, successes, refusals by
@@ -280,6 +306,8 @@ dashboard, `/route`, `/proxy` or sticky sessions.
       input,  // selector of the prompt box (first visible match)
       reply,  // selector of the assistant messages (last match is read)
       billing, // 'free' (default) or 'metered', see Billing guard
+      rank,   // optional: preference for auto routing, 1 best
+      auto,   // optional: false keeps the site out of auto routing
       name,   // optional: display name in /v1/models (default: the key)
       context, // optional: window in tokens, null when unknown (never guessed)
       capabilities, // optional: { tools, vision, reasoning, stream }, default tools and stream true
