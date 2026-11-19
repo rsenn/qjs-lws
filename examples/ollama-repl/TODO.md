@@ -2,7 +2,7 @@
 
 ## Next tasks (recorded 2026-11-19, in this order)
 
-State: harness steps 1 (24dabc0), 2 (af0f0d6), 3 (5377485) and 4 of the chat-bridge plan are done. Open:
+State: harness steps 1 (24dabc0), 2 (af0f0d6), 3 (5377485), 4 (3911456) and 5 of the chat-bridge plan are done (step 5 2026-11-19: `site/model`, `max_tokens`/`stop`, check, cancel). Open:
 
 1. [x] (done 2026-11-19, see chat-bridge/TODO.md Done) chat-bridge harness step 2: counters, learned budgets, `/v1/usage`,
    `/v1/providers`, `/v1/quota-forecast`, persisted cooldowns,
@@ -823,6 +823,13 @@ Ollama server or `GEMINI_API_KEY`, neither available where this work was
 done - see item 4a above for the same live-verification gap.
 
 ## Done
+
+- automatic `/model skip` (2026-11-19): when a gateway answers "All models
+  exhausted" / routing_exhausted, the round runs `/model skip` itself and asks
+  again, up to 4 times a round (`autoSkipHook` in repl.js; the skip works from
+  the error at hand, not from the stats). Tested against a fake gateway only
+  (spent model -> good model), not against a live freellmapi. A chat-bridge
+  keeps using its own failover hook.
 
 - Tool-call loop guard (2026-10-31): `runToolLoop()` no longer re-executes
   a call (same tool + args) already made this turn; the model gets an

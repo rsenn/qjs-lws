@@ -599,6 +599,13 @@ function tuiSpinner(label) {
 /* set by main() when the endpoint is a chat-bridge: { failover, onSwitch } */
 let failoverHook = null;
 
+/* set by main(): { client(), skip(error) }. A gateway that ran out of models ("All models exhausted") makes the
+   round run /model skip itself and ask again, up to AUTO_SKIPS times a round; skipError is the error that command
+   works from (the stats may not hold it yet) */
+let autoSkipHook = null;
+let skipError = null;
+const AUTO_SKIPS = 4;
+
 /* lib/tui.js layout, set by main() on a terminal unless --no-tui */
 let tui = null;
 
@@ -768,11 +775,20 @@ const underRoot = (root, p) => (String(p ?? '').startsWith('/') ? p : `${root}/$
 
 async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   const tried = new Set([client.model]);
+  let skips = 0;
 
   for(;;) {
     try {
       return await chatRoundOnce(client, messages, opts, abortRef, chatOptions);
     } catch(e) {
+      /* nothing can serve the request on this route: skip the spent model(s), switch to the next ready one, retry */
+      const text = `${e.message ?? ''}\n${e.detail ?? ''}\n${e.body ?? ''}`;
+      if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && isExhaustedError(text)) {
+        const from = client.model;
+        skips++;
+        if(await autoSkipHook.skip(text) && client.model !== from) continue;
+      }
+
       /* a gateway model that fails with a limit or an outage: the warm standby takes the turn */
       if(!failoverHook && standbyHook && standbyReady() && isTransient(e) && !tried.has(standby.id) && client === standbyHook.client()) {
         const to = standby.id;
@@ -2624,6 +2640,21 @@ async function main() {
   };
 
 
+  /* the gateway ran out of models: the round skips and retries by itself (see autoSkipHook) */
+  autoSkipHook = {
+    client: () => (gateway?.enabled ? client : null),
+    skip: async error => {
+      skipError = error;
+      try {
+        console.log(waveNote('no model could serve the request: skipping the spent one and trying the next'));
+        await runLine('/model skip');
+        return true;
+      } finally {
+        skipError = null;
+      }
+    },
+  };
+
   /* one input line: a /command or a prompt for the model */
   const runLine = async line => {
     const prompt = line.trim();
@@ -2943,10 +2974,10 @@ async function main() {
 
         /* the gateway ran out of models ("All models rate-limited ... Attempt trail: kilo/x key1: rate_limit; ..."):
            a bare /model skip then drops every model of the providers that failed, not just the last one */
-        let spent = verb === 'skip' && !pattern ? exhaustedPlatforms(stats.last()?.error) : [];
+        let spent = verb === 'skip' && !pattern ? exhaustedPlatforms(skipError ?? stats.last()?.error) : [];
 
         /* "All models exhausted: 1 route checked" names no trail: the providers behind the pinned (or last routed) model are the spent ones */
-        if(verb === 'skip' && !pattern && !spent.length && isExhaustedError(stats.last()?.error)) spent = availability?.byModel.get(target)?.platforms ?? [];
+        if(verb === 'skip' && !pattern && !spent.length && isExhaustedError(skipError ?? stats.last()?.error)) spent = availability?.byModel.get(target)?.platforms ?? [];
         let byProvider = 0;
         if(spent.length) {
           const names = (known ?? []).filter(m => { const ps = availability?.byModel.get(m)?.platforms ?? []; return ps.length && ps.every(p => spent.includes(p)); });

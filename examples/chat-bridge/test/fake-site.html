@@ -8,6 +8,8 @@
   .notice { color: #a00; margin: .5em 0; }
   textarea { width: 40em; height: 4em; }
 </style>
+<button id="model-open">model</button>
+<div id="models" hidden><div class="model-opt">gpt-a</div><div class="model-opt">gpt-b</div></div>
 <div id="log"></div>
 <textarea id="prompt" autofocus></textarea>
 <script>
@@ -20,6 +22,11 @@
      [[limit]]  no answer, a daily-limit notice instead
      [[limit@PORT]] the same, only on the page served on that port
      [[ignore]] never takes the prompt (the box is not emptied)
+     [[medium]] a 120 character answer, about 1.5 s: w01 w02 ... w30
+     [[slow]]   a 1200 character answer, about 16 s
+     [[late]]   a sentence, then a tool_call block
+   A model comes from ?model=NAME or from the menu (#model-open, .model-opt);
+   it prefixes every answer: "(gpt-a) ...".
      otherwise  "echo: " and the last line of the prompt
    Opened as 127.0.0.1 (not localhost) the reply elements use another class
    name, which stands in for a site that changed its layout. */
@@ -27,8 +34,26 @@ const log = document.getElementById('log');
 const box = document.getElementById('prompt');
 const cls = location.hostname == '127.0.0.1' ? 'answer' : 'reply';
 
+let model = new URLSearchParams(location.search).get('model');
+document.getElementById('model-open').onclick = () => (document.getElementById('models').hidden = false);
+for(const o of document.querySelectorAll('.model-opt'))
+  o.onclick = () => {
+    model = o.textContent;
+    document.getElementById('models').hidden = true;
+  };
+
+const words = n => Array.from({ length: n }, (_, i) => 'w' + String(i + 1).padStart(2, '0')).join(' ');
+
 function text(t) {
+  const r = body(t);
+  return model ? `(${model}) ${r}` : r;
+}
+
+function body(t) {
   if(t.includes('[[pong]]')) return 'pong';
+  if(t.includes('[[medium]]')) return words(30);
+  if(t.includes('[[slow]]')) return words(240);
+  if(t.includes('[[late]]')) return 'Let me check the weather.\n```tool_call\n{"name":"get_weather","arguments":{"city":"Berlin"}}\n```';
   if(t.includes('[[stream]]')) return 'echo: streaming works, chunk by chunk, until the text is complete';
   if(t.includes('[[tool]]')) return '```tool_call\n{"name":"get_weather","arguments":{"city":"Berlin"}}\n```';
   if(t.includes('[[flat]]')) return 'tool_call\nKopieren\nHerunterladen\n{"name": "get_weather", "city": "Berlin"}';

@@ -64,6 +64,41 @@ done; the backlog items 1, 4, 5, 9, 11 and 13 below are parts of steps 1, 2,
 
 Step 1 (model metadata) is done, see Done below. Next: step 2 of doc/HARNESS.md.
 
+## Step 5 of doc/HARNESS.md: a more capable bridge (done 2026-11-19, with the gaps below)
+
+Order matters (1 underlies the rest). `[ ]` open, `[x]` done.
+
+1. [x] site lookup: exact name or `site/model` (split at the first `/`), no
+   substring match (fixes BUGS chat-bridge-model-substring-match); unknown
+   name = 404 listing the valid ones; `x-routed-via` stays `site/default`
+   without a model, `site/model` with one.
+2. [x] tab pool keyed `site/model`, `continues()` compares the model,
+   `newChat(model)` with a per-site `pick` (URL or UI form) and `reset` hook;
+   static `models` list per site in `/v1/models`. No guessed picker
+   selectors for real sites (cannot verify live): only the mechanism and the
+   fake site test it.
+3. [x] harness: ids like `site/model` in `/v1/models` must resolve in
+   availability.js, `exhaustedPlatforms`, `completionModels`
+   (test-availability.js, smoke.sh).
+4. [x] per-site `timeout` / `idle` fields and a per-request override
+   (`x-chat-bridge-timeout`); precedence request > site > `--timeout`.
+5. [x] `max_tokens` and `stop` by truncation (`finish_reason: length`); never
+   cut a tool call; a cut chat is navigated home (the site keeps generating).
+6. [x] stream text for requests with tools until a tool call appears
+   (hold back what `extractCalls` could read as a call, and a partial fence).
+7. [x] cancel on client disconnect (stream `cancel()` / `req.signal`): stop
+   polling, navigate the tab home, release it; not a failure, no cooldown, no
+   failover.
+8. [x] `check`: runs inside `serve` (`POST /v1/check`), the CLI calls it;
+   result in stats (`lastCheck`) and in `/v1/providers`; a failing check is
+   visible in the site status. Sends one real prompt per site (explicit).
+Gaps: the real model list per site is a static `models` field (no picker
+scraping); no real site has a `pick` yet (the openrouter URL template and the
+duck/deepai menus are unverified, so none was guessed); `reset` hooks are
+there but none is set (deepai's image mode); item 3 needed no code, the
+harness treats `site/model` ids like any model id (not run against a live
+bridge); `check` does not use a site's stop button as finished signal.
+
 ## Backlog
 
 **Wanted, not started** (decided 2026-11-04, one at a time; numbers are the
@@ -181,6 +216,16 @@ Several sites host many models. Proposal: put the model in the request's
 - `/clear` in ollama-repl against a live site, end to end.
 
 ## Done
+
+- harness step 5, a more capable bridge (2026-11-19): `site/model` with a
+  per-site `pick` (URL template or menu clicks), exact site lookup (the
+  substring bug is gone), `models` per site in `/v1/models`, `max_tokens` and
+  `stop`, text streamed up to a tool call, cancel on client disconnect,
+  per-site and per-request `timeout`/`idle`, `check` (`POST /v1/check`, CLI
+  `check`, `check` in `/v1/providers`, an `invalid` status after a failed
+  check). Tests: probe.js (fakerot next to fake, URL and menu picks, cuts,
+  streams with tools, timeouts, a curl that goes away, check on a rotted
+  site). `test/run.sh` HOLD=1 leaves the stack up for manual tries.
 
 - harness step 4, routing inside the bridge (2026-11-19): `auto` and
   `auto:smart|fast|reliable|cheap|balanced` (`Bridge.route()`: reliability,

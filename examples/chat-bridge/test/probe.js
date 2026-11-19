@@ -1,7 +1,7 @@
 /* Probes a running chat-bridge (started by run.sh against the fake site).
    Usage: qjsm probe.js http://127.0.0.1:8089/v1 */
 import { fetch } from '../../../lib/fetch.js';
-import { exit } from 'std';
+import { exit, popen } from 'std';
 
 const base = scriptArgs[1];
 let failed = 0, skipped = 0;
@@ -136,6 +136,119 @@ await check('when every site refuses it is the gateway\'s all-models error with 
   expect(+res.headers.get('retry-after') > 0 && res.headers.get('x-fallback-trail') == 'omega/default key1: rate_limit', 'headers');
   const again = await (await route({ messages: [{ role: 'user', content: '[[pong]]' }] })).json();
   expect(/All models exhausted/.test(again.error.message), again.error.message);
+});
+
+/* step 5: site/model, max_tokens and stop, text before a tool call, cancel, timeouts, check */
+const content = async (res, tools) => {
+  const sse = (await res.text()).split('\n').filter(l => l.startsWith('data: {')).map(l => JSON.parse(l.slice(6)));
+  const ch = sse.map(c => c.choices?.[0]).filter(Boolean);
+  return { chunks: ch.filter(c => c.delta.content).length, text: ch.map(c => c.delta.content ?? '').join(''), calls: ch.flatMap(c => c.delta.tool_calls ?? []), finish: ch.map(c => c.finish_reason).filter(Boolean).pop(), sse };
+};
+const ask = (model, text, extra, headers) => call({ model, messages: [{ role: 'user', content: text }], ...extra }, headers);
+
+await check('a site whose name contains another site\'s name is reachable', async () => {
+  const res = await ask('fakerot', '[[pong]]');
+  expect(res.status == 200 && res.headers.get('x-routed-via') == 'fakerot/default', `${res.status} via ${res.headers.get('x-routed-via')}`);
+});
+
+await check('an unknown model is a 404 listing the sites, a pick without support a 400', async () => {
+  const a = await ask('nosuch', '[[pong]]');
+  const j = await a.json();
+  expect(a.status == 404 && j.error.code == 'model_not_found' && /fakerot/.test(j.error.message), `${a.status} ${JSON.stringify(j)}`);
+  const b = await ask('rotted/gpt-a', '[[pong]]');
+  expect(b.status == 400 && (await b.json()).error.code == 'model_selection_unsupported', 'rotted/gpt-a ' + b.status);
+});
+
+await check('site/model picks the model by URL, and each model has its own chat', async () => {
+  const a = await ask('fake/gpt-a', '[[pong]]');
+  expect(a.headers.get('x-routed-via') == 'fake/gpt-a', 'via ' + a.headers.get('x-routed-via'));
+  expect((await a.json()).choices[0].message.content == '(gpt-a) pong', 'gpt-a');
+  const b = await (await ask('fake/gpt-b', '[[pong]]')).json();
+  expect(b.choices[0].message.content == '(gpt-b) pong', 'gpt-b: ' + b.choices[0].message.content);
+  const plain = await (await ask('fake', '[[pong]]')).json();
+  expect(plain.choices[0].message.content == 'pong', 'back to the default: ' + plain.choices[0].message.content);
+});
+
+await check('site/model picks the model in the menu of the page', async () => {
+  const a = await (await ask('fakerot/gpt-b', '[[pong]]')).json();
+  expect(a.choices[0].message.content == '(gpt-b) pong', a.choices[0].message.content);
+  const b = await (await ask('fakerot/gpt-a', '[[pong]]')).json();
+  expect(b.choices[0].message.content == '(gpt-a) pong', b.choices[0].message.content);
+  const none = await ask('fakerot/nothing', '[[pong]]');
+  expect(none.status == 502 && /no model matching/.test((await none.json()).error.message), 'a model the menu lacks: ' + none.status);
+});
+
+await check('/v1/models lists the models a site offers', async () => {
+  const ids = (await (await fetch(`${base}/models`)).json()).data.map(m => m.id);
+  expect(ids.includes('fakerot/gpt-a') && ids.includes('fakerot/gpt-b') && ids.includes('fakerot'), ids.join());
+});
+
+await check('max_tokens cuts a text answer with finish_reason length', async () => {
+  const j = await (await ask('fake', '[[medium]]', { max_tokens: 5 })).json();
+  expect(j.choices[0].finish_reason == 'length' && j.choices[0].message.content == 'w01 w02 w03 w04 w05 '.slice(0, 20), JSON.stringify(j.choices[0]));
+  const full = await (await ask('fake', '[[medium]]')).json();
+  expect(full.choices[0].message.content.length == 119 && full.choices[0].finish_reason == 'stop', 'uncut ' + full.choices[0].message.content.length);
+});
+
+await check('stop ends the answer before the stop string', async () => {
+  const j = await (await ask('fake', '[[medium]]', { stop: ['w05'] })).json();
+  expect(j.choices[0].finish_reason == 'stop' && j.choices[0].message.content == 'w01 w02 w03 w04 ', JSON.stringify(j.choices[0]));
+});
+
+await check('a stream is cut by max_tokens and by stop, and the tab is usable at once', async () => {
+  const t0 = Date.now();
+  const a = await content(await ask('fake', '[[slow]]', { stream: true, max_tokens: 6 }));
+  expect(a.finish == 'length' && a.text == 'w01 w02 w03 w04 w05 w06 '.slice(0, 24) && Date.now() - t0 < 6000, `${a.finish} ${JSON.stringify(a.text)} ${Date.now() - t0}ms`);
+  const b = await content(await ask('fake', '[[slow]]', { stream: true, stop: ['w04'] }));
+  expect(b.finish == 'stop' && b.text == 'w01 w02 w03 ', `${b.finish} ${JSON.stringify(b.text)}`);
+  const c = await (await ask('fake', '[[pong]]')).json();
+  expect(c.choices[0].message.content == 'pong', 'the next request: ' + JSON.stringify(c.choices?.[0] ?? c));
+});
+
+await check('max_tokens never cuts a tool call', async () => {
+  const j = await (await ask('fake', '[[tool]]', { tools, max_tokens: 3 })).json();
+  expect(j.choices[0].finish_reason == 'tool_calls' && j.choices[0].message.tool_calls[0].function.name == 'get_weather', JSON.stringify(j.choices[0]));
+});
+
+await check('a stream with tools sends the text as it grows, and no call text', async () => {
+  const a = await content(await ask('fake', '[[stream]]', { stream: true, tools }));
+  expect(a.chunks >= 2 && a.calls.length == 0 && a.finish == 'stop' && a.text.startsWith('echo: streaming works'), `${a.chunks} chunks ${a.calls.length} calls ${a.finish} ${JSON.stringify(a.text)}`);
+  const b = await content(await ask('fake', '[[late]]', { stream: true, tools }));
+  expect(b.text == 'Let me check the weather.' && b.calls.length == 1 && b.calls[0].function.name == 'get_weather' && b.finish == 'tool_calls', `${JSON.stringify(b.text)} ${JSON.stringify(b.calls)} ${b.finish}`);
+  const c = await content(await ask('fake', '[[flat]]', { stream: true, tools }));
+  expect(c.text == '' && c.calls.length == 1 && c.finish == 'tool_calls', `flat: ${JSON.stringify(c.text)} ${c.calls.length} ${c.finish}`);
+});
+
+await check('a request\'s own timeout and the site\'s timeout cut a slow answer', async () => {
+  let t0 = Date.now();
+  const a = await (await ask('fake', '[[slow]]', {}, { 'x-chat-bridge-timeout': '2' })).json();
+  expect(Date.now() - t0 < 6000 && a.choices[0].message.content.length < 200, `request: ${Date.now() - t0}ms ${a.choices[0].message.content.length} chars`);
+  t0 = Date.now();
+  const b = await (await ask('fakerot', '[[slow]]')).json();
+  expect(Date.now() - t0 < 6000 && b.choices[0].message.content.length < 200, `site: ${Date.now() - t0}ms`);
+});
+
+await check('a client that goes away stops the generation and frees the tab', async () => {
+  const usage = async () => (await (await fetch(`${base}/usage`)).json()).byPlatform.find(p => p.platform == 'fake').requests;
+  const before = await usage();
+  const body = JSON.stringify({ model: 'fake', stream: true, messages: [{ role: 'user', content: '[[slow]]' }] }).replace(/'/g, '');
+  const pipe = popen(`curl -s -N --max-time 2 -H 'content-type: application/json' -d '${body}' ${base}/chat/completions`, 'r');
+  pipe.readAsString();
+  pipe.close();
+  const t0 = Date.now();
+  const j = await (await ask('fake', '[[pong]]')).json();
+  expect(j.choices[0].message.content == 'pong' && Date.now() - t0 < 6000, `the next request took ${Date.now() - t0}ms: ${JSON.stringify(j.choices?.[0] ?? j)}`);
+  expect((await usage()) == before + 1, `a cancelled request is not counted: ${before} -> ${await usage()}`);
+});
+
+await check('check passes a working site and fails one whose selectors rotted', async () => {
+  const r = await (await fetch(`${base}/check`, { method: 'POST', body: JSON.stringify({ site: ['fake', 'rotted'] }) })).json();
+  const [ok, bad] = r.results;
+  expect(ok.ok && ok.stage == 'done' && ok.reply, JSON.stringify(ok));
+  expect(!bad.ok && bad.stage == 'reply' && bad.error, JSON.stringify(bad));
+  const p = (await (await fetch(`${base}/providers`)).json()).providers;
+  expect(p.find(x => x.platform == 'rotted').status == 'invalid' && p.find(x => x.platform == 'rotted').check.ok === false, JSON.stringify(p.find(x => x.platform == 'rotted')));
+  expect(p.find(x => x.platform == 'fake').check.ok === true, 'fake check');
 });
 
 /* last: a rate-limited site cools down, later requests fail at once */

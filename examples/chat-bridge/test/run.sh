@@ -1,8 +1,7 @@
 #!/bin/bash
 # Runs the bridge against a fake chat site in a throwaway headless Chrome
 # (own profile, own CDP port: your own browser is not touched).
-# The site names must not contain one another: the bridge picks the site
-# whose name is a substring of the model name (see BUGS).
+# fake and fakerot are on purpose: a site whose name contains another's must stay reachable.
 #
 #   examples/chat-bridge/test/run.sh
 #
@@ -26,7 +25,8 @@ trap 'exit 143' TERM INT
 cat > "$W/sites.json" <<JSON
 {
   "\$replace": true,
-  "fake":    { "host": "localhost:$SITE", "home": "http://localhost:$SITE/", "input": "textarea", "reply": ".reply", "name": "Fake", "context": 8000, "auto": false },
+  "fake":    { "host": "localhost:$SITE", "home": "http://localhost:$SITE/", "input": "textarea", "reply": ".reply", "name": "Fake", "context": 8000, "auto": false, "pick": { "url": "http://localhost:$SITE/?model={model}" } },
+  "fakerot": { "host": "127.0.0.2:$SITE", "home": "http://127.0.0.2:$SITE/", "input": "textarea", "reply": ".reply", "auto": false, "timeout": 2, "models": ["gpt-a", "gpt-b"], "pick": { "open": "#model-open", "option": ".model-opt" } },
   "rotted": { "host": "127.0.0.1:$SITE", "home": "http://127.0.0.1:$SITE/", "input": "textarea", "reply": ".reply", "auto": false },
   "alpha":  { "host": "localhost:$SITEA", "home": "http://localhost:$SITEA/", "input": "textarea", "reply": ".reply", "rank": 1 },
   "omega":  { "host": "localhost:$SITEB", "home": "http://localhost:$SITEB/", "input": "textarea", "reply": ".reply", "rank": 2 }
@@ -52,6 +52,8 @@ CHAT_BRIDGE_STATE="$W/state.json" CHAT_BRIDGE_SITES="$W/sites.json" qjsm "$HERE/
 PIDS+=($!)
 wait_port "$BRIDGE" || { cat "$W/bridge.log"; exit 2; }
 
+# HOLD=1: leave the bridge and the pages running for manual tries (curl 127.0.0.1:$BRIDGE)
+[ -n "${HOLD:-}" ] && { echo "bridge on $BRIDGE, site on $SITE, press ^C"; sleep 900; exit 0; }
 qjsm "$HERE/probe.js" "http://127.0.0.1:$BRIDGE/v1" "$SITEA"
 rc=$?
 # last: the limit test of the probe has made the learned quota of the fake site visible

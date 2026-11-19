@@ -152,6 +152,13 @@ sites, hence the idle timer.
 for **append-only** growth. A rewrite of earlier text (some sites re-render
 markdown) waits until the text is append-only again.
 
+With tools, text streams until what could be the start of a tool call (a
+`{`, a fence, a `tool_call` label); the calls follow as `tool_calls` deltas
+once the reply is whole. Such a reply cannot move to another site any more.
+When the client goes away (or `max_tokens` / `stop` ended a stream) the tab
+is navigated home, which stops the site's generation, and the request is not
+counted as a failure.
+
 ### Tool calling (emulated)
 
 Web chats have no tool API. For a request with `tools`:
@@ -235,10 +242,11 @@ presses Enter. Still, three guards keep it that way.
 | `GET /v1/providers` | health per site: `status` (`healthy`, `rate_limited`, `logged_out`, `billing_guard`), `keys: 1`, `resume_at`, `requests_remaining_pct` (once a budget is learned), `last_error`, `tabs`, `median_ms`, `success_rate`; `counts` per status |
 | `GET /v1/quota-forecast` | a pool per site whose budget was learned (limit, used, remaining, `reset_at`, `low_balance`) |
 | `GET /v1/health` | `{ status: "ok", ready: N }` |
-| `POST /v1/chat/completions` | OpenAI chat completion; `messages`, `model`, `stream`, `tools` are honoured |
+| `POST /v1/chat/completions` | OpenAI chat completion; `messages`, `model`, `stream`, `tools`, `max_tokens` (four characters a token, `finish_reason: length`) and `stop` (up to the first match) are honoured. `model` is `auto[:axis]`, a site name or `site/model` (split at the first `/`; sites with a `pick` entry only; no substring guessing: an unknown name is a 404 `model_not_found`). Headers `x-chat-bridge-timeout` / `x-chat-bridge-idle` (seconds) override the site's and the bridge's |
+| `POST /v1/check` | selector self-test: body `{ "site": "name" or ["a","b"] }`, default every site; one real prompt each (a message of the quota), result `{ site, ok, stage: input\|send\|reply\|done, ms, error }`, kept as `check` in `/v1/providers`. A failed check makes the site `invalid` for an hour (left out of auto routing) until a request works again. CLI: `chat-bridge.js check [site...]` calls the running bridge |
 
 Everything else returns 404. Fields that are accepted and ignored:
-`temperature`, `max_tokens`, `stop`, `top_p`, `response_format`, … (a web
+`temperature`, `top_p`, `response_format`, … (a web
 chat offers no such knobs).
 
 `usage` is an estimate: characters / 4 of the prompt really typed into the
@@ -312,6 +320,11 @@ dashboard, `/route`, `/proxy` or sticky sessions.
       context, // optional: window in tokens, null when unknown (never guessed)
       capabilities, // optional: { tools, vision, reasoning, stream }, default tools and stream true
       skip,   // optional: why the site was looked at and not adopted
+      timeout, idle, // optional: seconds, this site's own overall and idle time (default: --timeout, --idle)
+      models, // optional: model names listed in /v1/models as site/model
+      pick,   // optional: how site/model selects a model: { url: 'https://host/chat?model={model}' }
+              // or { open: selector of the model menu button, option: selector of its entries } (clicked by text)
+      reset,  // optional: a script run in a fresh chat for a known start state
     }
 
 `input` is waited for (up to 20 s) before typing; "input field not found,

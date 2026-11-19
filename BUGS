@@ -166,10 +166,6 @@
 
     # in tests/unittests/tinytest.js after the last console.log: exit(failures ? 1 : 0)
 
-- chat-bridge-model-substring-match (examples/chat-bridge/chat-bridge.js:620): the site for a request is the first site whose name is a substring of the model name, so with sites fake and fakerot the model fakerot is served by fake; any site name that contains another site's name is unreachable. found with the fake-site test (examples/chat-bridge/test/run.sh), which names its sites to avoid it.
-
-    CHAT_BRIDGE_SITES=sites.json (sites "fake" and "fakerot"), then ask model "fakerot": the reply comes from the fake tab.
-
 - build-quickjs-forwards-cmake-system-name (cmake/BuildQuickJS.cmake:134, quickjs_configure_args): the nested
   quickjs configure gets -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}. On Termux that is Android, and
   passing CMAKE_SYSTEM_NAME on the command line makes CMake set CMAKE_CROSSCOMPILING=TRUE even

@@ -93,6 +93,20 @@ if(getenv('CHAT_BRIDGE_SITES')) {
    kept here so they are not evaluated again, but never served or matched */
 const ACTIVE = Object.fromEntries(Object.entries(SITES).filter(([, s]) => !s.skip));
 
+/* the request's `model`: a site name, or `site/model` (split at the first slash: openrouter/anthropic/claude-sonnet-4
+   is site openrouter, model anthropic/claude-sonnet-4). A name that is no site is not guessed from a substring.
+   Returns { site, pick } (pick null = the site's default), or { error } with the HTTP status and message */
+function resolveModel(model) {
+  const names = Object.keys(ACTIVE);
+  const i = model.indexOf('/');
+  const site = ACTIVE[model] ? model : i > 0 && ACTIVE[model.slice(0, i)] ? model.slice(0, i) : null;
+  if(!site) return { error: { status: 404, code: 'model_not_found', message: `unknown model "${model}", use auto, a site (${names.join(', ')}) or site/model` } };
+
+  const pick = site == model ? null : model.slice(i + 1) || null;
+  if(pick && !ACTIVE[site].pick) return { error: { status: 400, code: 'model_selection_unsupported', message: `${site} has no model selection, use the plain name "${site}"` } };
+  return { site, pick };
+}
+
 /* a site that will not answer: kind is rate_limit, login or not_accepted.
    `retry` = seconds until it is worth trying again */
 class SiteRefusal extends Error {
@@ -129,6 +143,9 @@ function parseReset(text) {
 
 /* a tab that holds nothing of the user's: the bridge may use it */
 const BLANK_RE = /^(about:blank|chrome:\/\/(newtab|new-tab-page)\/?|edge:\/\/newtab\/?|brave:\/\/newtab\/?)/;
+
+/* what `check` sends: short, one word back */
+const CHECK_PROMPT = 'Reply with the single word: pong';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -186,6 +203,8 @@ class CDP {
 class Chat {
   history = []; /* messages known to be in the open chat */
   dirty = false; /* anything typed since the page was loaded */
+  model = null; /* the model picked on the site (site/model), null = the site's default */
+  stopped = false; /* set by interrupt(): the running ask() returns at its next poll */
   busy = false;
   #tail = Promise.resolve();
 
@@ -236,18 +255,60 @@ class Chat {
       return !e || !(e.value ?? e.innerText).trim(); })()`);
   }
 
-  async newChat() {
-    if(this.dirty) {
-      await this.cdp.send('Page.navigate', { url: this.site.home });
+  /* where a chat with this model starts: `pick.url` is a template with {model}, else the home page */
+  startUrl(model) {
+    return model && this.site.pick?.url ? this.site.pick.url.replace('{model}', encodeURI(model)) : this.site.home;
+  }
+
+  /* a fresh chat on the site, with `model` picked (null = the site's default). A tab that is still clean and has the
+     right model is kept as it is. The page is navigated, then `pick` (URL template, or `open` + `option` selectors
+     clicked in the page) and `reset` (a script for a known start state: leave an image mode, say) run */
+  async newChat(model = null) {
+    if(this.dirty || this.model !== model) {
+      this.dirty = true; /* until the start state is reached: a failed pick leaves the tab to be navigated again */
+      await this.cdp.send('Page.navigate', { url: this.startUrl(model) });
       await sleep(500);
       await this.waitInput();
+      if(model && this.site.pick?.open) await this.pickUi(model);
+      if(this.site.reset) await this.cdp.eval(this.site.reset).catch(() => {});
       this.dirty = false;
     }
+    this.model = model;
     this.history = [];
   }
 
+  /* open the site's model menu and click the entry whose text contains the model (case-insensitive) */
+  async pickUi(model) {
+    const { open, option } = this.site.pick;
+    await this.cdp.eval(`document.querySelector(${JSON.stringify(open)})?.click()`);
+    for(let i = 0; i < 20; i++) {
+      await sleep(250);
+      const hit = await this.cdp.eval(`(() => { const want = ${JSON.stringify(model.toLowerCase())};
+        const e = [...document.querySelectorAll(${JSON.stringify(option)})].find(e => e.offsetParent && e.innerText.toLowerCase().includes(want));
+        if(!e) return false; e.click(); return true; })()`).catch(() => false);
+      if(hit) {
+        await sleep(300);
+        return;
+      }
+    }
+    throw new Error(`${this.site.host} has no model matching "${model}" in its menu`);
+  }
+
+  /* stop the running ask(): it returns at its next poll */
+  interrupt() {
+    this.stopped = true;
+  }
+
+  /* abandon an answer the client no longer wants: the site keeps generating until the page is left, so go home */
+  async abandon() {
+    this.dirty = true;
+    this.history = [];
+    await this.newChat(this.model).catch(() => {});
+  }
+
   /* true if the open chat already holds exactly the request's history */
-  continues(messages) {
+  continues(messages, model = null) {
+    if(this.model !== model) return false;
     const prev = messages.slice(0, -1);
     /* a tool result is not compared: a client that clips old results to
        save context (ollama-repl does) must not make every round a new chat,
@@ -256,7 +317,8 @@ class Chat {
   }
 
   /* async generator: yields the reply text as it grows, returns when idle */
-  async *#ask(prompt) {
+  async *#ask(prompt, o = {}) {
+    this.stopped = false;
     this.dirty = true;
     await this.waitInput();
     const before = await this.readReply();
@@ -291,11 +353,14 @@ class Chat {
       throw this.refusal(st, seen, prompt, startPath) ?? new SiteRefusal('not_accepted', 'the page did not take the prompt (a dialog in the way? try: eval)');
     }
 
-    const { timeout, idle } = this.opts;
+    /* the request's override, else the site's own expected latency, else the bridge's option */
+    const timeout = o.timeout ?? this.site.timeout ?? this.opts.timeout;
+    const idle = o.idle ?? this.site.idle ?? this.opts.idle;
     const deadline = Date.now() + timeout * 1000;
     let last = null, changed = Date.now();
     while(Date.now() < deadline) {
       await sleep(400);
+      if(this.stopped) return;
       const cur = await this.readReply();
       if(cur.count <= before.count && cur.text == before.text) {
         const why = this.refusal(await this.pageState(), seen, prompt, startPath);
@@ -327,14 +392,14 @@ class Chat {
   }
 
   /* serialized: one prompt at a time per tab */
-  ask(prompt) {
+  ask(prompt, o) {
     const prev = this.#tail;
     let release;
     this.#tail = new Promise(r => (release = r));
     return (async function* (self) {
       await prev;
       try {
-        yield* self.#ask(prompt);
+        yield* self.#ask(prompt, o);
       } finally {
         release();
       }
@@ -405,9 +470,9 @@ const TOOL_REMINDER = '\n\n(Reminder: if you need a tool, your whole reply is on
 
 /* returns { prompt, fresh }: only the last user turn if the chat already
    holds the history, else the whole transcript flattened into one prompt */
-function planPrompt(messages, chat) {
+function planPrompt(messages, chat, model = null) {
   const last = messages[messages.length - 1];
-  if(last.role == 'user' && chat.continues(messages)) return { prompt: line(last), fresh: false };
+  if(last.role == 'user' && chat.continues(messages, model)) return { prompt: line(last), fresh: false };
 
   const names = { system: 'System', user: 'User', assistant: 'Assistant', tool: 'Tool' };
   const body = messages.length == 1 ? line(last) : messages.map(m => `${names[m.role] ?? m.role}: ${line(m)}`).join('\n\n') + '\n\nAssistant:';
@@ -493,6 +558,7 @@ class Stats {
     if(ok) {
       s.ok++;
       s.sent++;
+      if(s.lastCheck && !s.lastCheck.ok) delete s.lastCheck; /* it answers a request again: the failed check is stale */
       s.lastOk = new Date().toISOString();
       s.lat.push(ms);
       if(s.lat.length > LAT_KEEP) s.lat.shift();
@@ -638,14 +704,15 @@ class Bridge {
   /* a free chat for the request: one already holding its history, else
      any idle one (reset to a fresh chat), else a new tab up to --max,
      else wait for one to be released */
-  async acquire(name, messages) {
+  async acquire(name, messages, model = null) {
     if(!ACTIVE[name]) throw new Error(`unknown model, use one of: ${Object.keys(ACTIVE).join(', ')}`);
     for(;;) {
       if(!this.pool.has(name)) this.pool.set(name, []);
       const pool = this.pool.get(name); /* same array throughout, open() awaits */
       for(let i = pool.length; i-- > 0; ) if(pool[i].cdp.closed) pool.splice(i, 1);
       const free = pool.filter(c => !c.busy);
-      let chat = free.find(c => c.continues(messages)) ?? free[0];
+      /* the chat holding the history, else an idle one that already has the model, else any idle one */
+      let chat = free.find(c => c.continues(messages, model)) ?? free.find(c => c.model === model) ?? free[0];
       if(!chat && pool.length + (this.opening.get(name) ?? 0) < this.o.max) {
         this.opening.set(name, (this.opening.get(name) ?? 0) + 1);
         try {
@@ -729,7 +796,64 @@ class Bridge {
     const c = this.cooling(id);
     if(ACTIVE[id].billing == 'metered' && !this.o.allowPaid) return 'billing_guard';
     if(c) return c.err.kind == 'login' ? 'logged_out' : 'rate_limited';
+    if(this.broken(id)) return 'invalid';
     return 'healthy';
+  }
+
+  /* the last `check` of the site failed less than an hour ago and no request has worked since: its selectors are
+     probably out of date, so auto routing leaves it out (a request to it by name still goes through) */
+  broken(id) {
+    const k = this.stats.data.sites[id]?.lastCheck;
+    return !!k && !k.ok && Date.now() - Date.parse(k.at) < 3600_000;
+  }
+
+  /**
+   * Selector self-test of one site: a fresh chat, the input found, a fixed prompt taken, a reply read. It sends one
+   * real prompt, so it costs a message of the site's quota. The result is kept in the stats (lastCheck) and shows in
+   * /v1/providers and the site's status. { site, ok, stage, ms, error?, reply?, skipped? }; stage is where it stopped:
+   * input, send, reply or done.
+   */
+  async check(name) {
+    const site = ACTIVE[name];
+    if(!site) return { site: name, ok: false, stage: 'input', ms: 0, error: 'unknown site' };
+    if(site.billing == 'metered' && !this.o.allowPaid) return { site: name, ok: false, skipped: 'billing_guard', stage: 'input', ms: 0 };
+    const c = this.cooling(name);
+    if(c) return { site: name, ok: false, skipped: c.err.kind, stage: 'input', ms: 0, error: c.err.message };
+
+    const t0 = Date.now();
+    const r = { site: name, ok: false, stage: 'input', ms: 0 };
+    let chat;
+
+    try {
+      chat = await this.acquire(name, [{ role: 'user', content: CHECK_PROMPT }]);
+      await chat.newChat();
+      await chat.waitInput();
+      r.stage = 'send';
+      let text = '';
+      for await (const t of chat.ask(CHECK_PROMPT)) {
+        r.stage = 'reply';
+        text = t;
+      }
+      if(!text.trim()) throw new Error('the reply selector matched no text');
+      r.ok = true;
+      r.stage = 'done';
+      r.reply = text.trim().slice(0, 80);
+    } catch(e) {
+      r.error = e.message;
+      if(/no reply seen/.test(e.message)) r.stage = 'reply'; /* the prompt was taken, nothing matched the reply selector */
+      if(e instanceof SiteRefusal) {
+        r.kind = e.kind;
+        this.refused(name, e);
+      }
+      if(chat) chat.history = [];
+    } finally {
+      if(chat) this.release(chat);
+    }
+
+    r.ms = Date.now() - t0;
+    this.stats.site(name).lastCheck = { ok: r.ok, at: new Date().toISOString(), ms: r.ms, stage: r.stage, ...(r.error ? { error: r.error.slice(0, 200) } : {}) };
+    this.stats.save();
+    return r;
   }
 
   /* what is left of the learned budget: { limit, remaining, pct } or null while the site never refused */
@@ -778,6 +902,7 @@ class Bridge {
         ...(b ? { requests_remaining_pct: b.pct } : {}),
         last_error: s.lastError ? `${s.lastError.kind}: ${s.lastError.message}` : null,
         tabs: { open: pool.length, busy: pool.filter(t => t.busy).length },
+        ...(s.lastCheck ? { check: s.lastCheck } : {}),
         median_ms: this.stats.median(id),
         success_rate: s.requests ? Math.round((1000 * s.ok) / s.requests) / 1000 : null,
       };
@@ -883,7 +1008,7 @@ class Bridge {
         ...(guarded ? { unavailable: 'billing_guard' } : c ? { unavailable: c.err.kind, resets_at: new Date(c.until).toISOString() } : {})
       };
       return result;
-    });
+    }).flatMap(m => [m, ...(ACTIVE[m.id].models ?? []).map(x => ({ ...m, id: `${m.id}/${x}`, name: `${m.name} ${x}` }))]);
   }
 }
 
@@ -893,6 +1018,52 @@ const json = (o, status = 200, headers = {}) => new Response(JSON.stringify(o), 
 function refusalResponse(err, retry = err.retry, extra = {}) {
   const r = REFUSALS[err.kind] ?? REFUSALS.not_accepted;
   return json({ error: { message: err.message, type: r.type, code: r.code, param: null } }, r.status, { ...(retry ? { 'retry-after': String(Math.ceil(retry)) } : {}), ...extra });
+}
+
+/* how much of a growing reply may be sent on while the request has tools: everything before what could be the start
+   of a tool call (a `{`, a fence, the label some pages print before it, or the first characters of those, which
+   the next poll may complete). The calls themselves are only known once the reply is whole (extractCalls) */
+function holdIndex(t) {
+  let n = t.length;
+  for(const m of ['{', '```', 'tool_call']) {
+    const i = t.indexOf(m);
+    if(i >= 0 && i < n) n = i;
+  }
+  const head = t.slice(0, n);
+  if(n == t.length) {
+    for(const m of ['```', 'tool_call']) {
+      for(let k = Math.min(m.length - 1, n); k > 0; k--) {
+        if(head.endsWith(m.slice(0, k))) return n - k;
+      }
+    }
+    return n;
+  }
+  return head.trimEnd().length; /* the blank lines before a call are not content */
+}
+
+/* max_tokens and stop of a request as a function: text -> { text, finish }. The first stop string ends the reply
+   (finish 'stop'), max_tokens cuts at four characters a token (finish 'length') */
+function limiter(body) {
+  const stops = [].concat(body.stop ?? []).filter(x => typeof x == 'string' && x);
+  const max = +(body.max_completion_tokens ?? body.max_tokens);
+  const maxChars = max > 0 ? max * 4 : Infinity;
+  const limit = text => {
+    let finish = null;
+    for(const x of stops) {
+      const i = text.indexOf(x);
+      if(i >= 0) {
+        text = text.slice(0, i);
+        finish = 'stop';
+      }
+    }
+    if(text.length > maxChars) {
+      text = text.slice(0, maxChars);
+      finish = 'length';
+    }
+    return { text, finish };
+  };
+  limit.hold = Math.max(0, ...stops.map(x => x.length - 1)); /* a stop string may arrive split over two polls */
+  return limit;
 }
 
 function completions(bridge) {
@@ -908,9 +1079,27 @@ function completions(bridge) {
     const tools = body.tools?.length ? body.tools : null;
     if(!messages?.length) return json({ error: { message: 'messages required' } }, 400);
 
+    const limit = limiter(body);
+    /* what the harness sees of a request: a view of the reply so far, { text: what may be sent, finish } */
+    const view = (t, final) => {
+      const v = limit(tools && !final ? t.slice(0, holdIndex(t)) : t);
+      return !final && !v.finish && limit.hold ? { text: v.text.slice(0, Math.max(0, v.text.length - limit.hold)), finish: null } : v;
+    };
+    /* a request's own timeout and idle time (seconds) beat the site's and the bridge's */
+    const secs = h => (Number.isFinite(+req.headers.get(h)) && +req.headers.get(h) > 0 ? +req.headers.get(h) : undefined);
+    const over = { timeout: secs('x-chat-bridge-timeout'), idle: secs('x-chat-bridge-idle') };
+    /* the client went away: stop the site's generation (a cancelled request is no failure of the site) */
+    let cancelled = false, current = null;
+    const cancel = () => {
+      cancelled = true;
+      current?.interrupt();
+    };
+    req.signal?.addEventListener('abort', cancel);
+
     /* one attempt on one site: its Response. ctx.failed says why when the site gave no reply, so the router can try
        the next one (a refusal, a timeout, a prompt too long); ctx.attempts are the sites that failed before it */
-    const attempt = async (name, ctx = { attempts: [] }) => {
+    const attempt = async (name, ctx = { attempts: [] }, pick = null) => {
+    const via = `${name}/${pick ?? 'default'}`;
     const fail = (kind, message) => (ctx.failed = { kind, message });
     if(ACTIVE[name]?.billing == 'metered' && !bridge.o.allowPaid) {
       fail('billing');
@@ -920,14 +1109,15 @@ function completions(bridge) {
     const cool = bridge.cooling(name);
     if(cool) {
       fail(cool.err.kind, cool.err.message);
-      return refusalResponse(cool.err, (cool.until - Date.now()) / 1000, { 'x-routed-via': `${name}/default` });
+      return refusalResponse(cool.err, (cool.until - Date.now()) / 1000, { 'x-routed-via': via });
     }
 
     let chat, gen, full;
     try {
-      chat = await bridge.acquire(name, messages);
-      const plan = planPrompt(messages, chat);
-      if(plan.fresh) await chat.newChat();
+      chat = await bridge.acquire(name, messages, pick);
+      current = chat;
+      const plan = planPrompt(messages, chat, pick);
+      if(plan.fresh) await chat.newChat(pick);
       const body = tools ? plan.prompt + TOOL_REMINDER : plan.prompt;
       full = plan.fresh && tools ? `${toolPreamble(tools)}\n\n${body}` : body;
       const max = ACTIVE[name]?.maxPrompt;
@@ -941,7 +1131,7 @@ function completions(bridge) {
         fail('too_long');
         return json({ error: { message: `${name} takes at most ${max} characters per message, this prompt has ${full.length}`, type: 'invalid_request_error', code: 'context_length_exceeded' } }, 400);
       }
-      gen = chat.ask(full);
+      gen = chat.ask(full, over);
     } catch(e) {
       if(chat) bridge.release(chat);
       bridge.stats.record(name, { ok: false, ms: Date.now() - t0, promptChars: full?.length, kind: 'error', message: e.message });
@@ -959,7 +1149,7 @@ function completions(bridge) {
       const b = bridge.budget(name);
       const w = bridge.stats.data.sites[name]?.learned?.windowSec;
       return {
-        'x-routed-via': `${name}/default`,
+        'x-routed-via': via,
         'x-request-id': id,
         'x-response-ms': String(Date.now() - t0),
         ...(ctx.attempts.length ? { 'x-fallback-attempts': String(ctx.attempts.length), 'x-fallback-trail': ctx.attempts.map(a => `${a.site}/default key1: ${a.kind}`).join('; ') } : {}),
@@ -982,9 +1172,7 @@ function completions(bridge) {
       return { role: 'assistant', content: null, tool_calls: calls.map((c, i) => ({ id: `call_${id}_${i}`, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) };
     };
 
-    /* tool calls can only be told apart once the reply is complete, so a
-       request with tools is answered whole even when streaming was asked */
-    if(!stream || tools) {
+    if(!stream) {
       let text = '';
       try {
         for await (const t of gen) text = t;
@@ -998,17 +1186,25 @@ function completions(bridge) {
         }
         return json({ error: { message: e.message } }, 504);
       } finally {
-        await recordChat(ACTIVE[name], name, chat).catch(() => {});
+        if(cancelled) await chat.abandon();
+        else await recordChat(ACTIVE[name], name, chat).catch(() => {});
         bridge.release(chat);
       }
+      if(cancelled) return json({ error: { message: 'the client closed the request' } }, 499);
       done(true, text);
-      const msg = toMessage(text);
+      let msg = toMessage(text);
+      let finish = msg.tool_calls ? 'tool_calls' : 'stop';
       remember(msg);
-      const finish = msg.tool_calls ? 'tool_calls' : 'stop';
-      if(!stream) return json({ id, object: 'chat.completion', created, model, choices: [{ index: 0, message: msg, finish_reason: finish }], usage: usageOf(text) }, 200, hdr());
-
-      const delta = msg.tool_calls ? { tool_calls: msg.tool_calls.map((t, index) => ({ index, ...t })) } : { content: text };
-      return new Response(chunk({ role: 'assistant', content: '' }) + chunk(delta) + chunk({}, finish) + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream', ...hdr() } });
+      /* max_tokens and stop cut a text answer, never a tool call; the chat then holds more than the client got */
+      if(!msg.tool_calls) {
+        const v = limit(text);
+        if(v.finish) {
+          msg = { role: 'assistant', content: v.text };
+          finish = v.finish;
+          chat.history = [];
+        }
+      }
+      return json({ id, object: 'chat.completion', created, model, choices: [{ index: 0, message: msg, finish_reason: finish }], usage: usageOf(text) }, 200, hdr());
     }
 
     /* wait for the first reply text, so a refusal can still be a real
@@ -1027,44 +1223,103 @@ function completions(bridge) {
       }
       return json({ error: { message: e.message } }, 504);
     }
+    if(cancelled) {
+      await chat.abandon();
+      bridge.release(chat);
+      return json({ error: { message: 'the client closed the request' } }, 499);
+    }
+    /* leaving this generator early (a cut, a cancel) must finish gen too, or the tab's queue never frees */
     const replies = (async function* () {
-      if(!first.done) yield first.value;
-      yield* gen;
+      try {
+        if(!first.done) yield first.value;
+        yield* gen;
+      } finally {
+        await gen.return();
+      }
     })();
 
-    /* strings, not bytes: serve() drops Uint8Array chunks (see BUGS) */
+    /* strings, not bytes: serve() drops Uint8Array chunks (see BUGS).
+       Text streams as it grows; with tools only up to what could be the start of a tool call (holdIndex), and the
+       calls follow as tool_calls once the reply is whole */
     return new Response(
       new ReadableStream({
         async start(c) {
-          let sent = '';
+          let sent = '', text = '', cut = null;
+          const emit = x => {
+            try {
+              c.enqueue(x);
+            } catch(e) {
+              cancel(); /* the stream is gone */
+            }
+          };
           try {
-            c.enqueue(chunk({ role: 'assistant', content: '' }));
+            emit(chunk({ role: 'assistant', content: '' }));
             for await (const t of replies) {
+              text = t;
+              if(cancelled) break;
+              const v = view(t, false);
               /* only append-only growth is streamable, a rewrite waits */
-              if(t.length > sent.length && t.startsWith(sent)) {
-                c.enqueue(chunk({ content: t.slice(sent.length) }));
-                sent = t;
+              if(v.text.length > sent.length && v.text.startsWith(sent)) {
+                emit(chunk({ content: v.text.slice(sent.length) }));
+                sent = v.text;
+              }
+              /* a cut that no tool call can still follow: stop the site, it would go on generating */
+              if(v.finish && !tools) {
+                cut = v.finish;
+                break;
               }
             }
-            done(true, sent);
-            remember({ role: 'assistant', content: sent });
-            c.enqueue(chunk({}, 'stop') + `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [], usage: usageOf(sent) })}\n\n` + 'data: [DONE]\n\n');
+            if(cancelled) {
+              await chat.abandon();
+              bridge.release(chat);
+              try {
+                c.close();
+              } catch(e) {}
+              return;
+            }
+            done(true, text);
+            let finish = cut;
+            if(!cut) {
+              const msg = toMessage(text);
+              if(msg.tool_calls) {
+                emit(chunk({ tool_calls: msg.tool_calls.map((t, index) => ({ index, ...t })) }));
+                finish = 'tool_calls';
+                remember(msg);
+              } else {
+                const v = view(text, true);
+                if(v.text.length > sent.length && v.text.startsWith(sent)) emit(chunk({ content: v.text.slice(sent.length) }));
+                finish = v.finish ?? 'stop';
+                sent = v.text;
+                remember({ role: 'assistant', content: text });
+                if(v.finish) chat.history = [];
+              }
+            } else {
+              await chat.abandon();
+            }
+            emit(chunk({}, finish) + `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [], usage: usageOf(sent || text) })}\n\n` + 'data: [DONE]\n\n');
           } catch(e) {
             chat.history = [];
             done(false, sent, e);
             if(e instanceof SiteRefusal) bridge.refused(name, e);
-            c.enqueue(`data: ${JSON.stringify({ error: { message: e.message, ...(REFUSALS[e.kind] ? { type: REFUSALS[e.kind].type, code: REFUSALS[e.kind].code } : {}) } })}\n\n`);
+            emit(`data: ${JSON.stringify({ error: { message: e.message, ...(REFUSALS[e.kind] ? { type: REFUSALS[e.kind].type, code: REFUSALS[e.kind].code } : {}) } })}\n\n`);
           }
           bridge.release(chat);
-          c.close();
+          try {
+            c.close();
+          } catch(e) {}
         },
+        cancel,
       }),
       { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...hdr() } },
     );
     };
 
     const auto = /^auto(?::(smart|fast|reliable|cheap|balanced))?$/.exec(model);
-    if(!auto) return attempt(Object.keys(ACTIVE).find(n => model.includes(n)));
+    if(!auto) {
+      const r = resolveModel(model);
+      if(r.error) return json({ error: { message: r.error.message, type: 'invalid_request_error', code: r.error.code, param: 'model' } }, r.error.status);
+      return attempt(r.site, undefined, r.pick);
+    }
 
     /* auto: the best ready site, the next one when it refuses before any reply text (the conversation is replayed
        there as one transcript); a streamed answer that already began cannot move */
@@ -1147,6 +1402,15 @@ async function main() {
     return;
   }
 
+  if(cmd == 'check') {
+    /* asks the running bridge (tabs it holds are busy for it, and its stats are the ones that count) */
+    const r = await fetch(`http://127.0.0.1:${o.listen}/v1/check`, { method: 'POST', body: JSON.stringify(o.rest.length > 1 ? { site: o.rest.slice(1) } : {}) }).catch(() => null);
+    if(!r) throw new Error(`no chat-bridge serving on port ${o.listen} (--listen); start one with: serve`);
+    const { results } = await r.json();
+    for(const x of results) console.log(`${x.ok ? 'ok  ' : 'FAIL'}  ${x.site.padEnd(12)} ${x.stage.padEnd(6)} ${String(x.ms).padStart(6)} ms  ${x.skipped ? `skipped (${x.skipped})` : (x.error ?? x.reply ?? '')}`);
+    exit(results.every(x => x.ok) ? 0 : 1);
+  }
+
   if(cmd == 'serve') {
     const handle = completions(bridge);
 
@@ -1171,6 +1435,13 @@ async function main() {
           if(path == '/quota-forecast') return json(bridge.forecast());
           if(path == '/health') return json({ status: 'ok', source: 'chat-bridge', ready: bridge.providers().providers.filter(p => p.status == 'healthy').length });
           if(path == '/chat/completions' && req.method == 'POST') return handle(req);
+          if(path == '/check' && req.method == 'POST') {
+            /* body { site: name | [names] }, default every site that can be asked now (one real prompt each) */
+            const want = [].concat((await req.json().catch(() => ({}))).site ?? Object.keys(ACTIVE));
+            const results = [];
+            for(const name of want) results.push(await bridge.check(name));
+            return json({ object: 'check', source: 'chat-bridge', results });
+          }
           return json({ error: { message: 'not found' } }, 404);
         },
       });
