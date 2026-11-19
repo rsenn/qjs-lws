@@ -459,7 +459,7 @@ export class OpenAIClient {
 
     /* reject before close: closing reports the drop through #reject() first otherwise */
     for(const { reject, wsi } of this.#settled.values()) {
-      reject(new Error('aborted (Ctrl-C)'));
+      reject(new Error('interrupted'));
       wsi?.close();
     }
 

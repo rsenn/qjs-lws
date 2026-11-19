@@ -526,7 +526,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
 - You can type while the model works. The text stays in the input, and
   Enter queues it behind the running prompt.
 - The input grows to several rows for a long line.
-- Ctrl-C cancels the running request. On an empty line, pressing it
+- Esc or Ctrl-C cancels the running request (the status line says `Esc cancels`; a lone Esc with nothing running is ignored). A terminal sends a lone Esc as one byte and arrows and Alt-keys as one whole sequence, which is how the two are told apart; a sequence split by a slow link right after its ESC byte would count as an Esc press. On an empty line, pressing it
   twice quits.
 - Ctrl-L clears the transcript. Resizing the window redraws the bottom
   rows.

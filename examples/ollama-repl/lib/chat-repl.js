@@ -21,7 +21,7 @@ import { in as stdin, out as stdout } from 'std';
 import { fileMode } from './match.js';
 import { expandHome } from './paths.js';
 import { REPL } from 'repl';
-import { stripAnsi } from 'terminal';
+import { stripAnsi, ttyRead, EAGAIN } from 'terminal';
 import { Pager } from './pager.js';
 import { red, yellow } from './ansi.js';
 
@@ -136,6 +136,33 @@ export class ChatREPL extends REPL {
   sigintHandler(arg) {
     if(this.#onAbort?.()) return;
     super.sigintHandler(arg);
+  }
+
+  /**
+   * Esc interrupts the running request, like Ctrl-C (and like Claude Code).
+   * The base line editor takes a lone ESC byte as the start of an escape
+   * sequence and waits for the next key, so Esc alone did nothing there. A
+   * terminal sends a lone Esc key press as a read of exactly one 0x1b byte,
+   * while arrow keys, Alt-keys and the rest arrive as one read with the whole
+   * sequence: that is the difference used here. (A sequence that a slow link
+   * splits right after its ESC byte is taken for an Esc press.) With no
+   * request running a lone Esc is ignored (the editor would otherwise
+   * swallow the next key as an Alt chord); while a dialog is open the byte
+   * goes to the base editor as before.
+   */
+  termReadHandler() {
+    if(this.piped) return super.termReadHandler();
+
+    const l = ttyRead(stdin.fileno(), this.readBuf.buffer, 0, this.readBuf.length);
+    if(l == -EAGAIN) return;
+
+    if(l === 1 && this.readBuf[0] === 0x1b && !this.#dialog) {
+      /* idle, a lone Esc is dropped: handed to the editor it would swallow the next key as an Alt chord */
+      if(this.#busy && this.#onAbort?.()) this.tui?.write('\n(interrupted)\n');
+      return;
+    }
+
+    for(let i = 0; i < l; i++) this.handleByte(this.readBuf[i]);
   }
 
   /**

@@ -220,7 +220,7 @@ export class OllamaClient {
 
     for(const { reject, wsi } of this.#settled.values()) {
       wsi?.close();
-      reject(new Error('aborted (Ctrl-C)'));
+      reject(new Error('interrupted'));
     }
 
     this.#settled.clear();

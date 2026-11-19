@@ -1997,7 +1997,7 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   }
   if(standby.on) two.push(standby.state === 'ready' ? `standby ${standby.id} ✓ ${fmtMs(standby.ms)}${standby.toolOk ? '' : ' (no tools)'}` : standby.state === 'probing' ? 'standby probing…' : `\x1b[33mstandby ${standby.state}\x1b[39m`);
   if(last?.fallbacks) two.push(`\x1b[33m${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
-  two.push(busy ? 'Ctrl-C cancels' : 'Shift-Tab mode · Ctrl-O verbose · /help');
+  two.push(busy ? 'Esc cancels' : 'Shift-Tab mode · Ctrl-O verbose · /help');
 
   return [gradientRule(cols), statusBar([left, center, right], cols - 1), dimmed(two.join(' · '))];
 }
