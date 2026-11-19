@@ -952,7 +952,8 @@ async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, a
   const subOpts = { 
     ...opts, 
     maxRounds: max_turns,
-    omitTools: read_only ? ['edit_file', 'write_file', 'insert_above', 'run_command', 'for_each', 'ask_user'] : undefined
+    /* a sub-agent never spawns agents or restarts the harness itself */
+    omitTools: ['spawn_agent', 'restart_harness', ...(read_only ? ['edit_file', 'write_file', 'insert_above', 'run_command', 'for_each', 'ask_user'] : [])]
   };
 
   // Update status to show sub-agent activity

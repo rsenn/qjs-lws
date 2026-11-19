@@ -19,7 +19,9 @@ foreground child with the original arguments, exit with its status);
 Open, not run yet:
 - restart_harness as a model tool call (the slash commands share its path).
 - spawn_agent: untested; check that read_only really withholds every write
-  tool and that the sub-client is destroyed on failure.
+  tool and that the sub-client is destroyed on failure. (2026-11-19: a
+  sub-agent no longer gets spawn_agent and restart_harness; before, it
+  could recurse and even a read_only one could restart the harness.)
 - --help text (USAGE in repl.js) does not list --resume and
   --fallback-model; /help does not list /fallback, /provider, /restart.
 - The skip list and the model strength tiers (MODEL_STRENGTH_PATTERNS) are
@@ -172,6 +174,14 @@ D3. [x] (done: OpenAIClient.onPhase sending/waiting/headers/receiving/
 
 ## Multi-conversation sessions and Claude Code sessions (asked 2026-11-19, approved, after A-D)
 
+   2026-11-19 clarification: Claude Code's own background tasks (shell
+   commands and sub-agents picked with up/down in its task list) live
+   inside one session and have no external API; they are a UI model, not
+   something to connect to. The ollama-repl counterpart: make spawn_agent
+   non-blocking (returns an id at once, runs in the background, the result
+   comes back to the parent as a notification message) and show the
+   running/finished agents in a list (up/down + Enter opens one). Today
+   spawn_agent blocks the parent turn until the sub-agent is done.
 8. Several conversations ("agents") in one ollama-repl, picked with
    up/down + Enter. Cost: moderate, mostly a refactor:
    - main() keeps everything in one closure: messages, client, opts,
@@ -197,6 +207,18 @@ D3. [x] (done: OpenAIClient.onPhase sending/waiting/headers/receiving/
    - The socket protocol is internal and undocumented, with a per-session
      key file (<pid>.<hash>.key, mode 600). Not worth targeting: it is
      not a public interface and changes with Claude Code versions.
+   - Headless route, checked against `claude 2.1.318` and the docs
+     (code.claude.com/docs/en/headless): `claude -p --input-format
+     stream-json --output-format stream-json --verbose` reads JSON user
+     messages on stdin and emits NDJSON events; --resume <id> or
+     --session-id <uuid> picks the conversation, --include-partial-messages
+     streams chunks. Best fit: spawn it as a child process and treat it as
+     one more provider/conversation. Unverified: --resume together with
+     --input-format stream-json, and whether the Agent SDK can attach to a
+     session still running in another process. Remote Control
+     (--remote-control, /remote-control) connects a running session to
+     claude.ai/code or the phone app: for people, one remote session per
+     instance, not a programmatic API.
    - Workable routes instead:
      - tmux send-keys and capture-pane into the session's pane (the json
        names it);
