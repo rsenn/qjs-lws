@@ -39,6 +39,25 @@ await check('/v1/models lists the fake site', async () => {
   expect(j.data.some(m => m.id == 'fake'), 'fake not in ' + j.data.map(m => m.id));
 });
 
+await check('/v1/models carries the gateway metadata', async () => {
+  const m = (await (await fetch(`${base}/models`)).json()).data.find(m => m.id == 'fake');
+  expect(m.name == 'Fake' && m.context_window == 8000 && m.context_length == 8000, JSON.stringify(m));
+  expect(m.execution_status == 'ready' && m.available === true, 'status ' + m.execution_status);
+  expect(m.supported_parameters.includes('tools') && m.supported_parameters.includes('stream'), m.supported_parameters.join());
+  expect(m.capabilities.tools === true, JSON.stringify(m.capabilities));
+});
+
+await check('a reply has an estimated usage and routing headers', async () => {
+  const res = await say('[[pong]]');
+  const j = await res.json();
+  const u = j.usage;
+  expect(u.estimated === true && u.prompt_tokens > 0 && u.completion_tokens > 0, JSON.stringify(u));
+  expect(u.total_tokens == u.prompt_tokens + u.completion_tokens, 'sum ' + JSON.stringify(u));
+  expect(res.headers.get('x-routed-via') == 'fake/default', 'x-routed-via ' + res.headers.get('x-routed-via'));
+  expect(res.headers.get('x-request-id') == j.id, `x-request-id ${res.headers.get('x-request-id')} vs ${j.id}`);
+  expect(+res.headers.get('x-response-ms') >= 0, 'x-response-ms ' + res.headers.get('x-response-ms'));
+});
+
 await check('plain reply', async () => {
   const res = await say('[[pong]]');
   expect(res.status == 200, 'status ' + res.status);
@@ -52,8 +71,11 @@ await check('streamed reply arrives in several chunks', async () => {
   const raw = await res.text();
   const chunks = raw.split('\n').filter(l => l.startsWith('data: ') && !l.includes('[DONE]'));
   expect(chunks.length >= 3, `${chunks.length} chunks`);
-  const text = chunks.map(l => JSON.parse(l.slice(6)).choices[0].delta?.content ?? '').join('');
+  const text = chunks.map(l => JSON.parse(l.slice(6)).choices[0]?.delta?.content ?? '').join('');
   expect(text.includes('until the text is complete'), 'text: ' + text);
+  const last = JSON.parse(raw.split('\n').filter(l => l.startsWith('data: ') && !l.includes('[DONE]')).pop().slice(6));
+  expect(last.usage?.estimated === true && last.usage.completion_tokens > 0, 'usage chunk ' + JSON.stringify(last));
+  expect(res.headers.get('x-routed-via') == 'fake/default' && res.headers.get('x-request-id') == last.id, 'headers ' + res.headers.get('x-request-id'));
 });
 
 for(const [label, marker] of [['nested arguments', '[[tool]]'], ['flat arguments with copy-button text', '[[flat]]']])
@@ -84,6 +106,11 @@ await check('a limit notice is a 429 rate_limit_exceeded with Retry-After', asyn
   const j = await res.json();
   expect(res.status == 429 && j.error?.code == 'rate_limit_exceeded', `${res.status} ${JSON.stringify(j)}`);
   expect(+res.headers.get('retry-after') == 10800, 'retry-after ' + res.headers.get('retry-after'));
+});
+
+await check('a cooling site is execution_status exhausted with a reset time', async () => {
+  const m = (await (await fetch(`${base}/models`)).json()).data.find(m => m.id == 'fake');
+  expect(m.execution_status == 'exhausted' && m.available === false && m.resets_at, JSON.stringify(m));
 });
 
 console.log(failed ? `${failed} failed` : 'all passed');

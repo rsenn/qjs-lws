@@ -195,3 +195,12 @@ Enter only with focus in the prompt box, payment page detection).
     sidebars do not fill with test conversations (where a site offers delete),
     and sweep leftover bridge tabs after a crash.
 13. **Honest usage numbers**: `usage` is always zero; estimate from lengths.
+
+## Metadata served in /v1/models
+
+`name`, `context` and `capabilities` of a site are fields of its `SITES`
+entry (chat-bridge.js). `tools: false` marks the sites that ignore the tool
+preamble (chatgpt, duck, deepai): the harness should not give them tool work.
+No window is invented: `context` is `null` (the field is left out) until it
+is measured, except duck, whose stated prompt limit of 16000 characters gives
+a window of 16000 / 3.5 = 4571 tokens.

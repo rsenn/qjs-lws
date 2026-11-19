@@ -230,12 +230,18 @@ presses Enter. Still, three guards keep it that way.
 
 | method, path | behaviour |
 |---|---|
-| `GET /v1/models` | one entry per active site, `owned_by: "chat-bridge"`, plus `available` (false while on cooldown) and, then, `unavailable` (kind) and `resets_at` |
+| `GET /v1/models` | one entry per active site, `owned_by: "chat-bridge"`, in the shape of a freellmapi entry: `name`, `context_window` and `context_length` (only where the window is known), `execution_status` (`ready`, `exhausted` on cooldown, `needsKey` when the billing guard or a login blocks it), `supported_parameters`, `capabilities` (`tools`, `vision`, `reasoning`, `stream`), plus `available`, `billing`, `max_prompt_chars` and, while unavailable, `unavailable` (kind) and `resets_at` |
 | `POST /v1/chat/completions` | OpenAI chat completion; `messages`, `model`, `stream`, `tools` are honoured |
 
 Everything else returns 404. Fields that are accepted and ignored:
 `temperature`, `max_tokens`, `stop`, `top_p`, `response_format`, … (a web
-chat offers no such knobs). `usage` is always zero.
+chat offers no such knobs).
+
+`usage` is an estimate: characters / 4 of the prompt really typed into the
+site and of the reply, with `estimated: true` (the streamed answer carries it
+in a last chunk with an empty `choices`). Every completion answer from a
+known site has the headers `x-routed-via: SITE/default`, `x-request-id` (the
+`chatcmpl-` id) and `x-response-ms` (time until the answer was complete).
 
 Errors: bad JSON → 400, no messages → 400, tab/site problems → 502, no reply
 before `--timeout` → 504, site refusals as in [Refusals](#refusals).
@@ -248,6 +254,9 @@ before `--timeout` → 504, site refusals as in [Refusals](#refusals).
       input,  // selector of the prompt box (first visible match)
       reply,  // selector of the assistant messages (last match is read)
       billing, // 'free' (default) or 'metered', see Billing guard
+      name,   // optional: display name in /v1/models (default: the key)
+      context, // optional: window in tokens, null when unknown (never guessed)
+      capabilities, // optional: { tools, vision, reasoning, stream }, default tools and stream true
       skip,   // optional: why the site was looked at and not adopted
     }
 
@@ -316,7 +325,7 @@ Open work is tracked in [TODO.md](TODO.md); bugs in `BUGS` at the repo root.
 
 `test/run.sh` runs the bridge against a fake chat site (`test/fake-site.html`)
 in a throwaway headless Chrome with its own profile and CDP port (9333), so
-your own browser is not touched. It checks `/v1/models`, a plain and a
+your own browser is not touched. It checks `/v1/models` (also against a saved gateway entry, `test/shape.js`), the estimated `usage` and routing headers, a plain and a
 streamed reply, tool calls (nested and flat arguments), the refusals (prompt
 not taken: 502, daily limit: 429 with `Retry-After`) and a site whose layout
 changed. The site is added with `CHAT_BRIDGE_SITES=file.json`, a JSON object

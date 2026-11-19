@@ -23,7 +23,7 @@ trap cleanup EXIT
 
 cat > "$W/sites.json" <<JSON
 {
-  "fake":    { "host": "localhost:$SITE", "home": "http://localhost:$SITE/", "input": "textarea", "reply": ".reply" },
+  "fake":    { "host": "localhost:$SITE", "home": "http://localhost:$SITE/", "input": "textarea", "reply": ".reply", "name": "Fake", "context": 8000 },
   "rotted": { "host": "127.0.0.1:$SITE", "home": "http://127.0.0.1:$SITE/", "input": "textarea", "reply": ".reply" }
 }
 JSON
@@ -43,6 +43,7 @@ CHAT_BRIDGE_SITES="$W/sites.json" qjsm "$HERE/../chat-bridge.js" --port "$CDP" -
 PIDS+=($!)
 wait_port "$BRIDGE" || { cat "$W/bridge.log"; exit 2; }
 
+qjsm "$HERE/shape.js" "http://127.0.0.1:$BRIDGE/v1" fake || exit 1
 qjsm "$HERE/probe.js" "http://127.0.0.1:$BRIDGE/v1"
 rc=$?
 [ $rc -ne 0 ] && { echo "--- bridge log"; tail -20 "$W/bridge.log"; }

@@ -59,16 +59,16 @@ import { getenv, exit, loadFile, open as fopen } from 'std';
    adopted (see ACTIVE below). input = prompt box, reply = assistant messages (the
    last one is read) */
 const SITES = {
-  deepseek: { host: 'chat.deepseek.com', home: 'https://chat.deepseek.com/', input: 'textarea', reply: '.ds-markdown' },
-  qwen: { host: 'chat.qwen.ai', home: 'https://chat.qwen.ai/', input: 'textarea.message-input-textarea, textarea', reply: '.qwen-markdown' },
-  gemini: { host: 'gemini.google.com', home: 'https://gemini.google.com/app', input: 'rich-textarea .ql-editor, div[contenteditable="true"]', reply: 'message-content, .model-response-text' },
-  kimi: { host: 'www.kimi.ai', home: 'https://www.kimi.ai/chat/', input: 'div[contenteditable="true"], textarea', reply: '.markdown' },
-  mistral: { host: 'chat.mistral.ai', home: 'https://chat.mistral.ai/chat', input: 'textarea, div[contenteditable="true"]', reply: '[data-message-part-type="answer"]' },
-  chatgpt: { host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt, div.ProseMirror[contenteditable="true"]', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"], [data-markdown-text-style="assistant-message"]' },
+  deepseek: { name: 'DeepSeek', host: 'chat.deepseek.com', home: 'https://chat.deepseek.com/', input: 'textarea', reply: '.ds-markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  qwen: { name: 'Qwen', host: 'chat.qwen.ai', home: 'https://chat.qwen.ai/', input: 'textarea.message-input-textarea, textarea', reply: '.qwen-markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  gemini: { name: 'Gemini', host: 'gemini.google.com', home: 'https://gemini.google.com/app', input: 'rich-textarea .ql-editor, div[contenteditable="true"]', reply: 'message-content, .model-response-text', context: null, capabilities: { tools: true, vision: true, reasoning: false, stream: true } },
+  kimi: { name: 'Kimi', host: 'www.kimi.ai', home: 'https://www.kimi.ai/chat/', input: 'div[contenteditable="true"], textarea', reply: '.markdown', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  mistral: { name: 'Mistral', host: 'chat.mistral.ai', home: 'https://chat.mistral.ai/chat', input: 'textarea, div[contenteditable="true"]', reply: '[data-message-part-type="answer"]', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
+  chatgpt: { name: 'ChatGPT', host: 'chatgpt.com', home: 'https://chatgpt.com/', input: '#prompt-textarea, #mobile-composer-prompt, div.ProseMirror[contenteditable="true"]', reply: '[data-message-author-role="assistant"], li[data-message-role="assistant"], [data-markdown-text-style="assistant-message"]', context: null, capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
   venice: { host: 'venice.ai', home: 'https://venice.ai/chat', input: 'textarea', reply: '.prose', skip: 'no reply read in a test (anonymous use is rate-limited and gated), so not worth the fragility' },
-  duck: { host: 'duck.ai', home: 'https://duck.ai/chat', maxPrompt: 16000, input: 'textarea', reply: 'div.space-y-4.whitespace-normal' },
-  deepai: { host: 'deepai.org', home: 'https://deepai.org/chat', input: '#persistentChatbox', reply: '.markdownContainer' },
-  openrouter: { host: 'openrouter.ai', home: 'https://openrouter.ai/chat', input: 'textarea', reply: '[data-message-bubble="assistant"]', billing: 'metered' },
+  duck: { name: 'Duck', host: 'duck.ai', home: 'https://duck.ai/chat', maxPrompt: 16000, input: 'textarea', reply: 'div.space-y-4.whitespace-normal', context: Math.floor(16000/3.5), capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
+  deepai: { name: 'DeepAI', host: 'deepai.org', home: 'https://deepai.org/chat', input: '#persistentChatbox', reply: '.markdownContainer', context: null, capabilities: { tools: false, vision: false, reasoning: false, stream: true } },
+  openrouter: { name: 'OpenRouter', host: 'openrouter.ai', home: 'https://openrouter.ai/chat', input: 'textarea', reply: '[data-message-bubble="assistant"]', billing: 'metered', context: null, capabilities: { tools: true, vision: false, reasoning: false, stream: true } },
   aistudio: { host: 'aistudio.google.com', home: 'https://aistudio.google.com/prompts/new_chat', input: 'textarea', reply: 'ms-text-chunk', billing: 'metered', skip: 'free Gemini API key exists, and gemini is already covered by the gemini site' },
   groq: { host: 'console.groq.com', home: 'https://console.groq.com/playground', input: 'textarea', reply: '.prose', billing: 'metered', skip: 'API playground behind a login, not a chat, and groq has an OpenAI-compatible API' },
 };
@@ -619,7 +619,31 @@ class Bridge {
       const c = this.cooling(id);
       const billing = ACTIVE[id].billing ?? 'free';
       const guarded = billing == 'metered' && !this.o.allowPaid;
-      return { id, object: 'model', owned_by: 'chat-bridge', billing, ...(ACTIVE[id].maxPrompt ? { max_prompt_chars: ACTIVE[id].maxPrompt } : {}), available: !c && !guarded, ...(guarded ? { unavailable: 'billing_guard' } : c ? { unavailable: c.err.kind, resets_at: new Date(c.until).toISOString() } : {}) };
+      const site = ACTIVE[id];
+      const name = site.name ?? id;
+      const context = site.context ?? null;
+      const capabilities = { tools: true, vision: false, reasoning: false, stream: true, ...site.capabilities };
+      const available = !c && !guarded;
+      let execution_status = 'ready';
+      if(c) execution_status = c.err.kind == 'login' ? 'needsKey' : 'exhausted';
+      else if(guarded) execution_status = 'needsKey';
+      const supported_parameters = ['temperature', 'max_tokens', 'stream'];
+      if(capabilities.tools) supported_parameters.push('tools', 'tool_choice');
+      const result = {
+        id,
+        object: 'model',
+        owned_by: 'chat-bridge',
+        name,
+        billing,
+        available,
+        execution_status,
+        supported_parameters,
+        capabilities,
+        ...(context !== null ? { context_window: context, context_length: context } : {}),
+        ...(site.maxPrompt ? { max_prompt_chars: site.maxPrompt } : {}),
+        ...(guarded ? { unavailable: 'billing_guard' } : c ? { unavailable: c.err.kind, resets_at: new Date(c.until).toISOString() } : {})
+      };
+      return result;
     });
   }
 }
@@ -627,13 +651,14 @@ class Bridge {
 const json = (o, status = 200, headers = {}) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json', ...headers } });
 
 /* the OpenAI error shape for a refusing site; clients read the status, `code` and Retry-After */
-function refusalResponse(err, retry = err.retry) {
+function refusalResponse(err, retry = err.retry, extra = {}) {
   const r = REFUSALS[err.kind] ?? REFUSALS.not_accepted;
-  return json({ error: { message: err.message, type: r.type, code: r.code, param: null } }, r.status, retry ? { 'retry-after': String(Math.ceil(retry)) } : {});
+  return json({ error: { message: err.message, type: r.type, code: r.code, param: null } }, r.status, { ...(retry ? { 'retry-after': String(Math.ceil(retry)) } : {}), ...extra });
 }
 
 function completions(bridge) {
   return async req => {
+    const t0 = Date.now();
     let body;
     try {
       body = await req.json();
@@ -649,15 +674,15 @@ function completions(bridge) {
       return refusalResponse(new SiteRefusal('billing', `${name} is pay-as-you-go and can cost money, so the bridge refuses it; start the bridge with --allow-paid to use it anyway`));
 
     const cool = bridge.cooling(name);
-    if(cool) return refusalResponse(cool.err, (cool.until - Date.now()) / 1000);
+    if(cool) return refusalResponse(cool.err, (cool.until - Date.now()) / 1000, { 'x-routed-via': `${name}/default` });
 
-    let chat, gen;
+    let chat, gen, full;
     try {
       chat = await bridge.acquire(name, messages);
       const plan = planPrompt(messages, chat);
       if(plan.fresh) await chat.newChat();
       const body = tools ? plan.prompt + TOOL_REMINDER : plan.prompt;
-      const full = plan.fresh && tools ? `${toolPreamble(tools)}\n\n${body}` : body;
+      full = plan.fresh && tools ? `${toolPreamble(tools)}\n\n${body}` : body;
       const max = ACTIVE[name]?.maxPrompt;
       if(max && full.length > max) {
         bridge.release(chat);
@@ -671,6 +696,13 @@ function completions(bridge) {
 
     const id = `chatcmpl-${Date.now().toString(36)}`,
       created = Math.floor(Date.now() / 1000);
+    /* what the harness reads of every answer: the site that served it, the id, the time; tokens are estimated (chars / 4) */
+    const hdr = () => ({ 'x-routed-via': `${name}/default`, 'x-request-id': id, 'x-response-ms': String(Date.now() - t0) });
+    const usageOf = reply => {
+      const prompt = Math.ceil(full.length / 4);
+      const completion = Math.ceil(reply.length / 4);
+      return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, estimated: true };
+    };
     const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
     const remember = msg => (chat.history = [...messages, msg]);
 
@@ -691,7 +723,7 @@ function completions(bridge) {
         chat.history = [];
         if(e instanceof SiteRefusal) {
           bridge.refused(name, e);
-          return refusalResponse(e);
+          return refusalResponse(e, e.retry, hdr());
         }
         return json({ error: { message: e.message } }, 504);
       } finally {
@@ -701,10 +733,10 @@ function completions(bridge) {
       const msg = toMessage(text);
       remember(msg);
       const finish = msg.tool_calls ? 'tool_calls' : 'stop';
-      if(!stream) return json({ id, object: 'chat.completion', created, model, choices: [{ index: 0, message: msg, finish_reason: finish }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
+      if(!stream) return json({ id, object: 'chat.completion', created, model, choices: [{ index: 0, message: msg, finish_reason: finish }], usage: usageOf(text) }, 200, hdr());
 
       const delta = msg.tool_calls ? { tool_calls: msg.tool_calls.map((t, index) => ({ index, ...t })) } : { content: text };
-      return new Response(chunk({ role: 'assistant', content: '' }) + chunk(delta) + chunk({}, finish) + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+      return new Response(chunk({ role: 'assistant', content: '' }) + chunk(delta) + chunk({}, finish) + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream', ...hdr() } });
     }
 
     /* wait for the first reply text, so a refusal can still be a real
@@ -717,7 +749,7 @@ function completions(bridge) {
       bridge.release(chat);
       if(e instanceof SiteRefusal) {
         bridge.refused(name, e);
-        return refusalResponse(e);
+        return refusalResponse(e, e.retry, hdr());
       }
       return json({ error: { message: e.message } }, 504);
     }
@@ -741,7 +773,7 @@ function completions(bridge) {
               }
             }
             remember({ role: 'assistant', content: sent });
-            c.enqueue(chunk({}, 'stop') + 'data: [DONE]\n\n');
+            c.enqueue(chunk({}, 'stop') + `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [], usage: usageOf(sent) })}\n\n` + 'data: [DONE]\n\n');
           } catch(e) {
             chat.history = [];
             if(e instanceof SiteRefusal) bridge.refused(name, e);
@@ -751,7 +783,7 @@ function completions(bridge) {
           c.close();
         },
       }),
-      { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } },
+      { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...hdr() } },
     );
   };
 }
