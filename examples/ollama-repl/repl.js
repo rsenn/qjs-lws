@@ -48,7 +48,7 @@
  *     independent of `TRAFFIC`.
  */
 import { exit, getenv, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
-import { clearTimeout, exec, getcwd, getpid, isatty, realpath, setTimeout, stat, readdir, S_IFDIR } from 'os';
+import { clearTimeout, exec, getcwd, getpid, isatty, kill, realpath, setTimeout, stat, readdir, S_IFDIR } from 'os';
 import { rmSync } from 'fs';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
@@ -134,6 +134,7 @@ const USAGE = [
   '',
   '@Failover (when a chat model hits its limit)',
   ['--no-failover', 'stay on the chosen model instead of switching to another.'],
+  ['--self-edit', 'let the model change ollama-repl\'s own files (when it runs from the source tree) without asking, even in auto mode; without it every such edit asks and is never remembered.'],
   ['--compact-at PCT', 'compact the conversation (older turns summarized by a local model, as for a failover) when it uses this percent of the context window (default 80, 0 = never). /compact does it at once.'],
   ['--no-handoff', 'replay the whole conversation to the next model instead of compacting it.'],
   ['--handoff-turns N', 'turns kept verbatim when compacting (default 3); older ones are summarized.'],
@@ -177,6 +178,7 @@ function parseArgs(argv) {
     else if(arg === '--scan') opts.scan = true;
     else if(arg === '--allow-paid') opts.allowPaid = true;
     else if(arg === '--no-handoff') opts.noHandoff = true;
+    else if(arg === '--self-edit') opts.selfEdit = true;
     else if(arg === '--compact-at') opts.compactAt = +argv[++i];
     else if(arg === '--handoff-turns') opts.handoffTurns = +argv[++i];
     else if(arg === '--handoff-model') opts.handoffModel = argv[++i];
@@ -588,6 +590,9 @@ const ui = { verbose: false };
 /* set by main(): asks the user to allow a file change (manual mode) */
 let approveWrite = null;
 
+/* set by main(): asks before a change to the harness's own files, never remembered */
+let approveSelf = null;
+
 /* context window of the model that answers (tokens), set by main(); undefined when unknown */
 let ctxWindowNow;
 
@@ -871,6 +876,79 @@ function elideOldToolResults(messages, numCtx) {
   }
 }
 
+/* the running harness: its script (realpath), its directory, whether that is the source tree
+   (it has smoke.sh next to it, the installed copy in bin/ has not) and the startup snapshot of it */
+const harness = { script: '', dir: '', source: false, snap: null };
+
+function initHarness() {
+  harness.script = realpath(scriptArgs[0])[0] ?? scriptArgs[0];
+  harness.dir = harness.script.replace(/\/[^/]*$/, '') || '.';
+  harness.source = stat(`${harness.dir}/smoke.sh`)[1] === 0 && stat(`${harness.dir}/lib`)[1] === 0;
+}
+
+/**
+ * Copies repl.js, ctl.js and lib/ to .ollama-repl-snap-PID next to the harness directory (the same
+ * depth, so lib/'s ../../../lib/lws imports still resolve): the version this process was started
+ * from, which a restart falls back to when the edited one dies at startup. Snapshots of dead
+ * processes are removed.
+ */
+function snapshotHarness() {
+  purgeSnapshots();
+
+  const parent = harness.dir.replace(/\/[^/]*$/, '') || '.';
+  const snap = `${parent}/.ollama-repl-snap-${getpid()}`;
+  const pipe = popen(`mkdir -p '${snap}' && cp -r '${harness.dir}/repl.js' '${harness.dir}/ctl.js' '${harness.dir}/lib' '${snap}/' 2>&1`, 'r');
+  if(!pipe) return;
+  pipe.readAsString();
+  if(pipe.close() === 0) harness.snap = snap;
+}
+
+/** removes the snapshots of processes that are gone (a crash does not clean up) */
+function purgeSnapshots() {
+  const parent = harness.dir.replace(/\/[^/]*$/, '') || '.';
+  const [names] = readdir(parent);
+
+  for(const n of names ?? []) {
+    const pid = +(/^\.ollama-repl-snap-(\d+)$/.exec(n)?.[1] ?? 0);
+    if(pid && pid !== getpid() && kill(pid, 0) !== 0) rmSync(`${parent}/${n}`, { recursive: true, force: true });
+  }
+}
+
+function removeSnapshot() {
+  if(harness.snap) rmSync(harness.snap, { recursive: true, force: true });
+  harness.snap = null;
+}
+
+/** an absolute path without . and .. segments (the file need not exist) */
+function normalizePath(path) {
+  const out = [];
+  for(const part of path.split('/')) if(part === '..') out.pop(); else if(part && part !== '.') out.push(part);
+  return `/${out.join('/')}`;
+}
+
+/** whether a write tool call would change a file of the running harness (only when it runs from source) */
+function touchesHarness(root, args) {
+  if(!harness.source || typeof args?.path !== 'string') return false;
+
+  const full = normalizePath(args.path.startsWith('/') ? args.path : `${realpath(root)[0] ?? root}/${args.path}`);
+  return full === harness.dir || full.startsWith(`${harness.dir}/`);
+}
+
+/** whether the project the model works in contains the harness (it is then told how to restart it safely) */
+function editsHarness(root) {
+  if(!harness.source) return false;
+
+  const r = realpath(root)[0] ?? root;
+  return harness.dir === r || harness.dir.startsWith(`${r}/`) || r.startsWith(`${harness.dir}/`);
+}
+
+const SELF_NOTES = () => `
+
+The program that runs you is part of this project: ${harness.dir}. Changes to it take effect only after a restart. After editing it, run \`sh ${harness.dir}/smoke.sh\` (it must end with "smoke ok") and fix what it reports, then call restart_harness. A restart is refused when that check fails, so a broken edit never costs the session. Change it with edit_file or insert_above in small steps; a write_file that truncates a file breaks the next start.`;
+
+/** QUICKJS notes and, when the harness itself is in the project, how to change it safely */
+const systemNotes = root => (isQuickJsProject(root) ? QJS_NOTES : '') + (editsHarness(root) ? SELF_NOTES() : '');
+
 /**
  * Prepares a restart: validates the harness (`qjsm SCRIPT --help`), writes
  * the session state to a temp file and builds the command line of the new
@@ -881,9 +959,10 @@ function elideOldToolResults(messages, numCtx) {
  * @returns {Promise<string | { argv: string[] }>} an error message, or the argv for qjsm
  */
 async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) {
-  const script = scriptArgs[0];
-  const { output, status } = await runCommand(`qjsm '${script}' --help`, { cwd: opts.root, timeout: 10000 });
-  if(status !== 0) return `error: harness validation failed:\n${output}`;
+  /* from source: the real check, the REPL starts and runs commands (smoke.sh); installed: it loads */
+  const check = harness.source ? `sh '${harness.dir}/smoke.sh' '${harness.script}'` : `qjsm '${harness.script}' --help`;
+  const { output, status } = await runCommand(check, { cwd: opts.root, timeout: harness.source ? 180000 : 10000 });
+  if(status !== 0) return `error: the harness failed its check (${harness.source ? 'smoke.sh' : '--help'}), so it was not restarted and this session is unchanged:\n${output}`;
 
   const tempPath = `${getenv('TMPDIR') || '/tmp'}/ollama-repl-resume-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
   const now = Date.now();
@@ -924,6 +1003,12 @@ async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) 
   f.puts(JSON.stringify(state, null, 2));
   f.close();
 
+  /* the new process deletes its --resume file once it has loaded it; this copy is for the fallback */
+  const backup = `${tempPath}.bak`;
+  const g = fopen(backup, 'w');
+  g?.puts(JSON.stringify(state, null, 2));
+  g?.close();
+
   const args = [];
   const given = scriptArgs.slice(1);
   for(let i = 0; i < given.length; i++) {
@@ -931,14 +1016,21 @@ async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) 
     else args.push(given[i]);
   }
   if(providerChange) args.push('--provider', overrides.provider);
+  const rest = args.slice();
   args.push('--resume', tempPath);
 
-  return { argv: ['qjsm', script, ...args] };
+  return {
+    argv: ['qjsm', harness.script, ...args],
+    /* the startup snapshot, resuming from the backup: when the edited harness dies right away */
+    fallback: harness.snap ? ['qjsm', `${harness.snap}/repl.js`, ...rest, '--resume', backup] : null,
+    backup,
+  };
 }
 
 /* set by main(): ends this process and runs the restarted one in its place;
    resolves only with an error message (success never returns) */
 let restartHook = null;
+let restarting = false;
 
 /**
  * Spawns a sub-agent with isolated conversation history.
@@ -960,7 +1052,7 @@ async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, a
   }
 
   // Build isolated messages for sub-agent
-  const systemPrompt = parentMessages[0]?.role === 'system' ? parentMessages[0].content : SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '');
+  const systemPrompt = parentMessages[0]?.role === 'system' ? parentMessages[0].content : SYSTEM_PROMPT + systemNotes(opts.root);
   
   const subMessages = [
     { role: 'system', content: systemPrompt },
@@ -1081,7 +1173,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       }
 
       let output;
-      const asked = needsApproval(opts.mode, tc.name);
+      const selfEdit = WRITE_TOOLS.has(tc.name) && !opts.selfEdit && opts.mode !== 'plan' && touchesHarness(opts.root, tc.args);
+      const asked = needsApproval(opts.mode, tc.name) || selfEdit;
 
       if(tui?.active && !opts.quiet) {
         if(ui.verbose) showPanel(`⚙ ${tc.name}`, JSON.stringify(tc.args ?? {}, null, 2), { border: '#c084fc' });
@@ -1113,7 +1206,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       /* the mode may have changed since the tools were offered (Shift-Tab mid-turn) */
       if(!toolAllowed(opts.mode, tc.name)) output = `error: ${tc.name} is not available in ${opts.mode} mode - only read the code and answer with a plan`;
-      else if(needsApproval(opts.mode, tc.name) && tc.name !== 'run_command' && !(await approveWrite?.(describeWrite(tc.name, tc.args ?? {}), tc.name, tc.args ?? {}))) output = '(declined by the user - nothing was changed)';
+      else if(selfEdit && !(await approveSelf?.(describeWrite(tc.name, tc.args ?? {}), tc.name, tc.args ?? {}))) output = '(declined by the user - nothing was changed)';
+      else if(!selfEdit && needsApproval(opts.mode, tc.name) && tc.name !== 'run_command' && !(await approveWrite?.(describeWrite(tc.name, tc.args ?? {}), tc.name, tc.args ?? {}))) output = '(declined by the user - nothing was changed)';
       else {
         setPhase('tool', { tool: tc.name });
         const stop = tui?.active && !opts.quiet ? tuiSpinner(`running ${tc.name}`) : () => {};
@@ -1652,6 +1746,8 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
 
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
+  initHarness();
+  if(harness.source) snapshotHarness();
 
   /* --provider bridge: run examples/chat-bridge ourselves and talk to it
      as an OpenAI endpoint (everything below sees provider 'openai') */
@@ -1832,7 +1928,7 @@ async function main() {
     }
   } else {
     saved = store.load();
-    messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') }];
+    messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : SYSTEM_PROMPT + systemNotes(opts.root) }];
     baseMessageCount = saved ? saved.baseMessageCount : messages.length;
     /* a resumed session carries the system prompt of the run that saved it */
     if(opts.noSystem && messages[0]?.role === 'system') {
@@ -1956,6 +2052,20 @@ async function main() {
 
     return approve(name, `✎ ${head}`, detail || head, 'Apply this change?', ['Yes, allow once', `Yes, allow ${name} for the rest of this session`, 'No']);
   };
+  approveSelf = async (text, name, args) => {
+    const [head, ...body] = text.split('\n');
+    const detail = tui?.active ? numberedDiff(name, args, loadFile(underRoot(opts.root, args.path)), false) : body.join('\n');
+    const title = `⚠ ${head} - changes ollama-repl itself`;
+
+    if(tui?.active) showPanel(title, detail || head, { border: WARN_BORDER });
+    else console.log(`${title}\n  ${stripAnsi(detail || head).split('\n').join('\n  ')}`);
+
+    const before = { ...phase };
+    setPhase('you');
+    const k = await repl.choose('Change the harness itself?', ['Yes, this edit', 'No'], tui?.active ? { view: () => repl.openPager(title, detail) } : {});
+    Object.assign(phase, before, { since: Date.now() });
+    return k === 0;
+  };
   const askUser = question => repl.ask(question);
 
   /* Runs `task` once per item, each in its own fresh two-message
@@ -1973,7 +2083,7 @@ async function main() {
 
       const text = hasSlot ? task.replaceAll('{item}', item).replaceAll('{}', item) : `${task}\n\nItem: ${item}`;
       const subMessages = [
-        { role: 'system', content: SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '') },
+        { role: 'system', content: SYSTEM_PROMPT + systemNotes(opts.root) },
         { role: 'user', content: `${text}\n\n(This is one item of a batch: do only this item, and nothing else in the file. Make exactly the change asked for, as short as asked, in your own words - do not copy whole comment blocks from other files. Then reply with one short line saying what you did.)` },
       ];
 
@@ -2152,7 +2262,7 @@ async function main() {
       control?.update({ root: opts.root });
 
       /* the system prompt's QuickJS notes and the project scan describe the old root */
-      if(messages[0]?.role === 'system' && messages[0].content.startsWith(SYSTEM_PROMPT)) messages[0].content = SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '');
+      if(messages[0]?.role === 'system' && messages[0].content.startsWith(SYSTEM_PROMPT)) messages[0].content = SYSTEM_PROMPT + systemNotes(opts.root);
       const scan = messages.findIndex(m => m.role === 'user' && m.content.startsWith('(automatic project scan'));
       if(scan >= 0) {
         const projectContext = await gatherProjectContext(opts.root);
@@ -2384,7 +2494,7 @@ async function main() {
     if(prompt === '/system' || prompt.startsWith('/system ')) {
       const arg = prompt.slice('/system'.length).trim();
       const has = messages[0]?.role === 'system';
-      const defaultPrompt = SYSTEM_PROMPT + (isQuickJsProject(opts.root) ? QJS_NOTES : '');
+      const defaultPrompt = SYSTEM_PROMPT + systemNotes(opts.root);
 
       if(!arg) return void console.log(has ? messages[0].content : '(no system prompt)');
 
@@ -2648,6 +2758,7 @@ async function main() {
   repl.onIdle = () => control?.event({ type: 'ready' });
   repl.onPrompt = (kind, text) => control?.event({ type: 'waiting', kind, text });
   repl.addCleanupHandler(() => control?.close());
+  repl.addCleanupHandler(() => restarting || removeSnapshot());
 
   /* auto-compaction and /compact: replaces the older turns of a conversation by a summary
      (lib/handoff.js, written by a local model) and keeps the last few verbatim. Auto only
@@ -2695,8 +2806,22 @@ async function main() {
     const r = await prepareRestart(opts, messages, baseMessageCount, overrides);
     if(typeof r === 'string') return r;
 
+    const started = Date.now();
+    restarting = true;
     for(const handler of repl.cleanupHandlers) handler.call(repl);
-    exit(exec(r.argv, { block: true }));
+
+    let code = exec(r.argv, { block: true });
+
+    /* the edited harness died at startup (not a signal, not a quit): run the version this one started from */
+    if(code > 0 && code < 128 && Date.now() - started < 15000 && r.fallback) {
+      console.log(waveNote(`the restarted harness failed after ${Math.round((Date.now() - started) / 1000)}s (status ${code}), running the previous version`));
+      code = exec(r.fallback, { block: true });
+    }
+
+    rmSync(r.backup, { force: true });
+    removeSnapshot();
+    if(harness.source) purgeSnapshots();
+    exit(code);
   };
 
   /* the control socket, from --listen or later from /remote-control */

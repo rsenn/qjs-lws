@@ -134,3 +134,6 @@ inspector-debug.log
 
 # generated GitHub Pages site (tools/site/build.js)
 _site/
+
+# startup snapshot of a running ollama-repl (examples/ollama-repl/repl.js, self-restart fallback)
+examples/.ollama-repl-snap-*/

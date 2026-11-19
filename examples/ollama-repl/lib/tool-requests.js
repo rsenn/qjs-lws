@@ -314,7 +314,7 @@ export const TOOLS = [
   },
   {
     name: 'restart_harness',
-    description: 'Restarts the ollama-repl harness with the current session state. Validates the harness first, serializes state to a temp file, and re-execs with --resume. Use when the harness itself needs restarting (e.g., after code changes).',
+        description: 'Restarts ollama-repl itself with the current session (messages, model, mode). Call it after changing its own files. When it runs from the source tree it first runs smoke.sh; if that fails the restart is refused, this session stays as it is and the failure output comes back so you can fix it. If the new version dies at startup anyway, the version this one started from is run instead.',
     parameters: {
       type: 'object',
       properties: {},

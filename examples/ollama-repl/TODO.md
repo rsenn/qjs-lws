@@ -28,24 +28,25 @@ step:
    suspected --num-ctx bug was real). Open: the trigger is an estimate
    (chars / 3.5), not the provider's token count; the summarizer is the
    local ollama model also when the main provider is a gateway.
-3. [ ] self-improvement and safe restart (holes in the restart path)
-   - scriptArgs[0] may be relative while validation runs with cwd
-     opts.root and /cd can move cwd: realpath it once at startup
-   - the installed /usr/local/bin/ollama-repl ignores edits under
-     examples/ollama-repl/ (bin/lib is a configure-time copy): either
-     self-improve only when run from source, or make restart run
-     `cmake . && cmake --install .` first
-   - no fallback: the parent does exit(exec(child)); if the edited child
-     dies at startup the session is gone. Snapshot the touched files (git
-     stash or the undo journal) before self-edits; if smoke.sh fails, or
-     the child exits non-zero within a few seconds, restore them and run
-     the old code
-   - process stacking: every restart leaves the parent blocked in exec, N
-     restarts = N qjsm processes; document it or find a real execve in
-     qjs-modules
-   - edits to the harness's own files must need approval even in auto mode
-     (the overnight --yes loop produced the truncated text-tool-calls.js)
-   - prepareRestart should run smoke.sh instead of --help
+3. [x] (done 2026-11-19; tests below were run in a pty on a scratch copy of
+   the tree) self-improvement and safe restart
+   - harness.script is a realpath, taken once (initHarness)
+   - from source, restart runs smoke.sh first and is refused on failure
+     (tested: an export removed while the session ran); installed it runs
+     --help; the installed copy still needs cmake . && cmake --install .
+   - startup snapshot .ollama-repl-snap-PID next to the harness dir (same
+     depth, so ../../../lib/lws imports resolve); the fallback runs it with
+     a backup of the state when the new process dies within 15 s (tested:
+     a throw injected on --resume while the session ran); stale snapshots
+     of dead processes are purged
+   - edits to the harness's own files ask, also in auto mode, never
+     remembered; --self-edit turns that off (touchesHarness is unit tested,
+     the dialog itself was not exercised live)
+   - the system prompt tells the model how to edit and restart when the
+     project contains the harness (SELF_NOTES, a model's real use of it is
+     untested)
+   - not solved: N restarts = N waiting qjsm processes (no execve in
+     QuickJS); a process started from the fallback is not a source tree
 4. [ ] freellmapi routing control. First read ~/Sources/freellmapi
    server/src/routes/proxy.ts (about line 421) and the auto:<profile> and
    sticky-bucket code in routes/anthropic.ts and routes/responses.ts; build

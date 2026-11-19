@@ -666,15 +666,36 @@ documented afterwards, and only read, not run - see TODO.md.
   10) and `read_only` (when true the write tools, `run_command`, `for_each`
   and `ask_user` are withheld). The status line shows the `sub-agent`
   phase while it runs.
-- **`restart_harness`** (tool) and **`--resume FILE`**: the tool validates
-  the harness (`qjsm SCRIPT --help`), writes the session (messages,
-  model, fallback model, mode, the skip list and the other runtime
-  options) to a temp file
-  `ollama-repl-resume-*.json` and starts `repl.js --resume FILE`;
-  `--resume` loads that state, then deletes the file. The new process
-  runs in the foreground with the arguments of this one (minus an earlier
-  `--resume`), this one waits and exits with its status; the same path
-  serves `/restart` and `/provider`.
+- **`restart_harness`** (tool), `/restart`, `/provider` and **`--resume FILE`**:
+  the model (or you) restarts ollama-repl with the same command line and
+  the current session (messages, model, fallback model, mode, skip list).
+  The new process runs in the foreground, this one waits and exits with its
+  status. Safety, since the model may have edited the harness itself:
+  - **Check first**: running from the source tree (`smoke.sh` next to
+    `repl.js`) the restart runs `smoke.sh` on the edited code; installed
+    (`bin/`) it runs `qjsm repl.js --help`. A failing check refuses the
+    restart, the running session is untouched, and the failure output goes
+    back to the model to fix. `smoke.sh` imports every `lib/*.js` and
+    starts the REPL in a pty with a fixed command set.
+  - **Fallback**: a copy of `repl.js`, `ctl.js` and `lib/` made at startup
+    (`examples/.ollama-repl-snap-PID`, removed at exit, stale ones of dead
+    processes purged) is run instead, resuming from a backup of the state,
+    when the new process exits with an error within 15 seconds. A
+    process started from that fallback is not a source tree: it checks with
+    `--help` and makes no snapshot of its own.
+  - **Edits to the harness ask**: while it runs from source, `edit_file`,
+    `insert_above` and `write_file` on its own files always ask first, also
+    in `auto` mode, and the answer is never remembered; `--self-edit`
+    turns the question off for unattended runs. When the project contains
+    the harness (for example `--root` at the repo), the system prompt tells
+    the model how: edit in small steps, run `smoke.sh`, call
+    `restart_harness`.
+  - Every restart leaves the previous process waiting for its child, so N
+    restarts mean N `qjsm` processes (QuickJS has no `execve`); they all
+    end when the last one exits.
+  - The installed copy does not see edits to the source tree: run
+    `cmake . && cmake --install .` for that (the `lib/` copies are made at
+    configure time).
 - **`--fallback-model NAME`**: model to switch to when the current one
   fails; also set with `/fallback`.
 - **Failover on upstream failures**: besides rate limits and logins, a
