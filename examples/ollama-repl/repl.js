@@ -134,6 +134,7 @@ const USAGE = [
   '',
   '@Failover (when a chat model hits its limit)',
   ['--no-failover', 'stay on the chosen model instead of switching to another.'],
+  ['--compact-at PCT', 'compact the conversation (older turns summarized by a local model, as for a failover) when it uses this percent of the context window (default 80, 0 = never). /compact does it at once.'],
   ['--no-handoff', 'replay the whole conversation to the next model instead of compacting it.'],
   ['--handoff-turns N', 'turns kept verbatim when compacting (default 3); older ones are summarized.'],
   ['--handoff-model NAME', 'local ollama model that writes the summary (default qwen3:4b-instruct).'],
@@ -161,7 +162,7 @@ const USAGE = [
 ];
 
 function parseArgs(argv) {
-  const opts = { mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined };
+  const opts = { mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80 };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -176,6 +177,7 @@ function parseArgs(argv) {
     else if(arg === '--scan') opts.scan = true;
     else if(arg === '--allow-paid') opts.allowPaid = true;
     else if(arg === '--no-handoff') opts.noHandoff = true;
+    else if(arg === '--compact-at') opts.compactAt = +argv[++i];
     else if(arg === '--handoff-turns') opts.handoffTurns = +argv[++i];
     else if(arg === '--handoff-model') opts.handoffModel = argv[++i];
     else if(arg === '--cdp-host') opts.cdpHost = argv[++i];
@@ -585,6 +587,21 @@ const ui = { verbose: false };
 
 /* set by main(): asks the user to allow a file change (manual mode) */
 let approveWrite = null;
+
+/* context window of the model that answers (tokens), set by main(); undefined when unknown */
+let ctxWindowNow;
+
+/* set by main(): compacts a conversation when it nears the window (or at once with force) */
+let compactHook = null;
+
+/** drops the turn that began with `turnMsg` (an aborted or failed one); a no-op when compaction already folded it away */
+function rollbackTurn(messages, turnMsg) {
+  const i = messages.indexOf(turnMsg);
+  if(i >= 0) messages.length = i;
+}
+
+/** tokens a conversation will cost the next request: characters / 3.5 plus the tool schemas */
+const estimateTokens = msgs => Math.round(totalChars(msgs) / 3.5) + 1500;
 
 /* the gateway's upstream proxy: settings (dashboard), last measure(), whether one runs */
 const proxyInfo = { settings: null, probe: null, measuring: false, exits: [] };
@@ -1015,7 +1032,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
   for(let round = 0; ; round++) {
     const final = round >= opts.maxRounds - 1 || repeatRounds >= MAX_REPEAT_ROUNDS;
-    elideOldToolResults(messages, opts.numCtx);
+    await compactHook?.(messages);
+    elideOldToolResults(messages, ctxWindowNow ?? opts.numCtx);
     const result = await chatRound(client, messages, opts, abortRef, final ? { toolChoice: 'none' } : { tools });
 
     /* models that write the call as text (qwen2.5-coder) - see lib/text-tool-calls.js */
@@ -1273,6 +1291,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /model [NAME|list|skip|unskip] - show provider/model/endpoint; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
 /fallback [NAME|off] - show or set fallback model for auto-failover
+/compact [N]    - summarize the older turns now with a local model and keep the last N (default 3) verbatim; also done automatically at --compact-at percent of the context window
 /restart        - restart the harness with current session state (serializes to temp file and re-execs)
 /usage          - tokens and requests of this session, per routed model and platform
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
@@ -1295,12 +1314,12 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/provider', '/fallback', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
+  ['model and gateway', ['/model', '/provider', '/fallback', '/compact', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
+const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -1675,7 +1694,7 @@ async function main() {
 
       /* the gateway's quota counters moved, and the model that answered may have another window */
       gateway?.refresh().then(async () => {
-        if(!meta.error) ctxWindow = (await gateway.effectiveContext(meta, opts.model)) ?? ctxWindow;
+        if(!meta.error) ctxWindowNow = ctxWindow = (await gateway.effectiveContext(meta, opts.model)) ?? ctxWindow;
         tui?.drawStatus();
       });
     };
@@ -1825,7 +1844,7 @@ async function main() {
   const saveSession = () => store.save(messages, baseMessageCount);
 
   /* context window of the model, for the status line */
-  const updateCtxWindow = async () => (ctxWindow = gateway?.enabled ? await gateway.contextWindow(opts.model) : opts.provider === 'ollama' ? opts.numCtx : undefined);
+  const updateCtxWindow = async () => (ctxWindowNow = ctxWindow = gateway?.enabled ? await gateway.contextWindow(opts.model) : opts.provider === 'ollama' ? opts.numCtx : undefined);
   await updateCtxWindow();
 
   /* the facts of /about and the startup panel */
@@ -2351,6 +2370,12 @@ async function main() {
       return;
     }
 
+    if(prompt === '/compact' || prompt.startsWith('/compact ')) {
+      const keep = prompt.slice('/compact'.length).trim();
+      await compactHook(messages, { force: true, keepTurns: keep ? +keep : undefined });
+      return;
+    }
+
     if(prompt === '/tools') {
       console.log(TOOLS.map(t => wrapHanging((t.function?.name ?? t.name).padEnd(14) + ' ', (t.function?.description ?? t.description ?? '').split('\n')[0])).join('\n'));
       return;
@@ -2459,8 +2484,8 @@ async function main() {
       /* Send the output to the model as a tool result, explicitly telling it
          which command was run and that its output (stdout+stderr, merged)
          now follows, so it can react to it. */
-      const turnStart = messages.length;
-      messages.push({ role: 'user', content: prompt });
+      const turnMsg = { role: 'user', content: prompt };
+      messages.push(turnMsg);
       messages.push({ role: 'tool', name: 'run_command', toolCallId: '!-user', content: `The user ran the shell command: ${cmd}\nIts output (stdout and stderr merged) follows:\n\n${output || '(no output)'}` });
       log.toolResults(`$ ${cmd}\n${output || '(no output)'}`);
 
@@ -2471,7 +2496,7 @@ async function main() {
         reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
       } catch(e) {
         console.log(red(`error: ${e.message}`));
-        messages.length = turnStart; // don't leave a dangling/partial turn behind
+        rollbackTurn(messages, turnMsg); // don't leave a dangling/partial turn behind
         return;
       }
       saveSession();
@@ -2491,15 +2516,15 @@ async function main() {
     if(opts.failsafe) {
       log.prompt(prompt, []);
 
-      const turnStart = messages.length;
-      messages.push({ role: 'user', content: prompt });
+      const turnMsg = { role: 'user', content: prompt };
+      messages.push(turnMsg);
 
       let reply;
       try {
         ({ content: reply } = await chatRound(client, messages, opts, abortRef));
       } catch(e) {
         console.log(red(`error: ${e.message}`));
-        messages.length = turnStart; // don't leave a dangling/partial turn behind
+        rollbackTurn(messages, turnMsg); // don't leave a dangling/partial turn behind
         return;
       }
 
@@ -2535,15 +2560,15 @@ async function main() {
     if(opts.mode !== 'plan' && /\b(every|each|all)\b/i.test(effectivePrompt)) console.log(dim('(added to the prompt: use for_each for a repeated job)'));
     if(opts.mode !== 'plan' && /\b(every|each|all)\b/i.test(effectivePrompt)) finalText += '\n\n(This job repeats over many things: list ALL of the items the request names (e.g. every function declared in the header - not only the files attached above) and call for_each once - do not do them yourself one by one, and do not just describe a plan.)';
 
-    const turnStart = messages.length;
-    messages.push({ role: 'user', content: finalText, request: effectivePrompt });
+    const turnMsg = { role: 'user', content: finalText, request: effectivePrompt };
+    messages.push(turnMsg);
 
     let reply;
     try {
       reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
     } catch(e) {
       console.log(red(`error: ${e.message}`));
-      messages.length = turnStart; // don't leave a dangling/partial turn behind
+      rollbackTurn(messages, turnMsg); // don't leave a dangling/partial turn behind
       return;
     }
 
@@ -2623,6 +2648,46 @@ async function main() {
   repl.onIdle = () => control?.event({ type: 'ready' });
   repl.onPrompt = (kind, text) => control?.event({ type: 'waiting', kind, text });
   repl.addCleanupHandler(() => control?.close());
+
+  /* auto-compaction and /compact: replaces the older turns of a conversation by a summary
+     (lib/handoff.js, written by a local model) and keeps the last few verbatim. Auto only
+     fires once the window is known and `compactAt` percent of it is in use, and not again
+     until the conversation has grown noticeably, so a conversation that stays large
+     (one huge recent turn) is not re-summarized every round. */
+  const compactedAt = new WeakMap();
+  let compacting = false;
+
+  compactHook = async (msgs, { force = false, keepTurns } = {}) => {
+    if(compacting) return;
+
+    const used = estimateTokens(msgs);
+    if(!force) {
+      if(!ctxWindowNow || !opts.compactAt || used < (ctxWindowNow * opts.compactAt) / 100) return;
+      if(compactedAt.has(msgs) && totalChars(msgs) < compactedAt.get(msgs) + 20000) return;
+    }
+
+    compacting = true;
+    try {
+      const base = msgs === messages ? baseMessageCount : msgs[0]?.role === 'system' ? 1 : 0;
+      const before = totalChars(msgs);
+      const model = opts.handoffModel ?? HANDOFF_MODEL;
+      if(!opts.quiet) console.log(dim(`(compacting: ~${fmtNum(used)} tokens${ctxWindowNow ? ` of ${fmtNum(ctxWindowNow)}` : ''}, summarizing older turns with ${model} ...)`));
+
+      const h = await buildHandoff(msgs, base, { keepTurns: keepTurns ?? opts.handoffTurns ?? 3, model, host: opts.host, port: opts.port, reason: 'compact' });
+      if(!h) {
+        if(force) console.log(dim('(nothing to compact)'));
+        return;
+      }
+
+      const count = msgs.length;
+      msgs.splice(0, msgs.length, ...h.messages);
+      compactedAt.set(msgs, totalChars(msgs));
+      if(msgs === messages) saveSession();
+      console.log(dim(`(compacted: ${fmtNum(before)} -> ${fmtNum(totalChars(msgs))} chars, ${count} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept)`));
+    } finally {
+      compacting = false;
+    }
+  };
 
   /* /restart, /provider and the restart_harness tool: give the terminal back, run the new
      process in the foreground, leave with its status */

@@ -592,6 +592,7 @@ the raw events.
   - `/model GLOB` (a pattern with `*`, e.g. `qwen*`) - switch to the first matching model; repeating the same pattern cycles through the matches.
 - `!COMMAND` - at the start of a prompt: run the shell command yourself (merged stdout and stderr, shown with a `$` prefix), hand the output to the model as a `run_command` result that names the command, and start a model round at once so the model reacts to it.
 - `/export` - export the whole conversation as a plain-text transcript (speaker labels, tool calls inline, nothing clipped): copy it to the clipboard when a clipboard tool is installed, or save it to `<YYYY-MM-DD-HHMMSS>-<session>.txt` in the working directory.
+- `/compact [N]` - summarize the older turns now and keep the last `N` (default 3) verbatim, see [Compaction](#compaction).
 - `/fallback [MODEL|off]` - show, set or clear the fallback model (`--fallback-model`) used when the current one fails.
 - `/provider [NAME]` - show the provider; with a name, restart into that provider (see `/restart`) with the conversation kept. `--model` is dropped, the new provider's default applies.
 - `/restart` - start a new process with the same command line and the current session (messages, model, mode, fallback model, skip list), in the same terminal.
@@ -618,6 +619,35 @@ the raw events.
 - `/binding <text>` - force-attach the native-binding reference material
   (see below) for this prompt, even if it doesn't happen to contain a
   word the auto-detect heuristic looks for
+
+## Compaction
+
+A long session outgrows the context window (the status line shows the use
+as `ctx NN%`). The older turns are then replaced by one summary, written by
+a small local ollama model (`--handoff-model`, default `qwen3:4b-instruct`;
+a plain digest of what was asked and which files were touched if it cannot
+be reached), and the last `--handoff-turns` turns (default 3) stay verbatim
+with long tool results clipped. The system prompt and project scan are
+never touched. It is the same code as the failover handoff
+(`lib/handoff.js`).
+
+- **Automatic**: before a request, when the estimated use (characters / 3.5
+  plus the tool schemas) reaches `--compact-at PCT` (default 80, 0 = off)
+  of the context window. The window is known for ollama (`--num-ctx`) and
+  behind a freellmapi gateway (the model that answered); elsewhere nothing
+  is compacted automatically. After a compaction the conversation has to
+  grow by 20000 characters before the next one, so a conversation that
+  stays large (one huge recent turn) is not re-summarized every round.
+- **`/compact [N]`** does it at once, whatever the use.
+- A long transcript is summarized in chunks (12000 characters each, the
+  newest ten) and the chunk summaries together, so the start of a long
+  session is kept, not just its end.
+- Separately, old tool results are replaced by one-line stubs when the
+  history outgrows the window (`elideOldToolResults`); it now uses the
+  gateway's real window, not `--num-ctx`, which freellm ignores.
+- An aborted or failed turn is rolled back by finding its own user message,
+  not by an index, so a compaction in the middle of it cannot corrupt the
+  history.
 
 ## Sub-agents, restarting and failover on upstream errors
 

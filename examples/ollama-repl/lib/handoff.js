@@ -55,17 +55,52 @@ export function digest(msgs) {
   return `The user asked, in order:\n${asked.join('\n')}${files.size ? `\nFiles touched: ${[...files].join(', ')}` : ''}`;
 }
 
-/** @returns {Promise<string|null>} the summary, or null if the local model could not write it */
+/* characters of transcript one summarizer call gets (its context is 8192 tokens), and how many
+   chunks of a long transcript are summarized (the newest ones; older turns are then only named) */
+const CHUNK_CHARS = 12000;
+const MAX_CHUNKS = 10;
+
+const SUMMARY_PROMPT = text =>
+  `Summarize this transcript for a successor in at most 200 words of plain text, under exactly these headings:\nFACTS: everything the user told us that must be remembered - names, code words, preferences, paths, decisions - copied exactly, even if it is not a task.\nGOAL: what the user wants overall.\nDONE: only changes that a tool result in the transcript shows were actually made (file and what changed).\nREAD ONLY: files that were only read.\nNOT DONE YET: everything the user asked for that no tool result shows as done, and any open question.\nNever say something was done unless a tool result confirms it; an intention or a plan is NOT DONE YET. Keep exact file names, function names and error messages.\n\n${text}`;
+
+/**
+ * @returns {Promise<string|null>} the summary, or null if the local model could not write it
+ *
+ * A transcript longer than one call takes is summarized in chunks, and the
+ * chunk summaries are summarized together (up to three passes), so the
+ * start of a long session is not lost the way cutting the transcript to its
+ * last characters lost it.
+ */
 export async function summarize(head, { model = HANDOFF_MODEL, host = 'localhost', port = 11434 } = {}) {
   const client = new OllamaClient({ host, port, model, think: false, numCtx: 8192, temperature: 0.2, timeoutSecs: 180 });
 
-  try {
-    const transcript = renderTranscript(head).slice(-14000);
+  const once = async text => {
     const { content } = await client.chat([
       { role: 'system', content: 'You compress coding-session transcripts for a successor assistant that has not seen them. Reply with the summary only.' },
-      { role: 'user', content: `Summarize this transcript for a successor in at most 200 words of plain text, under exactly these headings:\nFACTS: everything the user told us that must be remembered - names, code words, preferences, paths, decisions - copied exactly, even if it is not a task.\nGOAL: what the user wants overall.\nDONE: only changes that a tool result in the transcript shows were actually made (file and what changed).\nREAD ONLY: files that were only read.\nNOT DONE YET: everything the user asked for that no tool result shows as done, and any open question.\nNever say something was done unless a tool result confirms it; an intention or a plan is NOT DONE YET. Keep exact file names, function names and error messages.\n\n${transcript}` },
+      { role: 'user', content: SUMMARY_PROMPT(text) },
     ]);
     return content?.trim() || null;
+  };
+
+  try {
+    let text = renderTranscript(head);
+
+    for(let pass = 0; text.length > CHUNK_CHARS && pass < 3; pass++) {
+      const parts = [];
+      for(let i = 0; i < text.length; i += CHUNK_CHARS) parts.push(text.slice(i, i + CHUNK_CHARS));
+
+      const cut = Math.max(0, parts.length - MAX_CHUNKS);
+      const sums = [];
+      for(const part of parts.slice(cut)) {
+        const sum = await once(part);
+        if(!sum) return null;
+        sums.push(sum);
+      }
+
+      text = (cut ? `(${cut} older chunks of the transcript are not summarized)\n\n` : '') + sums.map((x, i) => `PART ${i + 1}:\n${x}`).join('\n\n');
+    }
+
+    return await once(text);
   } catch(e) {
     return null;
   } finally {
@@ -82,9 +117,10 @@ export async function summarize(head, { model = HANDOFF_MODEL, host = 'localhost
  * @param {string} [o.model]    summarizer
  * @param {string} [o.host]
  * @param {number} [o.port]
+ * @param {'failover'|'compact'} [o.reason]  what the note tells the model about why older turns are gone
  * @returns {Promise<{messages: object[], cut: number, kept: number, by: string}|null>} null if there is nothing to compact
  */
-export async function buildHandoff(messages, base, { keepTurns = 3, toolChars = 600, model = HANDOFF_MODEL, host, port } = {}) {
+export async function buildHandoff(messages, base, { keepTurns = 3, toolChars = 600, model = HANDOFF_MODEL, host, port, reason = 'failover' } = {}) {
   const rest = messages.slice(base);
   const { head, tail } = splitTurns(rest, keepTurns);
   const clipped = clipToolResults(tail, toolChars);
@@ -98,7 +134,10 @@ export async function buildHandoff(messages, base, { keepTurns = 3, toolChars = 
     const summary = await summarize(head, { model, host, port });
     by = summary ? model : 'digest';
     note = [
-      { role: 'user', content: `[handoff] The model that was answering reached its limit, so you take over. Older turns were cut; this is the summary of them (${summary ? 'written by a local model' : 'a plain digest'}):\n\n${summary ?? digest(head)}` },
+      {
+        role: 'user',
+        content: `${reason === 'compact' ? '[compacted] The conversation outgrew the context window, so older turns were replaced by this summary of them' : '[handoff] The model that was answering reached its limit, so you take over. Older turns were cut; this is the summary of them'} (${summary ? 'written by a local model' : 'a plain digest'}):\n\n${summary ?? digest(head)}`,
+      },
       { role: 'assistant', content: 'Understood - I will continue from that summary.' },
     ];
   }

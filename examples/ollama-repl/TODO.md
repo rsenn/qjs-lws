@@ -20,18 +20,14 @@ step:
    unhandled rejection. `qjsm repl.js --help` is not enough: every bug of
    2026-11-19 (skipNote not imported, opts out of scope, const arg) passed
    it. prepareRestart() in repl.js still uses only --help.
-2. [ ] compaction and auto-compaction
-   - do not write a second compactor: expose lib/handoff.js buildHandoff
-     as /compact, now wired only to bridge failover
-   - trigger from the ctxWindow the status line computes, at about 80%
-     (the 2026-11-19 screenshot showed 120%, 245k of 205k)
-   - suspected bug, confirm and log in BUGS: elideOldToolResults budgets
-     on opts.numCtx; with --num-ctx 524288 on freellm that is about 1.3M
-     characters, so elision never fires while the real window is 205k;
-     it must use the effective window
-   - the summarizer is local qwen3:4b-instruct: a 245k-token transcript can
-     overflow it, so chunk or cap what renderTranscript returns
-   - keep baseMessageCount right and call saveSession() after compacting
+2. [x] (done 2026-11-19, tested with qwen3:4b-instruct) compaction and
+   auto-compaction: /compact [N], --compact-at PCT (default 80), chunked
+   summaries (lib/handoff.js summarize), note wording per reason, the turn
+   rollback finds its user message (rollbackTurn) so compaction mid-turn
+   cannot corrupt it, elideOldToolResults uses the real window (the
+   suspected --num-ctx bug was real). Open: the trigger is an estimate
+   (chars / 3.5), not the provider's token count; the summarizer is the
+   local ollama model also when the main provider is a gateway.
 3. [ ] self-improvement and safe restart (holes in the restart path)
    - scriptArgs[0] may be relative while validation runs with cwd
      opts.root and /cd can move cwd: realpath it once at startup
