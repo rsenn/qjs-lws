@@ -591,6 +591,7 @@ ollama-repl-ctl list                    # name, pid, model, root, socket of live
 ollama-repl-ctl send 'summarize lib/chat-repl.js'   # prints the reply, exits when idle
 ollama-repl-ctl -s alpha send /diff     # -s: session name, pid, model fragment or socket path
 ollama-repl-ctl watch                   # follow the session's output
+ollama-repl-ctl -s alpha restart        # /restart: smoke test, new process, same conversation; waits until the session is back (exit 1 when refused)
 ```
 
 A session started without `--listen` can open its socket later with

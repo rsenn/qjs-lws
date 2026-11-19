@@ -6,6 +6,9 @@
  *   ollama-repl-ctl [-s SESSION] send LINE    type LINE into the session and
  *                                             print its output until it is idle
  *   ollama-repl-ctl [-s SESSION] watch        print the session's output
+ *   ollama-repl-ctl [-s SESSION] restart      restart the session (/restart: the harness is checked,
+ *                                             the conversation kept) and wait until the new process
+ *                                             listens; exit 1 when the restart was refused
  *
  * SESSION is a session name (ollama-repl --name), a pid, a model-name
  * fragment or a socket path; optional when exactly one session is live.
@@ -46,7 +49,7 @@ if(cmd === 'list') {
   exit(0);
 }
 
-if(cmd !== 'send' && cmd !== 'watch') fail('usage: ollama-repl-ctl list | [-s SESSION] send LINE | [-s SESSION] watch');
+if(cmd !== 'send' && cmd !== 'watch' && cmd !== 'restart') fail('usage: ollama-repl-ctl list | [-s SESSION] send LINE | [-s SESSION] watch | [-s SESSION] restart');
 
 const match = s => (session ? s.name === session || String(s.pid) === session || s.sock === session || s.model.includes(session) : true);
 const sessionLabel = session ? `session "${session}"` : 'an ollama-repl --listen session';
@@ -73,8 +76,9 @@ if(found.length > 1 && session) {
 
 if(found.length !== 1) fail(`${found.length} sessions match, pick one with -s NAME:\n${found.map(s => `  ${s.name}\t${s.pid} ${s.model} ${s.root}`).join('\n')}`);
 
-const line = words.join(' ');
+const line = cmd === 'restart' ? '/restart' : words.join(' ');
 if(cmd === 'send' && !line.trim()) fail('send: nothing to send');
+const oldSession = found[0];
 
 const sock = new Socket(AF_UNIX, SOCK_STREAM);
 try {
@@ -91,7 +95,7 @@ const handle = ev => {
 
   switch(ev.type) {
     case 'hello':
-      if(cmd === 'send') {
+      if(cmd === 'send' || cmd === 'restart') {
         sock.send(line.replaceAll('\n', ' ') + '\n');
         sent = true;
       }
@@ -110,6 +114,11 @@ const handle = ev => {
       }
       break;
     case 'ready':
+      /* a restart that happened closes the connection, it does not get here */
+      if(cmd === 'restart' && accepted) {
+        stdout.flush();
+        fail('the session did not restart (output above)');
+      }
       if(cmd === 'send' && accepted) {
         stdout.flush();
         exit(0);
@@ -118,12 +127,30 @@ const handle = ev => {
   }
 };
 
+/* the old process is gone (or waits for the new one): the same session name comes back under another pid */
+function waitRestarted() {
+  stderr.puts(`ollama-repl-ctl: ${oldSession.name} (${oldSession.pid}) is restarting...\n`);
+
+  for(let waited = 0; waited < timeout; waited++) {
+    sleep(1000);
+    const back = listSessions().filter(s => s.name === oldSession.name && s.pid !== oldSession.pid);
+
+    if(back.length) {
+      stdout.puts(`restarted: ${back[0].name} ${oldSession.pid} -> ${back[0].pid} (${back[0].provider}/${back[0].model})\n`);
+      exit(0);
+    }
+  }
+
+  fail(`${oldSession.name} did not come back within ${timeout}s`, 124);
+}
+
 setReadHandler(sock.fd, () => {
   const chunk = new ArrayBuffer(65536);
   const n = sock.recv(chunk);
 
   if(n === 0) {
     stdout.flush();
+    if(cmd === 'restart' && accepted) waitRestarted();
     fail('session closed the connection', cmd === 'watch' ? 0 : 1);
   }
   if(n < 0) return;
@@ -138,7 +165,7 @@ setReadHandler(sock.fd, () => {
   }
 });
 
-if(cmd === 'send')
+if(cmd === 'send' || cmd === 'restart')
   setTimeout(() => {
     stdout.flush();
     fail(`timeout after ${timeout}s (the session keeps working)`, 124);
