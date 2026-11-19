@@ -1825,8 +1825,13 @@ function skipModel(name, reason = 'manual') {
 }
 
 /** the providers named in a gateway's "all models exhausted" error (its attempt trail), [] for any other error */
+/** a gateway error that says no model could serve the request (429 routing_exhausted and the like) */
+function isExhaustedError(error) {
+  return /all models (rate-limited|exhausted|unavailable)|routing_exhausted/i.test(error ?? '');
+}
+
 function exhaustedPlatforms(error) {
-  if(!/all models (rate-limited|exhausted|unavailable)/i.test(error ?? '')) return [];
+  if(!isExhaustedError(error)) return [];
   const trail = /Attempt trail:([^]*?)(?:\. Last error|$)/.exec(error)?.[1] ?? '';
   return [...new Set([...trail.matchAll(/(?:^|;)\s*([\w.-]+)\/\S+ key\d+:/g)].map(m => m[1]))];
 }
@@ -2924,10 +2929,13 @@ async function main() {
 
         /* the gateway ran out of models ("All models rate-limited ... Attempt trail: kilo/x key1: rate_limit; ..."):
            a bare /model skip then drops every model of the providers that failed, not just the last one */
-        const spent = verb === 'skip' && !pattern ? exhaustedPlatforms(stats.last()?.error) : [];
+        let spent = verb === 'skip' && !pattern ? exhaustedPlatforms(stats.last()?.error) : [];
+
+        /* "All models exhausted: 1 route checked" names no trail: the providers behind the pinned (or last routed) model are the spent ones */
+        if(verb === 'skip' && !pattern && !spent.length && isExhaustedError(stats.last()?.error)) spent = availability?.byModel.get(target)?.platforms ?? [];
         let byProvider = 0;
         if(spent.length) {
-          const names = (known ?? []).filter(m => availability?.byModel.get(m)?.platforms.some(p => spent.includes(p)));
+          const names = (known ?? []).filter(m => { const ps = availability?.byModel.get(m)?.platforms ?? []; return ps.length && ps.every(p => spent.includes(p)); });
           for(const m of names) byProvider += skipModels(m, 'provider exhausted', known);
           if(byProvider) console.log(dim(`the gateway ran out of models: skipped the ${byProvider} model(s) of ${spent.join(', ')}`));
         }
