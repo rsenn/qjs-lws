@@ -85,6 +85,73 @@ export class OpenAIError extends Error {
   }
 }
 
+/* first value of a header, percent-decoded (freellmapi encodes non-ASCII model ids) */
+function header(resp, name) {
+  const v = resp.headers?.get?.(name);
+  if(v == null || v === '') return undefined;
+
+  try {
+    return decodeURIComponent(v);
+  } catch(e) {
+    return v;
+  }
+}
+
+/**
+ * usage block of a response, OpenAI shape -> this project's token record
+ *
+ *   { prompt_tokens: 15, completion_tokens: 44, completion_tokens_details: { reasoning_tokens: 38 } }
+ *   -> { prompt: 15, completion: 44, total: 59, reasoning: 38, cached: undefined, cost: undefined }
+ */
+export function parseUsage(u) {
+  if(!u) return undefined;
+
+  const prompt = u.prompt_tokens ?? u.input_tokens;
+  const completion = u.completion_tokens ?? u.output_tokens;
+
+  return {
+    prompt,
+    completion,
+    total: u.total_tokens ?? (prompt ?? 0) + (completion ?? 0),
+    reasoning: u.completion_tokens_details?.reasoning_tokens || undefined,
+    cached: u.prompt_tokens_details?.cached_tokens || undefined,
+    cacheWrite: u.prompt_tokens_details?.cache_write_tokens || undefined,
+    cost: u.cost || undefined,
+  };
+}
+
+/* security headers every helmet-based server sends, no news about the request */
+const BORING_HEADERS = new Set(['x-content-type-options', 'x-dns-prefetch-control', 'x-download-options', 'x-frame-options', 'x-permitted-cross-domain-policies', 'x-xss-protection', 'x-powered-by']);
+
+/**
+ * Per-request facts: what was asked, where a gateway routed it, what it
+ * cost. Filled from the response headers, then from the body.
+ *
+ *   requested    model name sent (auto, auto:fast, a model id)
+ *   model        model that answered (body model, else the routed one)
+ *   provider     upstream host the gateway or OpenRouter names (body provider)
+ *   routedVia    freellmapi X-Routed-Via, platform/model
+ *   platform     first part of routedVia (kilo, groq, google, ...)
+ *   requestId    X-Request-ID, the same as the body's execution_id
+ *   fallbacks    X-Fallback-Attempts, hops that failed before this one
+ *   trail        X-Fallback-Trail, why each hop failed
+ *   detail       X-Fallback-Detail, timings per hop (opt-in on the gateway)
+ *   compress     X-FreeLLM-Compress, mode and estimated tokens saved
+ *   cache        X-FreeLLM-Cache, on/off/hit
+ *   rateLimit    { limit, remaining, reset } from X-RateLimit-*
+ *   usage        parseUsage() record
+ *   finish       finish_reason
+ *   ttfbMs       time until the response headers arrived
+ *   firstTokenMs time until the first streamed text (streams only)
+ *   ms           time until the reply was complete
+ *   stream       whether it was streamed
+ *   status       HTTP status, error the error message for a failed call
+ *   headers      every x-* response header (gateway and upstream facts)
+ *   usageRaw     the usage object as sent (cost_details, is_byok, ...)
+ *   genId        upstream generation id, fingerprint, serviceTier,
+ *                nativeFinish: other body fields when present
+ *   reasoning    reasoning text, when the model sent it
+ */
 export class OpenAIClient {
   #apiKey;
   #baseUrl;
@@ -97,6 +164,27 @@ export class OpenAIClient {
   #logger;
   #timeoutMs;
   #timeoutSecs;
+  #streamUsage;
+
+  /** metadata of the last request (see the record above OpenAIClient), null before the first */
+  lastMeta = null;
+
+  /** called with each request's metadata once it is complete or failed */
+  onMeta = null;
+
+  /**
+   * called as a request moves on: (phase, meta)
+   *
+   *   sending    the request goes out, meta.bytesOut
+   *   waiting    it is out, the model works, no headers yet
+   *   headers    a stream's headers are in, the first token is due
+   *   receiving  the body of a reply that does not stream, meta.bytesIn
+   *   reasoning  reasoning text streams in
+   *   streaming  reply text streams in, meta.chunks, meta.bytesIn
+   *   tool-call  a tool call streams in
+   *   idle       done or failed
+   */
+  onPhase = null;
 
   /**
    * @param {object} opts
@@ -118,8 +206,10 @@ export class OpenAIClient {
    * @param {boolean} [opts.debug] log every request/response to
    *   DEBUG_LOG_PATH (also turned on by the `DEBUG` env var, regardless
    *   of this flag)
+   * @param {boolean} [opts.streamUsage] ask for a final usage chunk on
+   *   streams (stream_options.include_usage, default true)
    */
-  constructor({ apiKey, apiKeyEnv = 'OPENAI_API_KEY', baseUrl, apiPath = DEFAULT_API_PATH, model = DEFAULT_MODEL, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false } = {}) {
+  constructor({ apiKey, apiKeyEnv = 'OPENAI_API_KEY', baseUrl, apiPath = DEFAULT_API_PATH, model = DEFAULT_MODEL, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false, streamUsage = true } = {}) {
     const resolvedKey = apiKey ?? getenv(apiKeyEnv);
     if(!resolvedKey) throw new Error(`OpenAIClient: no API key (pass opts.apiKey or set ${apiKeyEnv})`);
 
@@ -129,6 +219,7 @@ export class OpenAIClient {
     this.model = model;
     this.#timeoutMs = timeoutSecs * 1000;
     this.#timeoutSecs = timeoutSecs;
+    this.#streamUsage = streamUsage;
 
     this.#logger = new RequestLogger(DEBUG_LOG_PATH, debug);
 
@@ -220,21 +311,84 @@ export class OpenAIClient {
    */
   #toResult(message) {
     const toolCalls = message?.tool_calls?.map((tc, i) => ({ id: tc.id ?? `${tc.function.name}#${i}`, name: tc.function.name, args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {} }));
-    return { content: message?.content ?? '', toolCalls: toolCalls?.length ? toolCalls : undefined };
+    const reasoning = message?.reasoning ?? message?.reasoning_content;
+    return { content: message?.content ?? '', toolCalls: toolCalls?.length ? toolCalls : undefined, ...(reasoning ? { reasoning } : {}) };
+  }
+
+  /* header half of a request's metadata */
+  #headerMeta(meta, resp) {
+    const routedVia = header(resp, 'x-routed-via');
+    const limit = header(resp, 'x-ratelimit-limit');
+
+    Object.assign(meta, {
+      status: resp.status,
+      ttfbMs: Date.now() - meta.t0,
+      requestId: header(resp, 'x-request-id'),
+      routedVia,
+      platform: routedVia?.split('/')[0],
+      fallbacks: +(header(resp, 'x-fallback-attempts') ?? 0),
+      trail: header(resp, 'x-fallback-trail'),
+      detail: header(resp, 'x-fallback-detail'),
+      compress: header(resp, 'x-freellm-compress'),
+      cache: header(resp, 'x-freellm-cache'),
+      rateLimit: limit ? { limit: +limit, remaining: +header(resp, 'x-ratelimit-remaining'), reset: +header(resp, 'x-ratelimit-reset') } : undefined,
+      headers: {},
+    });
+
+    resp.headers?.forEach((v, k) => {
+      k = k.toLowerCase();
+      if(k.startsWith('x-') && !BORING_HEADERS.has(k)) meta.headers[k] = v;
+    });
+  }
+
+  /* body half: one response object or stream chunk */
+  #bodyMeta(meta, data) {
+    if(data?.model) meta.model = data.model;
+    if(data?.provider) meta.provider = data.provider;
+    if(data?.execution_id) meta.requestId ??= data.execution_id;
+    if(data?.usage) {
+      meta.usage = parseUsage(data.usage);
+      meta.usageRaw = data.usage;
+    }
+    if(data?.id) meta.genId = data.id;
+    if(data?.system_fingerprint) meta.fingerprint = data.system_fingerprint;
+    if(data?.service_tier) meta.serviceTier = data.service_tier;
+    const choice = data?.choices?.[0];
+    if(choice?.finish_reason) meta.finish = choice.finish_reason;
+    if(choice?.native_finish_reason) meta.nativeFinish = choice.native_finish_reason;
+  }
+
+  #finishMeta(meta, err) {
+    meta.ms = Date.now() - meta.t0;
+    this.onPhase?.('idle', meta);
+    meta.model ??= meta.routedVia?.slice((meta.platform?.length ?? -1) + 1) || meta.requested;
+    if(err) meta.error = err.detail ?? err.message?.split('\n')[0];
+    delete meta.t0;
+    this.lastMeta = meta;
+    this.onMeta?.(meta);
+    return meta;
   }
 
   /** Shared connect+await-response half of chat()/chatStream() below. */
-  async #post(payload) {
+  async #post(payload, meta) {
     const url = `${this.#baseUrl}${this.#apiPath}`;
     const headers = { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` };
 
     this.#logger.request('POST', url, headers);
     this.#logger.body(payload);
 
+    const body = JSON.stringify(payload);
+    if(meta) {
+      meta.bytesOut = body.length;
+      meta.bytesIn = 0;
+      meta.chunks = 0;
+      this.onPhase?.('sending', meta);
+    }
+
     const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload),
+      body,
       /* Forces http/1.1 over ALPN instead of letting the server negotiate
          h2 - some OpenAI-compatible servers send a connection-level
          WINDOW_UPDATE that overflows lws's 31-bit tx-credit max
@@ -250,9 +404,16 @@ export class OpenAIClient {
     // Registered synchronously, right after connect() resolves - no
     // `await` in between - see OllamaClient#post's identical comment for
     // why that ordering matters.
-    const resp = await this.#awaitResponse(req, wsi);
+    const response = this.#awaitResponse(req, wsi);
+    if(meta) this.onPhase?.('waiting', meta);
+    const resp = await response;
 
     this.#logger.response(resp.status, resp.statusText, resp.headers);
+
+    if(meta) {
+      this.#headerMeta(meta, resp);
+      this.onPhase?.(meta.stream ? 'headers' : 'receiving', meta);
+    }
 
     // See OllamaClient#post's identical comment: `.status`, not `.ok`.
     if(resp.status < 200 || resp.status >= 300) {
@@ -293,9 +454,10 @@ export class OpenAIClient {
   abort() {
     if(!this.#settled.size) return false;
 
+    /* reject before close: closing reports the drop through #reject() first otherwise */
     for(const { reject, wsi } of this.#settled.values()) {
-      wsi?.close();
       reject(new Error('aborted (Ctrl-C)'));
+      wsi?.close();
     }
 
     this.#settled.clear();
@@ -323,22 +485,71 @@ export class OpenAIClient {
    * OpenAI-style `tool_choice` - unlike Gemini, no per-mode reshaping
    * needed.
    *
-   * @returns {Promise<{content: string, toolCalls?: object[]}>}
+   * @returns {Promise<{content: string, toolCalls?: object[], meta: object}>}
    */
-  async chat(messages, { tools, toolChoice, ...options } = {}) {
+  async chat(messages, { tools, toolChoice, onReasoning, ...options } = {}) {
     const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: false, ...(tools ? { tools: this.#toTools(tools) } : {}), ...(toolChoice ? { tool_choice: toolChoice } : {}) };
 
-    const resp = await this.#post(payload);
-    const data = await resp.json();
+    const meta = { requested: this.model, stream: false, t0: Date.now() };
+
+    try {
+      const resp = await this.#post(payload, meta);
+      const text = await resp.text();
+      meta.bytesIn = text.length;
+      const data = JSON.parse(text);
+      this.#logger.body(data);
+      this.#bodyMeta(meta, data);
+
+      const message = data?.choices?.[0]?.message;
+      if(!message) throw new Error(`unexpected OpenAI response: ${JSON.stringify(data)}`);
+
+      const result = this.#toResult(message);
+      if(!result.content && !result.toolCalls) throw new Error(`unexpected OpenAI response: ${JSON.stringify(data)}`);
+
+      if(result.reasoning) meta.reasoning = result.reasoning;
+      result.meta = this.#finishMeta(meta);
+      return result;
+    } catch(e) {
+      this.#finishMeta(meta, e);
+      throw e;
+    }
+  }
+
+  /**
+   * GET {base}{path} and parse the JSON answer - for endpoints next to the
+   * chat one, such as a gateway's /usage or /providers.
+   *
+   *   await client.getJSON('/usage')   // { month, requests, tokens, byPlatform, ... }
+   *
+   * Throws OpenAIError on a non-2xx status.
+   */
+  getJSON(path) {
+    return this.fetchJSON(`${this.#baseUrl}${path}`);
+  }
+
+  /**
+   * any JSON request on this client's connection context - for a
+   * gateway's admin API next to /v1
+   *
+   *   await client.fetchJSON('http://localhost:3001/api/auth/login', { method: 'POST', body: { email, password } })
+   *
+   * opts.token replaces the API key as bearer token. Throws OpenAIError on
+   * a non-2xx status.
+   */
+  async fetchJSON(url, { method = 'GET', body, token } = {}) {
+    const headers = { authorization: `Bearer ${token ?? this.#apiKey}`, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
+
+    this.#logger.request(method, url, headers);
+
+    const { req, wsi } = await this.#adapter.connect(this.#ctx, url, { method, headers, alpn: 'http/1.1', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+    const resp = await this.#awaitResponse(req, wsi);
+    const text = await resp.text().catch(() => '');
+
+    if(resp.status < 200 || resp.status >= 300) throw new OpenAIError(resp.status, {}, text);
+
+    const data = JSON.parse(text);
     this.#logger.body(data);
-
-    const message = data?.choices?.[0]?.message;
-    if(!message) throw new Error(`unexpected OpenAI response: ${JSON.stringify(data)}`);
-
-    const result = this.#toResult(message);
-    if(!result.content && !result.toolCalls) throw new Error(`unexpected OpenAI response: ${JSON.stringify(data)}`);
-
-    return result;
+    return data;
   }
 
   /**
@@ -371,6 +582,8 @@ export class OpenAIClient {
       available: m.available !== false,
       resetsAt: m.resets_at,
       ownedBy: m.owned_by,
+      contextWindow: m.context_window ?? m.context_length,
+      status: m.execution_status,
     }));
   }
 
@@ -383,14 +596,28 @@ export class OpenAIClient {
    * array) rather than whole in one event, so fragments are accumulated
    * per index here and only parsed as JSON once the stream ends.
    *
+   * options.onReasoning(text) gets reasoning chunks (delta.reasoning or
+   * reasoning_content) as they arrive, they are not part of the content.
+   *
    * @param {(token: string) => void} onToken called once per text chunk,
    *   in order, as SSE events arrive
-   * @returns {Promise<{content: string, toolCalls?: object[]}>}
+   * @returns {Promise<{content: string, toolCalls?: object[], meta: object}>}
    */
-  async chatStream(messages, { tools, toolChoice, ...options } = {}, onToken) {
-    const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: true, ...(tools ? { tools: this.#toTools(tools) } : {}), ...(toolChoice ? { tool_choice: toolChoice } : {}) };
+  async chatStream(messages, { tools, toolChoice, onReasoning, ...options } = {}, onToken) {
+    const payload = { ...options, model: this.model, messages: this.#toMessages(messages), stream: true, ...(this.#streamUsage ? { stream_options: { include_usage: true } } : {}), ...(tools ? { tools: this.#toTools(tools) } : {}), ...(toolChoice ? { tool_choice: toolChoice } : {}) };
+    const meta = { requested: this.model, stream: true, t0: Date.now() };
 
-    const resp = await this.#post(payload);
+    try {
+      const result = await this.#readStream(await this.#post(payload, meta), meta, onToken, onReasoning);
+      result.meta = this.#finishMeta(meta);
+      return result;
+    } catch(e) {
+      this.#finishMeta(meta, e);
+      throw e;
+    }
+  }
+
+  async #readStream(resp, meta, onToken, onReasoning) {
     const reader = resp.body.getReader();
 
     let buf = '';
@@ -404,7 +631,10 @@ export class OpenAIClient {
       const { done, value } = await this.#readWithTimeout(reader);
 
       // See OllamaClient#chatStream's identical toString()/BUGS reference.
-      if(!done) buf += toString(value);
+      if(!done) {
+        buf += toString(value);
+        meta.bytesIn += value.byteLength ?? value.length ?? 0;
+      }
 
       let idx;
       while((idx = buf.indexOf('\n')) !== -1) {
@@ -421,16 +651,30 @@ export class OpenAIClient {
 
         const chunk = JSON.parse(data);
         this.#logger.body(chunk);
+        this.#bodyMeta(meta, chunk);
 
         const delta = chunk?.choices?.[0]?.delta;
         if(!delta) continue;
 
+        const thought = delta.reasoning ?? delta.reasoning_content;
+        if(thought) {
+          if(!meta.reasoning) this.onPhase?.('reasoning', meta);
+          meta.chunks++;
+          meta.reasoning = (meta.reasoning ?? '') + thought;
+          onReasoning?.(thought);
+        }
+
         if(delta.content) {
+          if(meta.firstTokenMs == null) this.onPhase?.('streaming', meta);
+          meta.chunks++;
+          meta.firstTokenMs ??= Date.now() - meta.t0;
           full += delta.content;
           onToken(delta.content);
         }
 
         for(const tc of delta.tool_calls ?? []) {
+          if(!toolCallsByIndex.size) this.onPhase?.('tool-call', meta);
+          meta.chunks++;
           const entry = toolCallsByIndex.get(tc.index) ?? { id: undefined, name: undefined, args: '' };
           if(tc.id) entry.id = tc.id;
           if(tc.function?.name) entry.name = tc.function.name;

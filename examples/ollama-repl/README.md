@@ -110,17 +110,22 @@ driven in your own browser (`--provider bridge`).
   terminal, and across runs (opened in append mode). This is a read-only
   transcript; `<model>.json` (see "Session persistence" above) is the
   actual resumable conversation state.
-- **Thinking indicator.** A small animated "▘ Thinking..." spinner (cycling
-  through the four Unicode quadrant-block glyphs) shows while waiting on
-  the model, replaced by the reply the moment the first token (or the
-  whole non-streamed reply) arrives; a dim "Cogitated for N.Ns" line
-  follows once a turn is fully done. All three clients cap how long it can
+- **Thinking indicator.** A small animated spinner (cycling through the
+  four Unicode quadrant-block glyphs) shows while waiting on the model,
+  replaced by the reply the moment the first token (or the whole
+  non-streamed reply) arrives; a dim line like "Made it so in 3.2s"
+  follows once a turn is fully done. Instead of "Thinking..." the spinner
+  tells nerd jokes from Star Trek, Monkey Island, Discworld and the
+  Indiana Jones games (`lib/quips.js`), a new one every 4 seconds, picked
+  by phase: "Hailing frequencies open" while sending, "Look behind you, a
+  three-headed monkey!" while waiting, "Using the rubber chicken on the
+  problem" while a tool runs. In the TUI the facts follow the joke. All three clients cap how long it can
   spin: `timeoutSecs` (15 minutes by default - see `DEFAULT_TIMEOUT_SECS`
   in `lib/ollama-client.js`/`lib/gemini-client.js`/`lib/openai-client.js`)
   bounds both the initial wait for a reply to begin and, separately, any
   gap between chunks once a streamed reply is under way - a connection
   that goes silent past that window is force-closed and the turn fails
-  with a clear error instead of leaving "Thinking..." running forever.
+  with a clear error instead of leaving the spinner running forever.
 
 ## Using `OllamaClient`/`GeminiClient`/`OpenAIClient` directly
 
@@ -170,7 +175,7 @@ against any of the three clients. `API.md` has a full round-trip example.
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai|bridge] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe]
+qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai|freellm|bridge] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe] [--no-tui]
         [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes]
 ```
 
@@ -239,6 +244,208 @@ the site table and per-site quirks: `../chat-bridge/README.md`,
   Gemini and Kimi passed a small coding task, ChatGPT, duck.ai and DeepAI
   answer chat but do not use the tools (see PROVIDERS.md).
 
+## Free models through freellmapi (`--provider freellm`)
+
+[freellmapi](https://github.com/tashfeenahmed/freellmapi) is an
+OpenAI-compatible router over the free tiers of many providers. It picks a
+model per request and falls over to the next one on a 429 or 5xx.
+
+```sh
+export FREELLMAPI_KEY=freellmapi-...   # FREELLMAPI_URL too when it is not on localhost:3001
+qjsm examples/ollama-repl/repl.js --provider freellm [--model auto|auto:fast|auto:smart|<model id>]
+```
+
+`--provider freellm` is the OpenAI client with these defaults:
+- base URL: `FREELLMAPI_URL`, else `http://localhost:3001/v1` (not `OPENAI_API_URL`, which
+  may name another OpenAI-compatible service);
+- key: `FREELLMAPI_KEY`, else `OPENAI_API_KEY`;
+- model: `auto`.
+
+`--provider openai` finds a gateway too: at startup the REPL asks
+`/v1/usage`, and a freellmapi answers it. If no `--model` was given, the
+model then becomes `auto`.
+
+Each request records what the gateway says about it. The line under every
+reply names the model that actually served it:
+
+```
+Engaged at warp 9 in 3.2s - auto:fast -> kilo/nvidia/nemotron-3.5-lightning:free, 2.3k+539 tok, 503 reasoning, 2.1k cached, 3.2s
+```
+
+| Command | Shows |
+|---|---|
+| `/last [N]` | Everything about the last request, or request #N of `/requests`: requested model, served model, routed platform/model (`X-Routed-Via`), upstream provider, request id (`X-Request-ID` = `execution_id`), HTTP status, finish reason, prompt/completion/reasoning/cached tokens, cost, time to headers / first token / end, failed hops before it (`X-Fallback-Attempts`, `-Trail`, `-Detail`), compression, cache, rate limit left |
+| `/requests [N]` | The last N (10) requests of the session, one line each |
+| `/usage` | Session totals, then a table per routed model and per platform |
+| `/gateway usage` | The gateway's month across all clients: requests and tokens per platform and key, with caps |
+| `/gateway providers` | Health of every upstream platform (healthy, rate limited, cooldown end, invalid key) |
+| `/gateway forecast` | Request quotas the providers reported, low balance, reset time |
+| `/gateway quota [FILTER]` | Per-model quota windows (requests/min, requests/day, tokens/min used vs limit) and monthly token budget, the models used today first (needs a dashboard session, see below) |
+| `/gateway models [FILTER]` | Models a request can use right now, with context window |
+| `/status` | Also the last route and the session's token totals |
+
+Per-model quotas live only in freellmapi's dashboard API. Give ollama-repl
+a dashboard session to see them, in `/gateway quota` and in the status
+line:
+- `FREELLMAPI_DASHBOARD_TOKEN`: a session token, valid for 30 days;
+- or `FREELLMAPI_EMAIL` + `FREELLMAPI_PASSWORD`, which log in at startup.
+- or nothing: at startup ollama-repl asks the browser on `--cdp-host`/
+  `--cdp-port` (127.0.0.1:9222) for the token of a logged-in dashboard
+  tab. The dashboard keeps it in localStorage. `/gateway login` also
+  opens a dashboard tab in the background when none is open. The browser
+  must run with a debugging port, for example:
+
+  ```sh
+  brave-browser --remote-debugging-port=9222 --remote-allow-origins='*' \
+    --user-data-dir="$HOME/.config/BraveSoftware/Brave-debug" http://localhost:3001
+  ```
+
+  Recent Chromium builds ignore the port on the default profile, hence the
+  separate `--user-data-dir`. Log in to the dashboard once in that
+  profile.
+
+Without a session, the quota shown is the gateway's month total
+(`/v1/usage`) and its per-minute rate limit.
+
+Streams ask for a final usage chunk (`stream_options.include_usage`), so
+streamed replies have token counts too. `/last` lists every `x-*`
+response header and the raw `usage` object, so nothing the gateway
+reports is lost. Other OpenAI-compatible servers
+also get these records, with whatever they report (usually `model` and
+`usage`). Failed requests are recorded with their error. The dashboard's
+per-request attempt ladder (`/api/analytics/requests/:id`) needs a
+dashboard login, so it is not queried.
+
+## Terminal interface (TUI)
+
+On a terminal, ollama-repl keeps its input and three status rows at the
+bottom of the screen, in its own teal-to-amber look (`lib/tui.js` for
+the layout, `lib/look.js` for the style, both on qjs-modules' `terminal`
+widgets):
+
+```
+ ▄▀▀▀▄ █     █     ▄▀▀▀▄ ...           ╭─ about ─────────────────────────╮
+ █   █ █     █     █▀▀▀█ ...           │ version   qjs-lws fb78c9f ...   │
+                                       │ model     freellm/auto          │
+● session initialized                  ╰─────────────────────────────────╯
+Tips for getting started: ...
+> read a.txt and list its content
+● read_file a.txt
+  ⎿ 2 lines, 4 chars
+freellm> The content of a.txt is:
+• bye
+── ▘ Consulting the Librarian (ook)… · waiting for the model 3s ── (gradient)
+auto> _
+────────────────────────────────────────────────────────── (gradient)
+ edits  ~/src/x        dots-3-note-preview:free via AtlasCloud     ctx ██······ 21% 44k/205k
+last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway ██▋· 65% of 641M · Shift-Tab mode
+```
+
+- At startup: the name in block letters, an about panel (version = git
+  commit, model, endpoint, gateway, mode, root, session name, log), and
+  tips. `/about` shows it again.
+- The rule above the input shows the spinner and the elapsed time while
+  the model works.
+- The status rows:
+  - the mode as a badge and the project directory;
+  - the model that actually answered, as the provider reported it, with
+    its upstream host and the model name sent;
+  - a context meter against that model's window (dashboard model table
+    or `/v1/models`, `--num-ctx` for ollama);
+  - last and session tokens, the per-model quota as small meters
+    (requests/min, requests/day, tokens/min, month budget; needs a
+    dashboard session), the gateway's month budget and rate limit,
+    fallbacks;
+  - `verbose` and `remote:NAME` while those are on.
+- Replies are rendered markdown, line by line as they stream: headings,
+  lists, quotes, tables, inline code, and code blocks in a frame with
+  strings, numbers, comments and keywords colored.
+- A tool call is one line (`● read_file a.txt`) with its result below
+  (`⎿ 31 lines, 231 chars`). A file change shows as a panel with the
+  file's line numbers, - lines red and + lines green.
+- The output of every `/command` is a panel titled with the command line,
+  red when it reports an error. `/help` is a sectioned panel. Pipes and
+  `ollama-repl-ctl` clients get the plain text as before.
+- Panels are at most half the screen high. The full text of every panel
+  is kept: `/view N` opens panel N (the last one without N) in a
+  full-screen pager on the terminal's alternate screen. Keys: arrows and
+  j/k, PgUp/PgDn and space, Home/End and g/G, the mouse wheel; q (or Esc
+  Esc) goes back. Output that arrives meanwhile waits and appears after it.
+- The transcript scrolls back: PgUp/PgDn and the mouse wheel. The TUI
+  keeps the last 10000 lines itself, because the terminal (and tmux) do
+  not keep lines that scroll out of the transcript area. While scrolled
+  back the rule says how far, new output is kept but not shown, and any
+  other key returns to the end. The wheel needs mouse reports, which are
+  on by default: select text with Shift-drag then, or turn them off with
+  `/mouse off`.
+- Approvals are dialogs. The change (or command) is shown in a yellow
+  panel, then a choice in the input rows: ↑/↓ and Enter, a digit, y for
+  the first and n (or Esc Esc, Ctrl-C) for the last, v shows the whole
+  change in the pager:
+
+  ```
+  ? Apply this change?
+    ● Yes, allow once
+    ○ Yes, allow edit_file for the rest of this session
+    ○ No
+  ```
+
+  "for the rest of this session" stops asking for that tool (or for every
+  command). A line sent over the control socket answers a dialog the same
+  way (a number, y or n).
+- Shift-Tab (or Alt-Tab, if the window manager passes it on) cycles the
+  mode: plan, auto, manual, edits. `/mode NAME` and `--mode NAME` set it.
+
+  | mode | file changes | run_command | tools |
+  |---|---|---|---|
+  | plan | refused | refused | read-only: list, read, grep, ask. The prompt asks for a plan |
+  | auto | run | run | all (same as `--yes`) |
+  | manual | asks first, with a diff | asks first | all |
+  | edits (default) | run | asks first | all |
+
+- The rule above the input says what is happening: sending the request
+  (its size), waiting for the model, waiting for the first token,
+  receiving or streaming the reply (chunks, rate, bytes), receiving a tool
+  call, running a tool, waiting for you.
+- `/split [diff|git|status|off]` opens a pane right of the transcript
+  (80 columns at least): `diff` this session's file changes, newest first,
+  as numbered diffs; `git` the project's `git diff`, refreshed after each
+  turn; `status` the live state - the phase, the current request (route,
+  bytes out and in, chunks, time to headers and first token, proxied),
+  the sockets the process owns with the traffic over each (`ss`), memory
+  and descriptors, refreshed every second. `/split` alone toggles.
+- `/proxy` reports the socks proxy the gateway sends upstream requests
+  through (here the anon service): its settings, bypassed platforms,
+  per-key proxies, the latency it adds and the time to first byte per
+  platform in this session. `/proxy probe` measures it (curl to an LLM
+  host, direct and through the proxy, median of 3), `/proxy exit` asks
+  for a new exit (`tor-change-exitnode.sh`), shows the exit address
+  before and after and measures again. The status rows show the measured
+  overhead (`proxy +430ms`), `/last` whether a request was proxied.
+- Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and
+  says, each in its own panel: the messages new since the last request
+  (system prompt, project scan, prompts, tool results, roles colored),
+  the reasoning, every tool call with its arguments and its full result,
+  and every response with all gateway headers.
+- You can type while the model works. The text stays in the input, and
+  Enter queues it behind the running prompt.
+- The input grows to several rows for a long line.
+- Ctrl-C cancels the running request. On an empty line, pressing it
+  twice quits.
+- Ctrl-L clears the transcript. Resizing the window redraws the bottom
+  rows.
+- `ask_user` answers are typed in the input, and the answer is echoed
+  into the transcript.
+
+The TUI is on only when stdin and stdout are both terminals. A pipe gets
+the plain line mode described below; there approvals are a numbered
+question answered with a number, y or n. `--no-tui` keeps the old
+scrolling output on a terminal. Tab-completion lists and `/js` output are
+written by the base REPL and do not go through the transcript.
+
+The TUI needs a qjsm built from qjs-modules after 2026-11-19 (its
+`terminal` module gained the widgets used here).
+
 ## Coding work
 
 Tools the model has: `list_directory`, `read_file` (optional line range),
@@ -246,7 +453,9 @@ Tools the model has: `list_directory`, `read_file` (optional line range),
 project root; `/undo` restores what the last prompt changed, `/diff` shows
 `git diff`), `for_each`, `run_command`, `ask_user`.
 
-`/cd DIR` changes the project directory the model works in mid-session -
+`/cd DIR` changes the project directory the model works in mid-session
+(`~`, `~user`, quotes, and `-` for the previous directory; Tab completes
+directories, also below `~/` and absolute paths) -
 file references and writes are resolved against it, `run_command` runs with
 it as its working directory, and the project scan (if any) is redone on the
 next prompt. It's the in-session equivalent of `--root`:
@@ -337,6 +546,12 @@ ollama-repl-ctl -s alpha send /diff     # -s: session name, pid, model fragment 
 ollama-repl-ctl watch                   # follow the session's output
 ```
 
+A session started without `--listen` can open its socket later with
+`/remote-control [PATH]` (like Claude Code's), and close it with
+`/remote-control off`. `/rename NAME` renames the session for
+`ollama-repl-ctl -s NAME`. The status line shows `remote: NAME` while the
+socket is open.
+
 Several sessions can listen at once (each has its own socket); `--name` tells
 them apart, a duplicate name gets `-2`, `-3`, ... With no matching session
 `ollama-repl-ctl` waits for one to appear (a note on stderr says so, `-t SECS`
@@ -373,6 +588,8 @@ the raw events.
 - `/status` - model/connection/session info
 - `/model [NAME|list]` - show the model in use; `NAME` switches to another installed model (`ollama list`; never pulls one) and keeps the conversation, the prompt and `ollama-repl-ctl list` follow; `list` shows the installed ones. Also works over `--listen`.
 - `/tools`, `/stream [on|off]` - list the model's tools, show or toggle streaming
+- `/mode [NAME]`, `/verbose [on|off]` - see [Terminal interface](#terminal-interface-tui)
+- `/usage`, `/last [N]`, `/requests [N]`, `/gateway [usage|providers|forecast|quota|models [FILTER]]` - where requests went and what they cost, see [Free models through freellmapi](#free-models-through-freellmapi---provider-freellm)
 - `/system` - print the system prompt. It can also be changed mid-session
   (`/clear` removes it along with everything else; `--failsafe` starts
   without one, but still never gives the model tools):

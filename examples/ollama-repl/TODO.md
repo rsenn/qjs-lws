@@ -1,5 +1,213 @@
 # TODO
 
+## /cd fixes, modes, verbose, full gateway status (2026-11-19)
+
+Done: /cd with ~, ~user, quotes and -. Tab completion for ~/ and absolute
+paths, command names, only directories after /cd. Modes plan/auto/manual/
+edits (lib/modes.js, Shift-Tab, Alt-Tab, /mode, --mode, --yes = auto).
+Ctrl-O, /verbose, --verbose. Every x-* header, raw usage and extra body
+fields in /last. Dashboard session (FREELLMAPI_DASHBOARD_TOKEN or
+EMAIL/PASSWORD) for /gateway quota and the per-model quota in the status
+line. Two status lines with the effective model, its context window and
+quotas.
+
+Open:
+- The dashboard success path is untested here (no credentials). Only the
+  refused token and the wrong password were tried.
+- Without a dashboard session the context window of the model that
+  answered is mostly unknown: /v1/models ids are catalog ids
+  (gemini-3.1-pro), the route names provider ids
+  (nvidia/nemotron-3.5-lightning:free). The status line then says
+  "window unknown".
+- Install to /usr/local/bin again and tell the js-engines session (ask
+  the user first).
+
+## TUI widgets, own style, new name (asked 2026-11-19, done; next: install, then the multi-conversation work below)
+
+Order agreed: B widgets, C TUI (+ dashboard token over CDP), then the
+multi-conversation work below (approved, "start it now").
+
+A. [x] Name: stays ollama-repl (user decided 2026-11-19, no rename).
+B. [x] (done 2026-11-19) qjs-modules lib/terminal.js widgets, pure
+   string builders: style/parseColor/gradient, bigText (block font,
+   half blocks, shadow), boxLines (BOX_ROUNDED/HEAVY, tees in every box
+   set), inputBox, rule, statusBar, keyValue, table (sections, column
+   highlight), progressBar, sparkline, SPINNERS, ANSI-aware
+   truncate/pad/wrap. Asked on top: scrolling (ScrollView, scrollbar,
+   insertLines/deleteLines), buffers (alternateScreen(),
+   Screen.alternate()), mouse (mouseEnable/mouseDisable, SGR/urxvt/X10
+   reports decoded by decodeKeys and readKey). Tests 22/22, readline and
+   repl tests still green, doc/js/terminal.md with the regenerated export
+   list. terminal.js is compiled into qjsm: the installed
+   /usr/local/bin/qjsm needs a rebuild + install before ollama-repl runs
+   on it (asks the user first, together with the ollama-repl install).
+C. [x] (done 2026-11-19, C1-C9) TUI for the agent in its own style (teal -> lime ->
+   amber gradient, lib/look.js), built on B.
+   C1. [x] gradient banner + session panel + tips at start, gradient
+       rules, 3 status rows (rule, statusBar mode badge / cwd / effective
+       model / ctx meter, dim meter line with quota mini-bars).
+   C4. [x] panels for /last, /usage, /requests, /gateway and the
+       approval prompt (TUI only, plain text in pipes and for ctl).
+   Asked 2026-11-19 on top (screenshots: Qwen /about panel, Qwen edit
+   dialog, Qwen Code promo), in this order:
+   C5. [x] (done: banner() in lib/look.js, version = git commit) startup: informative panel like Qwen's /about - name banner
+       with an info box beside it (version, git commit, model, endpoint,
+       gateway, mode, root, log, os), "session initialized" line, tips.
+       Also /about showing the same panel.
+   C6. [x] (done: ChatREPL.choose(), Tui.drawInput(); write approvals and
+       run_command; ask_user stays a free-text question) questions are dialogs: bordered box (yellow) with the tool
+       name + target in the title, the diff inside, then a choice list
+       selected with up/down + Enter (Yes once / Yes, always for this
+       tool this session / No (Esc)); same for run_command and ask_user.
+       Needs a key-driven widget in chat-repl.js (the line editor must
+       give up keys while the dialog is up).
+   C7. [x] (done: lib/markdown.js MarkdownStream per streamed line,
+       toolLine/toolResult/numberedDiff in lib/look.js, panels capped at
+       half the screen, lib/pager.js on the alternate screen with
+       alternate scroll mode 1007 for the wheel, Tui.suspend/resume hold
+       transcript writes meanwhile, PgUp and /view N; open: a live
+       in-transcript scroll of the latest panel was not done, the pager
+       covers it) all output formatted: model replies rendered (markdown:
+       headings, lists, code blocks highlighted, inline code), tool
+       calls as one-line panels (check mark + tool + target), diffs
+       (edit_file/write_file/insert_above) colored +/- with line
+       numbers inside a panel limited in height; the full content is
+       scrollable: the latest panel scrolls with PgUp/PgDn/wheel, any
+       panel by number opens in a pager on the alternate screen
+       (ScrollView + mouse wheel, q/Esc back) - /view N.
+   C8. [x] (done: request/reasoning/tool call/tool result/response
+       panels in the TUI, plain verbose lines elsewhere) Ctrl-O verbose: a pane for everything the model ingests and
+       emits - request (system, user, tool results, attached files),
+       reasoning, reply, tool calls - each titled, height-limited,
+       viewable in the pager.
+   C9. [x] (done: reportLine() captures REPORT_COMMANDS output into
+       reportPanel(), helpPanel() for /help; /js, /each, /binding excluded)
+       every /command report styled, never plain text in the TUI:
+       /help as a sectioned table of commands, /status, /mode, /model,
+       /cd, /rename, /remote-control, errors as red panels. Plain text
+       stays for pipes and ollama-repl-ctl.
+C3. [x] (done) /remote-control [PATH]: start the --listen control socket after
+   startup, like Claude Code's /remote-control. /remote-control off
+   closes it. /rename NAME renames the session (control socket name,
+   <pid>.json, ollama-repl-ctl -s NAME).
+C2. [x] (done: lib/cdp-token.js, tab list through curl because of BUGS
+   ws-connect-after-http-to-devtools-port-fails) FREELLMAPI_DASHBOARD_TOKEN read over CDP from a logged-in
+   dashboard tab (localhost:3001) in the browser chat-bridge drives
+   (--remote-debugging-port 9222).
+
+## Proxy latency, split view, resources display (asked 2026-11-19, done)
+
+Asked while C was finishing. Most freellmapi models go out through a socks
+proxy (the runit service "anon" on this machine, tor-based but faster);
+tor-change-exitnode.sh changes the route through it.
+
+D1. [x] (done: lib/proxy-probe.js, /proxy [probe|exit], proxied flag per
+    request in /last, "proxy +NNNms" in the status rows; found: global
+    proxy socks5://192.168.178.52:9050 = anon, active, no bypass, no
+    per-key proxies; measured +0.2..0.8s to the first byte; one probe run
+    is noisy, /proxy probe takes the median of 3) detect the proxy and
+    measure its latency.
+    - find how freellmapi decides per model/provider whether the proxy is
+      used (its config), and where the anon service listens;
+    - the harness detects it at startup (service up, port open) and per
+      request knows whether the route went through it;
+    - latency: time to first byte / total per route, proxied vs direct,
+      plus an active probe (same small request with and without the
+      proxy, or a TCP connect through the socks port vs direct);
+    - /proxy command: status, measured latency, history; /proxy exit (or
+      similar) runs tor-change-exitnode.sh and measures again;
+    - shown in the status rows when it matters.
+D2. [x] (done: Tui.setPane/drawPane, transcript wraps at Tui.width and
+    the pane is redrawn after a scroll - no DECSLRM, tmux and VTE ignore
+    it; /split [diff|git|status|off]) vertical window split: a right-hand pane, like /diff in Claude
+    Code, showing the latest changes as diffs (numberedDiff of every write
+    of the session, newest first), toggled by a command/key; the
+    transcript scroll region becomes the left part (DECSLRM left/right
+    margins, CSI ?69h + CSI l;r s, where the terminal supports them, else
+    redraw the pane after each write).
+D3. [x] (done: OpenAIClient.onPhase sending/waiting/headers/receiving/
+    reasoning/streaming/tool-call/idle with bytesOut/bytesIn/chunks,
+    tool and dialog phases in repl.js, the phase in the spinner rule,
+    /split status with lib/resources.js: ss -tinp/-xp filtered by pid in
+    the shell (thousands of relay sockets here), rss, fds; open: lws
+    connections of the control socket clients and CDP are listed only
+    while connected, an idle lws context holds just a netlink socket)
+    raw resources and status display: the sockets the process owns
+    (lws connections to the model endpoint, control socket and its
+    clients, CDP), bytes in/out over each, and one clear state: idle,
+    waiting on a tool, sending the request, waiting for the first token,
+    streaming tokens from the model. A pane or panel (/resources), the
+    state also in the status rows.
+
+## Multi-conversation sessions and Claude Code sessions (asked 2026-11-19, approved, after A-D)
+
+8. Several conversations ("agents") in one ollama-repl, picked with
+   up/down + Enter. Cost: moderate, mostly a refactor:
+   - main() keeps everything in one closure: messages, client, opts,
+     stats, log, store, sentFiles, fileExchange, baseMessageCount,
+     abortRef, the busy queue. That becomes an Agent class.
+   - Module-global state has to become per agent: tool-requests.js
+     (undo journal, writeCount), repl.js (failoverHook, approveWrite,
+     ui).
+   - The event loop already runs several httpClient requests at once.
+   - TUI: an agent list (Down on an empty input, or a key), output per
+     agent buffered and replayed on switch, background approvals queued
+     and shown in the status line.
+9. ollama-repl-ctl: address an agent (-a NAME, or "@name line" over the
+   socket), events tagged with agent and session, and a "ctl multi" mode
+   holding several sessions open and printing one NDJSON event stream
+   (ready, waiting, output, per agent) for a controller such as Claude
+   Code.
+10. Claude Code sessions, findings:
+   - Discovery is easy and stable enough. ~/.claude/sessions/<pid>.json
+     holds name, cwd, status (idle/busy), version, peerProtocol 1,
+     peerFeatures, tmux pane, and messagingSocketPath
+     (/run/user/1000/cc-socks/<pid>.sock).
+   - The socket protocol is internal and undocumented, with a per-session
+     key file (<pid>.<hash>.key, mode 600). Not worth targeting: it is
+     not a public interface and changes with Claude Code versions.
+   - Workable routes instead:
+     - tmux send-keys and capture-pane into the session's pane (the json
+       names it);
+     - claude -p --resume <sessionId> for a headless turn in that
+       conversation (a separate process, not the live TUI);
+     - the other direction, already working: a Claude session drives
+       ollama-repl through ollama-repl-ctl.
+
+## freellmapi gateway + TUI (2026-11-19)
+
+Done:
+- lib/openai-client.js records per-request metadata (route, provider,
+  request id, tokens incl. reasoning/cached, timings, fallbacks, rate
+  limit). Streams ask for a usage chunk. Also getJSON().
+- lib/usage-stats.js: session ledger, /usage /last /requests.
+- lib/freellm.js: gateway detection and /gateway usage|providers|
+  forecast|models.
+- repl.js: --provider freellm, --no-tui, route line under each reply,
+  /status additions.
+- lib/tui.js + ChatREPL hooks: scroll-region transcript, activity rule,
+  growing input, status line, resize, Ctrl-L, type-ahead kept.
+- abort() rejects before closing, so Ctrl-C reports "aborted".
+
+Open:
+- Ollama and Gemini clients report no token metadata yet (prompt_eval_count/
+  eval_count and usageMetadata exist). /usage and the status line stay
+  empty for them.
+- Ctrl-C while a stream is already flowing does not cancel it: abort()
+  only knows requests still waiting for headers (#settled).
+- The dashboard's per-request detail (/api/analytics/requests/:id: attempt
+  ladder, ttfb, served-model drift) needs a dashboard session token and
+  the request row id, which the response does not carry (only
+  execution_id).
+- TUI: /js output and Tab-completion lists come from the base REPL with
+  ttyWrite. /js output lands in the input area, completions are copied
+  into the transcript. The status line is clipped, not wrapped.
+- TUI start pushes the screen into the scrollback (output starts at row 1)
+  instead of continuing below the cursor, which would need a cursor
+  position query before the REPL owns stdin.
+- Could send X-FreeLLM-Task-Type: code. The gateway already treats
+  requests with tools as code, so only --failsafe would gain.
+
 ## Coding-work assessment with qwen3.5:4b (2026-10-20)
 
 Task used: `ollama-repl --provider ollama --model qwen3.5:4b --stream` in a
@@ -604,3 +812,28 @@ chat sites"); `/tools` output is word-wrapped to the terminal width. Open:
 chatgpt, duck and deepai ignore the emulated tools, so a failover onto them
 ends tool work (`tools: false` in `/v1/models` would let the failover skip
 them, chat-bridge/TODO.md idea 5).
+
+## TUI scrollback and flicker (asked 2026-11-19, done)
+
+E1. [x] transcript scrollback: lib/tui.js keeps the last 10000 transcript
+    lines (with their SGR state) itself, since neither the terminal nor
+    tmux keeps lines that scroll out of a DECSTBM region. PgUp/PgDn and
+    the wheel scroll it (Tui.scrollBy), new output is kept but not drawn
+    while scrolled back, any other key returns to the end. Mouse reports
+    (1000 + 1006) are on by default, /mouse off gives the terminal's own
+    selection back. The qjs-modules REPL now completes an SGR mouse report
+    at its final M/m instead of waiting for the next key. Open: the real
+    wheel inside tmux with mouse off is untested here (tested with SGR
+    reports sent through send-keys).
+E2. [x] no flicker while typing: the base line editor erased from the
+    input to the end of the screen (CSI J) on every key, the status rows
+    with it, and drawStatus() painted them again. The TUI now draws the
+    input itself (Tui.drawEditor, terminal.js layoutInput) and the input,
+    rule and status rows through terminal.js Region, which writes only
+    rows whose text changed and erases after the text, not before. A key
+    writes about 55 bytes now, the status rows not at all.
+E3. [x] the spinner and the after-reply line tell nerd jokes (Star Trek,
+    Monkey Island, Discworld, Indiana Jones games) per phase instead of
+    "Thinking..." and "Cogitated for", lib/quips.js; the TUI keeps the
+    phase facts after the joke. Open: no switch to turn them off, the
+    "thinking:" label of reasoning output is unchanged.

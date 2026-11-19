@@ -211,3 +211,28 @@
   / websockets_static) uses the default configure command without CMAKE_INSTALL_PREFIX; CMake 4.5
   warns (policy CMP0225) and the NEW behaviour would change the install prefix of the nested build.
   Set the policy or pass CMAKE_INSTALL_PREFIX explicitly.
+
+- ws-connect-after-http-to-devtools-port-fails (lib/websocketstream.js:84): after any http request
+  (fetch() or the httpClient adapter) to a chromium devtools endpoint (brave 157, port 9222), the
+  next WebSocketStream to a page of it fails with "HS: ws upgrade response not 101" before any tcp
+  connection is made (a logging proxy in between saw none); also when the ws url says localhost
+  instead of 127.0.0.1, with connection: close on the fetch, or after a 1 s pause. the same
+  WebSocketStream works with no request before it, when it is created before the fetch, and after
+  a fetch to another server. curl gets 101 for the identical upgrade request. found 2026-11-19
+  while reading the freellmapi dashboard token over cdp (examples/ollama-repl/lib/cdp-token.js
+  lists the tabs with curl to avoid it).
+
+    // chromium/brave started with --remote-debugging-port=9222 --remote-allow-origins='*'
+    import { fetch } from './lib/fetch.js';
+    import { WebSocketStream } from './lib/websocketstream.js';
+    const t = (await (await fetch('http://127.0.0.1:9222/json')).json()).find(t => t.type == 'page');
+    await new WebSocketStream(t.webSocketDebuggerUrl).opened;   // rejects: HS: ws upgrade response not 101
+
+- ollama-repl-unhandled-syscallerror-at-startup (examples/ollama-repl/repl.js main): a bare
+  "Possibly unhandled promise rejection: SyscallError {  }" (no message, no stack) printed
+  twice at startup with --listen, right after an install; seven later runs with the same
+  flags, on the installed and on the build qjsm, did not show it. the rejecting call is
+  unknown; candidates are the startup gateway login (cdp), the background proxy probe and
+  the control socket.
+
+    ollama-repl --provider freellm --stream --yes --listen --model auto   # intermittent
