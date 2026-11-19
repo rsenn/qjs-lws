@@ -1120,6 +1120,38 @@ function ollamaModels() {
   return out.split('\n').slice(1).map(l => l.split(/\s+/)[0]).filter(Boolean);
 }
 
+/* Pattern-cycling state for /model: the last glob used, the model names it
+   matched (in /model list order), and which one is selected, so repeating
+   `/model qwen*` steps through every match. Reset on any non-glob switch. */
+let modelCycle = null;
+
+/** True if `name` is a glob pattern (`*`/`?`/`[...]`), like a file glob. */
+function isModelGlob(name) {
+  return /[*?[]/.test(name);
+}
+
+/* Glob pattern -> RegExp matched against a full model name. `*` matches any
+   run of characters (model names may contain `/` and `:`), `?` any one. */
+function modelGlobRe(pattern) {
+  let re = '';
+
+  for(let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if(c === '*') re += '.*';
+    else if(c === '?') re += '.';
+    else if('.+^$()|{}[]\\'.includes(c)) re += '\\' + c;
+    else re += c;
+  }
+
+  return new RegExp('^' + re + '$');
+}
+
+/** The model names in `known` matching glob `pattern`, in `known`'s order. */
+function modelsForGlob(pattern, known) {
+  const re = modelGlobRe(pattern);
+  return (known ?? []).filter(m => re.test(m));
+}
+
 /** --name, else the model name; made unique among the live sessions (name, name-2, ...). */
 function sessionName(opts) {
   const base = opts.name ?? opts.model;
@@ -1753,8 +1785,28 @@ async function main() {
         return void console.log(known ? known.join('\n') : '(model list is only available for --provider ollama and openai endpoints that serve /models)');
       }
 
-      /* only models already installed (or offered): switching never pulls one */
-      if(known && !known.includes(arg) && !known.includes(`${arg}:latest`)) return void console.log(red(`error: no such model "${arg}" (/model list shows the installed ones)`));
+      /* glob pattern: /model qwen* cycles through every matching model on each
+         repeat, /model qwen* again picks the next one */
+      if(isModelGlob(arg)) {
+        const matches = modelsForGlob(arg, known);
+        if(!matches.length) return void console.log(red(`error: no model matches "${arg}" (/model list shows the installed ones)`));
+
+        /* advance within the same pattern; a fresh pattern (or one now
+           matching a different set) restarts at the first match */
+        if(!modelCycle || modelCycle.pattern !== arg || modelCycle.matches.join('\0') !== matches.join('\0')) {
+          modelCycle = { pattern: arg, matches, index: 0 };
+        } else {
+          modelCycle.index = (modelCycle.index + 1) % matches.length;
+        }
+        arg = matches[modelCycle.index];
+
+        const ofN = matches.length === 1 ? ' (only model matching)' : ` (${modelCycle.index + 1} of ${matches.length})`;
+        console.log(`(pattern "${modelCycle.pattern}" matched: ${matches.join(', ')} - switching to ${arg}${ofN})`);
+      } else {
+        /* only models already installed (or offered): switching never pulls one */
+        if(known && !known.includes(arg) && !known.includes(`${arg}:latest`)) return void console.log(red(`error: no such model "${arg}" (/model list shows the installed ones)`));
+        modelCycle = null; /* an exact switch resets any pattern cycle */
+      }
 
       opts.model = arg;
       client.model = arg;
