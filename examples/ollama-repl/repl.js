@@ -48,7 +48,7 @@
  *     independent of `TRAFFIC`.
  */
 import { exit, getenv, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
-import { clearTimeout, exec, getcwd, getpid, isatty, kill, realpath, setTimeout, stat, readdir, S_IFDIR } from 'os';
+import { clearTimeout, exec, getcwd, getpid, isatty, kill, realpath, setTimeout, stat, readdir, S_IFDIR, ttyGetWinSize } from 'os';
 import { rmSync } from 'fs';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
@@ -1719,6 +1719,40 @@ function cleanupSkips() {
   }
 }
 
+/** window width in columns minus the panel border, 80 when it cannot be asked */
+function listWidth() {
+  try {
+    return Math.max(30, (ttyGetWinSize(1)?.[0] ?? 80) - 4);
+  } catch(e) {
+    return 76;
+  }
+}
+
+/** 38;2;r;g;b text from a #rrggbb color */
+const fgHex = (hex, text) => `\x1b[38;2;${hex.slice(1).match(/.{2}/g).map(h => parseInt(h, 16)).join(';')}m${text}\x1b[0m`;
+
+/**
+ * Lines of a table that fits `width` columns: every column as wide as its widest cell up to its cap
+ * (0 = no cap), column `flex` takes what is left and its cells end in an ellipsis when cut. `paint(row,
+ * col, text)` colors an already padded cell.
+ */
+function compactTable(rows, width, flex, caps, paint) {
+  const n = rows[0].length;
+  const w = rows[0].map((_, c) => Math.min(...[caps[c] || Infinity, Math.max(...rows.map(r => r[c].length))]));
+  const fixed = w.reduce((a, x, c) => a + (c === flex ? 0 : x), 0) + (n - 1);
+  w[flex] = Math.max(10, Math.min(w[flex], width - fixed));
+
+  return rows.map((row, r) =>
+    row
+      .map((cell, c) => {
+        const t = cell.length > w[c] ? `${cell.slice(0, w[c] - 1)}…` : cell;
+        return c === n - 1 ? paint(r, c, t) : paint(r, c, t.padEnd(w[c]));
+      })
+      .join(' ')
+      .trimEnd(),
+  );
+}
+
 /** Shows the model list with strength coloring and skip status. */
 async function showModelList(remote, known, provider) {
   cleanupSkips();
@@ -1731,53 +1765,41 @@ async function showModelList(remote, known, provider) {
     return console.log('(no models available)');
   }
   
-  console.log(`Models for ${provider} (${models.length} available):\n`);
-  
-  // Build table rows
-  const rows = [['#', 'name', 'provider', 'strength', 'capabilities', 'status']];
-  
-  for(const [i, m] of models.entries()) {
-    const color = strengthColor(m.strength);
-    const strengthText = m.strengthLabel;
-    const capabilities = [];
-    if(m.inputTokens) capabilities.push(`${m.inputTokens} in`);
-    if(m.outputTokens) capabilities.push(`${m.outputTokens} out`);
-    if(capabilities.length === 0) capabilities.push('?');
-    
-    let status = m.available ? '✓' : '✗';
-    if(m.skipped) {
-      const remaining = Math.ceil((m.skipUntil - Date.now()) / 1000 / 60);
-      status = `⏸ cooldown ${remaining}m`;
-    }
-    
-    const nameCol = `\x1b[38;2;${color.slice(1).match(/.{2}/g).map(h => parseInt(h, 16)).join(';')}m${m.name}\x1b[0m`;
-    
-    rows.push([
-      String(i + 1),
-      nameCol,
-      m.provider,
-      strengthText,
-      capabilities.join(', '),
-      status,
-    ]);
-  }
-  
-  // Calculate column widths
-  const cols = rows[0].map((_, ci) => Math.max(...rows.map(r => stripAnsi(r[ci]).length)));
-  
-  // Print table
-  for(const [ri, row] of rows.entries()) {
-    const line = row.map((cell, ci) => {
-      const padded = cell + ' '.repeat(cols[ci] - stripAnsi(cell).length);
-      return ri === 0 ? `\x1b[1m${padded}\x1b[0m` : padded;
-    }).join(' │ ');
-    console.log(line);
-  }
-  
+  console.log(`Models for ${provider} (${models.length} available${limited.length ? `, ${limited.length} limited` : ''}):`);
+
+  /* one line per model: a column is as wide as its longest cell (up to its cap), the name takes what is left,
+     so a window of 80 columns or more never wraps */
+  const width = listWidth();
+  const hasCaps = models.some(m => m.inputTokens || m.outputTokens) && width >= 100;
+  const mark = m => (m.skipped ? `⏸ ${Math.ceil((m.skipUntil - Date.now()) / 60000)}m` : m.available ? '✓' : '✗');
+  const caps = m => [m.inputTokens && `${m.inputTokens} in`, m.outputTokens && `${m.outputTokens} out`].filter(Boolean).join(' ');
+
+  /* narrow windows lose columns, strength first, then the provider; the name and the mark stay */
+  const spec = [
+    ['#', m => 0, 4, true],
+    ['name', m => m.name, 0, true],
+    ['provider', m => m.provider, 14, width >= 56],
+    ['strength', m => m.strengthLabel, 14, width >= 72],
+    ['limits', caps, 16, hasCaps],
+    ['', mark, 8, true],
+  ].filter(c => c[3]);
+
+  const idx = spec.findIndex(c => c[0] === 'name');
+  const lines = compactTable(
+    [spec.map(c => c[0]), ...models.map((m, i) => spec.map(c => (c[0] === '#' ? String(i + 1) : c[1](m))))],
+    width,
+    idx,
+    spec.map(c => c[2]),
+    (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : c === idx ? fgHex(strengthColor(models[r - 1].strength), text) : spec[c][0] === '#' || spec[c][0] === 'provider' ? dim(text) : text),
+  );
+  for(const l of lines) console.log(l);
+
   if(limited.length) {
     const now = availability.at;
-    console.log(`\n${waveNote(`${limited.length} model${limited.length > 1 ? 's' : ''} limited right now, not selectable until they recover`)}`);
-    console.log(formatTable([['name', 'provider', 'limit', 'back'], ...limited.map(m => [dim(m.name), m.provider, kindsText(m.limited), backText(m.limited, now)])]));
+    console.log(`\n${waveNote(`${limited.length} limited right now, not selectable until they recover`)}`);
+    const wide = width >= 70;
+    const rows = limited.map(m => [m.name, ...(wide ? [m.provider] : []), kindsText(m.limited), backText(m.limited, now)]);
+    for(const l of compactTable([['name', ...(wide ? ['provider'] : []), 'limit', 'back'], ...rows], width, 0, [0, ...(wide ? [14] : []), 13, 18], (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : c === 0 ? dim(text) : text))) console.log(l);
   }
 
   console.log('\nUsage: /model <number|name|pattern|skip|unskip>');

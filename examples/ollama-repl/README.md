@@ -441,7 +441,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   only says a model is exhausted; the end is worked out from the key
   cooldowns, the windows (a minute window frees within 60 s, a day window
   within 24 h, shown `<=`) and the budget (start of the next UTC month). A
-  key scope never ends by waiting. `/model list` shows the real providers
+  key scope never ends by waiting. `/model list` is one line per model (it fits the window: below 72 columns the strength column goes, below 56 the provider too) and shows the real providers
   behind each model id and moves the limited models to a second table with
   their return time; they get no number, a glob skips them and
   `/model NAME` refuses them with the reason.
