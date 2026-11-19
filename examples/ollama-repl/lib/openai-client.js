@@ -154,6 +154,9 @@ const BORING_HEADERS = new Set(['x-content-type-options', 'x-dns-prefetch-contro
  */
 export class OpenAIClient {
   #apiKey;
+
+  /** extra request headers for chat requests, e.g. { 'x-session-id': ... } for a gateway's sticky routing */
+  extraHeaders = {};
   #baseUrl;
   #apiPath;
   #ctx;
@@ -372,7 +375,7 @@ export class OpenAIClient {
   /** Shared connect+await-response half of chat()/chatStream() below. */
   async #post(payload, meta) {
     const url = `${this.#baseUrl}${this.#apiPath}`;
-    const headers = { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` };
+    const headers = { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}`, ...this.extraHeaders };
 
     this.#logger.request('POST', url, headers);
     this.#logger.body(payload);

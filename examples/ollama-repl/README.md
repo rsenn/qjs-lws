@@ -598,6 +598,7 @@ the raw events.
   - `/model GLOB` (a pattern with `*`, e.g. `qwen*`) - switch to the first matching model; repeating the same pattern cycles through the matches.
 - `!COMMAND` - at the start of a prompt: run the shell command yourself (merged stdout and stderr, shown with a `$` prefix), hand the output to the model as a `run_command` result that names the command, and start a model round at once so the model reacts to it.
 - `/export` - export the whole conversation as a plain-text transcript (speaker labels, tool calls inline, nothing clipped): copy it to the clipboard when a clipboard tool is installed, or save it to `<YYYY-MM-DD-HHMMSS>-<session>.txt` in the working directory.
+- `/route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new]` - freellmapi routing control, see [Routing](#routing-through-the-gateway).
 - `/compact [N]` - summarize the older turns now and keep the last `N` (default 3) verbatim, see [Compaction](#compaction).
 - `/fallback [MODEL|off]` - show, set or clear the fallback model (`--fallback-model`) used when the current one fails.
 - `/provider [NAME]` - show the provider; with a name, restart into that provider (see `/restart`) with the conversation kept. `--model` is dropped, the new provider's default applies.
@@ -654,6 +655,30 @@ never touched. It is the same code as the failover handoff
 - An aborted or failed turn is rolled back by finding its own user message,
   not by an index, so a compaction in the middle of it cannot corrupt the
   history.
+
+## Routing through the gateway
+
+What the gateway reads from a request (freellmapi
+`server/src/services/router.ts`, `resolveRoutingChain`): the `model` field
+only. `/route` is the short way to set it:
+
+| `/route ...` | model sent | the gateway does |
+|---|---|---|
+| `auto` | `auto` | its active fallback chain |
+| `smart`, `fast`, `cheap`, `reliable`, `balanced` | `auto:smart` ... | every enabled model, sorted by that axis (`/v1/models` does not list these, so `/model auto:fast` was refused) |
+| `profile NAME` | `auto:NAME` | a named chain from its dashboard (listed in `/v1/models`) |
+| `MODEL` | the model id | exactly that model, **no failover to others** |
+
+- `/route` alone shows what the current setting means, where the last reply
+  was served (platform/model, fallbacks before it) and the sticky id;
+  `/route list` is the table above with the profiles of your gateway.
+- **Sticky routing**: every request carries `x-session-id: ollama-repl-...`,
+  an id made at start and kept over `/restart`, so the gateway keeps one
+  conversation on one route and can hand context over when it must switch.
+  `/route new` starts a new id.
+- **No exclusion**: the gateway has no way to say "not this model" in a
+  request. `/model skip` while on `auto` therefore pins the next best model
+  itself (and says so); `/route auto` hands the choice back.
 
 ## Sub-agents, restarting and failover on upstream errors
 

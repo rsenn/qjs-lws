@@ -47,15 +47,16 @@ step:
      untested)
    - not solved: N restarts = N waiting qjsm processes (no execve in
      QuickJS); a process started from the fallback is not a source tree
-4. [ ] freellmapi routing control. First read ~/Sources/freellmapi
-   server/src/routes/proxy.ts (about line 421) and the auto:<profile> and
-   sticky-bucket code in routes/anthropic.ts and routes/responses.ts; build
-   only on knobs the server reads. Found so far by grep: auto, auto:smart,
-   auto:free, auto:<group>, sticky scope, x-session-id, x-freellm-compress,
-   x-freellm-cache. /model skip while on auto does not stop the gateway
-   from routing to that model: check for an exclusion parameter, else the
-   honest control is a profile or pinning an explicit model. Cheapest win:
-   send x-session-id equal to the session name (sticky routing).
+4. [x] (done 2026-11-19, tested against the local gateway) freellmapi
+   routing control. Read from the server: only the `model` field routes
+   (auto, auto:AXIS for smart/fast/cheap/reliable/balanced, auto:PROFILE,
+   a pinned model, fusion); no exclusion parameter exists; x-session-id
+   makes routing sticky. Done: /route (show, list, set, new), the
+   x-session-id header (OpenAIClient.extraHeaders, id kept over /restart),
+   /model skip on auto now says it pins. Open: fusion (a `fusion` config
+   object in the body) is only selectable, not configurable; x-freellm-cache
+   and x-freellm-compress are read by the gateway, not sent by us; profile
+   management (dashboard API) is not exposed.
 5. [ ] Ctrl-O verbose colouring: reuse the code-block highlighter of
    lib/markdown.js (or the qjs-modules one listed in tool-registry) for
    JSON args and results; colour by role; dim boring headers; keep every

@@ -163,7 +163,7 @@ const USAGE = [
 ];
 
 function parseArgs(argv) {
-  const opts = { mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80 };
+  const opts = { mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80, sessionId: undefined };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -946,6 +946,26 @@ const SELF_NOTES = () => `
 
 The program that runs you is part of this project: ${harness.dir}. Changes to it take effect only after a restart. After editing it, run \`sh ${harness.dir}/smoke.sh\` (it must end with "smoke ok") and fix what it reports, then call restart_harness. A restart is refused when that check fails, so a broken edit never costs the session. Change it with edit_file or insert_above in small steps; a write_file that truncates a file breaks the next start.`;
 
+/* how a freellmapi gateway reads the `model` of a request (server/src/services/router.ts, resolveRoutingChain):
+   auto = its active fallback chain, auto:AXIS = every enabled model sorted by one axis, auto:NAME = a named
+   profile (chain), anything else = that one model, pinned */
+const ROUTE_AXES = [
+  ['smart', 'most capable first (intelligence)'],
+  ['fast', 'fastest first (latency, tokens/s)'],
+  ['cheap', 'budget-leaning, all of it is free tier anyway'],
+  ['reliable', 'models that fail least first'],
+  ['balanced', 'a blend of all axes'],
+];
+
+/** `/route` argument -> the model string sent: smart -> auto:smart, auto -> auto, profile NAME -> auto:NAME */
+function routeTarget(arg) {
+  const a = arg.trim();
+  if(a === 'auto' || a === 'fusion') return a;
+  if(ROUTE_AXES.some(([name]) => name === a)) return `auto:${a}`;
+  if(a.startsWith('profile ')) return `auto:${a.slice(8).trim()}`;
+  return a;
+}
+
 /** QUICKJS notes and, when the harness itself is in the project, how to change it safely */
 const systemNotes = root => (isQuickJsProject(root) ? QJS_NOTES : '') + (editsHarness(root) ? SELF_NOTES() : '');
 
@@ -995,6 +1015,7 @@ async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) 
     cdpPort: opts.cdpPort,
     baseMessageCount,
     sessionName: opts.name,
+    sessionId: opts.sessionId,
     skippedModels: skipped,
   };
 
@@ -1385,6 +1406,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /model [NAME|list|skip|unskip] - show provider/model/endpoint; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
 /fallback [NAME|off] - show or set fallback model for auto-failover
+/route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new] - freellmapi routing: show what the gateway does with this session, pick a sort axis, a named chain or one pinned model; new restarts sticky routing
 /compact [N]    - summarize the older turns now with a local model and keep the last N (default 3) verbatim; also done automatically at --compact-at percent of the context window
 /restart        - restart the harness with current session state (serializes to temp file and re-execs)
 /usage          - tokens and requests of this session, per routed model and platform
@@ -1408,12 +1430,12 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/provider', '/fallback', '/compact', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
+  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
+const REPORT_COMMANDS = new Set(['/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/route', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -1821,6 +1843,10 @@ async function main() {
 
     if(await gateway.detect()) {
       if(!opts.modelGiven) opts.model = client.model = 'auto';
+      /* sticky routing and the gateway's context handoff are keyed by this id: it lives as long as the
+         conversation (kept over /restart), not as long as the process */
+      opts.sessionId ??= `ollama-repl-${Date.now().toString(36)}-${getpid().toString(36)}`;
+      client.extraHeaders = { 'x-session-id': opts.sessionId };
       if(await gateway.login({ cdp: { host: opts.cdpHost, port: opts.cdpPort } })) await loadProxy(true);
       await gateway.refresh(true);
     } else if(opts.label === 'freellm') console.log(dim(`(${client.baseUrl} does not answer /v1/usage - no freellmapi gateway there, /gateway is off)`));
@@ -1916,6 +1942,7 @@ async function main() {
       opts.cdpHost = state.cdpHost ?? opts.cdpHost;
       opts.cdpPort = state.cdpPort ?? opts.cdpPort;
       opts.name = state.sessionName ?? opts.name;
+      opts.sessionId = state.sessionId ?? opts.sessionId;
       for(const m of state.skippedModels ?? []) if(m.until > Date.now()) skippedModels.set(m.name, { until: m.until, reason: m.reason });
       
       console.log(dim(`(resumed session from ${opts.resume}: ${messages.length} messages)`));
@@ -2387,6 +2414,7 @@ async function main() {
          10m cooldown, and move on to the next non-skipped one. */
       if(arg === 'skip' || arg.startsWith('skip ') || arg === 'unskip' || arg.startsWith('unskip ')) {
         const [verb, pattern] = arg.split(/\s+/);
+        const wasAuto = /^auto(:|$)/.test(opts.model);
         const target = pattern || (opts.model !== 'auto' ? opts.model : (stats.last()?.routedVia ?? stats.last()?.model ?? 'auto'));
 
         if(verb === 'skip') {
@@ -2411,6 +2439,7 @@ async function main() {
         } else {
           console.log(dim('(no other model available to switch to)'));
         }
+        if(wasAuto && next) console.log(waveNote('the gateway has no exclusion: skipping pins the next best model, /route auto hands the choice back'));
         return;
       }
 
@@ -2478,6 +2507,54 @@ async function main() {
       console.log(dim('(restarting with the current session state)'));
       console.log(red(await restartHook()));
       return;
+    }
+
+    if(prompt === '/route' || prompt.startsWith('/route ')) {
+      const arg = prompt.slice('/route'.length).trim();
+      if(!gateway?.enabled) return void console.log(dim('(/route needs a freellmapi gateway: --provider freellm)'));
+
+      const last = stats.last();
+      const sticky = opts.sessionId ? `x-session-id ${opts.sessionId}` : '-';
+
+      if(!arg) {
+        const axis = /^auto:(smart|fast|cheap|reliable|balanced)$/.exec(opts.model)?.[1];
+        const mode = opts.model === 'auto' ? 'the active fallback chain' : axis ? `all models, ${ROUTE_AXES.find(([n]) => n === axis)[1]}` : opts.model.startsWith('auto:') ? `profile "${opts.model.slice(5)}"` : 'pinned: only this model, no failover to others';
+        return void console.log([
+          `${waveNote(`routing  ${opts.model}`)}`,
+          `  ${dim('means')}    ${mode}`,
+          `  ${dim('last')}     ${last ? `${routeLine(last.meta ?? last)}${last.fallbacks ? ` (${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''} before it)` : ''}` : '(no reply yet)'}`,
+          `  ${dim('sticky')}   ${sticky}`,
+          `  ${dim('change')}   /route list, /route smart|fast|cheap|reliable|balanced|auto, /route profile NAME, /route MODEL`,
+        ].join('\n'));
+      }
+
+      const remote = await client.listModels().catch(() => []);
+
+      if(arg === 'list') {
+        const profiles = remote.filter(m => m.name.startsWith('auto:'));
+        const rows = [['route', 'what it does', 'now']];
+        rows.push(['auto', 'the gateway\'s active fallback chain', opts.model === 'auto' ? '◀' : '']);
+        for(const [name, text] of ROUTE_AXES) rows.push([`/route ${name}`, text, opts.model === `auto:${name}` ? '◀' : '']);
+        for(const m of profiles.filter(m => !ROUTE_AXES.some(([n]) => `auto:${n}` === m.name))) rows.push([`/route profile ${m.name.slice(5)}`, `named chain${m.available ? '' : ' (nothing can serve it now)'}`, opts.model === m.name ? '◀' : '']);
+        rows.push(['/route MODEL', 'pin one model; no failover to others', !opts.model.startsWith('auto') && opts.model !== 'fusion' ? '◀' : '']);
+        return void console.log(formatTable(rows));
+      }
+
+      if(arg === 'new') {
+        opts.sessionId = `ollama-repl-${Date.now().toString(36)}-${getpid().toString(36)}`;
+        client.extraHeaders = { 'x-session-id': opts.sessionId };
+        return void console.log(waveNote(`sticky routing restarts: ${opts.sessionId}`));
+      }
+
+      const target = routeTarget(arg);
+      const ok = target === 'auto' || target === 'fusion' || remote.some(m => m.name === target) || ROUTE_AXES.some(([n]) => `auto:${n}` === target);
+      if(!ok) return void console.log(red(`error: the gateway does not list "${target}" (/route list; a profile is /route profile NAME)`));
+
+      opts.model = client.model = target;
+      repl.setPromptName(target);
+      control?.update({ model: target });
+      await updateCtxWindow();
+      return void console.log(waveNote(`routing: ${target}${!target.startsWith('auto') && target !== 'fusion' ? ' (pinned, the gateway will not switch to another model)' : ''}`));
     }
 
     if(prompt === '/compact' || prompt.startsWith('/compact ')) {
