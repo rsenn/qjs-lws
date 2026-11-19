@@ -824,6 +824,11 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- chat-bridge harness step 6 (2026-11-19): `failoverHook` only for a bridge
+  with a pinned site (not `auto`, not "all models exhausted"), detection via
+  `gateway.isBridge`; `Failover.detect()`/`enabled` removed. Tested against a
+  fake bridge (pinned site -> handoff and switch; exhausted -> auto skip).
+
 - automatic `/model skip` (2026-11-19): when a gateway answers "All models
   exhausted" / routing_exhausted, the round runs `/model skip` itself and asks
   again, up to 4 times a round (`autoSkipHook` in repl.js; the skip works from

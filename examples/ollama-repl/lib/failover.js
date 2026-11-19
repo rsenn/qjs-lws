@@ -1,40 +1,24 @@
 /**
- * Automatic model failover over a chat-bridge (examples/chat-bridge).
+ * Client-side failover for a model pinned to one site of a chat-bridge
+ * (examples/chat-bridge).
  *
- * Only active when the OpenAI-compatible endpoint is a chat-bridge: every
- * model its /models lists is `owned_by: "chat-bridge"`. Such a model can
- * stop answering (a free tier's message limit, a logged-out session); the
- * bridge then reports it as an OpenAI error and marks it unavailable in
- * /models. Plain OpenAI-compatible servers never fail over: there is no
- * other model to prefer and no way to tell.
- *
- * No option is needed: the order comes from the endpoint itself, the models
- * that are available right now in the order it lists them.
+ * The bridge routes by itself for `auto` and `auto:AXIS` (chat-bridge
+ * doc/HARNESS.md step 4): it tries the next site and replays the transcript.
+ * A pinned site (`--model deepseek`) has no such routing, so when it stops
+ * answering (a message limit, a logged-out session) this class picks the next
+ * site that is available and the caller hands it a compacted conversation
+ * (lib/handoff.js, a local model summarizes the older turns), which the
+ * bridge's own replay cannot do. It is only created for a bridge
+ * (gateway.isBridge); `auto` models are never picked, and an exhausted `auto`
+ * is the harness's /model skip, not a failover.
  */
 
 export class Failover {
   #client;
-  #bridge = false;
 
   /** @param {OpenAIClient} client */
   constructor(client) {
     this.#client = client;
-  }
-
-  /** @returns {Promise<boolean>} whether the endpoint is a chat-bridge */
-  async detect() {
-    try {
-      const models = await this.#client.listModels();
-      this.#bridge = models.length > 0 && models.every(m => m.ownedBy === 'chat-bridge');
-    } catch(e) {
-      this.#bridge = false;
-    }
-
-    return this.#bridge;
-  }
-
-  get enabled() {
-    return this.#bridge;
   }
 
   /** whether `err` is a refusal another model could make up for */
@@ -52,8 +36,8 @@ export class Failover {
   }
 
   /**
-   * The next model to try: the first one the endpoint lists as available
-   * that this turn has not tried yet. The list is read fresh, because the
+   * The next site to try: the first one the endpoint lists as available
+   * that this turn has not tried yet (never an auto model). The list is read fresh, because the
    * bridge has just marked the failing model unavailable.
    *
    * @param {Set<string>} tried model names already tried for this turn
@@ -61,7 +45,7 @@ export class Failover {
    */
   async next(tried) {
     try {
-      return (await this.#client.listModels()).find(m => m.available && !tried.has(m.name))?.name ?? null;
+      return (await this.#client.listModels()).find(m => m.available && !tried.has(m.name) && !/^auto(:|$)/.test(m.name))?.name ?? null;
     } catch(e) {
       return null;
     }

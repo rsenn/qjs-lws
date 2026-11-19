@@ -596,7 +596,7 @@ function tuiSpinner(label) {
  * through to client.chat()/chatStream().
  * @returns {Promise<{content: string, toolCalls?: object[]}>}
  */
-/* set by main() when the endpoint is a chat-bridge: { failover, onSwitch } */
+/* set by main() when the endpoint is a chat-bridge: { failover, handoff, onSwitch }; used for a pinned site only */
 let failoverHook = null;
 
 /* set by main(): { client(), skip(error) }. A gateway that ran out of models ("All models exhausted") makes the
@@ -797,7 +797,8 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
         standbyHook.switchTo(to);
         continue;
       }
-      if(!failoverHook || !Failover.applies(e)) throw e;
+      /* a pinned site fails over here; auto is routed by the bridge, and when that ran out nothing is left to pick */
+      if(!failoverHook || !Failover.applies(e) || /^auto(:|$)/.test(client.model) || isExhaustedError(text)) throw e;
 
       const to = await failoverHook.failover.next(tried);
       if(!to) throw e;
@@ -3697,34 +3698,34 @@ async function main() {
   /* a --listen that cannot be honoured ends the run: whatever should have attached would wait for nothing */
   if(opts.listen !== undefined && !startControl(opts.listen || undefined)) exit(1);
 
-  /* over a chat-bridge, a model that hits its limit hands the turn to the
-     next available one by itself (lib/failover.js) */
-  if(opts.provider === 'openai' && !opts.noFailover) {
+  /* over a chat-bridge, a pinned site that hits its limit hands the turn to the
+     next available one by itself, with a compacted conversation (lib/failover.js);
+     auto is routed by the bridge */
+  if(gateway?.isBridge && !opts.noFailover) {
     const failover = new Failover(client);
 
-    if(await failover.detect())
-      failoverHook = {
-        failover,
-        handoff: async (msgs, callOpts) => {
-          const base = msgs === messages ? baseMessageCount : msgs[0]?.role === 'system' ? 1 : 0;
-          if(!callOpts.quiet) console.log(dim(`(handoff: summarizing older turns with ${opts.handoffModel ?? HANDOFF_MODEL} ...)`));
+    failoverHook = {
+      failover,
+      handoff: async (msgs, callOpts) => {
+        const base = msgs === messages ? baseMessageCount : msgs[0]?.role === 'system' ? 1 : 0;
+        if(!callOpts.quiet) console.log(dim(`(handoff: summarizing older turns with ${opts.handoffModel ?? HANDOFF_MODEL} ...)`));
 
-          const h = await buildHandoff(msgs, base, { keepTurns: opts.handoffTurns ?? 3, model: opts.handoffModel ?? HANDOFF_MODEL, host: opts.host, port: opts.port });
-          if(!h) return;
+        const h = await buildHandoff(msgs, base, { keepTurns: opts.handoffTurns ?? 3, model: opts.handoffModel ?? HANDOFF_MODEL, host: opts.host, port: opts.port });
+        if(!h) return;
 
-          const before = msgs.length;
-          msgs.splice(0, msgs.length, ...h.messages);
-          if(msgs === messages) saveSession();
-          if(!callOpts.quiet) console.log(dim(`(handoff: ${before} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept)`));
-        },
-        onSwitch: name => {
-          opts.model = name;
-          client.model = name;
-          repl.setPromptName(name);
-          control?.update({ model: name });
-          updateCtxWindow();
-        },
-      };
+        const before = msgs.length;
+        msgs.splice(0, msgs.length, ...h.messages);
+        if(msgs === messages) saveSession();
+        if(!callOpts.quiet) console.log(dim(`(handoff: ${before} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept)`));
+      },
+      onSwitch: name => {
+        opts.model = name;
+        client.model = name;
+        repl.setPromptName(name);
+        control?.update({ model: name });
+        updateCtxWindow();
+      },
+    };
   }
 
   repl.addCleanupHandler(() => {

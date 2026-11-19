@@ -217,6 +217,11 @@ Several sites host many models. Proposal: put the model in the request's
 
 ## Done
 
+- harness step 6, cleanup (2026-11-19): the client failover stays for pinned
+  sites only (see doc/HARNESS.md step 6, with the contract table); the
+  harness no longer probes `/models` itself to detect a bridge. All six steps
+  of the plan are done.
+
 - harness step 5, a more capable bridge (2026-11-19): `site/model` with a
   per-site `pick` (URL template or menu clicks), exact site lookup (the
   substring bug is gone), `models` per site in `/v1/models`, `max_tokens` and

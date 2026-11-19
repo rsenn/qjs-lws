@@ -161,11 +161,27 @@ per-site latency and timeout override, `check` command (selector self-test,
 result feeds `/v1/health` and the site status), a clean start state per tab,
 the model-to-site matching fix (BUGS: substring).
 
-### Step 6: cleanup
+### Step 6: cleanup (done 2026-11-19)
 
-Remove the bridge special cases from `repl.js` that the shared path made
-redundant (`failoverHook` for the bridge if step 4 lands), document the
-contract in README, update PROVIDERS.md and the TODOs.
+Outcome: the client-side failover (`lib/failover.js`) stays, narrowed. The
+bridge's routing serves `auto`; a pinned site has no routing, and the harness
+can hand the next site a *compacted* conversation (a local model summarizes
+the older turns), which the bridge's replay cannot. So `failoverHook` is only
+set for a bridge (`gateway.isBridge`, no second probe of `/models`), never
+fires for `auto` or for a "all models exhausted" answer (that is the
+automatic `/model skip`), and `Failover.next` never picks an `auto` model.
+The README of ollama-repl and chat-bridge document the contract.
+
+#### The contract (what a bridge answers for the harness)
+
+| need | where | fields |
+|---|---|---|
+| tell the backend | `GET /v1/usage` | `object: "usage"`, `source: "chat-bridge"` |
+| models | `GET /v1/models` | `id`, `owned_by`, `available`, `execution_status`, `supported_parameters`, `capabilities`, `context_window`, `resets_at`; `auto*` ids; `site/model` ids |
+| health, limits | `GET /v1/providers`, `/v1/quota-forecast` | `status`, `resume_at`, `requests_remaining_pct`, `check`; pools |
+| per answer | headers | `x-routed-via`, `x-request-id`, `x-response-ms`, `x-fallback-*`, `x-ratelimit-*` |
+| errors | status + `error.code` | 429 `rate_limit_exceeded` (+ `Retry-After`), 401 `login_required`, 502 `prompt_not_accepted`, 429 `routing_exhausted` ("All models ... Attempt trail: ...") |
+| session | request header | `x-session-id` keeps a conversation on its site |
 
 ## 5. Open questions
 

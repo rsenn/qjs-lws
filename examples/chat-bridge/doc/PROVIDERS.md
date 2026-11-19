@@ -5,6 +5,13 @@ What each site behind the bridge actually does when driven through
 author (all on free plans, EU, German UI). Design and spec: [README.md](README.md).
 Open work: [TODO.md](TODO.md).
 
+Since 2026-11-19 the table below is no longer only prose: `rank` in the site
+table is taken from these verdicts (auto routing order), `capabilities.tools`
+from the tool-call column, and `chat-bridge.js check` re-tests the selectors of
+every site live (`POST /v1/check`; one real prompt each). Model selection per
+site (`site/model`) is built but unconfigured for the real sites: no picker was
+verified live.
+
 ## How it was tested
 
 Two tests per provider, on the same bridge build.

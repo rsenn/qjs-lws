@@ -221,16 +221,19 @@ spreads over the free tiers. The browser is not started for you. Details,
 the site table and per-site quirks: `../chat-bridge/README.md`,
 `../chat-bridge/PROVIDERS.md`.
 
-- **Automatic failover.** When a site hits its message limit, asks you to
+- **Automatic failover.** On `auto` / `auto:AXIS` the bridge routes by
+  itself (next site, transcript replayed, see `../chat-bridge/README.md`). For
+  a site pinned by name: when it hits its message limit, asks you to
   log in, or does not take the prompt, the turn is retried on the next
-  available model (one line says so). The conversation is compacted first
+  available site (one line says so; never `auto`). The conversation is compacted first
   (`lib/handoff.js`): system prompt and project scan kept, the last
   `--handoff-turns N` (3) user turns kept with big tool results clipped,
   older turns summarized by a small local model (`--handoff-model`,
   default `qwen3:4b-instruct`, needs a running ollama; without it a plain
   digest is used). `--no-handoff` replays everything, `--no-failover`
-  stays on the chosen model. Failover only applies when every model of the
-  endpoint is `owned_by: "chat-bridge"`.
+  stays on the chosen model. Failover only applies when the endpoint is a
+  chat-bridge (`gateway.isBridge`). When `auto` itself ran out of sites, the
+  round runs `/model skip` by itself instead (see `/model skip`).
 - **No tools, files as text (`--no-tools`).** For sites that ignore tool
   calls: the files named in the prompt are attached as text and the model
   answers with whole `File: path` blocks, which are written to disk. deepai,
