@@ -45,8 +45,26 @@ step:
    - the system prompt tells the model how to edit and restart when the
      project contains the harness (SELF_NOTES, a model's real use of it is
      untested)
+   - 2026-11-19 review fixes: the protections now also apply to the
+     installed copy run from a checkout (harness.target = the source tree
+     found at or above --root; restart runs smoke.sh on it and relaunches
+     its repl.js, tested from the installed command: refused on a broken
+     export, moved with a note on a good tree); the duplicate-call guard
+     no longer returns stale results after an edit or a command, and never
+     caches restart_harness or spawn_agent; --resume no longer lets the
+     working directory's <model>.json replace the resumed state (base
+     message count, project scan, a second "resumed" line); smoke.sh runs
+     with --listen, which found the AF_UNIX problem below
+   - --listen: this qjsm binds only 26 bytes of a socket path (BUGS:
+     sockaddr-unix-length), so a second session failed with EADDRINUSE and
+     ctl reached whichever held the empty abstract name. Now unixAddr()
+     builds the address from bytes, the default path is
+     $XDG_RUNTIME_DIR/o<pid>.s, a too long path is an error and a failed
+     --listen ends the run. Two sessions plus ollama-repl-ctl tested. A
+     session started before this holds the abstract name: restart it
    - not solved: N restarts = N waiting qjsm processes (no execve in
      QuickJS); a process started from the fallback is not a source tree
+     itself, it finds the target from the root like an installed one
 4. [x] (done 2026-11-19, tested against the local gateway) freellmapi
    routing control. Read from the server: only the `model` field routes
    (auto, auto:AXIS for smart/fast/cheap/reliable/balanced, auto:PROFILE,

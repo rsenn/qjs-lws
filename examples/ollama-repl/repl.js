@@ -62,7 +62,7 @@ import { TOOLS, executeTool, resetJournal, undoJournal, writeCount } from './lib
 import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
 import { fileMode, SKIP_DIRS } from './lib/match.js';
 import { ChatREPL } from './lib/chat-repl.js';
-import { ControlSocket, listSessions } from './lib/control-socket.js';
+import { ControlSocket, controlDir, listSessions } from './lib/control-socket.js';
 import { SessionLog } from './lib/session-log.js';
 import { SessionStore } from './lib/session-store.js';
 import { SentFiles } from './lib/sent-files.js';
@@ -879,47 +879,76 @@ function elideOldToolResults(messages, numCtx) {
   }
 }
 
-/* the running harness: its script (realpath), its directory, whether that is the source tree
-   (it has smoke.sh next to it, the installed copy in bin/ has not) and the startup snapshot of it */
-const harness = { script: '', dir: '', source: false, snap: null };
+/* the running harness (script as a realpath, directory, whether that is the source tree: smoke.sh sits next to it,
+   the installed copy in bin/ has none), and its `target`: the source tree edits and restarts are about. That is
+   the running one when it is a source tree, else the examples/ollama-repl found at or above the project root
+   (the installed copy is run from a checkout to work on it). `snap` is the startup snapshot. */
+const harness = { script: '', dir: '', source: false, target: null, snap: null, snapDir: null };
 
-function initHarness() {
+const isSourceTree = dir => stat(`${dir}/smoke.sh`)[1] === 0 && stat(`${dir}/repl.js`)[1] === 0 && stat(`${dir}/lib`)[1] === 0;
+
+/** the source tree of the harness at or above `root`, or null */
+function findSourceTree(root) {
+  for(let dir = realpath(root)[0] ?? root; dir; dir = dir.replace(/\/[^/]*$/, '')) {
+    if(isSourceTree(dir)) return dir;
+    if(isSourceTree(`${dir}/examples/ollama-repl`)) return `${dir}/examples/ollama-repl`;
+    if(!dir.includes('/', 1)) break;
+  }
+
+  return null;
+}
+
+function initHarness(root) {
   harness.script = realpath(scriptArgs[0])[0] ?? scriptArgs[0];
   harness.dir = harness.script.replace(/\/[^/]*$/, '') || '.';
-  harness.source = stat(`${harness.dir}/smoke.sh`)[1] === 0 && stat(`${harness.dir}/lib`)[1] === 0;
+  harness.source = isSourceTree(harness.dir);
+  retargetHarness(root);
+}
+
+/** also called after /cd: the tree the edits and restarts concern */
+function retargetHarness(root) {
+  harness.target = harness.source ? harness.dir : findSourceTree(root);
 }
 
 /**
- * Copies repl.js, ctl.js and lib/ to .ollama-repl-snap-PID next to the harness directory (the same
- * depth, so lib/'s ../../../lib/lws imports still resolve): the version this process was started
- * from, which a restart falls back to when the edited one dies at startup. Snapshots of dead
- * processes are removed.
+ * Copies what runs (source: repl.js, ctl.js and lib/ next to .ollama-repl-snap-PID beside the harness
+ * directory, the same depth so lib/'s ../../../lib/lws imports still resolve; installed: the script and its
+ * lib/ into the control directory) as the version a restart falls back to when the edited one dies at
+ * startup. Snapshots of dead processes are removed.
  */
 function snapshotHarness() {
   purgeSnapshots();
 
-  const parent = harness.dir.replace(/\/[^/]*$/, '') || '.';
-  const snap = `${parent}/.ollama-repl-snap-${getpid()}`;
-  const pipe = popen(`mkdir -p '${snap}' && cp -r '${harness.dir}/repl.js' '${harness.dir}/ctl.js' '${harness.dir}/lib' '${snap}/' 2>&1`, 'r');
+  const snap = harness.source ? `${harness.dir.replace(/\/[^/]*$/, '') || '.'}/.ollama-repl-snap-${getpid()}` : `${controlDir()}/snap-${getpid()}`;
+  const files = harness.source ? `'${harness.dir}/repl.js' '${harness.dir}/ctl.js' '${harness.dir}/lib'` : `'${harness.script}' '${harness.dir}/lib'`;
+  const pipe = popen(`mkdir -p '${snap}' && cp -r ${files} '${snap}/' 2>&1`, 'r');
   if(!pipe) return;
   pipe.readAsString();
-  if(pipe.close() === 0) harness.snap = snap;
+
+  if(pipe.close() === 0) {
+    harness.snapDir = snap;
+    harness.snap = `${snap}/${harness.source ? 'repl.js' : harness.script.replace(/^.*\//, '')}`;
+  }
 }
 
 /** removes the snapshots of processes that are gone (a crash does not clean up) */
 function purgeSnapshots() {
-  const parent = harness.dir.replace(/\/[^/]*$/, '') || '.';
-  const [names] = readdir(parent);
+  for(const [dir, re] of [
+    [harness.dir.replace(/\/[^/]*$/, '') || '.', /^\.ollama-repl-snap-(\d+)$/],
+    [controlDir(), /^snap-(\d+)$/],
+  ]) {
+    const [names] = readdir(dir);
 
-  for(const n of names ?? []) {
-    const pid = +(/^\.ollama-repl-snap-(\d+)$/.exec(n)?.[1] ?? 0);
-    if(pid && pid !== getpid() && kill(pid, 0) !== 0) rmSync(`${parent}/${n}`, { recursive: true, force: true });
+    for(const n of names ?? []) {
+      const pid = +(re.exec(n)?.[1] ?? 0);
+      if(pid && pid !== getpid() && kill(pid, 0) !== 0) rmSync(`${dir}/${n}`, { recursive: true, force: true });
+    }
   }
 }
 
 function removeSnapshot() {
-  if(harness.snap) rmSync(harness.snap, { recursive: true, force: true });
-  harness.snap = null;
+  if(harness.snapDir) rmSync(harness.snapDir, { recursive: true, force: true });
+  harness.snap = harness.snapDir = null;
 }
 
 /** an absolute path without . and .. segments (the file need not exist) */
@@ -931,23 +960,23 @@ function normalizePath(path) {
 
 /** whether a write tool call would change a file of the running harness (only when it runs from source) */
 function touchesHarness(root, args) {
-  if(!harness.source || typeof args?.path !== 'string') return false;
+  if(!harness.target || typeof args?.path !== 'string') return false;
 
   const full = normalizePath(args.path.startsWith('/') ? args.path : `${realpath(root)[0] ?? root}/${args.path}`);
-  return full === harness.dir || full.startsWith(`${harness.dir}/`);
+  return full === harness.target || full.startsWith(`${harness.target}/`);
 }
 
 /** whether the project the model works in contains the harness (it is then told how to restart it safely) */
 function editsHarness(root) {
-  if(!harness.source) return false;
+  if(!harness.target) return false;
 
   const r = realpath(root)[0] ?? root;
-  return harness.dir === r || harness.dir.startsWith(`${r}/`) || r.startsWith(`${harness.dir}/`);
+  return harness.target === r || harness.target.startsWith(`${r}/`) || r.startsWith(`${harness.target}/`);
 }
 
 const SELF_NOTES = () => `
 
-The program that runs you is part of this project: ${harness.dir}. Changes to it take effect only after a restart. After editing it, run \`sh ${harness.dir}/smoke.sh\` (it must end with "smoke ok") and fix what it reports, then call restart_harness. A restart is refused when that check fails, so a broken edit never costs the session. Change it with edit_file or insert_above in small steps; a write_file that truncates a file breaks the next start.`;
+The program that runs you is part of this project: ${harness.target}. Changes to it take effect only after a restart. After editing it, run \`sh ${harness.target}/smoke.sh\` (it must end with "smoke ok") and fix what it reports, then call restart_harness. A restart is refused when that check fails, so a broken edit never costs the session. Change it with edit_file or insert_above in small steps; a write_file that truncates a file breaks the next start.`;
 
 /* how a freellmapi gateway reads the `model` of a request (server/src/services/router.ts, resolveRoutingChain):
    auto = its active fallback chain, auto:AXIS = every enabled model sorted by one axis, auto:NAME = a named
@@ -982,10 +1011,12 @@ const systemNotes = root => (isQuickJsProject(root) ? QJS_NOTES : '') + (editsHa
  * @returns {Promise<string | { argv: string[] }>} an error message, or the argv for qjsm
  */
 async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) {
-  /* from source: the real check, the REPL starts and runs commands (smoke.sh); installed: it loads */
-  const check = harness.source ? `sh '${harness.dir}/smoke.sh' '${harness.script}'` : `qjsm '${harness.script}' --help`;
-  const { output, status } = await runCommand(check, { cwd: opts.root, timeout: harness.source ? 180000 : 10000 });
-  if(status !== 0) return `error: the harness failed its check (${harness.source ? 'smoke.sh' : '--help'}), so it was not restarted and this session is unchanged:\n${output}`;
+  /* the source tree (running, or found next to the project when the installed copy runs): the real check, the
+     REPL starts and runs commands (smoke.sh); with no source tree the running script only has to load */
+  const script = harness.target ? `${harness.target}/repl.js` : harness.script;
+  const check = harness.target ? `sh '${harness.target}/smoke.sh' '${script}'` : `qjsm '${script}' --help`;
+  const { output, status } = await runCommand(check, { cwd: opts.root, timeout: harness.target ? 180000 : 10000 });
+  if(status !== 0) return `error: the harness failed its check (${harness.target ? 'smoke.sh' : '--help'}), so it was not restarted and this session is unchanged:\n${output}`;
 
   const tempPath = `${getenv('TMPDIR') || '/tmp'}/ollama-repl-resume-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
   const now = Date.now();
@@ -1044,7 +1075,8 @@ async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) 
   args.push('--resume', tempPath);
 
   return {
-    argv: ['qjsm', harness.script, ...args],
+    argv: ['qjsm', script, ...args],
+    moved: script !== harness.script ? script : null,
     /* the startup snapshot, resuming from the backup: when the edited harness dies right away */
     fallback: harness.snap ? ['qjsm', `${harness.snap}/repl.js`, ...rest, '--resume', backup] : null,
     backup,
@@ -1107,6 +1139,9 @@ async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, a
     if(tui?.active) setPhase('idle');
   }
 }
+
+/* tools whose repeat is never short-circuited by the duplicate-call guard: they act on the session */
+const NEVER_CACHED = new Set(['restart_harness', 'spawn_agent']);
 
 /* rounds made only of already-seen tool calls before tools are withdrawn */
 const MAX_REPEAT_ROUNDS = 2;
@@ -1184,7 +1219,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       const seen = seenCalls.get(sig) ?? 0;
       seenCalls.set(sig, seen + 1);
 
-      if(seen > 0) {
+      if(seen > 0 && !NEVER_CACHED.has(tc.name)) {
         repeats++;
         const cached = toolCache.get(sig);
         const output = cached
@@ -1242,6 +1277,17 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         } finally {
           stop();
           setPhase('idle');
+        }
+      }
+
+      /* an edit or a command may have changed what earlier reads and runs returned: the same call is a new call again
+         (edit, run smoke.sh, edit, run smoke.sh) - only an immediate repeat of the command itself is still caught */
+      if((WRITE_TOOLS.has(tc.name) && !/^(error|\(declined)/.test(output ?? '')) || tc.name === 'run_command') {
+        seenCalls.clear();
+        toolCache.clear();
+        if(tc.name === 'run_command') {
+          seenCalls.set(sig, 1);
+          toolCache.set(sig, { output, round });
         }
       }
 
@@ -1774,8 +1820,8 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
 
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
-  initHarness();
-  if(harness.source) snapshotHarness();
+  initHarness(opts.root);
+  snapshotHarness();
 
   /* --provider bridge: run examples/chat-bridge ourselves and talk to it
      as an OpenAI endpoint (everything below sees provider 'openai') */
@@ -1925,12 +1971,15 @@ async function main() {
       const state = JSON.parse(stateText);
       messages = state.messages;
       baseMessageCount = state.baseMessageCount ?? 0;
+      /* from here on this is the saved session: the store of the working directory must not stand in for it */
+      saved = { messages, baseMessageCount };
       
       /* Restore opts from state, but keep CLI args */
       opts.provider = state.provider ?? opts.provider;
       opts.model = state.model ?? opts.model;
       opts.fallbackModel = state.fallbackModel ?? opts.fallbackModel;
       opts.root = state.root ?? opts.root;
+      retargetHarness(opts.root);
       opts.mode = state.mode ?? opts.mode;
       opts.temperature = state.temperature ?? opts.temperature;
       opts.numCtx = state.numCtx ?? opts.numCtx;
@@ -2023,7 +2072,7 @@ async function main() {
   }
 
   if(saved) {
-    console.log(dim(`(resumed session from ${store.path}: ${messages.length} messages)`));
+    if(!opts.resume) console.log(dim(`(resumed session from ${store.path}: ${messages.length} messages)`));
   } else if(!opts.failsafe && (opts.label !== 'bridge' || opts.scan)) {
     console.log(dim(`(scanning project layout...)`));
 
@@ -2290,6 +2339,7 @@ async function main() {
 
       prevRoot = opts.root;
       opts.root = dir;
+      retargetHarness(dir);
       sentFiles.setRoot(opts.root);
       fileExchange.setRoot(opts.root);
       control?.update({ root: opts.root });
@@ -2489,7 +2539,7 @@ async function main() {
         return void console.log(red(`error: unknown provider "${arg}" (ollama, gemini, openai, freellm, bridge)`));
       }
       /* the client, endpoint and key all depend on the provider: start a new process with it */
-      console.log(dim(`(restarting with --provider ${arg}, the conversation is kept)`));
+      console.log(waveNote(`restarting with --provider ${arg}, the conversation is kept`));
       console.log(red(await restartHook({ provider: arg })));
       return;
     }
@@ -2510,7 +2560,7 @@ async function main() {
     }
 
     if(prompt === '/restart') {
-      console.log(dim('(restarting with the current session state)'));
+      console.log(waveNote('restarting with the current session state'));
       console.log(red(await restartHook()));
       return;
     }
@@ -2865,11 +2915,11 @@ async function main() {
       const base = msgs === messages ? baseMessageCount : msgs[0]?.role === 'system' ? 1 : 0;
       const before = totalChars(msgs);
       const model = opts.handoffModel ?? HANDOFF_MODEL;
-      if(!opts.quiet) console.log(dim(`(compacting: ~${fmtNum(used)} tokens${ctxWindowNow ? ` of ${fmtNum(ctxWindowNow)}` : ''}, summarizing older turns with ${model} ...)`));
+      if(!opts.quiet) console.log(waveNote(`compacting: ~${fmtNum(used)} tokens${ctxWindowNow ? ` of ${fmtNum(ctxWindowNow)}` : ''}, summarizing older turns with ${model} ...`));
 
       const h = await buildHandoff(msgs, base, { keepTurns: keepTurns ?? opts.handoffTurns ?? 3, model, host: opts.host, port: opts.port, reason: 'compact' });
       if(!h) {
-        if(force) console.log(dim('(nothing to compact)'));
+        if(force) console.log(waveNote('nothing to compact'));
         return;
       }
 
@@ -2877,7 +2927,7 @@ async function main() {
       msgs.splice(0, msgs.length, ...h.messages);
       compactedAt.set(msgs, totalChars(msgs));
       if(msgs === messages) saveSession();
-      console.log(dim(`(compacted: ${fmtNum(before)} -> ${fmtNum(totalChars(msgs))} chars, ${count} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept)`));
+      console.log(waveNote(`compacted: ${fmtNum(before)} -> ${fmtNum(totalChars(msgs))} chars, ${count} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept`));
     } finally {
       compacting = false;
     }
@@ -2888,6 +2938,8 @@ async function main() {
   restartHook = async overrides => {
     const r = await prepareRestart(opts, messages, baseMessageCount, overrides);
     if(typeof r === 'string') return r;
+
+    if(r.moved) console.log(waveNote(`restarting from the source tree ${r.moved} (this session runs the installed copy, which does not see its edits)`));
 
     const started = Date.now();
     restarting = true;
@@ -2903,7 +2955,7 @@ async function main() {
 
     rmSync(r.backup, { force: true });
     removeSnapshot();
-    if(harness.source) purgeSnapshots();
+    purgeSnapshots();
     exit(code);
   };
 
@@ -2922,12 +2974,21 @@ async function main() {
       path,
     );
 
-    control.start();
+    try {
+      control.start();
+    } catch(e) {
+      console.log(red(`error: ${e.message}`));
+      control = null;
+      return false;
+    }
+
     tui?.drawStatus();
     console.log(dim(`(control socket: ${control.path}, session name: ${name} - ollama-repl-ctl -s ${name} send ...)`));
+    return true;
   };
 
-  if(opts.listen !== undefined) startControl(opts.listen || undefined);
+  /* a --listen that cannot be honoured ends the run: whatever should have attached would wait for nothing */
+  if(opts.listen !== undefined && !startControl(opts.listen || undefined)) exit(1);
 
   /* over a chat-bridge, a model that hits its limit hands the turn to the
      next available one by itself (lib/failover.js) */

@@ -9,6 +9,7 @@
 #   2. starts the REPL in a pty in an empty directory, sends a fixed set of
 #      commands and fails on any error, exception or unhandled rejection
 #
+# SMOKE_ARGS adds options to the REPL's command line (the restart passes its own).
 # Exit status: 0 all good, 1 a check failed (the output says which).
 # Used by hand, and by the self-restart (prepareRestart in repl.js).
 
@@ -30,7 +31,8 @@ OUT=$(cd "$DIR" && qjsm test-rawcolor.js 2>&1) || { echo "FAIL rawcolor: $OUT"; 
 
 # 2. the REPL starts and runs commands
 WORK=$(mktemp -d) || exit 1
-trap 'rm -rf "$WORK"' EXIT
+SOCK=/tmp/or-sm-$$.s # short: the installed qjsm binds only the first 26 bytes of a socket path
+trap 'rm -rf "$WORK" "$SOCK"' EXIT
 cd "$WORK" || exit 1
 
 LOG=$WORK/out.txt
@@ -40,7 +42,7 @@ LOG=$WORK/out.txt
     printf '%s\r' "$c"
     sleep 1
   done
-} | timeout 60 script -qec "qjsm '$REPL'" /dev/null > "$LOG" 2>&1
+} | timeout 60 script -qec "qjsm '$REPL' --listen '$SOCK' $SMOKE_ARGS" /dev/null > "$LOG" 2>&1
 STATUS=$?
 
 # the pty output without escape sequences

@@ -227,3 +227,9 @@
     import { WebSocketStream } from './lib/websocketstream.js';
     const t = (await (await fetch('http://127.0.0.1:9222/json')).json()).find(t => t.type == 'page');
     await new WebSocketStream(t.webSocketDebuggerUrl).opened;   // rejects: HS: ws upgrade response not 101
+
+- sockaddr-unix-length (../qjs-modules/quickjs-sockets.c:280): in the installed qjsm (757b576bf8ab-dirty, 2026-11-19) a Unix socket address is bound with length 28, so only the first 26 bytes of the path count: bind() of /run/user/1000/ollama-repl/1.sock binds the directory /run/user/1000/ollama-repl and fails with EADDRINUSE, and new SockAddr(AF_UNIX, path) leaves sun_path zero (the shared empty abstract name: the first listener gets it, a client connects to whichever process holds it). looks like the build lacks HAVE_AF_UNIX for sockaddr_size(). ollama-repl works around it (lib/control-socket.js unixAddr(), short default path o<pid>.s); a session started before that holds the abstract name and has to be restarted.
+
+    import { AF_UNIX, SOCK_STREAM, SockAddr, Socket } from 'sockets';
+    new Socket(AF_UNIX, SOCK_STREAM).bind(new SockAddr(AF_UNIX, '/run/user/1000/ollama-repl/1.sock'));   // EADDRINUSE
+    new SockAddr(AF_UNIX).byteLength   // 28, a good build says 110

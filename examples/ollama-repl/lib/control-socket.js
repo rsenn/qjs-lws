@@ -3,7 +3,7 @@
  * running, interactive ollama-repl and read what it prints - the same
  * session the user sees on the terminal, not a fresh conversation.
  *
- * Unix stream socket at `<dir>/<pid>.sock` plus `<dir>/<pid>.json` (what a
+ * Unix stream socket at `<runtime dir>/o<pid>.s` (short: see unixAddr()) plus `<dir>/<pid>.json` (what a
  * client needs to pick a session). Client -> server: plain text, one input
  * line per line. Server -> client: one JSON object per line:
  *   {type:'hello', ...info, busy}   on connect
@@ -17,8 +17,34 @@
 import { mkdir, setReadHandler, kill, getpid, readdir } from 'os';
 import { rmSync } from 'fs';
 import { getenv, loadFile, open } from 'std';
-import { TextDecoder } from 'textcode';
+import { TextDecoder, TextEncoder } from 'textcode';
 import { AF_UNIX, SOCK_STREAM, SockAddr, Socket } from 'sockets';
+
+/**
+ * How many bytes of a socket path the sockets binding binds: the size of its SockAddr minus the family. A
+ * qjsm built without HAVE_AF_UNIX (checked 2026-11-19, qjsm 757b576bf8ab-dirty, BUGS: sockaddr-unix-length)
+ * has 28 bytes, so 26: bind() then cuts a longer path (/run/user/1000/ollama-repl/123.sock becomes the
+ * directory /run/user/1000/ollama-repl and fails with EADDRINUSE); a good build has 110 bytes, 107 of path.
+ */
+export function sockPathLimit() {
+  return Math.min(107, new SockAddr(AF_UNIX).byteLength - 2);
+}
+
+/**
+ * sockaddr_un for `path`, built from the raw struct: `new SockAddr(AF_UNIX, path)` leaves sun_path zero in
+ * that build and binds the shared empty abstract name (the first session gets it, every other one fails with
+ * EADDRINUSE, and a client connects to whichever session holds it). Refuses a path the binding would cut.
+ */
+export function unixAddr(path) {
+  const bytes = new TextEncoder().encode(path);
+  const limit = sockPathLimit();
+  if(bytes.length > limit) throw new Error(`the socket path is ${bytes.length} bytes, this qjsm binds at most ${limit} of a Unix socket path: ${path}`);
+
+  const buf = new ArrayBuffer(110);
+  new DataView(buf).setUint16(0, AF_UNIX, true);
+  new Uint8Array(buf, 2).set(bytes);
+  return new SockAddr(buf);
+}
 
 /* rmSync throws on a missing file, the sock/json files often are */
 const remove = path => rmSync(path, { force: true });
@@ -63,7 +89,7 @@ export class ControlSocket {
    * @param {object} info  fields published for clients (model, root, ...)
    * @param {(line: string) => void} onLine  a client submitted a line
    * @param {() => boolean} busy  whether a line is being handled now
-   * @param {string} [path]  socket path; default <controlDir()>/<pid>.sock
+   * @param {string} [path]  socket path; default o<pid>.s in the runtime directory (controlDir()'s parent), short enough to be bound whole
    */
   constructor(info, onLine, busy, path) {
     const dir = controlDir();
@@ -71,7 +97,7 @@ export class ControlSocket {
     mkdir(dir, 0o700);
 
     const pid = getpid();
-    this.path = path ?? `${dir}/${pid}.sock`;
+    this.path = path ?? `${dir.slice(0, dir.lastIndexOf('/'))}/o${pid}.s`;
     this.#infoPath = `${dir}/${pid}.json`;
     this.#info = { pid, sock: this.path, startedAt: new Date().toISOString(), ...info };
     this.#onLine = onLine;
@@ -79,11 +105,19 @@ export class ControlSocket {
   }
 
   start() {
+    const addr = unixAddr(this.path); // refuses a path longer than a sockaddr_un holds
+
     remove(this.path);
 
     const srv = (this.#srv = new Socket(AF_UNIX, SOCK_STREAM));
-    srv.bind(new SockAddr(AF_UNIX, this.path));
-    srv.listen(4);
+
+    try {
+      srv.bind(addr);
+      srv.listen(4);
+    } catch(e) {
+      throw new Error(`cannot listen on ${this.path}: ${e?.message || e?.code || e}`);
+    }
+
     setReadHandler(srv.fd, () => this.#accept());
 
     const f = open(this.#infoPath, 'w');

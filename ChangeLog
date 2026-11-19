@@ -1,5 +1,11 @@
 2026-11-19  Roman Senn  <roman.l.senn@gmail.com>
 
+	* .gitignore: Ignore examples/.ollama-repl-snap-*, the startup
+	snapshot a running ollama-repl keeps for its self-restart fallback.
+
+	* BUGS: Add sockaddr-unix-length (the installed qjsm binds only 26
+	bytes of a Unix socket path; ollama-repl works around it).
+
 	* BUGS: Remove ollama-repl-unhandled-syscallerror-at-startup (the
 	control socket called fs.rmSync on a path that did not exist yet; fixed
 	in examples/ollama-repl by passing force).  Add
