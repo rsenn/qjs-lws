@@ -198,10 +198,17 @@ export class Gateway {
     ].join('\n');
   }
 
+  /** who answered /usage: 'freellmapi', or the `source` it names ('chat-bridge') */
+  kind = null;
+
   /** @returns {Promise<boolean>} whether the endpoint answers /usage the freellmapi way */
   async detect() {
     try {
-      this.enabled = (await this.#client.getJSON('/usage'))?.object === 'usage';
+      const u = await this.#client.getJSON('/usage');
+      /* a chat-bridge answers the same endpoint (its own counters, source: 'chat-bridge'): it has no auto routing,
+         dashboard or sticky sessions, so it is not a gateway for the harness until the backend interface exists */
+      this.kind = u?.source ?? 'freellmapi';
+      this.enabled = u?.object === 'usage' && this.kind !== 'chat-bridge';
     } catch(e) {
       this.enabled = false;
     }

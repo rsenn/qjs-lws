@@ -1,0 +1,16 @@
+{
+ "providers": [
+  {
+   "platform": "aihorde",
+   "name": "AI Horde",
+   "status": "healthy",
+   "keys": 1
+  }
+ ],
+ "counts": {
+  "healthy": 18,
+  "rate_limited": 6,
+  "invalid": 0,
+  "unknown": 4
+ }
+}

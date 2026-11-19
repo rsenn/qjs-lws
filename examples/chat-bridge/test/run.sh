@@ -39,12 +39,21 @@ wait_port "$CDP" && wait_port "$SITE" || exit 2
 # Chrome starts with one, two more make three chats possible
 for _ in 1 2; do curl -s -X PUT "http://127.0.0.1:$CDP/json/new?about:blank" >/dev/null; done
 
-CHAT_BRIDGE_SITES="$W/sites.json" qjsm "$HERE/../chat-bridge.js" --port "$CDP" --listen "$BRIDGE" --idle 1 --timeout 10 serve >"$W/bridge.log" 2>&1 </dev/null &
+CHAT_BRIDGE_STATE="$W/state.json" CHAT_BRIDGE_SITES="$W/sites.json" qjsm "$HERE/../chat-bridge.js" --port "$CDP" --listen "$BRIDGE" --idle 1 --timeout 10 serve >"$W/bridge.log" 2>&1 </dev/null &
 PIDS+=($!)
 wait_port "$BRIDGE" || { cat "$W/bridge.log"; exit 2; }
 
-qjsm "$HERE/shape.js" "http://127.0.0.1:$BRIDGE/v1" fake || exit 1
 qjsm "$HERE/probe.js" "http://127.0.0.1:$BRIDGE/v1"
 rc=$?
+# last: the limit test of the probe has made the learned quota of the fake site visible
+qjsm "$HERE/shape.js" "http://127.0.0.1:$BRIDGE/v1" fake || rc=1
+# a restart keeps the limit the probe ran into (state.json): the site is still exhausted, with its reset time
+if [ $rc -eq 0 ]; then
+  kill "${PIDS[-1]}"; wait "${PIDS[-1]}" 2>/dev/null; unset 'PIDS[-1]'
+  CHAT_BRIDGE_STATE="$W/state.json" CHAT_BRIDGE_SITES="$W/sites.json" qjsm "$HERE/../chat-bridge.js" --port "$CDP" --listen "$BRIDGE" --idle 1 --timeout 10 serve >>"$W/bridge.log" 2>&1 </dev/null &
+  PIDS+=($!)
+  wait_port "$BRIDGE" || { cat "$W/bridge.log"; exit 2; }
+  if curl -s "http://127.0.0.1:$BRIDGE/v1/models" | grep -q '"execution_status":"exhausted"'; then echo "✅ a restart keeps the cooldown"; else echo "❌ a restart forgot the cooldown"; rc=1; fi
+fi
 [ $rc -ne 0 ] && { echo "--- bridge log"; tail -20 "$W/bridge.log"; }
 exit $rc

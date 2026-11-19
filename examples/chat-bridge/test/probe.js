@@ -108,6 +108,21 @@ await check('a limit notice is a 429 rate_limit_exceeded with Retry-After', asyn
   expect(+res.headers.get('retry-after') == 10800, 'retry-after ' + res.headers.get('retry-after'));
 });
 
+await check('the counters, the health and the learned quota show the refusal', async () => {
+  const get = async path => (await fetch(`${base}/${path}`)).json();
+  const u = await get('usage');
+  const fake = u.byPlatform.find(p => p.platform == 'fake');
+  expect(u.object == 'usage' && u.source == 'chat-bridge' && fake?.requests >= 5 && fake.tokens > 0, JSON.stringify(u));
+
+  const p = (await get('providers')).providers.find(p => p.platform == 'fake');
+  expect(p.status == 'rate_limited' && p.resume_at && /limit/.test(p.last_error), JSON.stringify(p));
+  expect(p.success_rate > 0 && p.success_rate < 1 && p.median_ms >= 0, `success ${p.success_rate} median ${p.median_ms}`);
+
+  /* what the fake site took before it refused is its learned budget */
+  const pool = (await get('quota-forecast')).pools.find(q => q.pool == 'fake');
+  expect(pool?.limit >= 3 && pool.remaining == pool.limit && pool.reset_at, JSON.stringify(pool));
+});
+
 await check('a cooling site is execution_status exhausted with a reset time', async () => {
   const m = (await (await fetch(`${base}/models`)).json()).data.find(m => m.id == 'fake');
   expect(m.execution_status == 'exhausted' && m.available === false && m.resets_at, JSON.stringify(m));

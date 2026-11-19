@@ -231,6 +231,10 @@ presses Enter. Still, three guards keep it that way.
 | method, path | behaviour |
 |---|---|
 | `GET /v1/models` | one entry per active site, `owned_by: "chat-bridge"`, in the shape of a freellmapi entry: `name`, `context_window` and `context_length` (only where the window is known), `execution_status` (`ready`, `exhausted` on cooldown, `needsKey` when the billing guard or a login blocks it), `supported_parameters`, `capabilities` (`tools`, `vision`, `reasoning`, `stream`), plus `available`, `billing`, `max_prompt_chars` and, while unavailable, `unavailable` (kind) and `resets_at` |
+| `GET /v1/usage` | the month's ledger as a freellmapi gateway shapes it (`object: "usage"`, `requests`, `tokens` estimated, `byPlatform` per site, `resetsAt`), plus `source: "chat-bridge"` |
+| `GET /v1/providers` | health per site: `status` (`healthy`, `rate_limited`, `logged_out`, `billing_guard`), `keys: 1`, `resume_at`, `requests_remaining_pct` (once a budget is learned), `last_error`, `tabs`, `median_ms`, `success_rate`; `counts` per status |
+| `GET /v1/quota-forecast` | a pool per site whose budget was learned (limit, used, remaining, `reset_at`, `low_balance`) |
+| `GET /v1/health` | `{ status: "ok", ready: N }` |
 | `POST /v1/chat/completions` | OpenAI chat completion; `messages`, `model`, `stream`, `tools` are honoured |
 
 Everything else returns 404. Fields that are accepted and ignored:
@@ -245,6 +249,26 @@ known site has the headers `x-routed-via: SITE/default`, `x-request-id` (the
 
 Errors: bad JSON → 400, no messages → 400, tab/site problems → 502, no reply
 before `--timeout` → 504, site refusals as in [Refusals](#refusals).
+
+### Counters, learned budgets and the state file
+
+The bridge counts per site and per month: requests, successes, refusals by
+kind, prompt and reply characters (tokens are characters / 4, estimated),
+the latency of the last 20 answers and the last error. A site's **budget**
+is learned, not configured: when it refuses with a limit, the messages sent
+since its previous limit are recorded as its budget and the notice's time as
+its window. From then on completions carry `x-ratelimit-limit`,
+`x-ratelimit-remaining` and `x-ratelimit-reset` (an estimate: the window the
+last notice named, else a day) and `/v1/quota-forecast` lists the pool. A
+fresh install knows no budget until a site has refused once.
+
+Counters, learned budgets and the running cooldowns are written to
+`$CHAT_BRIDGE_STATE` (default `~/.cache/chat-bridge/state.json`) after every
+request, so a restart forgets neither the limits nor a cooldown. A new month
+resets the counters and keeps the learned budgets. The ollama-repl harness
+does not treat a bridge as a gateway yet (`/v1/usage` has `source:
+"chat-bridge"`), that comes with the backend interface (step 3 of
+doc/HARNESS.md).
 
 ### Site table entry
 

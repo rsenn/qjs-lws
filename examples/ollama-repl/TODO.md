@@ -2,9 +2,9 @@
 
 ## Next tasks (recorded 2026-11-19, in this order)
 
-State: harness step 1 of the chat-bridge plan is done (24dabc0). Open:
+State: harness steps 1 (24dabc0) and 2 of the chat-bridge plan are done. Open:
 
-1. [ ] chat-bridge harness step 2: counters, learned budgets, `/v1/usage`,
+1. [x] (done 2026-11-19, see chat-bridge/TODO.md Done) chat-bridge harness step 2: counters, learned budgets, `/v1/usage`,
    `/v1/providers`, `/v1/quota-forecast`, persisted cooldowns,
    `x-ratelimit-*` (chat-bridge/doc/HARNESS.md section 4, chat-bridge/TODO.md).
    Detail to settle first: the five open questions at the end of HARNESS.md

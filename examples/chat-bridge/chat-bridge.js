@@ -49,7 +49,7 @@ import { ReadableStream } from '../../lib/lws/streams.js';
 import { URL } from '../../lib/lws/url.js';
 import { extractCalls } from './tool-calls.js';
 import { TextDecoder } from 'textcode';
-import { setTimeout, signal, SIGINT, SIGTERM, mkdir } from 'os';
+import { setTimeout, signal, SIGINT, SIGTERM, mkdir, rename } from 'os';
 import { getenv, exit, loadFile, open as fopen } from 'std';
 
 /* selectors verified live (2026-11) for deepseek, qwen, gemini, kimi,
@@ -437,6 +437,96 @@ async function recordChat(site, name, chat) {
   saveChats(list);
 }
 
+/* what the bridge counts per site, kept in $CHAT_BRIDGE_STATE (default ~/.cache/chat-bridge/state.json) together
+   with the cooldowns, so a restart forgets neither:
+     { version: 1, month: '2026-11', sites: { NAME: {
+         requests, ok, failed, refusals: { kind: n }, promptChars, replyChars, tokens (estimated),
+         lat: [ms of the last 20 answers], lastOk, lastError: { kind, message, at },
+         sent: messages since the last limit (or the start), learned: { budget, windowSec } } },
+       cooldowns: { NAME: { until, kind, message, retry } } }
+   `learned.budget` is what the site took before it refused: the messages sent since the previous refusal (a
+   fresh install knows nothing until a site has refused once); `windowSec` the reset time its notice named. */
+const STATE_FILE = getenv('CHAT_BRIDGE_STATE') || `${getenv('HOME') ?? '.'}/.cache/chat-bridge/state.json`;
+const monthOf = (t = Date.now()) => new Date(t).toISOString().slice(0, 7);
+const LAT_KEEP = 20;
+
+class Stats {
+  data = { version: 1, month: monthOf(), sites: {}, cooldowns: {} };
+
+  constructor(file = STATE_FILE) {
+    this.file = file;
+    try {
+      const d = JSON.parse(loadFile(file) ?? 'null');
+      if(d?.version == 1) this.data = d;
+    } catch(e) {}
+    this.#roll();
+  }
+
+  /* a new month starts the counters again, the learned limits stay */
+  #roll() {
+    const m = monthOf();
+    if(this.data.month == m) return;
+    for(const s of Object.values(this.data.sites)) Object.assign(s, { requests: 0, ok: 0, failed: 0, refusals: {}, promptChars: 0, replyChars: 0, tokens: 0 });
+    this.data.month = m;
+  }
+
+  site(name) {
+    this.#roll();
+    return (this.data.sites[name] ??= { requests: 0, ok: 0, failed: 0, refusals: {}, promptChars: 0, replyChars: 0, tokens: 0, lat: [], lastOk: null, lastError: null, sent: 0, learned: null });
+  }
+
+  /** one finished request: ok, or the refusal kind / 'error' */
+  record(name, { ok, ms, promptChars = 0, replyChars = 0, kind, message }) {
+    const s = this.site(name);
+    s.requests++;
+    s.promptChars += promptChars;
+    s.replyChars += replyChars;
+    s.tokens += Math.ceil(promptChars / 4) + Math.ceil(replyChars / 4);
+
+    if(ok) {
+      s.ok++;
+      s.sent++;
+      s.lastOk = new Date().toISOString();
+      s.lat.push(ms);
+      if(s.lat.length > LAT_KEEP) s.lat.shift();
+    } else {
+      s.failed++;
+      s.refusals[kind] = (s.refusals[kind] ?? 0) + 1;
+      s.lastError = { kind, message: String(message ?? '').slice(0, 200), at: new Date().toISOString() };
+    }
+    this.save();
+  }
+
+  /** the site refused with a limit: what it took since the last one is its budget, the notice's time its window */
+  limited(name, retry) {
+    const s = this.site(name);
+    if(s.sent > 0) s.learned = { budget: s.sent, ...(retry ? { windowSec: Math.round(retry) } : s.learned?.windowSec ? { windowSec: s.learned.windowSec } : {}) };
+    s.sent = 0;
+    this.save();
+  }
+
+  median(name) {
+    const l = [...(this.data.sites[name]?.lat ?? [])].sort((a, b) => a - b);
+    return l.length ? l[l.length >> 1] : null;
+  }
+
+  setCooldown(name, c) {
+    if(c) this.data.cooldowns[name] = { until: c.until, kind: c.err.kind, message: c.err.message, retry: c.err.retry };
+    else delete this.data.cooldowns[name];
+    this.save();
+  }
+
+  save() {
+    try {
+      mkdir(this.file.replace(/\/[^\/]*$/, ''), 0o755);
+      const f = fopen(`${this.file}.tmp`, 'w');
+      f.puts(JSON.stringify(this.data));
+      f.close();
+      rename(`${this.file}.tmp`, this.file);
+    } catch(e) {}
+  }
+}
+
 class Bridge {
   chats = new Map(); /* tab id -> Chat */
   pool = new Map(); /* site name -> Chat[] of tabs we own */
@@ -448,6 +538,12 @@ class Bridge {
 
   constructor(o) {
     this.o = o;
+    this.stats = new Stats();
+
+    /* a limit that was still running when the bridge stopped */
+    for(const [name, c] of Object.entries(this.stats.data.cooldowns))
+      if(c.until > Date.now() && ACTIVE[name]) this.cooldown.set(name, { until: c.until, err: new SiteRefusal(c.kind, c.message, c.retry) });
+      else this.stats.setCooldown(name, null);
   }
 
   url(path) {
@@ -587,11 +683,17 @@ class Bridge {
   cooling(name) {
     const c = this.cooldown.get(name);
     if(c && c.until > Date.now()) return c;
+    if(c) this.stats.setCooldown(name, null);
     this.cooldown.delete(name);
   }
 
   refused(name, err) {
-    if(err.retry) this.cooldown.set(name, { until: Date.now() + err.retry * 1000, err });
+    if(err.retry) {
+      const c = { until: Date.now() + err.retry * 1000, err };
+      this.cooldown.set(name, c);
+      this.stats.setCooldown(name, c);
+    }
+    if(err.kind == 'rate_limit') this.stats.limited(name, err.retry);
     if(err.kind == 'rate_limit') this.retire(name);
   }
 
@@ -612,6 +714,84 @@ class Bridge {
       pool.splice(i, 1);
       await this.#browser?.send('Target.closeTarget', { targetId: c.targetId }).catch(() => {});
     }
+  }
+
+  /* one site's health for /v1/providers: healthy, rate_limited, logged_out or billing_guard */
+  status(id) {
+    const c = this.cooling(id);
+    if(ACTIVE[id].billing == 'metered' && !this.o.allowPaid) return 'billing_guard';
+    if(c) return c.err.kind == 'login' ? 'logged_out' : 'rate_limited';
+    return 'healthy';
+  }
+
+  /* what is left of the learned budget: { limit, remaining, pct } or null while the site never refused */
+  budget(id) {
+    const s = this.stats.data.sites[id];
+    const limit = s?.learned?.budget;
+    if(!limit) return null;
+    const remaining = Math.max(0, limit - s.sent);
+    return { limit, remaining, pct: Math.round((100 * remaining) / limit) };
+  }
+
+  /* GET /v1/usage: the month's ledger in the shape of a freellmapi gateway, tokens estimated */
+  usage() {
+    const d = this.stats.data;
+    const sites = Object.entries(d.sites).filter(([id]) => ACTIVE[id]);
+    const next = new Date(`${d.month}-01T00:00:00Z`);
+    next.setUTCMonth(next.getUTCMonth() + 1);
+
+    return {
+      object: 'usage',
+      source: 'chat-bridge',
+      month: d.month,
+      requests: sites.reduce((n, [, s]) => n + s.requests, 0),
+      tokens: sites.reduce((n, [, s]) => n + s.tokens, 0),
+      tokens_estimated: true,
+      resetsAt: next.toISOString(),
+      byPlatform: sites.map(([platform, s]) => ({ platform, requests: s.requests, tokens: s.tokens })),
+      byKey: [],
+    };
+  }
+
+  /* GET /v1/providers: health of every site */
+  providers() {
+    const providers = Object.keys(ACTIVE).map(id => {
+      const s = this.stats.site(id);
+      const c = this.cooling(id);
+      const b = this.budget(id);
+      const pool = this.pool.get(id) ?? [];
+
+      return {
+        platform: id,
+        name: ACTIVE[id].name ?? id,
+        status: this.status(id),
+        keys: 1,
+        ...(c ? { resume_at: new Date(c.until).toISOString() } : {}),
+        ...(b ? { requests_remaining_pct: b.pct } : {}),
+        last_error: s.lastError ? `${s.lastError.kind}: ${s.lastError.message}` : null,
+        tabs: { open: pool.length, busy: pool.filter(t => t.busy).length },
+        median_ms: this.stats.median(id),
+        success_rate: s.requests ? Math.round((1000 * s.ok) / s.requests) / 1000 : null,
+      };
+    });
+    const counts = { healthy: 0, rate_limited: 0, invalid: 0, unknown: 0 };
+    for(const p of providers) counts[p.status] = (counts[p.status] ?? 0) + 1;
+
+    return { object: 'list', source: 'chat-bridge', counts, providers };
+  }
+
+  /* GET /v1/quota-forecast: a pool per site whose limit was learned from a refusal */
+  forecast() {
+    const pools = [];
+
+    for(const id of Object.keys(ACTIVE)) {
+      const b = this.budget(id);
+      if(!b) continue;
+      const c = this.cooling(id);
+      pools.push({ platform: id, pool: id, limit: b.limit, used: b.limit - b.remaining, remaining: b.remaining, remaining_pct: b.pct, reset_at: c ? new Date(c.until).toISOString() : null, low_balance: b.pct <= 20, seconds_until_reset: c ? Math.max(0, Math.round((c.until - Date.now()) / 1000)) : null, rate_per_min: null, estimated_exhaustion_at: null, learned: true });
+    }
+
+    return { object: 'quota_forecast', source: 'chat-bridge', generated_at: new Date().toISOString(), low_balance_threshold: { pct: 0.2, absolute: 0, absolute_min_limit: 0 }, pools };
   }
 
   models() {
@@ -691,13 +871,27 @@ function completions(bridge) {
       gen = chat.ask(full);
     } catch(e) {
       if(chat) bridge.release(chat);
+      bridge.stats.record(name, { ok: false, ms: Date.now() - t0, promptChars: full?.length, kind: 'error', message: e.message });
       return json({ error: { message: e.message } }, 502);
     }
+
+    /* the counters of the site: one record per request that reached it */
+    const done = (ok, reply = '', e) => bridge.stats.record(name, { ok, ms: Date.now() - t0, promptChars: full.length, replyChars: reply.length, kind: e?.kind ?? 'error', message: e?.message });
 
     const id = `chatcmpl-${Date.now().toString(36)}`,
       created = Math.floor(Date.now() / 1000);
     /* what the harness reads of every answer: the site that served it, the id, the time; tokens are estimated (chars / 4) */
-    const hdr = () => ({ 'x-routed-via': `${name}/default`, 'x-request-id': id, 'x-response-ms': String(Date.now() - t0) });
+    const hdr = () => {
+      const b = bridge.budget(name);
+      const w = bridge.stats.data.sites[name]?.learned?.windowSec;
+      return {
+        'x-routed-via': `${name}/default`,
+        'x-request-id': id,
+        'x-response-ms': String(Date.now() - t0),
+        /* the learned budget; the reset is an estimate (the window as the last notice named it, else a day from now) */
+        ...(b ? { 'x-ratelimit-limit': String(b.limit), 'x-ratelimit-remaining': String(b.remaining), 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + (w ?? 86400)) } : {}),
+      };
+    };
     const usageOf = reply => {
       const prompt = Math.ceil(full.length / 4);
       const completion = Math.ceil(reply.length / 4);
@@ -721,6 +915,7 @@ function completions(bridge) {
         for await (const t of gen) text = t;
       } catch(e) {
         chat.history = [];
+        done(false, '', e);
         if(e instanceof SiteRefusal) {
           bridge.refused(name, e);
           return refusalResponse(e, e.retry, hdr());
@@ -730,6 +925,7 @@ function completions(bridge) {
         await recordChat(ACTIVE[name], name, chat).catch(() => {});
         bridge.release(chat);
       }
+      done(true, text);
       const msg = toMessage(text);
       remember(msg);
       const finish = msg.tool_calls ? 'tool_calls' : 'stop';
@@ -747,6 +943,7 @@ function completions(bridge) {
     } catch(e) {
       chat.history = [];
       bridge.release(chat);
+      done(false, '', e);
       if(e instanceof SiteRefusal) {
         bridge.refused(name, e);
         return refusalResponse(e, e.retry, hdr());
@@ -772,10 +969,12 @@ function completions(bridge) {
                 sent = t;
               }
             }
+            done(true, sent);
             remember({ role: 'assistant', content: sent });
             c.enqueue(chunk({}, 'stop') + `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [], usage: usageOf(sent) })}\n\n` + 'data: [DONE]\n\n');
           } catch(e) {
             chat.history = [];
+            done(false, sent, e);
             if(e instanceof SiteRefusal) bridge.refused(name, e);
             c.enqueue(`data: ${JSON.stringify({ error: { message: e.message, ...(REFUSALS[e.kind] ? { type: REFUSALS[e.kind].type, code: REFUSALS[e.kind].code } : {}) } })}\n\n`);
           }
@@ -857,6 +1056,10 @@ async function main() {
         async fetch(req) {
           const path = new URL(req.url).pathname.replace(/^\/v1/, '');
           if(path == '/models') return json({ object: 'list', data: bridge.models() });
+          if(path == '/usage') return json(bridge.usage());
+          if(path == '/providers') return json(bridge.providers());
+          if(path == '/quota-forecast') return json(bridge.forecast());
+          if(path == '/health') return json({ status: 'ok', source: 'chat-bridge', ready: bridge.providers().providers.filter(p => p.status == 'healthy').length });
           if(path == '/chat/completions' && req.method == 'POST') return handle(req);
           return json({ error: { message: 'not found' } }, 404);
         },

@@ -84,7 +84,7 @@ export function formatMeta(meta) {
     ['detail', meta.detail],
     ['compress', meta.compress],
     ['cache', meta.cache],
-    ['rate limit', meta.rateLimit ? `${meta.rateLimit.remaining}/${meta.rateLimit.limit} left, resets ${new Date(meta.rateLimit.reset * 1000).toISOString().slice(11, 19)}Z` : undefined],
+    ['rate limit', meta.rateLimit ? `${meta.rateLimit.remaining}/${meta.rateLimit.limit} left${Number.isFinite(meta.rateLimit.reset) ? `, resets ${new Date(meta.rateLimit.reset * 1000).toISOString().slice(11, 19)}Z` : ''}` : undefined],
     ['at', meta.at ? new Date(meta.at).toISOString() : undefined],
   ];
 

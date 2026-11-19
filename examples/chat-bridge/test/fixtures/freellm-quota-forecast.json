@@ -1,0 +1,23 @@
+{
+ "generated_at": "2026-11-19T18:47:41.820Z",
+ "low_balance_threshold": {
+  "pct": 0.1,
+  "absolute": 20,
+  "absolute_min_limit": 200
+ },
+ "pools": [
+  {
+   "platform": "groq",
+   "pool": "groq::account",
+   "used": 0,
+   "remaining": 1000,
+   "limit": 1000,
+   "remaining_pct": 100,
+   "reset_at": null,
+   "low_balance": false,
+   "seconds_until_reset": null,
+   "rate_per_min": null,
+   "estimated_exhaustion_at": null
+  }
+ ]
+}

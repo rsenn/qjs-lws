@@ -182,6 +182,20 @@ Several sites host many models. Proposal: put the model in the request's
 
 ## Done
 
+- harness step 2, counters and usage endpoints (2026-11-19): `Stats` in
+  chat-bridge.js (per site and month: requests, ok, refusals by kind,
+  characters, estimated tokens, latency of the last 20, last error, messages
+  since the last limit), learned budget and window on a rate_limit refusal,
+  `$CHAT_BRIDGE_STATE` persistence including running cooldowns,
+  `/v1/usage`, `/v1/providers`, `/v1/quota-forecast`, `/v1/health`, and
+  `x-ratelimit-*` headers from the learned budget. test/shape.js compares all
+  four answers with saved gateway answers (test/fixtures/freellm-*.json);
+  probe.js and run.sh check the counters, the learned quota and that a
+  restart keeps the cooldown. Decisions: same shapes plus `source:
+  'chat-bridge'` (identity), no shipped table of limits, `Gateway.detect()`
+  excludes the bridge until step 3. Not done: `x-ratelimit-reset` is an
+  estimate, no per-day or per-window counters (only the month), no
+  `/v1/health` details, the harness does not read any of it yet
 - harness step 1, model metadata (2026-11-19): `SITES` fields `name`,
   `context`, `capabilities` (tools false for chatgpt, duck, deepai; duck's
   window from its 16000 character limit); `/v1/models` entries with `name`,

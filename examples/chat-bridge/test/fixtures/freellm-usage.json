@@ -1,0 +1,26 @@
+{
+ "object": "usage",
+ "month": "2026-11",
+ "resetsAt": "2026-12-01T00:00:00.000Z",
+ "requests": 5937,
+ "tokens": 513308091,
+ "byPlatform": [
+  {
+   "platform": "kilo",
+   "requests": 5354,
+   "tokens": 475146341
+  }
+ ],
+ "byKey": [
+  {
+   "keyId": 7,
+   "platform": "kilo",
+   "label": "",
+   "enabled": true,
+   "requests": 5354,
+   "tokens": 475146341,
+   "requestCap": null,
+   "tokenCap": null
+  }
+ ]
+}
