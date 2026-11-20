@@ -79,6 +79,7 @@ import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSet
 import { findPeers, askPeer, peerAnswer } from './lib/peer.js';
 import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './lib/skills.js';
 import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
+import { gatewayReport, reportText } from './lib/gateway-report.js';
 import { loadAvailability, kindsText, limitsText, limitedText, backText } from './lib/availability.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
@@ -86,7 +87,7 @@ import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
-import { note, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
+import { highlight, note, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
@@ -819,7 +820,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   const t0 = Date.now();
   const stopSpinner = piped || opts.quiet ? () => {} : startSpinner();
   /* closing line of a round: time, and with a gateway's metadata where it went and the tokens */
-  const cogitated = result => opts.quiet || console.log(dim(`${doneQuip((Date.now() - t0) / 1000)}${result?.meta ? ` - ${routeLine(result.meta)}` : ''}`) + '\n');
+  const cogitated = result => opts.quiet || console.log(highlight(`${doneQuip((Date.now() - t0) / 1000)}${result?.meta ? ` - ${routeLine(result.meta)}` : ''}`, { fg: '#9ca3af' }) + '\n');
 
   abortRef.current = () => client.abort();
 
@@ -1637,7 +1638,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /usage          - tokens and requests of this session, per routed model and platform
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
 /requests [N]   - the last N (10) requests of this session, one line each
-/gateway [usage|providers|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login] - ask the freellmapi gateway: month usage of all clients, upstream health, provider quotas, per-model quotas (dashboard session), models ready now; limits shows tokens and requests used per minute/day/month and when each limit ends, limited lists the models that cannot serve a request now and when they are back (/model list shows them too, not selectable). login fetches the dashboard token from the browser (CDP, --cdp-port), opening a dashboard tab if needed
+/gateway [usage|status|providers|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login] - ask the freellmapi gateway: month usage of all clients, upstream health, provider quotas, per-model quotas (dashboard session), models ready now; limits shows tokens and requests used per minute/day/month and when each limit ends, limited lists the models that cannot serve a request now and when they are back (/model list shows them too, not selectable). login fetches the dashboard token from the browser (CDP, --cdp-port), opening a dashboard tab if needed
 /tools          - list the tools the model can call
 /system         - print the system prompt
 /system default [N[-M]] - (re)set it to the default prompt, or only its lines N..M
@@ -2020,7 +2021,7 @@ function completeArgs(cmd, args, word) {
       if(n === 1 && args[0] === 'off') return listSkills().map(sk => sk.name);
       return [];
     case '/gateway':
-      return n === 0 ? ['usage', 'providers', 'forecast', 'quota', 'limits', 'limited', 'models', 'login'] : [];
+      return n === 0 ? ['usage', 'status', 'providers', 'forecast', 'quota', 'limits', 'limited', 'models', 'login'] : [];
     case '/system':
       if(n === 0) return ['default', 'file', 'off'];
       return n === 1 && args[0] === 'file' ? null : [];
@@ -2151,7 +2152,7 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   const left = `${modeBadge(opts.mode, MODE_COLOR[opts.mode])} ${tc('⌂')} ${dimmed(shortPath(realpath(opts.root)[0] ?? opts.root, Math.max(12, Math.floor(cols / 4))))}${ui.verbose ? ' \x1b[33m◉ verbose\x1b[0m' : ''}${remote ? ` ${tc('⇄')} \x1b[36m${remote}\x1b[0m` : ''}`;
   const center = effective
     ? `${lime('◆')} \x1b[1m${effective}\x1b[22m${routedVia && routedVia !== effective ? dimmed(` → ${routedVia}`) : ''}${last.provider ? dimmed(` via ${last.provider}`) : ''}${effective !== opts.model && !effective.endsWith(opts.model) ? dimmed(` (asked ${opts.model})`) : ''}`
-    : `${lime('◇')} ${gateway?.enabled && !gateway.isBridge ? `${opts.model}${(prov => (prov === '-' ? '' : dimmed(` via ${prov}`)))(providerText({ name: opts.model }, availability))}` : `${opts.label ?? opts.provider}/${opts.model}`}${dimmed(' (no reply yet)')}`;
+    : `${lime('◇')} ${gateway?.enabled && !gateway.isBridge ? `${opts.model}${(prov => (prov === '-' || /^auto(:|$)/.test(opts.model) ? '' : dimmed(` via ${prov}`)))(providerText({ name: opts.model }, availability))}` : `${opts.label ?? opts.provider}/${opts.model}`}${dimmed(' (no reply yet)')}`;
 
   /* context in use after the last reply: its prompt plus its answer, else a chars/4 estimate */
   const used = last?.usage ? (last.usage.prompt ?? 0) + (last.usage.completion ?? 0) : Math.round(totalChars(messages ?? []) / 4);
@@ -2240,6 +2241,13 @@ async function main() {
   let gateway = null;
 
   /* the gateway's upstream proxy and its measured latency; the first probe runs in the background */
+  /* which providers of the gateway answer and still have models left (lib/gateway-report.js); refresh reloads the limits first */
+  const probeGateway = async refresh => {
+    if(gateway.isBridge) return note('a chat-bridge reports its sites: /gateway providers, /gateway limited');
+    if(refresh && gateway.hasLimits) availability = await loadAvailability(gateway).catch(() => availability);
+    return reportText(await gatewayReport(gateway, gateway.hasLimits ? availability : null), tui?.active ? tui.width - 6 : 100);
+  };
+
   const loadProxy = async probe => {
     try {
       proxyInfo.settings = await proxySettings(gateway);
@@ -2555,6 +2563,9 @@ async function main() {
   }
 
   console.log(piped ? 'ready!' : `\x1b[1;32m✔ ready\x1b[0m`);
+
+  /* after the banner: output printed while the gateway connects is gone once the TUI draws */
+  if(gateway?.enabled && !gateway.isBridge) console.log(await probeGateway(!availability).catch(e => note(`gateway probe failed: ${e.detail ?? e.message}`, 'warn')));
 
   // /reset clears conversation history, not the auto-loaded project scan.
   baseMessageCount = saved ? saved.baseMessageCount : messages.length;
@@ -2952,8 +2963,8 @@ async function main() {
         return void console.log(ok ? `(dashboard session from ${gateway.tokenSource}: per-model quotas on)` : `(${gateway.dashboardNote})`);
       }
 
-      const show = { usage: () => gateway.usageText(), providers: () => gateway.providersText(), forecast: () => gateway.forecastText(), quota: () => gateway.quotaText(rest.join(' ')), models: () => gateway.modelsText(rest.join(' ')), limits: () => withAvailability(av => limitsText(av, rest.join(' '))), limited: () => withAvailability(av => limitedText(av, rest.join(' '))) }[what];
-      if(!show) return void console.log('usage: /gateway [usage|providers|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login]');
+      const show = { usage: () => gateway.usageText(), status: () => probeGateway(true), providers: () => gateway.providersText(), forecast: () => gateway.forecastText(), quota: () => gateway.quotaText(rest.join(' ')), models: () => gateway.modelsText(rest.join(' ')), limits: () => withAvailability(av => limitsText(av, rest.join(' '))), limited: () => withAvailability(av => limitedText(av, rest.join(' '))) }[what];
+      if(!show) return void console.log('usage: /gateway [usage|status|providers|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login]');
 
       try {
         console.log(await show());

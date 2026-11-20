@@ -29,14 +29,75 @@ export const remoteText = text => style(text, { fg: '#8a8a8a' });
 /** the control socket line: where it listens and how to talk to it, in colour */
 export const controlNote = (path, name) => (piped ? `(control socket: ${path}, session name: ${name} - ollama-repl-ctl -s ${name} send ...)` : `${style('⇄', { fg: ACCENT })} ${style('control socket', { fg: ACCENT, bold: true })} ${style(path, { dim: true })} ${style('·', { dim: true })} ${style('session', { fg: ACCENT })} ${style(name, { fg: STOPS[1], bold: true })} ${style('·', { dim: true })} ${style(`ollama-repl-ctl -s ${name} send …`, { fg: WARN })}`);
 
+/** the colour of every file name: between pink and magenta */
+export const FILE = '#f472d0';
+
+/** colours of the generic highlighter: token counts, sizes, times, other numbers, arrows */
+export const TOKENS = '#38bdf8';
+export const SIZES = '#a78bfa';
+export const TIMES = '#fbbf24';
+export const NUMBERS = '#fdba74';
+export const ARROWS = '#a3e635';
+
+const N = String.raw`\d[\d.,]*`;
+const HL_RE = new RegExp(
+  [
+    String.raw`(?<path>(?:~?\.{0,2}\/)?(?:[\w.@+-]+\/)+[\w.@+-]*|\b[\w-]+\.(?:js|mjs|cjs|ts|json|md|c|h|cc|cpp|hpp|txt|sh|ya?ml|html|css|py|log|cmake)\b)`,
+    String.raw`(?<arrow>->|=>|<-)`,
+    String.raw`(?<tok>~?\b${N}[kM]?(?:\+${N}[kM]?)?(?= (?:tok|tokens|reasoning|cached|in|out)\b))`,
+    String.raw`(?<size>~?\b${N}[kKMG]?B?(?= (?:chars|bytes|[KMG]B)\b)|~?\b${N}[KMG]B\b|~?\b${N}G\b)`,
+    String.raw`(?<time>~?\b\d+(?:\.\d+)?(?:ms|min|s|m|h|d)\b)`,
+    String.raw`(?<num>~?\b${N}[kMG]?\b)`,
+  ].join('|'),
+  'g'
+);
+
+const ARROW = { '->': '→', '=>': '⇒', '<-': '←' };
+const HL = { path: FILE, tok: TOKENS, size: SIZES, time: TIMES, num: NUMBERS, arrow: ARROWS };
+
+/**
+ * Generic highlighter: file names in the file colour, token counts, sizes, times and other numbers each in
+ * their own, arrows drawn as → ⇒ ←; everything else in `base` (a style, may be empty).
+ *
+ * @param {string} text
+ * @param {object} [base]  style of the remaining text
+ */
+export function highlight(text, base = {}) {
+  if(piped) return String(text);
+  let out = '';
+  let at = 0;
+
+  for(const m of String(text).matchAll(HL_RE)) {
+    const kind = Object.keys(m.groups).find(k => m.groups[k] !== undefined);
+    if(m.index > at) out += style(text.slice(at, m.index), base);
+    out += style(kind === 'arrow' ? ARROW[m[0]] : m[0], kind === 'arrow' ? { fg: ARROWS, bold: true } : { fg: HL[kind] });
+    at = m.index + m[0].length;
+  }
+
+  return out + (at < text.length ? style(text.slice(at), base) : '');
+}
+
+/** kept for the callers that name it so: the highlighter with a base style */
+export const paintText = (text, base = {}) => highlight(text, base);
+
+/** a file name or path in the file colour */
+export const file = text => style(text, { fg: FILE });
+
+/** "label: rest": the label bold in `color`, the rest painted (file names, numbers) */
+function labelled(text, color) {
+  const m = /^([A-Za-z][\w ]{1,24}):( [^]*)?$/.exec(text);
+  if(!m) return paintText(text, { fg: '#cbd5e1' }, true);
+  return `${style(m[1] + ':', { fg: color, bold: true })}${m[2] ? paintText(m[2], { fg: '#cbd5e1' }, true) : ''}`;
+}
+
 /** icon and colour of each kind of note() */
 const NOTES = { info: ['ⓘ', ACCENT], ok: ['✓', '#4ade80'], warn: ['⚠', WARN], skip: ['⤼', STOPS[1]], attach: ['📎', ACCENT], link: ['⇄', ACCENT], wait: ['◌', ACCENT], resume: ['↻', STOPS[1]], quit: ['⏻', WARN] };
 
 /** a one-line message: an icon in the accent colour, then the text dimmed; piped, the old `(text)` */
-export const note = (text, kind = 'info') => (piped ? `(${text})` : `${style(NOTES[kind][0], { fg: NOTES[kind][1] })} ${style(text, { dim: true })}`);
+export const note = (text, kind = 'info') => (piped ? `(${text})` : `${style(NOTES[kind][0], { fg: NOTES[kind][1] })} ${labelled(text, NOTES[kind][1])}`);
 
 /** a status note: a wave in the accent colour, then the text dimmed */
-export const waveNote = text => `${style('≋', { fg: ACCENT })} ${style(text, { dim: true })}`;
+export const waveNote = text => `${style('≋', { fg: ACCENT })} ${labelled(text, ACCENT)}`;
 
 /** a horizontal line in the gradient, with an optional label */
 export const gradientRule = (cols, label = '') => gradient(rule(cols, { label }), STOPS);
@@ -179,7 +240,7 @@ export function toolTarget(name, args = {}) {
 }
 
 /** ● tool target, the line shown when the model calls a tool */
-export const toolLine = (name, args) => `${style('●', { fg: ACCENT })} ${style(name, { bold: true })} ${toolTarget(name, args)}`;
+export const toolLine = (name, args) => `${style('●', { fg: ACCENT })} ${style(name, { bold: true })} ${name === 'run_command' || name === 'ask_user' ? toolTarget(name, args) : paintText(toolTarget(name, args))}`;
 
 /** ⎿ what came back: the first line if short, else its size; errors red */
 export function toolResult(output) {
@@ -188,7 +249,7 @@ export function toolResult(output) {
   const error = /^error\b/.test(text);
   const shown = lines.length === 1 && text.length <= 100 ? text : `${lines.length} lines, ${text.length} chars`;
 
-  return `  ${style('⎿', { dim: true })} ${style(shown, error ? { fg: '#f87171' } : { dim: true })}`;
+  return `  ${style('⎿', { dim: true })} ${error ? style(shown, { fg: '#f87171' }) : highlight(shown, { dim: true })}`;
 }
 
 /** fraction as a bar of width cells, green, amber from 60 %, red from 85 % */

@@ -735,7 +735,7 @@ the raw events.
 - `/restart` - start a new process with the same command line and the current session (messages, model, mode, fallback model, skip list), in the same terminal.
 - `/tools`, `/stream [on|off]` - list the model's tools, show or toggle streaming
 - `/mode [NAME]`, `/verbose [on|off]` - see [Terminal interface](#terminal-interface-tui)
-- `/usage`, `/last [N]`, `/requests [N]`, `/gateway [usage|providers|forecast|quota|models [FILTER]]` - where requests went and what they cost, see [Free models through freellmapi](#free-models-through-freellmapi---provider-freellm)
+- `/usage`, `/last [N]`, `/requests [N]`, `/gateway [usage|status|providers|forecast|quota|models [FILTER]]` - where requests went and what they cost; `/gateway status` probes the gateway and shows which providers answer and how many of their models are not exhausted (also printed at startup), see [Free models through freellmapi](#free-models-through-freellmapi---provider-freellm)
 - `/system` - print the system prompt. It can also be changed mid-session
   (`/clear` removes it along with everything else; `--failsafe` starts
   without one, but still never gives the model tools):

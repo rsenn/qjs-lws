@@ -824,6 +824,8 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- gateway probe report (2026-11-20): at startup and with `/gateway status` the REPL asks /v1/providers and, with a dashboard session, the limits, and prints per provider state (healthy, rate limited with resume time, exhausted, invalid, unknown) and ready/total model rows (`lib/gateway-report.js`). Tested against the live gateway only for the startup/status text; a provider shows ready/total from the gateway's own rows, not from a real request. A chat-bridge is not covered (it has `/gateway providers`).
+
 - restarts no longer nest (2026-11-19): a process started by a restart writes
   the next command to `/tmp/ollama-repl-restart-<first pid>.json` and exits
   with 75; the first process (it holds the terminal) runs it, with the
