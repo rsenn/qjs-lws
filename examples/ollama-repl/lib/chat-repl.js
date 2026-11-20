@@ -21,8 +21,9 @@ import { in as stdin, out as stdout } from 'std';
 import { fileMode } from './match.js';
 import { expandHome } from './paths.js';
 import { REPL } from 'repl';
-import { stripAnsi, ttyRead, EAGAIN } from 'terminal';
+import { gradient, stripAnsi, ttyRead, EAGAIN } from 'terminal';
 import { Pager } from './pager.js';
+import { STOPS, remoteMark, note } from './look.js';
 import { red, yellow } from './ansi.js';
 
 /* Bright white (not bold-as-in-JS-syntax-colors - just the one plain,
@@ -38,6 +39,7 @@ import { red, yellow } from './ansi.js';
    reprinted at the start of every prompt cycle, in readlinePrintPrompt()
    - makes the typed text inherit it too. */
 const BRIGHT_WHITE = '\x1b[97m';
+const RESET = '\x1b[0m';
 
 export class ChatREPL extends REPL {
   #busy = false;
@@ -112,7 +114,7 @@ export class ChatREPL extends REPL {
     /* line editing only when input is a terminal: the base REPL decides
        from stdout alone, but a script feeding stdin needs piped mode too */
     this.piped ||= !isatty(stdin.fileno());
-    if(!this.piped) this.ps1 = BRIGHT_WHITE + this.ps1;
+    this.setPromptName(name);
     this.inspectOptions.maxStringLength = Infinity;
     this.historyLoad(); // also registers historySave() as a cleanup handler
 
@@ -187,7 +189,7 @@ export class ChatREPL extends REPL {
 
   /** New prompt text (the model name) after a /model switch. */
   setPromptName(name) {
-    this.ps1 = (this.piped ? '' : BRIGHT_WHITE) + name + '> ';
+    this.ps1 = this.piped ? name + '> ' : `${gradient('◆', STOPS.slice(0, 1))} ${BRIGHT_WHITE}${name}${RESET} ${gradient('❯❯', STOPS.slice(1))} ${BRIGHT_WHITE}`;
   }
 
   /**
@@ -354,7 +356,7 @@ export class ChatREPL extends REPL {
     if(expr === '') return false;
 
     this.historyAdd(expr);
-    if(this.#tuiOn) this.tui.write(`\n${from ? `[${from}]` : ''}\x1b[1;97m> ${expr}\x1b[0m\n`);
+    if(this.#tuiOn) this.tui.write(`\n${from === 'remote' ? `${remoteMark()} ` : from ? `[${from}]> ` : '\x1b[38;2;45;212;191m❯\x1b[0m '}\x1b[1;97m${expr}\x1b[0m\n`);
 
     /* Reset the line buffer *before* onLine() below resolves -
        termReadHandler() (repl.js) drains every currently-buffered byte in
@@ -405,7 +407,7 @@ export class ChatREPL extends REPL {
         this.#frontQueued = true;
       } else this.#queue.push(expr);
 
-      if(this.#tuiOn) this.tui.write(`\x1b[2m(${this.#front ? 'sent now, the running request is cancelled' : `queued, ${this.#queue.length} waiting`})\x1b[0m\n`);
+      if(this.#tuiOn) this.tui.write(`\x1b[2m${this.#front ? '⚡ sent now, the running request is cancelled' : `⏳ queued, ${this.#queue.length} waiting`}\x1b[0m\n`);
       this.#queueChanged();
       return true;
     }
@@ -731,7 +733,7 @@ export class ChatREPL extends REPL {
   }
 
   controlC() {
-    if(this.#tuiOn && this.cmd === '' && this.lastFun !== this.controlC) return void this.tui.write('(to exit press Ctrl+C again, Ctrl+D or type /exit)\n');
+    if(this.#tuiOn && this.cmd === '' && this.lastFun !== this.controlC) return void this.tui.write(`${note('press Ctrl+C again, Ctrl+D or type /exit to quit', 'quit')}\n`);
 
     return super.controlC();
   }

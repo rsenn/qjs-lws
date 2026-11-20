@@ -86,7 +86,7 @@ import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
-import { replyMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
+import { note, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
@@ -419,12 +419,12 @@ function isQuickJsProject(root) {
 function attachFiles(prompt, root, fileExchange) {
   const { files, skipped } = extractFileRefs(prompt, root);
 
-  if(skipped.length) console.log(dim(`(skipped, too large or unreadable: ${skipped.join(', ')})`));
+  if(skipped.length) console.log(note(`skipped, too large or unreadable: ${skipped.join(', ')}`, 'skip'));
   if(!files.length) return { text: prompt, attached: [] };
 
   const attached = files.map(f => f.path);
 
-  console.log(dim(`(attached: ${attached.join(', ')})`));
+  console.log(note(`attached: ${attached.join(', ')}`, 'attach'));
   fileExchange.recordSent(attached);
 
   return { text: `${prompt}\n\n${formatFileBlocks(files)}`, attached };
@@ -1370,7 +1370,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
          does this. Send it back to work, twice at most. */
       if(!final && opts.mode !== 'plan' && nudges < 2 && writeCount === writesAtStart && asksForChange(messages)) {
         nudges++;
-        if(!opts.quiet) console.log(dim(`(nudge: ${NUDGE})`));
+        if(!opts.quiet) console.log(note(`nudge: ${NUDGE}`));
         messages.push({ role: 'user', content: NUDGE });
         continue;
       }
@@ -1393,7 +1393,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         const output = cached
           ? `(cached result from earlier ${tc.name} call): ${cached.output}`
           : `error: you already made this exact ${tc.name} call (${seen}x) - repeating it will not change the result. Try a different approach (different arguments, read_file to re-check the current contents first) or stop and explain what is blocking you.`;
-        if(!opts.quiet) console.log(dim(`(repeated ${tc.name} call - ${cached ? 'returned cached result' : 'skipped'})`));
+        if(!opts.quiet) console.log(note(`repeated ${tc.name} call - ${cached ? 'returned cached result' : 'skipped'}`));
         log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
         messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
         continue;
@@ -2061,7 +2061,7 @@ async function showModelList(remote, known, provider, showAll = false) {
   const limited = all.filter(m => m.limited?.blocked).sort((a, b) => (a.limited.until ?? Infinity) - (b.limited.until ?? Infinity) || a.name.localeCompare(b.name));
   
   if(!models.length) {
-    return console.log('(no models available)');
+    return console.log(note('no models available', 'warn'));
   }
   
   console.log(`Models for ${provider} (${models.length} available${limited.length ? `, ${limited.length} limited` : ''}${hidden.length ? `, ${hidden.length} ${showAll ? 'without key or disabled' : 'hidden: /model list all'}` : ''}):`);
@@ -2353,7 +2353,7 @@ async function main() {
         standby.on = true;
         refreshStandby().catch(() => {});
       }
-    } else if(opts.label === 'freellm' && !gateway.enabled) console.log(dim(`(${client.baseUrl} does not answer /v1/usage - no freellmapi gateway there, /gateway is off)`));
+    } else if(opts.label === 'freellm' && !gateway.enabled) console.log(note(`${client.baseUrl} does not answer /v1/usage - no freellmapi gateway there, /gateway is off`));
   }
 
   /* a plain OpenAI-compatible endpoint (a chat-bridge): its model names for Tab completion */
@@ -2457,7 +2457,7 @@ async function main() {
       pendingQueue = Array.isArray(state.queue) ? state.queue.filter(q => typeof q === 'string') : [];
       for(const m of state.skippedModels ?? []) if(m.until > Date.now()) skippedModels.set(m.name, { until: m.until, reason: m.reason });
       
-      console.log(dim(`(resumed session from ${opts.resume}: ${messages.length} messages)`));
+      console.log(note(`resumed session from ${opts.resume}: ${messages.length} messages`, 'resume'));
       
       // Clean up temp file
       removeFile(opts.resume);
@@ -2532,9 +2532,9 @@ async function main() {
   }
 
   if(saved) {
-    if(!opts.resume) console.log(dim(`(resumed session from ${store.path}: ${messages.length} messages)`));
+    if(!opts.resume) console.log(note(`resumed session from ${store.path}: ${messages.length} messages`, 'resume'));
   } else if(!opts.failsafe && (opts.label !== 'bridge' || opts.scan)) {
-    console.log(dim(`(scanning project layout...)`));
+    console.log(note(`scanning project layout...`, 'wait'));
 
     const projectContext = await gatherProjectContext(opts.root);
 
@@ -2547,7 +2547,7 @@ async function main() {
     log.toolResults(projectContext);
   }
 
-  console.log('ready!');
+  console.log(piped ? 'ready!' : `\x1b[1;32m✔ ready\x1b[0m`);
 
   // /reset clears conversation history, not the auto-loaded project scan.
   baseMessageCount = saved ? saved.baseMessageCount : messages.length;
@@ -2710,7 +2710,7 @@ async function main() {
     if(prompt === '/reset') {
       messages.length = baseMessageCount;
       saveSession();
-      console.log('(conversation reset)');
+      console.log(note('conversation reset', 'ok'));
       return;
     }
 
@@ -2718,7 +2718,7 @@ async function main() {
       messages.length = 0;
       baseMessageCount = 0;
       saveSession();
-      console.log('(context cleared)');
+      console.log(note('context cleared', 'ok'));
       return;
     }
 
@@ -2728,13 +2728,13 @@ async function main() {
     }
 
     if(prompt === '/mouse' || prompt === '/mouse on' || prompt === '/mouse off') {
-      if(!tui?.active) return void console.log('(the mouse needs the TUI)');
+      if(!tui?.active) return void console.log(note('the mouse needs the TUI'));
       if(prompt !== '/mouse') tui.setMouse(prompt.endsWith('on'));
       return void console.log(`mouse: ${tui.mouse ? 'on - the wheel scrolls the transcript, Shift-drag selects text' : 'off - the terminal selects text, PgUp/PgDn scroll the transcript'}`);
     }
 
     if(prompt === '/split' || prompt.startsWith('/split ')) {
-      if(!tui?.active) return void console.log('(the split needs the TUI)');
+      if(!tui?.active) return void console.log(note('the split needs the TUI'));
 
       const arg = prompt.slice('/split'.length).trim() || (split.mode ? 'off' : 'diff');
       if(!['diff', 'git', 'status', 'off'].includes(arg)) return void console.log('usage: /split [diff|git|status|off]');
@@ -2756,13 +2756,13 @@ async function main() {
 
       if(!tui.setPane(split.mode ? paneLines : null) && split.mode) {
         split.mode = null;
-        return void console.log('(the window is too narrow for a split, 80 columns at least)');
+        return void console.log(note('the window is too narrow for a split, 80 columns at least'));
       }
       return;
     }
 
     if(prompt === '/proxy' || prompt.startsWith('/proxy ')) {
-      if(!gateway?.enabled || gateway.isBridge) return void console.log('(no freellmapi gateway: the endpoint does not answer /v1/usage the freellmapi way)');
+      if(!gateway?.enabled || gateway.isBridge) return void console.log(note('no freellmapi gateway: the endpoint does not answer /v1/usage the freellmapi way'));
 
       const arg = prompt.slice('/proxy'.length).trim();
       await loadProxy(false);
@@ -2820,8 +2820,8 @@ async function main() {
 
     if(prompt === '/cd' || prompt.startsWith('/cd ')) {
       const arg = prompt.slice('/cd'.length).trim();
-      if(!arg) return void console.log(`(root: ${opts.root})`);
-      if(arg === '-' && !prevRoot) return void console.log('(no previous directory)');
+      if(!arg) return void console.log(note(`root: ${opts.root}`));
+      if(arg === '-' && !prevRoot) return void console.log(note('no previous directory', 'warn'));
 
       const dir = arg === '-' ? prevRoot : resolveDir(opts.root, arg);
       if(fileMode(dir) !== S_IFDIR) return void console.log(red(`error: ${dir}: not a directory`));
@@ -2843,7 +2843,7 @@ async function main() {
       }
 
       saveSession();
-      console.log(`(root: ${opts.root})`);
+      console.log(note(`root: ${opts.root}`));
       return;
     }
 
@@ -2882,14 +2882,14 @@ async function main() {
       const arg = prompt.slice('/remote-control'.length).trim();
 
       if(arg === 'off') {
-        if(!control) return void console.log('(no control socket open)');
+        if(!control) return void console.log(note('no control socket open', 'warn'));
         control.close();
         control = null;
         tui?.drawStatus();
-        return void console.log('(control socket closed)');
+        return void console.log(note('control socket closed'));
       }
 
-      if(control) return void console.log(`(control socket already open: ${control.path}, session name: ${opts.name})`);
+      if(control) return void console.log(note(`control socket already open: ${control.path}, session name: ${opts.name}`));
       startControl(arg ? resolveDir('.', arg) : undefined);
       return;
     }
@@ -2912,14 +2912,14 @@ async function main() {
 
     if(prompt === '/rename' || prompt.startsWith('/rename ')) {
       const name = prompt.slice('/rename'.length).trim();
-      if(!name) return void console.log(`(session name: ${opts.name ?? sessionName(opts)})`);
+      if(!name) return void console.log(note(`session name: ${opts.name ?? sessionName(opts)}`));
       if(!/^[\w.:@+-]+$/.test(name)) return void console.log(red('error: a session name is letters, digits and . _ : @ + - only'));
       if(listSessions().some(s => s.name === name && s.pid !== getpid())) return void console.log(red(`error: another session is already called "${name}"`));
 
       opts.name = name;
       control?.update({ name });
       tui?.drawStatus();
-      return void console.log(`(session name: ${name}${control ? '' : ' - takes effect with /remote-control'})`);
+      return void console.log(note(`session name: ${name}${control ? '' : ' - takes effect with /remote-control'}`));
     }
 
     if(prompt === '/usage') return void console.log(stats.summary());
@@ -2932,11 +2932,11 @@ async function main() {
     if(prompt === '/requests' || prompt.startsWith('/requests ')) return void console.log(stats.recent(+prompt.slice(9).trim() || 10));
 
     if(prompt === '/gateway' || prompt.startsWith('/gateway ')) {
-      if(!gateway?.enabled) return void console.log('(no freellmapi gateway: the endpoint does not answer /v1/usage)');
+      if(!gateway?.enabled) return void console.log(note('no freellmapi gateway: the endpoint does not answer /v1/usage'));
 
       const [what = 'usage', ...rest] = prompt.slice('/gateway'.length).trim().split(/\s+/).filter(Boolean);
 
-      if(what === 'login' && gateway.isBridge) return void console.log('(a chat-bridge has no dashboard: /gateway usage, providers, forecast, limits, limited and models are its questions)');
+      if(what === 'login' && gateway.isBridge) return void console.log(note('a chat-bridge has no dashboard: /gateway usage, providers, forecast, limits, limited and models are its questions'));
 
       if(what === 'login') {
         const ok = await gateway.login({ cdp: { host: opts.cdpHost, port: opts.cdpPort, open: true } });
@@ -2972,7 +2972,7 @@ async function main() {
       if(arg === 'list' || arg === 'list all') {
         if(remote) return void (await showModelList(remote, null, opts.provider, arg === 'list all'));
         if(known) return void (await showModelList(null, known, opts.provider, arg === 'list all'));
-        return void console.log('(model list is only available for --provider ollama and openai endpoints that serve /models)');
+        return void console.log(note('model list is only available for --provider ollama and openai endpoints that serve /models'));
       }
 
       /* /model skip [pattern] and /model unskip [pattern]: skip the active or
@@ -3023,9 +3023,9 @@ async function main() {
           client.model = next.name;
           repl.setPromptName(next.name);
           control?.update({ model: next.name });
-          console.log(dim(`(switching to ${next.name})`));
+          console.log(note(`switching to ${next.name}`));
         } else {
-          console.log(dim('(no other model available to switch to)'));
+          console.log(note('no other model available to switch to', 'warn'));
         }
         if(wasAuto && next) console.log(waveNote('the gateway has no exclusion: skipping pins the next best model, /route auto hands the choice back'));
         return;
@@ -3047,7 +3047,7 @@ async function main() {
         arg = matches[modelCycle.index];
 
         const ofN = matches.length === 1 ? ' (only model matching)' : ` (${modelCycle.index + 1} of ${matches.length})`;
-        console.log(`(pattern "${modelCycle.pattern}" matched: ${matches.join(', ')} - switching to ${arg}${ofN})`);
+        console.log(note(`pattern "${modelCycle.pattern}" matched: ${matches.join(', ')} - switching to ${arg}${ofN}`));
       } else {
         if(gateway?.hasLimits && (!availability || Date.now() - availability.at > 30000)) availability = await loadAvailability(gateway).catch(() => null);
         const lim = availability?.byModel.get(arg);
@@ -3065,7 +3065,7 @@ async function main() {
       repl.setPromptName(arg);
       control?.update({ model: arg });
       await updateCtxWindow();
-      console.log(`(model: ${opts.provider}/${arg} - the conversation so far is kept)`);
+      console.log(note(`model: ${opts.provider}/${arg} - the conversation so far is kept`));
       if(opts.provider === 'ollama') console.log(dim(await thinkNote(client)));
       return;
     }
@@ -3098,7 +3098,7 @@ async function main() {
     }
 
     if(prompt === '/standby' || prompt.startsWith('/standby ')) {
-      if(!gateway?.enabled) return void console.log(dim('(/standby needs a freellmapi gateway: --provider freellm)'));
+      if(!gateway?.enabled) return void console.log(note('/standby needs a freellmapi gateway: --provider freellm'));
       const arg = prompt.slice('/standby'.length).trim();
 
       const show = () => {
@@ -3138,7 +3138,7 @@ async function main() {
           standby.bad.delete(arg);
         }
 
-        console.log(dim('(probing ...)'));
+        console.log(note('probing ...'));
         await refreshStandby(true);
         return void console.log(show());
       }
@@ -3150,7 +3150,7 @@ async function main() {
 
       if(!first) {
         const all = listSkills();
-        if(!all.length) return void console.log(dim(`(no skills: ${skillDirs().map(d => d.path).join(' or ')} hold SKILL.md directories)`));
+        if(!all.length) return void console.log(note(`no skills: ${skillDirs().map(d => d.path).join(' or ')} hold SKILL.md directories`));
 
         const have = new Set(loadedNames());
         const w = listWidth();
@@ -3278,7 +3278,7 @@ async function main() {
 
     if(prompt === '/route' || prompt.startsWith('/route ')) {
       const arg = prompt.slice('/route'.length).trim();
-      if(!gateway?.enabled) return void console.log(dim('(/route needs a gateway that routes: --provider freellm, or a chat-bridge)'));
+      if(!gateway?.enabled) return void console.log(note('/route needs a gateway that routes: --provider freellm, or a chat-bridge'));
 
       const last = stats.last();
       const sticky = opts.sessionId ? `x-session-id ${opts.sessionId}` : '-';
@@ -3432,7 +3432,7 @@ async function main() {
       if(!cmd) return;
 
       const { output, status, timedOut } = await runCommand(cmd, { cwd: opts.root });
-      console.log(`(exit ${status}${timedOut ? ', timed out' : ''})`);
+      console.log(note(`exit ${status}${timedOut ? ', timed out' : ''}`));
       console.log(output || '(no output)');
 
       /* Send the output to the model as a tool result, explicitly telling it
@@ -3462,7 +3462,7 @@ async function main() {
       if(!cmd) return;
 
       const { output, status, timedOut } = await runCommand(cmd, { cwd: opts.root });
-      console.log(`(exit ${status}${timedOut ? ', timed out' : ''})`);
+      console.log(note(`exit ${status}${timedOut ? ', timed out' : ''}`));
       console.log(output || '(no output)');
       return;
     }
@@ -3503,7 +3503,7 @@ async function main() {
     if(forceBinding || looksLikeBindingPrompt(effectivePrompt)) {
       const { text: bindingText, attached: bindingAttached } = bindingContext(opts.root);
       if(bindingText) {
-        console.log(dim(`(attached binding reference: ${bindingAttached.join(', ')})`));
+        console.log(note(`attached binding reference: ${bindingAttached.join(', ')}`, 'attach'));
         finalText = `${finalText}\n\n${bindingText}`;
       }
     }
@@ -3511,7 +3511,7 @@ async function main() {
     /* a small model told only "every function" tends to narrate a plan or
        start doing them one by one in a single context - say how to do it */
     if(opts.mode === 'plan') finalText += PLAN_NOTE;
-    if(opts.mode !== 'plan' && /\b(every|each|all)\b/i.test(effectivePrompt)) console.log(dim('(added to the prompt: use for_each for a repeated job)'));
+    if(opts.mode !== 'plan' && /\b(every|each|all)\b/i.test(effectivePrompt)) console.log(note('added to the prompt: use for_each for a repeated job'));
     if(opts.mode !== 'plan' && /\b(every|each|all)\b/i.test(effectivePrompt)) finalText += '\n\n(This job repeats over many things: list ALL of the items the request names (e.g. every function declared in the header - not only the files attached above) and call for_each once - do not do them yourself one by one, and do not just describe a plan.)';
 
     const turnMsg = { role: 'user', content: finalText, request: effectivePrompt };
@@ -3722,7 +3722,7 @@ async function main() {
       { name, model: opts.model, provider: opts.provider, root: opts.root, cwd: getcwd()[0], mode: opts.mode, worker: !!opts.worker },
       line => {
         // as if typed: shown on the terminal so the user sees who asked
-        if(!tui?.active) console.log(`${piped ? '' : '\r\x1b[K'}${green(`[remote]> ${line}`)}`);
+        if(!tui?.active) console.log(piped ? green(`[remote]> ${line}`) : `\r\x1b[K${remoteMark()} \x1b[32m${line}\x1b[0m`);
         repl.handleCmd(line, 'remote');
       },
       () => repl.busy,
@@ -3738,7 +3738,7 @@ async function main() {
     }
 
     tui?.drawStatus();
-    console.log(dim(`(control socket: ${control.path}, session name: ${name} - ollama-repl-ctl -s ${name} send ...)`));
+    console.log(note(`control socket ${control.path} · session ${name} · ollama-repl-ctl -s ${name} send …`, 'link'));
     return true;
   };
 
@@ -3755,7 +3755,7 @@ async function main() {
       failover,
       handoff: async (msgs, callOpts) => {
         const base = msgs === messages ? baseMessageCount : msgs[0]?.role === 'system' ? 1 : 0;
-        if(!callOpts.quiet) console.log(dim(`(handoff: summarizing older turns with ${opts.handoffModel ?? HANDOFF_MODEL} ...)`));
+        if(!callOpts.quiet) console.log(note(`handoff: summarizing older turns with ${opts.handoffModel ?? HANDOFF_MODEL} ...`));
 
         const h = await buildHandoff(msgs, base, { keepTurns: opts.handoffTurns ?? 3, model: opts.handoffModel ?? HANDOFF_MODEL, host: opts.host, port: opts.port });
         if(!h) return;
@@ -3763,7 +3763,7 @@ async function main() {
         const before = msgs.length;
         msgs.splice(0, msgs.length, ...h.messages);
         if(msgs === messages) saveSession();
-        if(!callOpts.quiet) console.log(dim(`(handoff: ${before} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept)`));
+        if(!callOpts.quiet) console.log(note(`handoff: ${before} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept`));
       },
       onSwitch: name => {
         opts.model = name;
@@ -3788,7 +3788,7 @@ async function main() {
   /* the prompts that were still waiting when the session was saved run again, in their order */
   if(pendingQueue.length)
     setTimeout(() => {
-      console.log(dim(`(${pendingQueue.length} queued prompt${pendingQueue.length > 1 ? 's' : ''} restored from the saved session: /queue shows them, /queue clear drops them)`));
+      console.log(note(`${pendingQueue.length} queued prompt${pendingQueue.length > 1 ? 's' : ''} restored from the saved session: /queue shows them, /queue clear drops them`, 'resume'));
       repl.restoreQueue(pendingQueue);
     }, 0);
 

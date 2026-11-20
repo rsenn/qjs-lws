@@ -10,6 +10,7 @@
  */
 import { BOX_ROUNDED, bigText, boxLines, gradient, keyValue, pad, progressBar, rule, stringWidth, stripAnsi, style, wrap } from 'terminal';
 import { getenv } from 'std';
+import { piped } from './ansi.js';
 
 /** colors of the gradient, the accent is its first stop */
 export const STOPS = ['#2dd4bf', '#a3e635', '#fbbf24'];
@@ -18,6 +19,15 @@ export const WARN = STOPS[2];
 
 /** the marker in front of a model reply: waves rising into the sun, in the gradient (single-width glyphs only) */
 export const replyMark = () => `${gradient('≋≈☼', STOPS)} `;
+
+/** the marker in front of a line that arrived over the control socket, instead of a typed one */
+export const remoteMark = () => `${style('⇄', { fg: ACCENT })} ${style('remote', { dim: true })} ${style('❯', { fg: STOPS[1] })}`;
+
+/** icon and colour of each kind of note() */
+const NOTES = { info: ['ⓘ', ACCENT], ok: ['✓', '#4ade80'], warn: ['⚠', WARN], skip: ['⤼', STOPS[1]], attach: ['📎', ACCENT], link: ['⇄', ACCENT], wait: ['◌', ACCENT], resume: ['↻', STOPS[1]], quit: ['⏻', WARN] };
+
+/** a one-line message: an icon in the accent colour, then the text dimmed; piped, the old `(text)` */
+export const note = (text, kind = 'info') => (piped ? `(${text})` : `${style(NOTES[kind][0], { fg: NOTES[kind][1] })} ${style(text, { dim: true })}`);
 
 /** a status note: a wave in the accent colour, then the text dimmed */
 export const waveNote = text => `${style('≋', { fg: ACCENT })} ${style(text, { dim: true })}`;

@@ -58,7 +58,7 @@ STATUS=$?
 CLEAN=$WORK/clean.txt
 sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g; s/\x1b[78]//g' "$LOG" > "$CLEAN"
 
-grep -q 'ready!' "$CLEAN" || { echo "FAIL repl never printed ready!"; FAILED=1; }
+grep -q '✔ ready' "$CLEAN" || { echo "FAIL repl never printed ready"; FAILED=1; }
 [ "$STATUS" = 0 ] || { echo "FAIL repl exit status $STATUS"; FAILED=1; }
 
 if grep -E "$BAD" "$CLEAN" | grep -v 'resumed session' > "$WORK/bad.txt"; then

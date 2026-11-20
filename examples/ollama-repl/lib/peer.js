@@ -142,7 +142,7 @@ export function peerAnswer(text, max = 6000) {
   const t = String(text)
     .split('\n')
     .map(l => l.replace(/^\s*[≋≈☼]+ /, '').replace(/\s+$/, ''))
-    .filter(l => !l.startsWith('[remote]>') && !/(\.\.\.|…)\s*$/.test(l) && !/\bin \d+(\.\d+)?s( - |$)/.test(l))
+    .filter(l => !l.startsWith('[remote]>') && !l.startsWith('⇄ remote ❯') && !/(\.\.\.|…)\s*$/.test(l) && !/\bin \d+(\.\d+)?s( - |$)/.test(l))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
