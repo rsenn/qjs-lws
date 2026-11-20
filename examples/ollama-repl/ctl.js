@@ -6,6 +6,11 @@
  *   ollama-repl-ctl [-s SESSION] send LINE    type LINE into the session and
  *                                             print its output until it is idle
  *   ollama-repl-ctl [-s SESSION] watch        print the session's output
+ *   ollama-repl-ctl [-s SESSION] monitor      print what the model does as it happens: reasoning, answer,
+ *                                             tool calls and results, each marked (until Ctrl-C, or the
+ *                                             session goes idle with -t)
+ *   ollama-repl-ctl [-s SESSION] steer LINE   inject LINE like Ctrl-X Ctrl-S: it goes ahead of the queue
+ *                                             and cancels the running request; then waits like send
  *   ollama-repl-ctl [-s SESSION] restart      restart the session (/restart: the harness is checked,
  *                                             the conversation kept) and wait until the new process
  *                                             listens; exit 1 when the restart was refused
@@ -49,7 +54,7 @@ if(cmd === 'list') {
   exit(0);
 }
 
-if(cmd !== 'send' && cmd !== 'watch' && cmd !== 'restart') fail('usage: ollama-repl-ctl list | [-s SESSION] send LINE | [-s SESSION] watch | [-s SESSION] restart');
+if(!['send', 'steer', 'watch', 'monitor', 'restart'].includes(cmd)) fail('usage: ollama-repl-ctl list | [-s SESSION] send LINE | [-s SESSION] steer LINE | [-s SESSION] watch | [-s SESSION] monitor | [-s SESSION] restart');
 
 const match = s => (session ? s.name === session || String(s.pid) === session || s.sock === session || s.model.includes(session) : true);
 const sessionLabel = session ? `session "${session}"` : 'an ollama-repl --listen session';
@@ -77,7 +82,9 @@ if(found.length > 1 && session) {
 if(found.length !== 1) fail(`${found.length} sessions match, pick one with -s NAME:\n${found.map(s => `  ${s.name}\t${s.pid} ${s.model} ${s.root}`).join('\n')}`);
 
 const line = cmd === 'restart' ? '/restart' : words.join(' ');
-if(cmd === 'send' && !line.trim()) fail('send: nothing to send');
+if((cmd === 'send' || cmd === 'steer') && !line.trim()) fail(`${cmd}: nothing to send`);
+const wire = cmd === 'steer' ? `\x18\x13${line.replaceAll('\n', ' ')}` : line.replaceAll('\n', ' ');
+const sends = cmd === 'send' || cmd === 'steer' || cmd === 'restart';
 const oldSession = found[0];
 
 const sock = new Socket(AF_UNIX, SOCK_STREAM);
@@ -90,13 +97,29 @@ try {
 let sent = false, accepted = false, buf = '';
 const dec = new TextDecoder();
 
+/* monitor: a marker line whenever the kind of activity changes, the text follows as it streams */
+let lastPhase = '';
+function showActivity(ev) {
+  const tag = { request: '>> request', reasoning: '-- reasoning', answer: '-- answer', toolcall: '-- tool call', toolresult: '-- tool result', idle: '-- idle' }[ev.phase] ?? `-- ${ev.phase}`;
+  const streamed = ev.phase === 'reasoning' || ev.phase === 'answer';
+
+  if(ev.phase !== lastPhase || !streamed) stdout.puts(`${lastPhase && lastPhase !== ev.phase ? '\n' : ''}${tag}${ev.model ? ` ${ev.model}, ${ev.messages} messages` : ''}${ev.name ? ` ${ev.name}` : ''}${streamed ? '\n' : ''}`);
+  if(streamed) stdout.puts(ev.text);
+  else if(ev.phase === 'toolcall') stdout.puts(` ${JSON.stringify(ev.args ?? {}).slice(0, 300)}\n`);
+  else if(ev.phase === 'toolresult') stdout.puts(`\n${ev.text.split('\n').slice(0, 12).join('\n')}\n`);
+  else stdout.puts('\n');
+
+  lastPhase = ev.phase;
+  stdout.flush();
+}
+
 const handle = ev => {
   if(json) stdout.puts(JSON.stringify(ev) + '\n');
 
   switch(ev.type) {
     case 'hello':
-      if(cmd === 'send' || cmd === 'restart') {
-        sock.send(line.replaceAll('\n', ' ') + '\n');
+      if(sends) {
+        sock.send(wire + '\n');
         sent = true;
       }
       break;
@@ -104,10 +127,13 @@ const handle = ev => {
       accepted = true;
       break;
     case 'output':
-      if(!json) stdout.puts(ev.text);
+      if(!json && cmd !== 'monitor') stdout.puts(ev.text);
+      break;
+    case 'activity':
+      if(!json && cmd === 'monitor') showActivity(ev);
       break;
     case 'waiting':
-      if(cmd === 'send' && accepted) {
+      if((cmd === 'send' || cmd === 'steer') && accepted) {
         stdout.flush();
         stderr.puts(`\nollama-repl-ctl: session waits for the user at the terminal (${ev.kind}): ${ev.text}\n`);
         exit(3);
@@ -119,7 +145,7 @@ const handle = ev => {
         stdout.flush();
         fail('the session did not restart (output above)');
       }
-      if(cmd === 'send' && accepted) {
+      if((cmd === 'send' || cmd === 'steer') && accepted) {
         stdout.flush();
         exit(0);
       }
@@ -165,8 +191,9 @@ setReadHandler(sock.fd, () => {
   }
 });
 
-if(cmd === 'send' || cmd === 'restart')
+if(sends || (cmd === 'monitor' && timeout < 600))
   setTimeout(() => {
     stdout.flush();
+    if(cmd === 'monitor') exit(0);
     fail(`timeout after ${timeout}s (the session keeps working)`, 124);
   }, timeout * 1000);

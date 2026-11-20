@@ -182,6 +182,17 @@ export class ChatREPL extends REPL {
     this.#frontQueued = false;
   }
 
+  /** Ctrl-X Ctrl-S for a remote line (control socket): `expr` goes first, a running request is cancelled for it */
+  sendNow(expr, from) {
+    this.#front = true;
+    this.#frontQueued = false;
+    this.handleCmd(expr, from);
+    this.#front = false;
+
+    if(this.#frontQueued) this.#onAbort?.();
+    this.#frontQueued = false;
+  }
+
   handleKey(keys) {
     if(keys !== '\x18' && keys !== '\x13') this.#chordX = false;
     return super.handleKey(keys);

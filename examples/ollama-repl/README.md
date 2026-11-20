@@ -534,9 +534,9 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   changes the conversation (`/model`, `/clear`, `/compact`, a prompt, ...)
   still waits its turn, and piped input keeps its order.
 - Ctrl-O (or `/verbose`, `--verbose`) shows everything the model gets and (in the TUI, for the past of the session too: the panels are always kept, hidden, and a toggle redraws the transcript, the compact tool lines going away while it is on)
-  says, each in its own panel: the messages new since the last request
+  says, each in its own panel (the reasoning panel shows always, not only here): the messages new since the last request
   (system prompt, project scan, prompts, tool results, roles colored),
-  the reasoning, every tool call with its arguments and its full result,
+  every tool call with its arguments and its full result,
   and every response with all gateway headers.
 - You can type while the model works. The text stays in the input, and
   Enter queues it behind the running prompt.
@@ -679,6 +679,8 @@ ollama-repl-ctl list                    # name, pid, model, root, socket of live
 ollama-repl-ctl send 'summarize lib/chat-repl.js'   # prints the reply, exits when idle
 ollama-repl-ctl -s alpha send /diff     # -s: session name, pid, model fragment or socket path
 ollama-repl-ctl watch                   # follow the session's output
+ollama-repl-ctl monitor                 # what the model does now: reasoning, answer, tool calls and results, as they happen (--json: raw 'activity' events)
+ollama-repl-ctl steer 'use b, not a'    # like Ctrl-X Ctrl-S: goes ahead of the queue, cancels the running request, waits like send
 ollama-repl-ctl -s alpha restart        # /restart: smoke test, new process, same conversation; waits until the session is back (exit 1 when refused)
 ```
 

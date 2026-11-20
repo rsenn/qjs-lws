@@ -27,15 +27,15 @@ export const remoteMark = () => `${style('⇄', { fg: ACCENT })} ${style('remote
 export const remoteText = text => style(text, { fg: '#8a8a8a' });
 
 /** the control socket line: where it listens and how to talk to it, in colour */
-export const controlNote = (path, name) => (piped ? `(control socket: ${path}, session name: ${name} - ollama-repl-ctl -s ${name} send ...)` : `${style('⇄', { fg: ACCENT })} ${style('control socket', { fg: ACCENT, bold: true })} ${style(path, { dim: true })} ${style('·', { dim: true })} ${style('session', { fg: ACCENT })} ${style(name, { fg: STOPS[1], bold: true })} ${style('·', { dim: true })} ${style(`ollama-repl-ctl -s ${name} send …`, { fg: WARN })}`);
+export const controlNote = (path, name) => (piped ? `(control socket: ${path}, session name: ${name} - ollama-repl-ctl -s ${name} send ...)` : `${style('⇄', { fg: ACCENT })} ${style('control socket', { fg: ACCENT, bold: true })} ${style(path, { fg: FILE })} ${style('·', { dim: true })} ${style('session', { fg: ACCENT })} ${style(name, { fg: STOPS[1], bold: true })} ${style('·', { dim: true })} ${style(`ollama-repl-ctl -s ${name} send …`, { fg: WARN })}`);
 
-/** the colour of every file name: between pink and magenta */
-export const FILE = '#f472d0';
+/** the colour of every file name: mustard yellow */
+export const FILE = '#ffcc00';
 
 /** colours of the generic highlighter: token counts, sizes, times, other numbers, arrows */
 export const TOKENS = '#38bdf8';
 export const SIZES = '#a78bfa';
-export const TIMES = '#fbbf24';
+export const TIMES = '#fba000';
 export const NUMBERS = '#fdba74';
 export const ARROWS = '#a3e635';
 

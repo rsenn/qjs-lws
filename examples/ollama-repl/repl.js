@@ -87,7 +87,7 @@ import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
-import { highlight, note, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
+import { file, highlight, note, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
@@ -131,7 +131,7 @@ const USAGE = [
   ['--yes, -y', 'same as --mode auto: run_command and file changes without asking (unattended agents).'],
   ['--fallback-model NAME', 'model to switch to when the current one fails (also /fallback).'],
   ['--resume FILE', 'continue the session saved in FILE by /restart or the restart_harness tool (the file is deleted after loading).'],
-  ['--verbose', 'start with the verbose view on (Ctrl-O toggles it): reasoning text, full tool results, every request and response with the gateway headers.'],
+  ['--verbose', 'start with the verbose view on (Ctrl-O toggles it): full tool results, every request and response with the gateway headers.'],
   '',
   '@Chat sites (--provider bridge)',
   ['--no-tools', 'offer the model no tools: files named in the prompt are attached as text and the model answers with whole `File: path` blocks, which are written to disk. For chat sites that ignore tool calls (chatgpt, duck, deepai).'],
@@ -607,6 +607,9 @@ let autoSkipHook = null;
 let skipError = null;
 const AUTO_SKIPS = 4;
 
+/* the control socket (--listen, /remote-control), set by startControl(); module level because chatRound() and runToolLoop() publish activity on it */
+let control = null;
+
 /* lib/tui.js layout, set by main() on a terminal unless --no-tui */
 let tui = null;
 
@@ -828,6 +831,8 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   const panes = !!tui?.active && !opts.quiet;
   const verbose = (ui.verbose || panes) && !opts.quiet;
 
+  control?.activity('request', { model: client.model, messages: messages.length });
+
   /* TUI verbose: what goes out, the messages new since the last request */
   if(panes) {
     const from = shownMessages.get(messages) ?? 0;
@@ -841,15 +846,23 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
   /* TUI verbose: the reasoning as one panel, before the reply */
   const showReasoning = () => {
-    if(reasoning) showPanel('◌ reasoning', `\x1b[2;3m${reasoning.trim()}\x1b[0m`, { border: '#64748b', kind: 1 });
+    if(reasoning) showPanel('◌ reasoning', `\x1b[2;3m${reasoning.trim()}\x1b[0m`, { border: '#64748b' });
     reasoning = '';
   };
 
-  if(panes && opts.stream) chatOptions = { ...chatOptions, onReasoning: text => void (reasoning += text) };
-  else if(verbose && opts.stream)
+  if(panes && opts.stream)
     chatOptions = {
       ...chatOptions,
       onReasoning: text => {
+        reasoning += text;
+        control?.activity('reasoning', { text });
+      },
+    };
+  else if(!piped && opts.stream)
+    chatOptions = {
+      ...chatOptions,
+      onReasoning: text => {
+        control?.activity('reasoning', { text });
         if(!thinking) {
           if(!tui?.active) stopSpinner();
           stdout.puts(dim('\nthinking: '));
@@ -880,6 +893,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
       const md = piped ? null : new MarkdownStream();
 
       const result = await client.chatStream(messages, chatOptions, token => {
+        control?.activity('answer', { text: token });
         if(first) {
           if(panes) showReasoning();
           if(!tui?.active) stopSpinner(); // in the TUI it runs on in its own row until the round is done
@@ -909,10 +923,12 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
     const result = await client.chat(messages, chatOptions);
     stopSpinner();
+    if(result.reasoning) control?.activity('reasoning', { text: result.reasoning });
+    if(result.content) control?.activity('answer', { text: result.content });
     if(panes) {
       reasoning = result.reasoning ?? '';
       showReasoning();
-    } else if(verbose && result.reasoning) console.log(dim(`\nthinking: ${result.reasoning}`));
+    } else if(!piped && result.reasoning) console.log(dim(`\nthinking: ${result.reasoning}`));
     if(result.content && !opts.quiet) console.log(`\n${piped ? `${opts.label ?? opts.provider}> ` : replyMark()}${piped ? result.content : new MarkdownStream().push(result.content + '\n')}\n`);
     response(result);
     cogitated(result);
@@ -1404,6 +1420,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       const selfEdit = WRITE_TOOLS.has(tc.name) && !opts.selfEdit && opts.mode !== 'plan' && touchesHarness(opts.root, tc.args);
       const asked = needsApproval(opts.mode, tc.name) || selfEdit;
 
+      control?.activity('toolcall', { name: tc.name, args: tc.args });
+
       if(tui?.active && !opts.quiet) {
         showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
         inKind(2, () => console.log(toolLine(tc.name, tc.args ?? {})));
@@ -1479,6 +1497,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         console.log(piped ? shown : colorContent(shown, { code: tc.name === 'read_file' }));
         if(lines.length > 200) console.log(dim(`... (${lines.length - 200} more lines)`));
       }
+      control?.activity('toolresult', { name: tc.name, text: String(output).slice(0, 2000) });
       log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
       messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
     }
@@ -1621,7 +1640,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /each <cmd> :: <task> - run <task> once per output line of <cmd> ({} = the item), each in a fresh conversation
 /binding <text> - force-attach the native-binding reference (fib.c/point.c/cheat sheet) for this prompt, even if it doesn't sound like a binding request
 /mode [NAME]    - show or set the mode: ${MODES.map(m => `${m} (${MODE_INFO[m]})`).join(', ')}. Shift-Tab or Alt-Tab cycles it
-/verbose [on|off] - show reasoning, full tool results, every request and response with all gateway headers (Ctrl-O toggles)
+/verbose [on|off] - show full tool results, every request and response with all gateway headers (Ctrl-O toggles)
 /remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it
 /queue [list|clear|drop N] - the prompts waiting behind the running request (Enter queues one while the model works, Ctrl-X Ctrl-S sends the typed one now and cancels the running request); the queue is saved with the session and runs again after a restart
 /rename NAME    - rename the session (ollama-repl-ctl -s NAME picks it)
@@ -2147,9 +2166,10 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   const routedVia = last?.routedVia ?? last?.model ?? null;
   const dimmed = s => `\x1b[2m${s}\x1b[22m`;
   const tc = s => `\x1b[38;2;45;212;191m${s}\x1b[39m`;
+  const fileFg = file;
   const lime = s => `\x1b[38;2;163;230;53m${s}\x1b[39m`;
 
-  const left = `${modeBadge(opts.mode, MODE_COLOR[opts.mode])} ${tc('⌂')} ${dimmed(shortPath(realpath(opts.root)[0] ?? opts.root, Math.max(12, Math.floor(cols / 4))))}${ui.verbose ? ' \x1b[33m◉ verbose\x1b[0m' : ''}${remote ? ` ${tc('⇄')} \x1b[36m${remote}\x1b[0m` : ''}`;
+  const left = `${modeBadge(opts.mode, MODE_COLOR[opts.mode])} ${tc('⌂')} ${fileFg(shortPath(realpath(opts.root)[0] ?? opts.root, Math.max(12, Math.floor(cols / 4))))}${ui.verbose ? ' \x1b[33m◉ verbose\x1b[0m' : ''}${remote ? ` ${tc('⇄')} \x1b[36m${remote}\x1b[0m` : ''}`;
   const center = effective
     ? `${lime('◆')} \x1b[1m${effective}\x1b[22m${routedVia && routedVia !== effective ? dimmed(` → ${routedVia}`) : ''}${last.provider ? dimmed(` via ${last.provider}`) : ''}${effective !== opts.model && !effective.endsWith(opts.model) ? dimmed(` (asked ${opts.model})`) : ''}`
     : `${lime('◇')} ${gateway?.enabled && !gateway.isBridge ? `${opts.model}${(prov => (prov === '-' || /^auto(:|$)/.test(opts.model) ? '' : dimmed(` via ${prov}`)))(providerText({ name: opts.model }, availability))}` : `${opts.label ?? opts.provider}/${opts.model}`}${dimmed(' (no reply yet)')}`;
@@ -2512,14 +2532,13 @@ async function main() {
     ['endpoint', endpoint],
     ['gateway', gateway?.enabled ? `${gateway.isBridge ? 'chat-bridge' : 'freellmapi'}${gateway.tokenSource ? `, dashboard via ${gateway.tokenSource}` : ''}` : null],
     ['mode', `${opts.mode} - ${MODE_INFO[opts.mode]}`],
-    ['root', shortPath(realpath(opts.root)[0] ?? opts.root)],
+    ['root', file(shortPath(realpath(opts.root)[0] ?? opts.root))],
     ['session', `${opts.name ?? opts.model}${control ? ' (remote control on)' : ''}`],
-    ['log', shortPath(log.path)],
+    ['log', file(shortPath(log.path))],
     ['failsafe', opts.failsafe ? 'no system prompt, project scan or tools' : null],
   ];
 
   /* the control socket (--listen, /remote-control), see startControl() */
-  let control = null;
   let startControl;
 
   /* full-terminal layout when a person types into a terminal */
@@ -3627,7 +3646,10 @@ async function main() {
     return puts(s);
   };
 
-  repl.onIdle = () => control?.event({ type: 'ready' });
+  repl.onIdle = () => {
+    control?.activity('idle');
+    control?.event({ type: 'ready' });
+  };
   repl.onPrompt = (kind, text) => control?.event({ type: 'waiting', kind, text });
   repl.addCleanupHandler(() => control?.close());
   repl.addCleanupHandler(() => restarting || removeSnapshot());
@@ -3656,7 +3678,14 @@ async function main() {
       const model = opts.handoffModel ?? HANDOFF_MODEL;
       if(!opts.quiet) console.log(waveNote(`compacting: ~${fmtNum(used)} tokens${ctxWindowNow ? ` of ${fmtNum(ctxWindowNow)}` : ''}, summarizing older turns with ${model} ...`));
 
-      const h = await buildHandoff(msgs, base, { keepTurns: keepTurns ?? opts.handoffTurns ?? 3, model, host: opts.host, port: opts.port, reason: 'compact' });
+      const hopts = { model, host: opts.host, port: opts.port, reason: 'compact' };
+      let keep = keepTurns ?? opts.handoffTurns ?? 3;
+      let h = await buildHandoff(msgs, base, { ...hopts, keepTurns: keep });
+
+      /* with fewer user turns than `keep` nothing is older than the kept tail, so nothing is summarized and the
+         conversation stays as big (and as stale) as it was: keep fewer turns until something is summarized */
+      while((!h || !h.cut) && keep > 1) h = await buildHandoff(msgs, base, { ...hopts, keepTurns: --keep });
+
       if(!h) {
         if(force) console.log(waveNote('nothing to compact'));
         return;
@@ -3738,10 +3767,11 @@ async function main() {
     opts.name = name;
     control = new ControlSocket(
       { name, model: opts.model, provider: opts.provider, root: opts.root, cwd: getcwd()[0], mode: opts.mode, worker: !!opts.worker },
-      line => {
+      (line, now) => {
         // as if typed: shown on the terminal so the user sees who asked
         if(!tui?.active) console.log(piped ? green(`[remote]> ${line}`) : `\r\x1b[K${remoteMark()} ${remoteText(line)}`);
-        repl.handleCmd(line, 'remote');
+        if(now) repl.sendNow(line, 'remote');
+        else repl.handleCmd(line, 'remote');
       },
       () => repl.busy,
       path,

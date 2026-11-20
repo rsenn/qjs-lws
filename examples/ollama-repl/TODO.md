@@ -824,6 +824,12 @@ done - see item 4a above for the same live-verification gap.
 
 ## Done
 
+- ollama-repl-ctl monitor/steer (2026-11-20): control socket 'activity'
+  events (request, reasoning, answer, toolcall, toolresult, idle) and a
+  \x18\x13-prefixed line that steers (ChatRepl.sendNow). Tested against
+  a bare ControlSocket and live (2026-11-20, js-engines, freellm auto: monitor, steer).
+  Not done: tool results of the cached/declined paths emit no event.
+
 - gateway probe report (2026-11-20): at startup and with `/gateway status` the REPL asks /v1/providers and, with a dashboard session, the limits, and prints per provider state (healthy, rate limited with resume time, exhausted, invalid, unknown) and ready/total model rows (`lib/gateway-report.js`). Tested against the live gateway only for the startup/status text; a provider shows ready/total from the gateway's own rows, not from a real request. A chat-bridge is not covered (it has `/gateway providers`).
 
 - restarts no longer nest (2026-11-19): a process started by a restart writes

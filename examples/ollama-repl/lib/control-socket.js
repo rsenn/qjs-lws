@@ -13,6 +13,15 @@
  *                                   terminal; only the user can answer it
  *   {type:'ready'}                  every submitted line has been handled
  *   {type:'info', ...}              session info changed (the model, after /model)
+ *   {type:'activity', phase, ...}   what the model does now, structured, for monitoring:
+ *       phase 'request'     {model, messages}  a request goes out
+ *       phase 'reasoning'   {text}             reasoning text as it streams
+ *       phase 'answer'      {text}             reply text as it streams
+ *       phase 'toolcall'    {name, args}       a tool is about to run
+ *       phase 'toolresult'  {name, text}       what it returned (cut)
+ *       phase 'idle'                           nothing runs
+ * A line starting with Ctrl-X Ctrl-S (\x18\x13) steers: it is sent ahead of
+ * the queue and cancels the running request, like the keys on the terminal.
  */
 import { mkdir, setReadHandler, kill, getpid, readdir } from 'os';
 import { rmSync } from 'fs';
@@ -74,7 +83,7 @@ export class ControlSocket {
 
   /**
    * @param {object} info  fields published for clients (model, root, ...)
-   * @param {(line: string) => void} onLine  a client submitted a line
+   * @param {(line: string, now: boolean) => void} onLine  a client submitted a line, `now` when it steers (Ctrl-X Ctrl-S)
    * @param {() => boolean} busy  whether a line is being handled now
    * @param {string} [path]  socket path; default o<pid>.s in the runtime directory (controlDir()'s parent), short enough to be bound whole
    */
@@ -136,7 +145,11 @@ export class ControlSocket {
 
       if(!line.trim()) continue;
       this.#send(conn, { type: 'accepted' });
-      this.#onLine(line);
+
+      if(line.startsWith('\x18\x13')) {
+        const text = line.slice(2).trim();
+        if(text) this.#onLine(text, true);
+      } else this.#onLine(line, false);
     }
   }
 
@@ -167,6 +180,11 @@ export class ControlSocket {
     f.puts(JSON.stringify(this.#info) + '\n');
     f.close();
     this.event({ type: 'info', ...patch });
+  }
+
+  /** @param {string} phase  see the 'activity' event above */
+  activity(phase, data) {
+    if(this.#clients.size) this.event({ type: 'activity', phase, ...data });
   }
 
   output(text) {
