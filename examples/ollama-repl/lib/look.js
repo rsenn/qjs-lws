@@ -21,7 +21,13 @@ export const WARN = STOPS[2];
 export const replyMark = () => `${gradient('≋≈☼', STOPS)} `;
 
 /** the marker in front of a line that arrived over the control socket, instead of a typed one */
-export const remoteMark = () => `${style('⇄', { fg: ACCENT })} ${style('remote', { dim: true })} ${style('❯', { fg: STOPS[1] })}`;
+export const remoteMark = () => `${style('⇄', { fg: ACCENT })} ${style('remote', { fg: ACCENT, bold: true })} ${style('❯', { fg: STOPS[1] })}`;
+
+/** the text of a remote line: dark grey, so the marker stands out */
+export const remoteText = text => style(text, { fg: '#8a8a8a' });
+
+/** the control socket line: where it listens and how to talk to it, in colour */
+export const controlNote = (path, name) => (piped ? `(control socket: ${path}, session name: ${name} - ollama-repl-ctl -s ${name} send ...)` : `${style('⇄', { fg: ACCENT })} ${style('control socket', { fg: ACCENT, bold: true })} ${style(path, { dim: true })} ${style('·', { dim: true })} ${style('session', { fg: ACCENT })} ${style(name, { fg: STOPS[1], bold: true })} ${style('·', { dim: true })} ${style(`ollama-repl-ctl -s ${name} send …`, { fg: WARN })}`);
 
 /** icon and colour of each kind of note() */
 const NOTES = { info: ['ⓘ', ACCENT], ok: ['✓', '#4ade80'], warn: ['⚠', WARN], skip: ['⤼', STOPS[1]], attach: ['📎', ACCENT], link: ['⇄', ACCENT], wait: ['◌', ACCENT], resume: ['↻', STOPS[1]], quit: ['⏻', WARN] };

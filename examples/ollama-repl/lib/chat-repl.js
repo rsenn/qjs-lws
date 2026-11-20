@@ -23,7 +23,7 @@ import { expandHome } from './paths.js';
 import { REPL } from 'repl';
 import { gradient, stripAnsi, ttyRead, EAGAIN } from 'terminal';
 import { Pager } from './pager.js';
-import { STOPS, remoteMark, note } from './look.js';
+import { STOPS, remoteMark, remoteText, note } from './look.js';
 import { red, yellow } from './ansi.js';
 
 /* Bright white (not bold-as-in-JS-syntax-colors - just the one plain,
@@ -356,7 +356,7 @@ export class ChatREPL extends REPL {
     if(expr === '') return false;
 
     this.historyAdd(expr);
-    if(this.#tuiOn) this.tui.write(`\n${from === 'remote' ? `${remoteMark()} ` : from ? `[${from}]> ` : '\x1b[38;2;45;212;191m❯\x1b[0m '}\x1b[1;97m${expr}\x1b[0m\n`);
+    if(this.#tuiOn) this.tui.write(`\n${from === 'remote' ? `${remoteMark()} ` : from ? `[${from}]> ` : '\x1b[38;2;45;212;191m❯\x1b[0m '}${from === 'remote' ? remoteText(expr) : `\x1b[1;97m${expr}\x1b[0m`}\n`);
 
     /* Reset the line buffer *before* onLine() below resolves -
        termReadHandler() (repl.js) drains every currently-buffered byte in

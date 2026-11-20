@@ -86,7 +86,7 @@ import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
-import { note, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
+import { note, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
@@ -783,7 +783,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
     } catch(e) {
       /* nothing can serve the request on this route: skip the spent model(s), switch to the next ready one, retry */
       const text = `${e.message ?? ''}\n${e.detail ?? ''}\n${e.body ?? ''}`;
-      if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && isExhaustedError(text)) {
+      if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && (isExhaustedError(text) || isUpstreamFailure(text))) {
         const from = client.model;
         skips++;
         if(await autoSkipHook.skip(text) && client.model !== from) continue;
@@ -805,7 +805,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
 
       /* the refusal came back before any reply text, so nothing was
          printed for this attempt: switch and ask the same question again */
-      if(!opts.quiet) console.log(dim(failoverNote(e, client.model, to)));
+      if(!opts.quiet) console.log(note(failoverNote(e, client.model, to), 'skip'));
       tried.add(to);
       /* the next site starts from nothing: send it a compacted conversation, not all of it */
       if(failoverHook.handoff && !opts.noHandoff) await failoverHook.handoff(messages, opts);
@@ -1862,6 +1862,11 @@ function isExhaustedError(error) {
   return /all models (rate-limited|exhausted|unavailable)|routing_exhausted/i.test(error ?? '');
 }
 
+/** the gateway tried its routes and every one failed upstream (502 provider_error / upstream_failed, empty completions and the like) */
+function isUpstreamFailure(error) {
+  return /upstream_failed|routed attempt\(s\) failed|upstream provider errors/i.test(error ?? '');
+}
+
 function exhaustedPlatforms(error) {
   if(!isExhaustedError(error)) return [];
   const trail = /Attempt trail:([^]*?)(?:\. Last error|$)/.exec(error)?.[1] ?? '';
@@ -2140,40 +2145,42 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   const effective = last && !last.error ? routeName(last) : null;
   const routedVia = last?.routedVia ?? last?.model ?? null;
   const dimmed = s => `\x1b[2m${s}\x1b[22m`;
+  const tc = s => `\x1b[38;2;45;212;191m${s}\x1b[39m`;
+  const lime = s => `\x1b[38;2;163;230;53m${s}\x1b[39m`;
 
-  const left = `${modeBadge(opts.mode, MODE_COLOR[opts.mode])} ${dimmed(shortPath(realpath(opts.root)[0] ?? opts.root, Math.max(12, Math.floor(cols / 4))))}${ui.verbose ? ' \x1b[33mverbose\x1b[0m' : ''}${remote ? ` \x1b[36mremote:${remote}\x1b[0m` : ''}`;
+  const left = `${modeBadge(opts.mode, MODE_COLOR[opts.mode])} ${tc('⌂')} ${dimmed(shortPath(realpath(opts.root)[0] ?? opts.root, Math.max(12, Math.floor(cols / 4))))}${ui.verbose ? ' \x1b[33m◉ verbose\x1b[0m' : ''}${remote ? ` ${tc('⇄')} \x1b[36m${remote}\x1b[0m` : ''}`;
   const center = effective
-    ? `\x1b[1m${effective}\x1b[22m${routedVia && routedVia !== effective ? dimmed(` → ${routedVia}`) : ''}${last.provider ? dimmed(` via ${last.provider}`) : ''}${effective !== opts.model && !effective.endsWith(opts.model) ? dimmed(` (asked ${opts.model})`) : ''}`
-    : `${opts.label ?? opts.provider}/${opts.model}${dimmed(' (no reply yet)')}`;
+    ? `${lime('◆')} \x1b[1m${effective}\x1b[22m${routedVia && routedVia !== effective ? dimmed(` → ${routedVia}`) : ''}${last.provider ? dimmed(` via ${last.provider}`) : ''}${effective !== opts.model && !effective.endsWith(opts.model) ? dimmed(` (asked ${opts.model})`) : ''}`
+    : `${lime('◇')} ${gateway?.enabled && !gateway.isBridge ? `${opts.model}${(prov => (prov === '-' ? '' : dimmed(` via ${prov}`)))(providerText({ name: opts.model }, availability))}` : `${opts.label ?? opts.provider}/${opts.model}`}${dimmed(' (no reply yet)')}`;
 
   /* context in use after the last reply: its prompt plus its answer, else a chars/4 estimate */
   const used = last?.usage ? (last.usage.prompt ?? 0) + (last.usage.completion ?? 0) : Math.round(totalChars(messages ?? []) / 4);
-  const right = ctxWindow ? `ctx ${meter(used / ctxWindow, 8)} ${Math.round((100 * used) / ctxWindow)}% ${dimmed(`${fmtNum(used)}/${fmtNum(ctxWindow)}`)}` : `ctx ${last?.usage ? '' : '~'}${fmtNum(used)} tok${dimmed(' (window ?)')}`;
+  const right = ctxWindow ? `${tc('▤')} ctx ${meter(used / ctxWindow, 8)} ${Math.round((100 * used) / ctxWindow)}% ${dimmed(`${fmtNum(used)}/${fmtNum(ctxWindow)}`)}` : `ctx ${last?.usage ? '' : '~'}${fmtNum(used)} tok${dimmed(' (window ?)')}`;
 
   const two = [];
-  if(last?.usage) two.push(`last ${fmtNum(last.usage.prompt)}+${fmtNum(last.usage.completion)}${last.usage.reasoning ? ` (${fmtNum(last.usage.reasoning)} reasoning)` : ''}${last.usage.cached ? ` ${fmtNum(last.usage.cached)} cached` : ''}`);
-  if(last?.error) two.push(`\x1b[31mlast failed: ${last.error.slice(0, 60)}\x1b[39m`);
-  two.push(`session ${t.requests} req ${fmtNum(t.total)} tok`);
+  if(last?.usage) two.push(`${tc('↯')} ${fmtNum(last.usage.prompt)}+${fmtNum(last.usage.completion)}${last.usage.reasoning ? ` (${fmtNum(last.usage.reasoning)} reasoning)` : ''}${last.usage.cached ? ` ${fmtNum(last.usage.cached)} cached` : ''}`);
+  if(last?.error) two.push(`\x1b[31m✗ last failed: ${last.error.slice(0, 60)}\x1b[39m`);
+  two.push(`${tc('Σ')} ${t.requests} req ${fmtNum(t.total)} tok`);
 
   /* a quota as a small meter, used/limit */
-  const quota = (name, x) => (x?.limit ? `${name} ${meter(x.used / x.limit, 4)} ${fmtNum(x.used)}/${fmtNum(x.limit)}` : null);
+  const quota = (name, x) => (x?.limit ? `${tc('◔')} ${name} ${meter(x.used / x.limit, 4)} ${fmtNum(x.used)}/${fmtNum(x.limit)}` : null);
   const q = gateway?.modelQuota(last);
   if(q) two.push(...[quota('req/min', q.rpm), quota('req/day', q.rpd), quota('tok/min', q.tpm), quota('month', q.month)].filter(Boolean));
 
   const u = gateway?.state.usage;
   const b = gateway?.state.budget;
-  if(u) two.push(b?.totalBudget ? `gateway ${meter(b.totalUsed / b.totalBudget, 4)} ${Math.round((100 * b.totalUsed) / b.totalBudget)}% of ${fmtNum(b.totalBudget)}` : `gateway month ${fmtNum(u.tokens)} tok ${fmtNum(u.requests)} req`);
+  if(u) two.push(b?.totalBudget ? `${tc('⛁')} gateway ${meter(b.totalUsed / b.totalBudget, 4)} ${Math.round((100 * b.totalUsed) / b.totalBudget)}% of ${fmtNum(b.totalBudget)}` : `${tc('⛁')} gateway month ${fmtNum(u.tokens)} tok ${fmtNum(u.requests)} req`);
   if(last?.rateLimit) two.push(`gw ${last.rateLimit.remaining}/${last.rateLimit.limit}/min`);
   if(proxyInfo.settings?.active) {
     const o = proxyInfo.probe?.overhead;
-    two.push(`proxy ${proxyInfo.measuring ? 'measuring…' : o == null ? 'on' : `${o > 1000 ? '\x1b[33m' : ''}${signedMs(o)}\x1b[39m`}${last && last.proxied === false ? ' (last direct)' : ''}`);
+    two.push(`${tc('⇆')} proxy ${proxyInfo.measuring ? 'measuring…' : o == null ? 'on' : `${o > 1000 ? '\x1b[33m' : ''}${signedMs(o)}\x1b[39m`}${last && last.proxied === false ? ' (last direct)' : ''}`);
   }
-  if(standby.on) two.push(standby.state === 'ready' ? `standby ${standby.id} ✓ ${fmtMs(standby.ms)}${standby.toolOk ? '' : ' (no tools)'}` : standby.state === 'probing' ? 'standby probing…' : `\x1b[33mstandby ${standby.state}\x1b[39m`);
-  if(last?.fallbacks) two.push(`\x1b[33m${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
-  if(queued) two.push(`\x1b[33m${queued} queued\x1b[39m`);
-  two.push(busy ? 'Esc cancels · Ctrl-X Ctrl-S sends now' : 'Shift-Tab mode · Ctrl-O verbose · /help');
+  if(standby.on) two.push(standby.state === 'ready' ? `${tc('⏻')} standby ${standby.id} ✓ ${fmtMs(standby.ms)}${standby.toolOk ? '' : ' (no tools)'}` : standby.state === 'probing' ? `${tc('⏻')} standby probing…` : `\x1b[33m⏻ standby ${standby.state}\x1b[39m`);
+  if(last?.fallbacks) two.push(`\x1b[33m⚑ ${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
+  if(queued) two.push(`\x1b[33m⏳ ${queued} queued\x1b[39m`);
+  two.push(busy ? dimmed(`${lime('⎋')} Esc cancels · ^X^S sends now`) : dimmed(`${lime('⇧⇥')} mode · ${lime('^O')} verbose · ${lime('/help')}`));
 
-  return [gradientRule(cols), statusBar([left, center, right], cols - 1), dimmed(two.join(' · '))];
+  return [gradientRule(cols), statusBar([left, center, right], cols - 1), two.join(dimmed(' │ '))];
 }
 
 async function main() {
@@ -2660,7 +2667,7 @@ async function main() {
     skip: async error => {
       skipError = error;
       try {
-        console.log(waveNote('no model could serve the request: skipping the spent one and trying the next'));
+        console.log(waveNote(isUpstreamFailure(error) ? 'every route failed upstream: skipping this model and trying the next' : 'no model could serve the request: skipping the spent one and trying the next'));
         await runLine('/model skip');
         return true;
       } finally {
@@ -2996,7 +3003,7 @@ async function main() {
         if(spent.length) {
           const names = (known ?? []).filter(m => { const ps = availability?.byModel.get(m)?.platforms ?? []; return ps.length && ps.every(p => spent.includes(p)); });
           for(const m of names) byProvider += skipModels(m, 'provider exhausted', known);
-          if(byProvider) console.log(dim(`the gateway ran out of models: skipped the ${byProvider} model(s) of ${spent.join(', ')}`));
+          if(byProvider) console.log(note(`the gateway ran out of models: skipped the ${byProvider} model(s) of ${spent.join(', ')}`, 'skip'));
         }
 
         if(verb === 'skip' && byProvider) {
@@ -3004,7 +3011,7 @@ async function main() {
         } else if(verb === 'skip') {
           const n = skipModels(target, 'manual', known);
           if(!n) return void console.log(red(`error: no model matches "${target}"`));
-          console.log(dim(n === 1 ? skipNote(target, 'manual') : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`));
+          console.log(note(n === 1 ? skipNote(target, 'manual') : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`, 'skip'));
         } else {
           const n = unskipModels(target);
           if(!n) return void console.log(red(`error: "${target}" is not skipped`));
@@ -3722,7 +3729,7 @@ async function main() {
       { name, model: opts.model, provider: opts.provider, root: opts.root, cwd: getcwd()[0], mode: opts.mode, worker: !!opts.worker },
       line => {
         // as if typed: shown on the terminal so the user sees who asked
-        if(!tui?.active) console.log(piped ? green(`[remote]> ${line}`) : `\r\x1b[K${remoteMark()} \x1b[32m${line}\x1b[0m`);
+        if(!tui?.active) console.log(piped ? green(`[remote]> ${line}`) : `\r\x1b[K${remoteMark()} ${remoteText(line)}`);
         repl.handleCmd(line, 'remote');
       },
       () => repl.busy,
@@ -3738,7 +3745,7 @@ async function main() {
     }
 
     tui?.drawStatus();
-    console.log(note(`control socket ${control.path} · session ${name} · ollama-repl-ctl -s ${name} send …`, 'link'));
+    console.log(controlNote(control.path, name));
     return true;
   };
 

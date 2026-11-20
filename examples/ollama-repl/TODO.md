@@ -844,7 +844,9 @@ done - see item 4a above for the same live-verification gap.
   again, up to 4 times a round (`autoSkipHook` in repl.js; the skip works from
   the error at hand, not from the stats). Tested against a fake gateway only
   (spent model -> good model), not against a live freellmapi. A chat-bridge
-  keeps using its own failover hook.
+  keeps using its own failover hook. Since 2026-11-20 a 502 upstream_failed
+  ("All N routed attempt(s) failed with upstream provider errors") does the
+  same, skipping only that model (not its provider); fake gateway tested.
 
 - Tool-call loop guard (2026-10-31): `runToolLoop()` no longer re-executes
   a call (same tool + args) already made this turn; the model gets an

@@ -56,10 +56,10 @@ export class Failover {
 export function failoverNote(err, from, to) {
   const why = err.code === 'login_required' ? 'login needed' : Failover.isUpstreamFailure(err) ? 'upstream failure' : 'limit reached';
   const when = err.retryAfter ? `, back in ~${err.retryAfter >= 3600 ? `${Math.round(err.retryAfter / 3600)}h` : `${Math.ceil(err.retryAfter / 60)}min`}` : '';
-  return `(${from}: ${why}${when} - switching to ${to})`;
+  return `${from}: ${why}${when} - switching to ${to}`;
 }
 
 /** one line for the user: a model was skipped because it failed */
 export function skipNote(from, reason) {
-  return `(${from}: ${reason} - skipped for 10m)`;
+  return `${from}: ${reason} - skipped for 10m`;
 }
