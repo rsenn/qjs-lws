@@ -839,6 +839,19 @@ printed only in verbose mode (Ctrl-O). "the gateway ran out of models" skips
 only the models of the exhausted providers that the gateway reports as
 limited, and says why and when they are back.
 
+### While a request runs
+
+Commands that need no model call (`/context`, `/files`, `/system`, `/cd`,
+`/model list`, `/help`, `/status`, ...) act at once, beside the running
+request, typed or sent with `ollama-repl-ctl`; they are never queued.
+`/model NAME` switches at once, cancels the running request and sends its
+prompt again to the new model (the conversation is kept). A steering line
+that is only `stop`, `cancel`, `abort` or `halt` (Ctrl-X Ctrl-S,
+`ollama-repl-ctl steer stop`, or simply `ollama-repl-ctl cancel`) cancels
+the request and is not sent to the model. A streamed request that shows
+no first token or reasoning within `--first-token-timeout SECS` (default
+90, 0 = off) is cancelled and fails over like an error.
+
 ## Sub-agents, restarting and failover on upstream errors
 
 Added overnight on 2026-11-19 (commit 2fcdcc1, which had no description);

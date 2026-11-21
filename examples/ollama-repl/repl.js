@@ -149,6 +149,7 @@ const USAGE = [
   ['--no-delegate', 'do not tell the model it may hand documentation, build wiring, summaries and repetitive jobs to weaker sub-agent models (/delegate)'],
   ['--standby', 'with a freellmapi gateway: keep the model the gateway would use next probed and warm, as a switch-over target and sub-agent model (/standby)'],
   ['--compact-at PCT', 'compact the conversation (older turns summarized by a local model, as for a failover) when it uses this percent of the context window (default 80, 0 = never). /compact does it at once.'],
+  ['--first-token-timeout SECS', 'a streamed request that shows no first token or reasoning within SECS seconds is cancelled and fails over like an error (default 90, 0 = off).'],
   ['--no-handoff', 'replay the whole conversation to the next model instead of compacting it.'],
   ['--handoff-turns N', 'turns kept verbatim when compacting (default 3); older ones are summarized.'],
   ['--handoff-model NAME', 'local ollama model that writes the summary (default qwen3:4b-instruct).'],
@@ -193,6 +194,7 @@ function parseArgs(argv) {
     else if(arg === '--no-tui') opts.noTui = true;
     else if(arg === '--scan') opts.scan = true;
     else if(arg === '--allow-paid') opts.allowPaid = true;
+    else if(arg === '--first-token-timeout') opts.firstTokenSecs = +argv[++i];
     else if(arg === '--no-handoff') opts.noHandoff = true;
     else if(arg === '--self-edit') opts.selfEdit = true;
     else if(arg === '--compact-at') opts.compactAt = +argv[++i];
@@ -843,7 +845,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
 
       /* nothing can serve the request on this route: skip the spent model(s), switch to the next ready one, retry */
       const text = `${e.message ?? ''}\n${e.detail ?? ''}\n${e.body ?? ''}`;
-      if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && (isExhaustedError(text) || isUpstreamFailure(text) || isGone(e))) {
+      if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && (isExhaustedError(text) || isUpstreamFailure(text) || isGone(e) || e.code === 'timeout')) {
         const from = client.model;
         skips++;
         if(await autoSkipHook.skip(text) && client.model !== from) continue;
@@ -971,12 +973,38 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   // timeout, a dropped connection, ...) must never leave the spinner's
   // timer running; stopSpinner() is idempotent, so this is a harmless
   // no-op on top of an already-stopped spinner.
+  /* a request that shows no token (nor reasoning) within firstTokenSecs is cancelled: a stuck route fails over like an error */
+  const waitSecs = opts.firstTokenSecs ?? 90;
+  let stalled = false;
+  let watchdog = null;
+  const disarm = () => {
+    if(watchdog !== null) clearTimeout(watchdog);
+    watchdog = null;
+  };
+
+  if(opts.stream && waitSecs > 0) {
+    watchdog = setTimeout(() => {
+      stalled = true;
+      client.abort();
+    }, waitSecs * 1000);
+
+    const onReasoning = chatOptions.onReasoning;
+    chatOptions = {
+      ...chatOptions,
+      onReasoning: text => {
+        disarm();
+        onReasoning?.(text);
+      },
+    };
+  }
+
   try {
     if(opts.stream) {
       let first = true;
       const md = piped ? null : new MarkdownStream();
 
       const result = await client.chatStream(messages, chatOptions, token => {
+        disarm();
         control?.activity('answer', { text: token });
         if(first) {
           if(panes) showReasoning();
@@ -1017,7 +1045,11 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     response(result);
     cogitated(result);
     return result;
+  } catch(e) {
+    if(stalled) throw Object.assign(new Error(`no response after ${waitSecs}s (no first token)`), { code: 'timeout' });
+    throw e;
   } finally {
+    disarm();
     abortRef.current = null;
     stopSpinner();
   }
@@ -3739,9 +3771,10 @@ async function main() {
      model works they act at once (output goes straight to the transcript, not into a panel, because a panel
      captures stdout and would swallow the streamed reply). Piped input keeps its order. */
   if(!piped) {
-    const INSTANT = [/^\/verbose(\s|$)/, /^\/proxy(\s+(on|off))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+off)?$/, /^\/delegate(\s+(on|off))?$/, /^\/config$/, /^\/skill(\s+loaded)?$/, /^\/rename\s/, /^\/queue(\s|$)/];
+    const INSTANT = [/^\/verbose(\s|$)/, /^\/proxy(\s+(on|off))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+off)?$/, /^\/delegate(\s+(on|off))?$/, /^\/config$/, /^\/skill(\s+loaded)?$/, /^\/rename\s/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/];
     repl.immediate = line => INSTANT.some(re => re.test(line.trim()));
     repl.onImmediate = runLine;
+    repl.getModel = () => opts.model;
   }
 
   if(tui) {

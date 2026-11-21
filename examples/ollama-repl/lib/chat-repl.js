@@ -41,11 +41,15 @@ import { red, yellow } from './ansi.js';
 const BRIGHT_WHITE = '\x1b[97m';
 const RESET = '\x1b[0m';
 
+/* a steering line that only says stop */
+const STOP_WORD = /^(stop|cancel|abort|halt)[.!]?$/i;
+
 export class ChatREPL extends REPL {
   #busy = false;
   #queue = [];
   #chordX = false;
   #front = false;
+  #current = null; /* the line #run() is handling */
   #frontQueued = false;
   /** called whenever the queue of pending prompts changed (repl.js saves the session and redraws the status) */
   onQueue = null;
@@ -79,6 +83,8 @@ export class ChatREPL extends REPL {
    * waits its turn, a line that changes the conversation must not overlap.
    */
   immediate = null;
+  /** the model name now in use, to see whether a /model line changed it */
+  getModel = null;
   onImmediate = null;
 
   /**
@@ -407,8 +413,29 @@ export class ChatREPL extends REPL {
        and kill the process while the first (real, in-flight network)
        request was still pending - confirmed directly: the reply and its
        log line never appeared. Queue instead of running concurrently. */
-    if(this.#busy && this.onImmediate && this.immediate?.(expr)) {
-      Promise.resolve(this.onImmediate(expr)).catch(err => console.log(red(`error: ${err.message}`)));
+    /* a steering line that is only a control word cancels the running request and is not sent to the model */
+    if(this.#front && this.#busy && STOP_WORD.test(expr.trim())) {
+      this.#inputDone();
+      if(this.#onAbort?.() && this.#tuiOn) this.tui.write('\x1b[2m⚡ cancelled\x1b[0m\n');
+      return true;
+    }
+
+    /* /model NAME while a request runs: switch at once, cancel the request and send its prompt again to the new model */
+    const switching = this.#busy && /^\/model\s+(?!(list|skip|unskip)\b)\S/.test(expr.trim());
+
+    if(this.#busy && this.onImmediate && (switching || this.immediate?.(expr))) {
+      const redo = switching && this.#current !== null && !this.#current.startsWith('/') ? this.#current : null;
+      const before = this.getModel?.();
+
+      Promise.resolve(this.onImmediate(expr))
+        .catch(err => console.log(red(`error: ${err.message}`)))
+        .then(() => {
+          if(redo === null || !this.#busy || this.#current !== redo || this.getModel?.() === before) return;
+
+          this.#queue.unshift(redo);
+          this.#queueChanged();
+          if(this.#onAbort?.() && this.#tuiOn) this.tui.write('\x1b[2m⚡ the running request is cancelled, its prompt goes to the new model\x1b[0m\n');
+        });
       return true;
     }
 
@@ -428,6 +455,7 @@ export class ChatREPL extends REPL {
   }
 
   #run(expr) {
+    this.#current = expr;
     this.#busy = true;
     this.pipeBusy = true; // piped: hold EOF/the next line back until this settles
 

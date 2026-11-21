@@ -11,6 +11,7 @@
  *                                             session goes idle with -t)
  *   ollama-repl-ctl [-s SESSION] steer LINE   inject LINE like Ctrl-X Ctrl-S: it goes ahead of the queue
  *                                             and cancels the running request; then waits like send
+ *   ollama-repl-ctl [-s SESSION] cancel      cancel the running request (steer "stop": not sent to the model)
  *   ollama-repl-ctl [-s SESSION] restart      restart the session (/restart: the harness is checked,
  *                                             the conversation kept) and wait until the new process
  *                                             listens; exit 1 when the restart was refused
@@ -47,14 +48,15 @@ for(let i = 0; i < args.length; i++) {
   else rest.push(args[i]);
 }
 
-const [cmd, ...words] = rest;
+let [cmd, ...words] = rest;
+if(cmd === 'cancel') [cmd, words] = ['steer', ['stop']]; /* the steering control word: cancels, is not sent to the model */
 
 if(cmd === 'list') {
   for(const s of listSessions()) stdout.puts(`${s.name}\t${s.pid}\t${s.provider}/${s.model}\t${s.root}\t${s.sock}\n`);
   exit(0);
 }
 
-if(!['send', 'steer', 'watch', 'monitor', 'restart'].includes(cmd)) fail('usage: ollama-repl-ctl list | [-s SESSION] send LINE | [-s SESSION] steer LINE | [-s SESSION] watch | [-s SESSION] monitor | [-s SESSION] restart');
+if(!['send', 'steer', 'watch', 'monitor', 'restart'].includes(cmd)) fail('usage: ollama-repl-ctl list | [-s SESSION] send LINE | [-s SESSION] steer LINE | [-s SESSION] cancel | [-s SESSION] watch | [-s SESSION] monitor | [-s SESSION] restart');
 
 const match = s => (session ? s.name === session || String(s.pid) === session || s.sock === session || s.model.includes(session) : true);
 const sessionLabel = session ? `session "${session}"` : 'an ollama-repl --listen session';
