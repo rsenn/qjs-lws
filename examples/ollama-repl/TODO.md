@@ -1,5 +1,21 @@
 # TODO
 
+## Provider failover follow-ups (2026-11-21)
+
+Done: lib/provider-fallback.js, one-line HTTP errors, local-model last resort,
+back-off, 404 model_not_found skipped (see README "Provider failover").
+Open:
+- the 429 cool-down ignores Retry-After / x-ratelimit-reset (fixed 5 min / 10 min `/model skip`); a model that hit a
+  daily limit is asked again only after that fixed time
+- the monthly-quota vs daily-limit split is taken from the dashboard availability (loadAvailability); without a
+  dashboard session the old per-provider skip of the attempt trail applies
+- after a switch to the local model the next round still starts on the failed client and is routed by the cool-down;
+  the status line keeps the old route (the local client has no onMeta)
+- glob attach ("attached: sw.js") also fires on a `*.js` inside quoted prose: attach only a standalone path-like token, or a line prefix (/noattach, leading !) that disables it
+- read_file resolves relative to the harness root: allow an absolute path under an extra root or make /cd follow the job
+- single long turn: the auto compaction (`--compact-at`) keeps no older turn to summarize and cuts the tool rounds of
+  the running turn (see BUGS compact-single-turn)
+
 ## Next tasks (recorded 2026-11-19, in this order)
 
 State: harness steps 1 (24dabc0), 2 (af0f0d6), 3 (5377485), 4 (3911456) and 5 of the chat-bridge plan are done (step 5 2026-11-19: `site/model`, `max_tokens`/`stop`, check, cancel). Open:

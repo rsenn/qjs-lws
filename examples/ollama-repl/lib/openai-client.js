@@ -63,14 +63,17 @@ const DEBUG_LOG_PATH = 'openai-repl-debug.log';
  */
 export class OpenAIError extends Error {
   constructor(status, headers, body) {
-    super(`OpenAI HTTP ${status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
-    this.name = 'OpenAIError';
-    this.status = status;
-
     let err;
     try {
       err = JSON.parse(body)?.error;
     } catch(e) {}
+
+    /* one line: the full header block and body stay on .headers / .body for verbose mode */
+    super(`OpenAI HTTP ${status}: ${String(err?.message ?? body ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) || 'no message'}`);
+    this.name = 'OpenAIError';
+    this.status = status;
+    this.headers = headers;
+    this.body = body;
 
     this.code = err?.code ?? undefined;
     this.type = err?.type ?? undefined;

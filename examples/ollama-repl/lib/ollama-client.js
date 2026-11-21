@@ -163,7 +163,12 @@ export class OllamaClient {
       const headers = {};
       resp.headers?.forEach((v, k) => headers[k] = v);
       const body = await resp.text().catch(() => '');
-      throw new Error(`Ollama HTTP ${resp.status}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+      /* one line: the full header block and body stay on .headers / .body for verbose mode */
+      const err = new Error(`Ollama HTTP ${resp.status}: ${body.replace(/\s+/g, ' ').trim().slice(0, 300) || 'no message'}`);
+      err.status = resp.status;
+      err.headers = headers;
+      err.body = body;
+      throw err;
     }
 
     return resp;

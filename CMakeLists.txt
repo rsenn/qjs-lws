@@ -990,7 +990,12 @@ set(OLLAMA_REPL_LIB_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/ollama-repl-lib")
 file(REMOVE_RECURSE "${OLLAMA_REPL_LIB_BUILD_DIR}")
 file(MAKE_DIRECTORY "${OLLAMA_REPL_LIB_BUILD_DIR}")
 
-file(GLOB OLLAMA_REPL_LIB_FILES examples/ollama-repl/lib/*.js)
+# CONFIGURE_DEPENDS picks up a new lib file at the next build, and the files
+# themselves are configure dependencies: the rewritten copies below are made
+# at configure time, so without this an edited or added lib/*.js stayed
+# missing or stale in bin/lib/ until someone re-ran cmake by hand.
+file(GLOB OLLAMA_REPL_LIB_FILES CONFIGURE_DEPENDS examples/ollama-repl/lib/*.js)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OLLAMA_REPL_LIB_FILES})
 foreach(OLLAMA_REPL_LIB_FILE ${OLLAMA_REPL_LIB_FILES})
   get_filename_component(OLLAMA_REPL_LIB_FILE_NAME "${OLLAMA_REPL_LIB_FILE}" NAME)
   file(READ "${OLLAMA_REPL_LIB_FILE}" OLLAMA_REPL_LIB_FILE_CONTENTS)

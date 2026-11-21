@@ -224,3 +224,7 @@
     const t = (await (await fetch('http://127.0.0.1:9222/json')).json()).find(t => t.type == 'page');
     await new WebSocketStream(t.webSocketDebuggerUrl).opened;   // rejects: HS: ws upgrade response not 101
 
+
+- compact-single-turn (examples/ollama-repl/repl.js:3760): compactHook with one long user turn (a job with ~11 tool calls) summarizes the whole turn down to 2 messages, so the running job loses its context (reported after a model switch to a smaller context window)
+
+    ollama-repl --compact-at 1 and send one prompt that makes the model call ~10 tools

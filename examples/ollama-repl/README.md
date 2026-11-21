@@ -812,6 +812,33 @@ only. `/route` is the short way to set it:
   request. `/model skip` while on `auto` therefore pins the next best model
   itself (and says so); `/route auto` hands the choice back.
 
+## Provider failover (bad key, quota, outage, stale model)
+
+When a request fails for a reason a retry cannot fix, the route is put out of
+use for a cool-down and the same request (the whole conversation is kept) is
+retried on the next candidate, without the user (`lib/provider-fallback.js`,
+`chatRound()` in `repl.js`):
+
+| failure | cool-down | what happens |
+|---|---|---|
+| 401 / 403 (bad key) | 30 min, the whole endpoint | the local Ollama model takes over |
+| 404 `model_not_found` / "no longer available" | the model, 12 h in the failover, 10 min in `/model skip` | the gateway skips that model and goes on with the next one |
+| 402 / 429 (quota, rate limit) | 5 min | next model, then the local model |
+| 5xx, timeout, connection error | 1-2 min | next model, then the local model |
+
+The last resort is a local Ollama model: `--local-model NAME`, else
+`qwen3:4b-instruct` if installed, else the first installed one;
+`--no-failover` turns the local switch off. A switch is one line
+(`openai/auto 401 Invalid API key -> ollama/qwen3:4b-instruct`), also an
+event on the control socket (`ollama-repl-ctl monitor`), so it holds for
+`ollama-repl-ctl send` jobs too. When every route failed with a limit or an
+outage the round waits 30, 45 and 60 s (Esc ends the wait) and tries again
+before it gives up with one line naming each route and why. HTTP errors are
+one line (`OpenAI HTTP 401: Invalid API key`); the headers and body are
+printed only in verbose mode (Ctrl-O). "the gateway ran out of models" skips
+only the models of the exhausted providers that the gateway reports as
+limited, and says why and when they are back.
+
 ## Sub-agents, restarting and failover on upstream errors
 
 Added overnight on 2026-11-19 (commit 2fcdcc1, which had no description);

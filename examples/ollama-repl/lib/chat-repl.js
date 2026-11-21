@@ -715,8 +715,11 @@ export class ChatREPL extends REPL {
     if(this.#pager) return;
     if(this.#dialog) return this.#drawDialog();
 
-    this.tui.drawEditor(this.prompt, '', '', 0);
+    /* keep the typed line: the base also calls this after listing the Tab candidates */
+    this.tui.drawEditor(this.prompt, ' '.repeat(this.plen) + this.ps2, this.cmd, this.cursorPos, this.ghost());
     this.renderRow = 0;
+    this.lastCmd = this.cmd;
+    this.lastCursorPos = this.cursorPos;
     this.tui.drawStatus();
   }
 

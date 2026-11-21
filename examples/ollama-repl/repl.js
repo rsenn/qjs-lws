@@ -54,6 +54,7 @@ import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
 import { Failover, failoverNote, skipNote } from './lib/failover.js';
+import { ProviderFallback, classify, isGone } from './lib/provider-fallback.js';
 import { buildHandoff, HANDOFF_MODEL } from './lib/handoff.js';
 import { startBridge, pickModel } from './lib/bridge-process.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
@@ -80,7 +81,7 @@ import { findPeers, askPeer, peerAnswer } from './lib/peer.js';
 import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './lib/skills.js';
 import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
 import { gatewayReport, reportText } from './lib/gateway-report.js';
-import { loadAvailability, kindsText, limitsText, limitedText, backText } from './lib/availability.js';
+import { loadAvailability, kindsText, limitsText, limitedText, backText, untilText } from './lib/availability.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
@@ -142,6 +143,7 @@ const USAGE = [
   '',
   '@Failover (when a chat model hits its limit)',
   ['--no-failover', 'stay on the chosen model instead of switching to another.'],
+['--local-model NAME', 'local Ollama model the last-resort failover uses when the endpoint refuses (bad key), is out of quota or down (default qwen3:4b-instruct if installed, else the first installed).'],
   ['--self-edit', 'let the model change ollama-repl\'s own files (when it runs from the source tree) without asking, even in auto mode; without it every such edit asks and is never remembered.'],
   ['--worker', 'run as a worker for other ollama-repl instances: listens (--listen), never delegates itself; a session on the same --root may hand it tasks (spawn_agent kind ..., /delegate), so jobs can run on another --provider'],
   ['--no-delegate', 'do not tell the model it may hand documentation, build wiring, summaries and repetitive jobs to weaker sub-agent models (/delegate)'],
@@ -184,6 +186,7 @@ function parseArgs(argv) {
     else if(arg === '--port') opts.port = +argv[++i];
     else if(arg === '--root') opts.root = argv[++i];
     else if(arg === '--no-failover') opts.noFailover = true;
+    else if(arg === '--local-model') opts.localModel = argv[++i];
     else if(arg === '--no-delegate') opts.noDelegate = true;
     else if(arg === '--worker') opts.worker = true;
     else if(arg === '--no-tools') opts.noTools = true;
@@ -605,7 +608,7 @@ let failoverHook = null;
    works from (the stats may not hold it yet) */
 let autoSkipHook = null;
 let skipError = null;
-const AUTO_SKIPS = 4;
+const AUTO_SKIPS = 8;
 
 /* the control socket (--listen, /remote-control), set by startControl(); module level because chatRound() and runToolLoop() publish activity on it */
 let control = null;
@@ -777,17 +780,70 @@ function messagesText(msgs) {
 /** a path the model gave, relative to root */
 const underRoot = (root, p) => (String(p ?? '').startsWith('/') ? p : `${root}/${p}`);
 
+/* set by main(): { keys(client), label(client), pf: ProviderFallback, next(tried), switched(candidate) }, see lib/provider-fallback.js */
+let providerHook = null;
+let providerNoted = '';
+
+/**
+ * A failure no other model of the same endpoint can make up for (a bad key, a spent quota, an outage, a
+ * dead connection): cool the route down and return the client of the next viable provider, null when none is left.
+ */
+async function providerFallback(e, active, tried, attempts, opts) {
+  const fail = classify(e);
+  if(!providerHook || !fail) return null;
+
+  const [endpoint, route] = providerHook.keys(active);
+  const from = providerHook.label(active);
+  providerHook.pf.mark(fail.kind === 'auth' ? endpoint : route, fail);
+  attempts.push([from, fail.reason]);
+  tried.add(endpoint);
+  tried.add(route);
+
+  const to = await providerHook.next(tried);
+  if(!to) return null;
+
+  providerHook.announce(from, fail.reason, to, opts);
+  return to.client;
+}
+
+/* waits between the retries of a round whose every route failed; Esc / Ctrl-C ends the wait, false then */
+const BACKOFF_SECS = [30, 45, 60];
+
+function backoff(secs, abortRef) {
+  return new Promise(resolve => {
+    let timer;
+    abortRef.current = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    timer = setTimeout(() => resolve(true), secs * 1000);
+  });
+}
+
 async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   const tried = new Set([client.model]);
+  const attempts = []; /* [route, reason] of every route that failed this round */
   let skips = 0;
+  let backoffs = 0;
 
   for(;;) {
+    /* a route that is cooling down is not asked again: go straight to the next one */
+    if(providerHook && providerHook.keys(client).some(k => providerHook.pf.cooling(k))) {
+      const to = await providerHook.next(new Set(providerHook.keys(client)));
+      if(to) {
+        providerHook.announce(providerHook.label(client), providerHook.pf.cooling(providerHook.keys(client).find(k => providerHook.pf.cooling(k)))?.reason ?? 'unviable', to, opts);
+        client = to.client;
+      }
+    }
+
     try {
       return await chatRoundOnce(client, messages, opts, abortRef, chatOptions);
     } catch(e) {
+      if(ui.verbose && e.headers && !opts.quiet) console.log(dim(`${e.message}\nheaders: ${JSON.stringify(e.headers, null, 2)}\nbody: ${e.body ?? ''}`));
+
       /* nothing can serve the request on this route: skip the spent model(s), switch to the next ready one, retry */
       const text = `${e.message ?? ''}\n${e.detail ?? ''}\n${e.body ?? ''}`;
-      if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && (isExhaustedError(text) || isUpstreamFailure(text))) {
+      if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && (isExhaustedError(text) || isUpstreamFailure(text) || isGone(e))) {
         const from = client.model;
         skips++;
         if(await autoSkipHook.skip(text) && client.model !== from) continue;
@@ -802,18 +858,46 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
         continue;
       }
       /* a pinned site fails over here; auto is routed by the bridge, and when that ran out nothing is left to pick */
-      if(!failoverHook || !Failover.applies(e) || /^auto(:|$)/.test(client.model) || isExhaustedError(text)) throw e;
+      if(failoverHook && Failover.applies(e) && !/^auto(:|$)/.test(client.model) && !isExhaustedError(text)) {
+        const to = await failoverHook.failover.next(tried);
 
-      const to = await failoverHook.failover.next(tried);
-      if(!to) throw e;
+        if(to) {
+          /* the refusal came back before any reply text, so nothing was
+             printed for this attempt: switch and ask the same question again */
+          if(!opts.quiet) console.log(note(failoverNote(e, client.model, to), 'skip'));
+          tried.add(to);
+          /* the next site starts from nothing: send it a compacted conversation, not all of it */
+          if(failoverHook.handoff && !opts.noHandoff) await failoverHook.handoff(messages, opts);
+          failoverHook.onSwitch(to);
+          continue;
+        }
+      }
 
-      /* the refusal came back before any reply text, so nothing was
-         printed for this attempt: switch and ask the same question again */
-      if(!opts.quiet) console.log(note(failoverNote(e, client.model, to), 'skip'));
-      tried.add(to);
-      /* the next site starts from nothing: send it a compacted conversation, not all of it */
-      if(failoverHook.handoff && !opts.noHandoff) await failoverHook.handoff(messages, opts);
-      failoverHook.onSwitch(to);
+      /* the endpoint refuses (bad key), is out of quota or down: the next provider, finally the local model */
+      const next = await providerFallback(e, client, tried, attempts, opts);
+      if(next) {
+        client = next;
+        continue;
+      }
+
+      /* everything failed: a limit or an outage is waited out, a few times, before the error is surfaced */
+      const fail = classify(e);
+      if(providerHook && fail && ['limit', 'upstream', 'network'].includes(fail.kind) && !opts.quiet && backoffs < BACKOFF_SECS.length) {
+        const secs = BACKOFF_SECS[backoffs++];
+        console.log(note(`every route failed (${attempts.map(([r, why]) => `${r} ${why}`).join(', ') || fail.reason}), waiting ${secs}s, retry ${backoffs}/${BACKOFF_SECS.length}`, 'skip'));
+        if(await backoff(secs, abortRef)) {
+          providerHook.pf.release(['limit', 'upstream', 'network']);
+          tried.clear();
+          tried.add(client.model);
+          attempts.length = 0;
+          skips = 0;
+          continue;
+        }
+      }
+
+      /* one line naming each route and why */
+      if(attempts.length > 1) throw Object.assign(new Error(`every route failed: ${attempts.map(([r, why]) => `${r} ${why}`).join(', ')}`), { status: e.status, cause: e });
+      throw e;
     }
   }
 }
@@ -2363,6 +2447,47 @@ async function main() {
     },
   };
 
+  /* provider failover: a route that refuses (bad key), is out of quota or down is cooled down and the request
+     retried on the next provider, finally the local Ollama model (chatRound, lib/provider-fallback.js) */
+  {
+    let local = null; /* the local candidate, built on first use */
+    const endpointOf = c => c.baseUrl ?? `ollama://${c.host}:${c.port}`;
+    const labelOf = c => `${c instanceof OllamaClient ? 'ollama' : (opts.label ?? opts.provider)}/${c.model}`;
+
+    const localCandidate = () => {
+      if(local !== null) return local;
+      local = false;
+      if(opts.noFailover) return local;
+
+      const have = ollamaModels() ?? [];
+      const model = [opts.localModel, 'qwen3:4b-instruct'].find(m => m && have.includes(m)) ?? have[0];
+      if(!model) return local;
+
+      const c = new OllamaClient({ ...opts, model });
+      local = { key: `${endpointOf(c)}/${model}`, label: `ollama/${model}`, client: c };
+      return local;
+    };
+
+    providerHook = {
+      pf: new ProviderFallback(() => {
+        const c = localCandidate();
+        return c ? [c] : [];
+      }),
+      keys: c => [endpointOf(c), `${endpointOf(c)}/${c.model}`],
+      label: labelOf,
+      next: tried => providerHook.pf.next(tried),
+      announce: (from, reason, to, o) => {
+        const line = `${from} ${reason} -> ${to.label}`;
+        control?.event({ type: 'failover', from, to: to.label, reason });
+        if(o.quiet || providerNoted === line) return;
+        providerNoted = line;
+        console.log(note(line, 'skip'));
+        repl.setPromptName?.(to.client.model);
+        control?.update({ model: to.client.model });
+      },
+    };
+  }
+
   if(opts.provider === 'openai') {
     gateway = gatewayRef = new Gateway(client);
 
@@ -3031,17 +3156,25 @@ async function main() {
         if(verb === 'skip' && !pattern && !spent.length && isExhaustedError(skipError ?? stats.last()?.error)) spent = availability?.byModel.get(target)?.platforms ?? [];
         let byProvider = 0;
         if(spent.length) {
-          const names = (known ?? []).filter(m => { const ps = availability?.byModel.get(m)?.platforms ?? []; return ps.length && ps.every(p => spent.includes(p)); });
+          const names = (known ?? []).filter(m => { const ps = availability?.byModel.get(m)?.platforms ?? []; return ps.length && ps.every(p => spent.includes(p)) && availability?.byModel.get(m)?.blocked !== false; });
           for(const m of names) byProvider += skipModels(m, 'provider exhausted', known);
-          if(byProvider) console.log(note(`the gateway ran out of models: skipped the ${byProvider} model(s) of ${spent.join(', ')}`, 'skip'));
+          if(byProvider) {
+            const err = skipError ?? stats.last()?.error ?? '';
+            const why = isUpstreamFailure(err) ? 'every route failed upstream' : /quota|exhausted/i.test(err) && !/rate.?limit/i.test(err) ? 'quota used up' : 'rate limited';
+            const ends = names.map(m => availability?.byModel.get(m)?.until).filter(Boolean);
+            const resets = ends.length ? `, back ${untilText(Math.min(...ends))}` : '';
+            console.log(note(`the gateway ran out of models (${why}): skipped the ${byProvider} model(s) of ${spent.join(', ')}${resets}; asked again in ${SKIP_COOLDOWN_MS / 60000} min at the earliest`, 'skip'));
+          }
         }
 
         if(verb === 'skip' && byProvider) {
           /* done above */
         } else if(verb === 'skip') {
-          const n = skipModels(target, 'manual', known);
+          /* the real cause when the round skips by itself, 'manual' only when the user typed it */
+          const cause = !skipError ? 'manual' : /model_not_found|no longer available/i.test(skipError) ? 'no longer available' : isUpstreamFailure(skipError) ? 'every route failed upstream' : isExhaustedError(skipError) ? 'rate limited or quota used up' : String(skipError).split('\n')[0].slice(0, 60);
+          const n = skipModels(target, cause, known);
           if(!n) return void console.log(red(`error: no model matches "${target}"`));
-          console.log(note(n === 1 ? skipNote(target, 'manual') : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`, 'skip'));
+          console.log(note(n === 1 ? skipNote(target, cause) : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`, 'skip'));
         } else {
           const n = unskipModels(target);
           if(!n) return void console.log(red(`error: "${target}" is not skipped`));

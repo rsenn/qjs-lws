@@ -1,3 +1,7 @@
+2026-11-21  Roman Senn  <roman.l.senn@gmail.com>
+
+	* BUGS: Add compact-single-turn.
+
 2026-11-19  Roman Senn  <roman.l.senn@gmail.com>
 
 	* .gitignore: Ignore examples/.ollama-repl-snap-*, the startup

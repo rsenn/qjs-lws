@@ -217,8 +217,10 @@ export class GeminiClient {
         apiMessage = JSON.parse(body)?.error?.message;
       } catch(e) {}
 
-      const err = new Error(`Gemini HTTP ${resp.status}${apiMessage ? `: ${apiMessage}` : ''}\nheaders: ${JSON.stringify(headers, null, 2)}\nbody: ${body}`);
+      const err = new Error(`Gemini HTTP ${resp.status}${apiMessage ? `: ${String(apiMessage).replace(/\s+/g, ' ').slice(0, 300)}` : ''}`);
       err.status = resp.status;
+      err.headers = headers;
+      err.body = body;
       err.apiMessage = apiMessage;
       throw err;
     }
