@@ -82,7 +82,7 @@ import { findPeers, askPeer, peerAnswer } from './lib/peer.js';
 import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './lib/skills.js';
 import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
 import { gatewayReport, reportText } from './lib/gateway-report.js';
-import { loadAvailability, kindsText, limitsText, limitedText, backText, untilText } from './lib/availability.js';
+import { loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure } from './lib/availability.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
@@ -866,6 +866,9 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
       /* nothing can serve the request on this route: skip the spent model(s), switch to the next ready one, retry */
       const text = `${e.message ?? ''}\n${e.detail ?? ''}\n${e.body ?? ''}`;
       const fail = classify(e);
+      if (fail?.kind === 'limit' || fail?.kind === 'upstream' || fail?.kind === 'network') {
+        recordLocalFailure(client.model, e);
+      }
 
       /* a rate-limited model whose cooldown ends within 2 minutes: wait on it,
          reusing the prefix cache, instead of switching models and re-sending everything */

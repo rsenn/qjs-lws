@@ -27,6 +27,53 @@ import { formatTable, fmtNum } from './usage-stats.js';
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
+/**
+ * Local shadow blocklist: modelId -> { until: epoch ms, reason: string }.
+ * Updated immediately on a transient failure, before the dashboard API
+ * reflects it. applyShadowBlocks() merges these into byModel so the
+ * router refuses to pick a model we just saw fail. Entries are pruned
+ * on read; nothing persists across process restarts.
+ */
+const shadowBlocks = new Map();
+
+/** Record a transient failure for a model id. Called from repl.js. */
+export function recordLocalFailure(modelId, error, now = Date.now()) {
+  if (!modelId || typeof modelId !== 'string') return;
+  const status = error?.status ?? error?.statusCode;
+  const retryAfter = error?.headers?.['retry-after'] ?? error?.retryAfter;
+  let waitMs = MINUTE;
+  if (status === 429) waitMs = retryAfter ? Math.max(MINUTE, parseInt(retryAfter, 10) * 1000) : MINUTE;
+  else if (status === 500 || status === 502 || status === 503) waitMs = 30_000;
+  else if (/timeout|ECONNRESET|ECONNREFUSED|ETIMEDOUT|network/i.test(String(error?.message ?? ''))) waitMs = 15_000;
+  shadowBlocks.set(modelId, { until: now + waitMs, reason: String(error?.message ?? `status ${status}`).slice(0, 120) });
+}
+
+/**
+ * Merge shadow blocks into byModel in place. A shadow block only
+ * OVERRIDES the dashboard when the dashboard says the model is ready;
+ * if the dashboard already has a longer `until`, we keep that.
+ * Expired shadow entries are pruned here.
+ */
+export function applyShadowBlocks(byModel, now = Date.now()) {
+  for (const [id, block] of shadowBlocks) {
+    if (block.until <= now) { shadowBlocks.delete(id); continue; }
+    const entry = byModel.get(id);
+    if (!entry) continue;
+    if (!entry.blocked) {
+      entry.blocked = true;
+      entry.status = 'exhausted';
+      entry.until = block.until;
+      entry.approx = false;
+      if (!entry.kinds.includes('shadow')) entry.kinds.push('shadow');
+      entry.blocks.push({ kind: 'shadow', until: block.until, detail: `local failure: ${block.reason}` });
+    } else if (block.until > (entry.until ?? 0)) {
+      entry.until = block.until;
+      entry.approx = false;
+      if (!entry.kinds.includes('shadow')) entry.kinds.push('shadow');
+    }
+  }
+}
+
 /** error texts that point at the caller's address (or region) rather than at the account */
 const IP_ERROR = /\b(ips?|ip address)\b|your (ip|network|region|country)|region|country|geo[- ]?(block|restrict)|location|vpn|proxy|data ?cent(er|re)|too many requests from|not available in your/i;
 
@@ -186,6 +233,7 @@ export async function loadAvailability(gateway) {
     });
   }
 
+  applyShadowBlocks(byModel, now);
   return { at: now, byModel, byRow, rate, budget };
 }
 
@@ -218,6 +266,7 @@ async function loadBridgeAvailability(gateway) {
     byModel.set(m.id, { blocked, status, until, approx: false, permanent: false, kinds: blocks.map(b => b.kind), blocks, rows: 1, intelligence: null, platforms: [m.id] });
   }
 
+  applyShadowBlocks(byModel, now);
   return { at: now, byModel, byRow, rate, budget };
 }
 
