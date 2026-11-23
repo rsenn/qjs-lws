@@ -83,6 +83,7 @@ import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './l
 import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
 import { gatewayReport, reportText } from './lib/gateway-report.js';
 import { loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure } from './lib/availability.js';
+import { recordLatency } from './lib/latency.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
@@ -101,6 +102,11 @@ const removeFile = path => rmSync(path, { force: true });
    to the model, so this caps both latency and (if the model gets stuck
    re-requesting) runaway cost, not just literal infinite loops. */
 const DEFAULT_MAX_ROUNDS = 40;
+
+/* Maximum nudges sent when the model answers in prose instead of making
+   changes - after this many nudges the harness stops and returns the
+   response, even if no file was written. */
+const MAX_NUDGES = 2;
 
 const THINK_VALUES = ['detect', 'on', 'off', 'true', 'false', 'auto', 'low', 'medium', 'high'];
 
@@ -378,13 +384,17 @@ link for something that needs none of it):
 /** @returns {{ text: string, attached: string[] }} */
 const NUDGE = `You have not changed anything yet. Do not print file contents or code in your reply - make the change with a tool call now: for_each if the job repeats over many things, otherwise insert_above or edit_file (read_file first if you need to see the code).`;
 
+/** Phrases that indicate a report-only / investigation task where NO code changes should be made. */
+const REPORT_ONLY = /\b(do not|don't|do NOT)\s+(make|do|perform)\s+(any\s+)?(code\s+)?changes?\b|\b(just|only)\s+(read|investigate|analyze|inspect|examine|look)\b|\breport\s+(your\s+)?findings?\b|\binvestigation\s+only\b|\bno\s+(code\s+)?changes?\b|\b(read|analysis|inspection)\s+only\b/i;
+
 /** True if the conversation's latest user request (not a nudge) asks to modify code or files. */
 function asksForChange(messages) {
   const users = messages.filter(m => m.role === 'user' && m.content !== NUDGE);
   const last = users[users.length - 1];
+  const text = last?.request ?? last?.content ?? '';
   /* `request` is what was typed; `content` also carries attached file
      contents, whose code ("add", "update", ...) must not read as a request */
-  return CHANGE_REQUEST.test(last?.request ?? last?.content ?? '');
+  return CHANGE_REQUEST.test(text) && !REPORT_ONLY.test(text);
 }
 
 /** the verbs of a request to modify code or files */
@@ -1066,6 +1076,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
       response(result);
       cogitated(result);
+      recordLatency(client.model, Date.now() - t0);
       return result;
     }
 
@@ -1080,6 +1091,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     if(result.content && !opts.quiet) console.log(`\n${piped ? `${opts.label ?? opts.provider}> ` : replyMark()}${piped ? result.content : new MarkdownStream().push(result.content + '\n')}\n`);
     response(result);
     cogitated(result);
+    recordLatency(client.model, Date.now() - t0);
     return result;
   } catch(e) {
     if(stalled) throw Object.assign(new Error(`no response after ${waitSecs}s (no first token)`), { code: 'timeout' });
@@ -1536,8 +1548,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
     if(!result.toolCalls?.length) {
       /* A change was asked for, but the model answered in prose (typically by
          printing the "updated" file) without touching anything - qwen2.5-coder
-         does this. Send it back to work, twice at most. */
-      if(!final && opts.mode !== 'plan' && nudges < 2 && writeCount === writesAtStart && asksForChange(messages)) {
+         does this. Send it back to work, up to MAX_NUDGES times. */
+      if(!final && opts.mode !== 'plan' && nudges < MAX_NUDGES && writeCount === writesAtStart && asksForChange(messages)) {
         nudges++;
         if(!opts.quiet) console.log(note(`nudge: ${NUDGE}`));
         messages.push({ role: 'user', content: NUDGE });

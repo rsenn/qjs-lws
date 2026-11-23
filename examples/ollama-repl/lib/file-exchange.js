@@ -122,6 +122,30 @@ export class FileExchange {
     return lines.join('\n');
   }
 
+  /**
+   * Identify files that have changed since they were last sent.
+   * Iterates through the private sent array and checks each file's
+   * modification time on disk against the recorded timestamp.
+   * @returns {string[]} Array of paths that have been modified since last sent
+   */
+  staleSentPaths() {
+    const result = [];
+
+    for(const { path, timestamp } of this.#sent) {
+      const full = this.#root === '.' ? path : `${this.#root}/${path}`;
+      const [st] = stat(full);
+
+      if(st && st.mtime) {
+        const sentTime = new Date(timestamp).getTime();
+        if(st.mtime > sentTime) {
+          result.push(path);
+        }
+      }
+    }
+
+    return result;
+  }
+
   setRoot(root) {
     this.#root = root;
     this.#diffDirReady = false;

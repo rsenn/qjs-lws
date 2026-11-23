@@ -28,6 +28,53 @@ const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
 /**
+ * Learned cooldown tracking.
+ * Maps model key (platform/modelId) -> { lastFailure: number|null, avgCooldown: number }
+ * Uses exponential moving average: 70% old, 30% new.
+ */
+const learnedCooldowns = new Map();
+
+/**
+ * Record a cooldown event for a model.
+ * @param {string} modelKey - The model key (platform/modelId)
+ * @param {'failure'|'success'} event - Whether this is a failure or success
+ * @param {number} [now=Date.now()] - Current timestamp
+ */
+export function recordCooldownEvent(modelKey, event, now = Date.now()) {
+  if (!modelKey || typeof modelKey !== 'string') return;
+  let entry = learnedCooldowns.get(modelKey);
+  if (!entry) {
+    entry = { lastFailure: null, avgCooldown: null };
+    learnedCooldowns.set(modelKey, entry);
+  }
+
+  if (event === 'failure') {
+    entry.lastFailure = now;
+  } else if (event === 'success') {
+    if (entry.lastFailure !== null) {
+      const actualDuration = now - entry.lastFailure;
+      if (entry.avgCooldown === null) {
+        entry.avgCooldown = actualDuration;
+      } else {
+        // Exponential moving average: 70% old, 30% new
+        entry.avgCooldown = Math.round(entry.avgCooldown * 0.7 + actualDuration * 0.3);
+      }
+      entry.lastFailure = null;
+    }
+  }
+}
+
+/**
+ * Retrieve the learned average cooldown for a model.
+ * @param {string} modelKey
+ * @returns {number|null} The learned average cooldown in milliseconds, or null if none
+ */
+export function getLearnedCooldown(modelKey) {
+  const entry = learnedCooldowns.get(modelKey);
+  return entry?.avgCooldown ?? null;
+}
+
+/**
  * Local shadow blocklist: modelId -> { until: epoch ms, reason: string }.
  * Updated immediately on a transient failure, before the dashboard API
  * reflects it. applyShadowBlocks() merges these into byModel so the
@@ -135,12 +182,26 @@ const endOf = blocks => (blocks.some(b => b.until == null) ? null : Math.max(...
  * monthly budget of the row, plus - when every key of the platform is
  * blocked - the blocks of the key that frees up first.
  */
-function rowBlocks(row, { rate, budget, keys, errors, now }) {
+function rowBlocks(row, { rate, budget, keys, errors, now }, byRow) {
+  // Record failure event if there are existing blocks (meaning the model is currently limited)
+  const modelKey = key(row.platform, row.modelId);
+  const existingBlocks = byRow?.get(modelKey);
+  if (existingBlocks && existingBlocks.length > 0) {
+    recordCooldownEvent(modelKey, 'failure', now);
+  }
+
   const blocks = [];
+
+  // Helper to get learned cooldown or fall back to fixed constant
+  const getDuration = (kind, fixedMs) => {
+    const learned = getLearnedCooldown(modelKey);
+    if (learned !== null) return learned;
+    return fixedMs;
+  };
 
   for(const [kind, label, ms] of [['rpm', 'requests per minute', MINUTE], ['tpm', 'tokens per minute', MINUTE], ['rpd', 'requests per day', DAY]]) {
     const w = rate?.[kind];
-    if(w && w.limit > 0 && w.used >= w.limit) blocks.push({ kind, until: now + ms, approx: true, detail: `${label} ${w.used}/${w.limit}` });
+    if(w && w.limit > 0 && w.used >= w.limit) blocks.push({ kind, until: now + getDuration(kind, ms), approx: true, detail: `${label} ${w.used}/${w.limit}` });
   }
 
   if(budget?.budget > 0 && budget.used >= budget.budget) blocks.push({ kind: 'month', until: firstOfNextMonth(now), detail: `monthly budget ${budget.used}/${budget.budget} tokens` });
@@ -199,9 +260,20 @@ export async function loadAvailability(gateway) {
 
   const blocksFor = r => {
     const k = key(r.platform, r.modelId);
-    if(!byRow.has(k)) byRow.set(k, rowBlocks(r, { rate: rate.get(k), budget: budget.get(k), keys: keysOf.get(r.platform) ?? [], errors: errorsOf.get(k) ?? [], now }));
+    if(!byRow.has(k)) byRow.set(k, rowBlocks(r, { rate: rate.get(k), budget: budget.get(k), keys: keysOf.get(r.platform) ?? [], errors: errorsOf.get(k) ??[], now }, byRow));
     return byRow.get(k);
   };
+
+  // Record success events for ready models to update learned cooldowns
+  for(const m of models) {
+    if (m.execution_status !== 'exhausted') {
+      const rows = rowsOf.get(m.id) ?? [];
+      for(const row of rows) {
+        const k = key(row.platform, row.modelId);
+        recordCooldownEvent(k, 'success', now);
+      }
+    }
+  }
 
   const byModel = new Map();
 
