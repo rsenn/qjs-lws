@@ -55,7 +55,8 @@ import { GeminiClient } from './lib/gemini-client.js';
 import { OpenAIClient } from './lib/openai-client.js';
 import { Failover, failoverNote, skipNote } from './lib/failover.js';
 import { ProviderFallback, classify, isGone } from './lib/provider-fallback.js';
-import { buildHandoff, HANDOFF_MODEL } from './lib/handoff.js';
+import { buildHandoff, buildKnowledge, HANDOFF_MODEL } from './lib/handoff.js';
+import { buildBrief, briefSize, lastBrief } from './lib/project-brief.js';
 import { startBridge, pickModel } from './lib/bridge-process.js';
 import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
@@ -383,8 +384,11 @@ function asksForChange(messages) {
   const last = users[users.length - 1];
   /* `request` is what was typed; `content` also carries attached file
      contents, whose code ("add", "update", ...) must not read as a request */
-  return /\b(add|insert|change|fix|refactor|rename|remove|delete|write|create|update|implement|replace|document|comment|convert|rewrite)\b/i.test(last?.request ?? last?.content ?? '');
+  return CHANGE_REQUEST.test(last?.request ?? last?.content ?? '');
 }
+
+/** the verbs of a request to modify code or files */
+const CHANGE_REQUEST = /\b(add|insert|change|fix|refactor|rename|remove|delete|write|create|update|implement|replace|document|comment|convert|rewrite)\b/i;
 
 /* Least privilege for a batch item: a task that is only about adding comments
    gets insert_above but not edit_file/write_file. Measured with qwen3.5:4b:
@@ -633,6 +637,7 @@ let ctxWindowNow;
 
 /* set by main(): compacts a conversation when it nears the window (or at once with force) */
 let compactHook = null;
+let handoffHook = null;
 
 /** drops the turn that began with `turnMsg` (an aborted or failed one); a no-op when compaction already folded it away */
 function rollbackTurn(messages, turnMsg) {
@@ -808,6 +813,21 @@ async function providerFallback(e, active, tried, attempts, opts) {
   return to.client;
 }
 
+/* sleeps until the exact epoch ms (a model's cooldown end), honouring abort; true when the time arrived, false when aborted */
+async function waitUntil(untilMs, abortRef) {
+  return new Promise(resolve => {
+    let timer;
+    abortRef.current = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    timer = setTimeout(() => {
+      abortRef.current = null;
+      resolve(true);
+    }, Math.max(0, untilMs - Date.now()));
+  });
+}
+
 /* waits between the retries of a round whose every route failed; Esc / Ctrl-C ends the wait, false then */
 const BACKOFF_SECS = [30, 45, 60];
 
@@ -845,6 +865,20 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
 
       /* nothing can serve the request on this route: skip the spent model(s), switch to the next ready one, retry */
       const text = `${e.message ?? ''}\n${e.detail ?? ''}\n${e.body ?? ''}`;
+      const fail = classify(e);
+
+      /* a rate-limited model whose cooldown ends within 2 minutes: wait on it,
+         reusing the prefix cache, instead of switching models and re-sending everything */
+      if(fail?.kind === 'limit' && availability && !opts.quiet) {
+        const entry = availability.byModel.get(client.model);
+        const now = Date.now();
+        if(entry?.until != null && entry.until - now > 0 && entry.until - now <= 120000) {
+          const waitMs = entry.until - now;
+          console.log(note(`${client.model} rate limited, back in ${Math.round(waitMs / 1000)}s - waiting on the same model (prefix cache kept)`, 'skip'));
+          if(await waitUntil(entry.until, abortRef)) continue;
+        }
+      }
+
       if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && (isExhaustedError(text) || isUpstreamFailure(text) || isGone(e) || e.code === 'timeout')) {
         const from = client.model;
         skips++;
@@ -883,7 +917,6 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
       }
 
       /* everything failed: a limit or an outage is waited out, a few times, before the error is surfaced */
-      const fail = classify(e);
       if(providerHook && fail && ['limit', 'upstream', 'network'].includes(fail.kind) && !opts.quiet && backoffs < BACKOFF_SECS.length) {
         const secs = BACKOFF_SECS[backoffs++];
         console.log(note(`every route failed (${attempts.map(([r, why]) => `${r} ${why}`).join(', ') || fail.reason}), waiting ${secs}s, retry ${backoffs}/${BACKOFF_SECS.length}`, 'skip'));
@@ -932,7 +965,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
   /* TUI verbose: the reasoning as one panel, before the reply */
   const showReasoning = () => {
-    if(reasoning) showPanel('◌ reasoning', `\x1b[2;3m${reasoning.trim()}\x1b[0m`, { border: '#64748b' });
+    if(reasoning) showPanel('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`, { border: '#f472b6' }); /* pink frame (pink-400, the 400 tones of the rest of the palette), sky blue italic text (a Balearic sunset): stands out from the dim tool lines */
     reasoning = '';
   };
 
@@ -1764,6 +1797,9 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
 /fallback [NAME|off] - show or set fallback model for auto-failover
 /route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new] - freellmapi routing: show what the gateway does with this session, pick a sort axis, a named chain or one pinned model; new restarts sticky routing
+/handoff-model [NAME|default] - show or set the local ollama model that writes the summaries of /handoff, /compact, /brief and the failover handoff (Tab completes the installed models)
+/brief [CHARS|refresh|show] - read CLAUDE.md, README, TODO, BUGS, doc/ and the tree, have the local model condense them to a size fit for this model's window (or CHARS) and make that the project context
+/handoff [--local] [--size N] [--replace] [TEXT] - the model in use writes a document for another assistant (a web chat, another model) from this conversation, reading more files first when the knowledge is not in it yet; TEXT says what to keep and is given to the reader as its instructions. Then copy it to the clipboard / save it. --local has the local summarizer take notes from the results already read instead. The conversation stays unless --replace swaps it for the document. Esc cancels
 /compact [N]    - summarize the older turns now with a local model and keep the last N (default 3) verbatim; also done automatically at --compact-at percent of the context window
 /standby [on|off|probe|switch|MODEL|auto] - the warm standby model: what the gateway would use next, probed with a tool call (--standby starts it on); switch takes it over, MODEL pins one, spawn_agent with model "standby" runs a sub-agent on it
 /config [set KEY VALUE|unset KEY] - the global settings in ~/.config/ollama-repl/settings.json: defaults for options (provider, model, mode, compactAt, standby, ...), a command-line option wins; without arguments shows saved and current values
@@ -1791,12 +1827,12 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
+  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
+const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -1808,6 +1844,13 @@ function ollamaModels() {
   const out = pipe.readAsString();
   pipe.close();
   return out.split('\n').slice(1).map(l => l.split(/\s+/)[0]).filter(Boolean);
+}
+
+/** the models `ollama list` shows, for Tab completion: asked again after 30 s, not at every Tab */
+let localModelsCache = { at: 0, names: [] };
+function localOllamaModels() {
+  if(Date.now() - localModelsCache.at > 30000) localModelsCache = { at: Date.now(), names: ollamaModels() ?? [] };
+  return localModelsCache.names;
 }
 
 /* Pattern-cycling state for /model: the last glob used, the model names it
@@ -2164,6 +2207,12 @@ function completeArgs(cmd, args, word) {
       return n === 0 && !/^[/.~]/.test(word) ? ['off'] : null;
     case '/help':
       return n === 0 ? HELP_TEXT.match(/^\/[a-z-]+/gm).map(c => c.slice(1)) : [];
+    case '/brief':
+      return n === 0 ? ['refresh', 'show'] : [];
+    case '/handoff-model':
+      return n === 0 ? ['default', ...localOllamaModels()] : [];
+    case '/handoff':
+      return [];
     case '/compact':
     case '/last':
     case '/requests':
@@ -2810,7 +2859,8 @@ async function main() {
      all 20 things" in one ever-growing context. Backs both the /each
      command and the model's own for_each tool. */
   const forEach = async (items, task) => {
-    const sub = { ...opts, stream: false, quiet: true, maxRounds: Math.min(opts.maxRounds, 12), omitTools: omitToolsFor(task) };
+    /* in the TUI the items show their tool lines, panes and replies like any turn (quiet hid all of it, verbose mode included); piped they stay short */
+    const sub = { ...opts, stream: false, quiet: !tui?.active, maxRounds: Math.min(opts.maxRounds, 12), omitTools: omitToolsFor(task) };
     const hasSlot = /\{item\}|\{\}/.test(task);
     const results = [];
 
@@ -3532,6 +3582,76 @@ async function main() {
       return;
     }
 
+    if(prompt === '/handoff-model' || prompt.startsWith('/handoff-model ')) {
+      const arg = prompt.slice('/handoff-model'.length).trim();
+      const now = opts.handoffModel ?? HANDOFF_MODEL;
+
+      if(!arg) return void console.log(waveNote(`handoff model: ${now}${opts.handoffModel ? '' : ' (default)'} - it writes the summaries of /handoff, /compact, /brief and the failover handoff; /handoff-model NAME|default changes it, Tab completes the local ollama models`));
+
+      if(arg === 'default') {
+        opts.handoffModel = undefined;
+        saveSession();
+        return void console.log(waveNote(`handoff model: ${HANDOFF_MODEL} (default)`));
+      }
+
+      const have = ollamaModels();
+      if(have && !have.some(m => m === arg || m === `${arg}:latest`)) return void console.log(red(`error: "${arg}" is not installed in ollama (ollama list): ${have.join(', ') || 'none'}`));
+
+      opts.handoffModel = arg;
+      saveSession();
+      return void console.log(waveNote(`handoff model: ${arg}${have ? '' : ' (ollama list did not answer, not checked)'}`));
+    }
+
+    if(prompt === '/brief' || prompt.startsWith('/brief ')) {
+      const arg = prompt.slice('/brief'.length).trim();
+
+      if(arg === 'show') {
+        const last = lastBrief(opts.root);
+        return void console.log(last ? `${last.brief}\n\n${dim(`${last.brief.length} chars, by ${last.by}, ${new Date(last.at).toLocaleString()}`)}` : note('no brief yet: /brief builds one'));
+      }
+
+      const chars = /^\d+$/.test(arg) ? +arg : briefSize(ctxWindowNow ?? opts.numCtx);
+      const model = opts.handoffModel ?? HANDOFF_MODEL;
+      console.log(waveNote(`brief: ${chars} chars for ${opts.model}${/^\d+$/.test(arg) ? '' : ` (a ${fmtNum(ctxWindowNow ?? opts.numCtx)}-token window)`}, condensed by ${model} ...`));
+
+      let cancelled = false;
+      abortRef.current = () => {
+        cancelled = true;
+        stopBrief?.();
+        return true;
+      };
+      let stopBrief = null;
+
+      let r;
+      try {
+        r = await buildBrief(opts.root, { size: chars, model, host: opts.host, port: opts.port, refresh: arg === 'refresh', onProgress: line => console.log(dim(line)), register: stop => (stopBrief = stop) });
+      } finally {
+        abortRef.current = null;
+      }
+
+      if(cancelled) return void console.log(waveNote('brief cancelled'));
+      if(!r) return void console.log(red(`error: ${model} could not be reached or failed (ollama running? the model installed?)`));
+
+      /* it replaces the automatic scan, else it becomes the base messages */
+      const at = messages.findIndex((m, i) => i < baseMessageCount && m.role === 'user' && /^\((automatic project scan|project brief)/.test(m.content ?? ''));
+      const content = `(project brief, compiled on request)\n\n${r.brief}`;
+
+      if(at >= 0) messages[at] = { ...messages[at], content };
+      else {
+        messages.splice(baseMessageCount, 0, { role: 'user', content }, { role: 'assistant', content: 'Got it - I have the project brief above.' });
+        baseMessageCount += 2;
+      }
+
+      saveSession();
+      console.log(waveNote(`brief in place: ${r.brief.length} chars from ${r.files} documents${r.cached ? ' (cached)' : ''}; /brief show prints it, /brief refresh rebuilds, /brief CHARS sets the size`));
+      return;
+    }
+
+    if(prompt === '/handoff' || prompt.startsWith('/handoff ')) {
+      await handoffHook(messages, prompt.slice('/handoff'.length).trim());
+      return;
+    }
+
     if(prompt === '/tools') {
       console.log(TOOLS.map(t => wrapHanging((t.function?.name ?? t.name).padEnd(14) + ' ', (t.function?.description ?? t.description ?? '').split('\n')[0])).join('\n'));
       return;
@@ -3713,8 +3833,10 @@ async function main() {
     /* a small model told only "every function" tends to narrate a plan or
        start doing them one by one in a single context - say how to do it */
     if(opts.mode === 'plan') finalText += PLAN_NOTE;
-    if(opts.mode !== 'plan' && /\b(every|each|all)\b/i.test(effectivePrompt)) console.log(note('added to the prompt: use for_each for a repeated job'));
-    if(opts.mode !== 'plan' && /\b(every|each|all)\b/i.test(effectivePrompt)) finalText += '\n\n(This job repeats over many things: list ALL of the items the request names (e.g. every function declared in the header - not only the files attached above) and call for_each once - do not do them yourself one by one, and do not just describe a plan.)';
+    /* only for a change that repeats: a request to look, gather or explain "all of them" is not a batch edit */
+    const repeatsChange = opts.mode !== 'plan' && /\b(every|each|all)\b/i.test(effectivePrompt) && CHANGE_REQUEST.test(effectivePrompt);
+    if(repeatsChange) console.log(note('added to the prompt: use for_each for a repeated job'));
+    if(repeatsChange) finalText += '\n\n(This job repeats over many things: list ALL of the items the request names (e.g. every function declared in the header - not only the files attached above) and call for_each once - do not do them yourself one by one, and do not just describe a plan.)';
 
     const turnMsg = { role: 'user', content: finalText, request: effectivePrompt };
     messages.push(turnMsg);
@@ -3862,6 +3984,135 @@ async function main() {
       compactedAt.set(msgs, totalChars(msgs));
       if(msgs === messages) saveSession();
       console.log(waveNote(`compacted: ${fmtNum(before)} -> ${fmtNum(totalChars(msgs))} chars, ${count} -> ${msgs.length} messages, ${h.cut} older ones summarized by ${h.by}, the last turns kept`));
+    } finally {
+      compacting = false;
+    }
+  };
+
+  /** puts text on the clipboard (the tool /export uses) and says so */
+  const copyText = (text, what) => {
+    const tool = pickClipboardTool();
+    if(!tool) return void console.log(red('(no clipboard tool found: install wl-clipboard (wl-copy), xclip, xsel or pbcopy, or save it to a file)'));
+
+    const p = popen(tool === 'wl-copy' ? 'wl-copy' : tool === 'xclip' ? 'xclip -selection clipboard' : tool === 'xsel' ? 'xsel --clipboard --input' : 'pbcopy', 'w');
+    p.puts(text);
+    p.close();
+    console.log(`\x1b[32m✓ ${what} copied to clipboard\u001b[0m (${tool})`);
+  };
+
+  /** writes text to <date>-<session>-<suffix>.txt in the working directory and says where */
+  const saveText = (text, suffix, what) => {
+    const ts = new Date().toISOString().slice(0, 19).replace('T', '-').replaceAll(':', '');
+    const path = `${getcwd()[0]}/${ts}-${sessionName(opts).replaceAll(/[:/]/g, '-')}-${suffix}.txt`;
+    const f = fopen(path, 'w');
+    if(!f) return void console.log(red(`(cannot write ${path})`));
+
+    f.puts(text);
+    f.close();
+    console.log(`\x1b[32m✓ ${what} saved to:\u001b[0m ${path}`);
+  };
+
+  /* /handoff [--local] [--size N] [--replace] TEXT: a document for another assistant (a web chat, another model): what
+     this conversation found, guided by TEXT, which is also given to the reader as its instructions. The model in use
+     writes it and may read more files first (tool rounds) when the knowledge is not in the conversation yet; --local
+     has the local summarizer model take notes from the results already read instead (no tool rounds, no gateway use).
+     The conversation stays as it is unless --replace swaps it for the document. */
+  handoffHook = async (msgs, argText) => {
+    if(compacting) return void console.log(waveNote('compacting is running, try again in a moment'));
+
+    let text = argText;
+    let size = 24000;
+    let replace = false;
+    let local = false;
+    for(;;) {
+      const m = /^--(size)\s+(\d+)\s*|^--(replace|local)\s*/.exec(text);
+      if(!m) break;
+      if(m[1]) size = +m[2];
+      else if(m[3] === 'replace') replace = true;
+      else local = true;
+      text = text.slice(m[0].length);
+    }
+
+    compacting = true;
+    let doc = '';
+
+    try {
+      const base = msgs === messages ? baseMessageCount : msgs[0]?.role === 'system' ? 1 : 0;
+      const before = totalChars(msgs);
+
+      /* the model in use, unless the conversation does not fit its window */
+      const window = ctxWindowNow ?? opts.numCtx;
+      if(!local && estimateTokens(msgs) > window * 0.85) {
+        console.log(waveNote(`the conversation (~${fmtNum(estimateTokens(msgs))} tokens) does not fit ${opts.model}'s window, the local model takes the notes`));
+        local = true;
+      }
+
+      if(!local) {
+        console.log(waveNote(`handoff: ${opts.model} writes a ${fmtNum(size)}-char document from ${fmtNum(before)} chars of conversation, and may read more files first${text ? ` (keeping: ${text.slice(0, 80)})` : ''} - Esc cancels ...`));
+
+        const n0 = msgs.length;
+        msgs.push({
+          role: 'user',
+          request: '(handoff)', /* what asksForChange() reads: this is not a request to change files, so no nudge to edit */
+          content: `Write a handoff document for another assistant (for example a web chat such as Gemini) that has seen neither this conversation nor the files. It must contain everything that assistant needs to continue the work${text ? `: ${text}` : ''}.\n\nUse what is already in this conversation. If a fact the document needs is not in it yet (a file you have not read, an algorithm you have only seen named), read it first with your tools - take as many tool rounds as you need - and only then write the document. Be concrete and complete: names, signal flow, parameters, constants, formulas, file and function names; no history of who did what. About ${size} characters. Begin the document with the instructions for its reader${text ? ` (${text})` : ''}. Reply with the document only.`,
+        });
+
+        try {
+          doc = String(await runToolLoop(client, msgs, opts, log, confirmRun, askUser, abortRef, forEach)).trim();
+        } catch(e) {
+          if(/interrupted/i.test(e.message)) return void console.log(waveNote('handoff cancelled'));
+          console.log(waveNote(`handoff: ${opts.model} failed (${String(e.message).split('\n')[0].slice(0, 100)}), the local model takes the notes`));
+          local = true;
+        } finally {
+          msgs.length = n0; /* the question, the tool rounds and the document are not part of the conversation */
+        }
+
+        if(!local && doc.length < 500) {
+          console.log(waveNote(`handoff: ${opts.model} wrote only ${doc.length} chars, the local model takes the notes`));
+          local = true;
+        }
+      }
+
+      if(local) {
+        const model = opts.handoffModel ?? HANDOFF_MODEL;
+        console.log(waveNote(`handoff: ${model} takes notes from the results in the conversation (${fmtNum(before)} chars) - Esc cancels ...`));
+
+        let cancelled = false;
+        let stop = null;
+        abortRef.current = () => {
+          cancelled = true;
+          stop?.();
+          return true;
+        };
+
+        let r;
+        try {
+          r = await buildKnowledge(msgs, base, { focus: text || undefined, instructions: text || undefined, size, model, host: opts.host, port: opts.port, onProgress: line => console.log(dim(line)), register: fn => (stop = fn) });
+        } finally {
+          abortRef.current = null;
+        }
+
+        if(cancelled || r?.cancelled) return void console.log(waveNote('handoff cancelled'));
+        if(!r) return void console.log(waveNote('nothing to hand off'));
+        doc = r.doc;
+      }
+
+      console.log(waveNote(`handoff: ${fmtNum(before)} -> ${fmtNum(doc.length)} chars${replace ? '' : ', the conversation is unchanged (--replace swaps it for the document)'}`));
+
+      if(replace) {
+        const count = msgs.length;
+        msgs.splice(base, msgs.length, { role: 'user', content: doc }, { role: 'assistant', content: 'Understood - I will continue from that handoff.' });
+        compactedAt.set(msgs, totalChars(msgs));
+        if(msgs === messages) saveSession();
+        console.log(waveNote(`conversation replaced: ${count} -> ${msgs.length} messages`));
+      }
+
+      /* like /export: the document itself, to paste into another tool or session */
+      if(!piped) {
+        const k = await repl.choose('Output the handoff document', ['Copy to clipboard', 'Save to file', 'Both', 'Neither']);
+        if(k === 0 || k === 2) copyText(doc, 'Handoff');
+        if(k === 1 || k === 2) saveText(doc, 'handoff', 'Handoff');
+      }
     } finally {
       compacting = false;
     }

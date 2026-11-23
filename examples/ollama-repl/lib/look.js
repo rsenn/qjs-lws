@@ -239,8 +239,49 @@ export function toolTarget(name, args = {}) {
   return args.path ?? args.file ?? Object.values(args).filter(v => typeof v == 'string')[0] ?? '';
 }
 
+/* a colour per kind of tool: looking is sky blue, changing amber, running pink, talking violet */
+const TOOL_COLORS = { read_file: '#38bdf8', list_directory: '#38bdf8', grep: '#38bdf8', write_file: '#fb923c', edit_file: '#fb923c', insert_above: '#fb923c', run_command: '#f472b6', ask_user: '#c084fc', for_each: '#c084fc', spawn_agent: '#c084fc' };
+
+/**
+ * A shell command with a simple regex syntax colouring: the command word of every
+ * pipeline stage green, flags sky blue, quoted strings light green, variables violet,
+ * operators and redirections pink, paths yellow. Not a parser: it only has to read well.
+ */
+export function paintShell(cmd) {
+  let atCommand = true;
+
+  return String(cmd ?? '').replace(/('[^']*'|"(?:[^"\\]|\\.)*")|(\|\||&&|[|;]|&(?!>)|\d*>>?&?\d*|<|\$\(|[()])|(\$\{?\w+\}?)|(--?[A-Za-z][\w-]*)|([^\s|;&<>'"$()]+)/g, (m, str, op, variable, flag, word) => {
+    if(str) {
+      atCommand = false;
+      return style(m, { fg: '#86efac' });
+    }
+
+    if(op) {
+      if(/^(\|\||&&|\||;|&|\$\(|\()$/.test(m)) atCommand = true;
+      return style(m, { fg: '#f472b6' });
+    }
+
+    if(variable) {
+      atCommand = false;
+      return style(m, { fg: '#c084fc' });
+    }
+
+    if(flag) {
+      atCommand = false;
+      return style(m, { fg: '#38bdf8' });
+    }
+
+    const first = atCommand;
+    atCommand = false;
+    return first ? style(m, { bold: true, fg: '#4ade80' }) : /^[./~]|\//.test(m) ? style(m, { fg: '#fde68a' }) : m;
+  });
+}
+
 /** ● tool target, the line shown when the model calls a tool */
-export const toolLine = (name, args) => `${style('●', { fg: ACCENT })} ${style(name, { bold: true })} ${name === 'run_command' || name === 'ask_user' ? toolTarget(name, args) : paintText(toolTarget(name, args))}`;
+export const toolLine = (name, args) => {
+  const target = name === 'run_command' ? `${style('$', { bold: true, fg: '#f472b6' })} ${paintShell(args?.command)}` : name === 'ask_user' ? toolTarget(name, args) : paintText(toolTarget(name, args));
+  return `${style('●', { fg: ACCENT })} ${style(name, { bold: true, fg: TOOL_COLORS[name] ?? ACCENT })} ${target}`;
+};
 
 /** ⎿ what came back: the first line if short, else its size; errors red */
 export function toolResult(output) {
