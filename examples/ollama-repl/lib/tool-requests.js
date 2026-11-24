@@ -5,7 +5,7 @@
  * earlier LIST:/READ:/RUN: plain-text-in-the-reply-body protocol with
  * real, provider-native function calling.
  */
-import { stat, S_IFREG } from 'os';
+import { stat, S_IFREG, S_IFDIR } from 'os';
 import { rmSync } from 'fs';
 
 /* rmSync throws on a missing file, os.remove did not */
@@ -13,6 +13,8 @@ const remove = path => rmSync(path, { force: true });
 import { loadFile, open as fopen } from 'std';
 import { walk, fileMode } from './match.js';
 import { runCommand } from './run-command.js';
+import { expandHome } from './paths.js';
+import { getenv } from 'std';
 import { qjsProjectDirs } from './reference-files.js';
 
 const LISTABLE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 'h', 'cpp', 'hpp', 'html', 'css', 'md', 'cmake', 'txt', 'sh']);
@@ -44,6 +46,15 @@ export function listFiles(dir, root) {
   return out.sort((a, b) => b[0] - a[0]).map(([tm, fn]) => fn);
 }
 
+/** Model-given path made usable: quotes, file:// and $HOME / ${HOME} / ~ expanded, "./" prefix dropped. */
+function normalizePath(p) {
+  p = String(p).trim().replace(/^(['"`])(.*)\1$/, '$2').replace(/^file:\/\//, '');
+  p = p.replace(/^\$\{?HOME\}?(?=\/|$)/, getenv('HOME') ?? '$&');
+  p = expandHome(p);
+  while(p.startsWith('./')) p = p.slice(2);
+  return p === '.' ? '' : p;
+}
+
 /**
  * If `arg` names (or starts with, path-fashion) a sibling "qjs-*" project
  * (reference-files.js's `qjsProjectDirs()`), resolves it against that
@@ -54,6 +65,11 @@ export function listFiles(dir, root) {
  * name.
  */
 function resolveBase(arg, root) {
+  arg = normalizePath(arg);
+
+  /* absolute (after ~ expansion): used as is, not joined to root */
+  if(arg.startsWith('/')) return { base: '.', rel: arg, prefix: '' };
+
   const slash = arg.indexOf('/');
   const name = slash === -1 ? arg : arg.slice(0, slash);
   const dir = qjsProjectDirs(root).get(name);
@@ -65,12 +81,14 @@ function resolveBase(arg, root) {
 
 /** Lines `start`..`end` (1-based, inclusive; both optional) of a file. */
 function readFile(path, root, start, end) {
-  const full = root === '.' ? path : `${root}/${path}`;
+  const full = root === '.' || path.startsWith('/') ? path : `${root}/${path}`;
 
-  if(fileMode(full) !== S_IFREG) return null;
+  const mode = fileMode(full);
+  if(mode === 0) return `(not found: ${full} - check the path with list_directory, or use an absolute path or ~/...)`;
+  if(mode !== S_IFREG) return `(${full} is not a regular file${mode === S_IFDIR ? ' but a directory - use list_directory' : ''})`;
 
   let content = loadFile(full);
-  if(content == null) return null;
+  if(content == null) return `(cannot read ${full}: permission denied or unreadable)`;
 
   if(start || end) {
     const lines = content.split('\n');
@@ -379,7 +397,7 @@ async function runTool(name, args, root, confirmRun, askUser, forEach) {
     if(typeof args.path !== 'string' || !args.path) return 'error: the path argument is missing - give the file to read, e.g. path: "lib/path.h"';
     const { base, rel } = resolveBase(args.path, root);
     const content = readFile(rel, base, args.start, args.end);
-    return content == null ? '(not found, or not a regular file)' : content;
+    return content;
   }
 
   if(name === 'grep') {

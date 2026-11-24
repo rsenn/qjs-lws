@@ -8,7 +8,38 @@
  * Recognized: <tool_call>{...}</tool_call>, ```json {...} ``` and a bare
  * {...} object, each `{ "name": <tool>, "arguments"|"parameters"|"args": {...} }`
  * (or an array of them), with `name` being one of the offered tools.
+ * Also the XML form (Qwen3/nemotron templates):
+ * <tool_call><function=NAME><parameter=KEY>value</parameter></function></tool_call>
  */
+
+/** `value` (text) converted per the tool's schema type for `key`; JSON where it parses for non-strings. */
+function coerce(value, type) {
+  if(type === 'string' || !type) return value;
+  try {
+    return JSON.parse(value);
+  } catch(e) {
+    return value;
+  }
+}
+
+/** XML-style calls: [{ name, args, span: [start, end) }] for offered tools. */
+function xmlCalls(content, tools) {
+  const out = [];
+  const re = /(?:<tool_call>\s*)?<function=([\w.-]+)>([\s\S]*?)(?:<\/function>\s*(?:<\/tool_call>)?|$)/g;
+
+  for(const m of content.matchAll(re)) {
+    const tool = tools.find(t => t.name === m[1]);
+    if(!tool) continue;
+
+    const args = {};
+    for(const p of m[2].matchAll(/<parameter=([\w.-]+)>([\s\S]*?)(?:<\/parameter>|(?=<parameter=)|$)/g))
+      args[p[1]] = coerce(p[2].replace(/^\n/, '').replace(/\n$/, ''), tool.parameters?.properties?.[p[1]]?.type);
+
+    out.push({ name: tool.name, args, span: [m.index, m.index + m[0].length] });
+  }
+
+  return out;
+}
 
 /** Balanced `{...}` objects (string-aware) found anywhere in `text`, as [start, end) spans. */
 function objectSpans(text) {
@@ -53,6 +84,11 @@ export function extractTextToolCalls(content, tools) {
   const toolCalls = [];
   const cuts = [];
 
+  for(const { name, args, span } of xmlCalls(content, tools)) {
+    toolCalls.push({ id: `${name}#${toolCalls.length}`, name, args });
+    cuts.push(span);
+  }
+
   for(const [start, end] of objectSpans(content)) {
     let obj;
     try {
@@ -60,6 +96,9 @@ export function extractTextToolCalls(content, tools) {
     } catch(e) {
       continue;
     }
+
+    /* inside an XML call already taken */
+    if(cuts.some(([a, b]) => start >= a && start < b)) continue;
 
     let name = obj?.name ?? obj?.function?.name;
     let args = obj?.arguments ?? obj?.parameters ?? obj?.args ?? obj?.function?.arguments;
@@ -100,7 +139,7 @@ export function extractTextToolCalls(content, tools) {
 
   let out = '';
   let pos = 0;
-  for(const [a, b] of cuts) {
+  for(const [a, b] of cuts.sort((x, y) => x[0] - y[0])) {
     out += content.slice(pos, a);
     pos = b;
   }
