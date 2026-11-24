@@ -24,7 +24,12 @@ export const SOURCE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 
 
 function looksLikePath(token) {
   if(token.length < 2) return false;
-  if(isGlobPattern(token)) return true;
+  if(isGlobPattern(token)) {
+    // Require at least one alphanumeric character to avoid matching
+    // pure glob metacharacters like "***", "**", "???" which commonly
+    // appear in make output and would expand to every file.
+    return /[A-Za-z0-9]/.test(token);
+  }
   if(token.endsWith('/')) return true;
   if(token.includes('/')) return true;
   return /\.[A-Za-z0-9]{1,10}$/.test(token) && !/^\d+\.\d+$/.test(token); // skip bare "2.5"-style numbers
