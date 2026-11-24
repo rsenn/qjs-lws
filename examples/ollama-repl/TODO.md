@@ -5,8 +5,18 @@
 Done: lib/provider-fallback.js, one-line HTTP errors, local-model last resort,
 back-off, 404 model_not_found skipped (see README "Provider failover").
 Open:
-- the 429 cool-down ignores Retry-After / x-ratelimit-reset (fixed 5 min / 10 min `/model skip`); a model that hit a
-  daily limit is asked again only after that fixed time
+- [x] 2026-11-24: the auto skip (`/model skip` run by chatRound) now lasts as long as the gateway says: Retry-After
+  header or the error body's retryAtMs (lib/openai-client.js OpenAIError.retryAtMs), +15s, clamped 30s..30min, never
+  shorter than a skip already set (repl.js retryMs, skipModel). Open: the provider-fallback 5 min cool-down
+  (lib/provider-fallback.js) and a plain "Soonest cooldown reset ~3m" text without header are not read
+- [x] 2026-11-24: a real freellmapi (not the chat-bridge) gets X-FreeLLM-Task-Type: code beside x-session-id
+  (repl.js gatewayHeaders; header documented in freellmapi server/src/lib/task-type.ts)
+- the freellm handoff brief (2026-11-24) claimed parseExhaustionInfo, dynamic cooldowns, the task-type header and an
+  X-Fallback-Trail soft-skip as done; none was in the tree. Done: the first three effects (above, via the real
+  Retry-After instead of parsing text). Done 2026-11-24: soft-skip of the models that ran out in meta.trail (lib/fallback-trail.js, 90s, onMeta in
+  repl.js; model level only, a platform-wide skip would need the key outcome per platform). Open: (done 2026-11-24: /last shows the trail in words and a retry row from Retry-After / retryAtMs, the route line of a failed request names the wait; verbose mode adds nothing more), (routing-health status segment done 2026-11-24: lib/routing-health.js, shown with a gateway when 2+ models are skipped or half are limited; the numbers come from the last loadAvailability, so they are only as fresh as that), (audit done 2026-11-24: a failed chatRound pushes nothing, but the rollback dropped the finished rounds of a turn that had already written files or run commands, so the model forgot real changes; now lib/turn-repair.js keeps them, trims an unanswered round and closes with a note, main turn only; 2026-11-24: the `!cmd` follow-up keeps the user's command and its output when the model's reaction fails; /each needs nothing, its items run in throw-away conversations and the parent gets one summary line only afterwards; the plain failsafe chat site keeps dropping the whole turn, it has no side effects. Open: a throw inside tool execution itself is untested), (skip set vs gateway aligned 2026-11-24: the pickers already refuse blocked models; new: a skip the session set by itself ends early once a fresh availability shows the model usable (lib/skips.js, needs the picture 5s younger than the skip), /model list prints the live skips it used to hide. Open: nothing refreshes availability on a timer, so this runs on /model list, /model skip and the existing refreshes only)
+- repl.js: the doc comment "the providers named in a gateway's ..." sits above isExhaustedError, it belongs to
+  exhaustedPlatforms below it
 - the monthly-quota vs daily-limit split is taken from the dashboard availability (loadAvailability); without a
   dashboard session the old per-provider skip of the attempt trail applies
 - after a switch to the local model the next round still starts on the failed client and is routed by the cool-down;

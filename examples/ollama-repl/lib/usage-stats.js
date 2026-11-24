@@ -14,6 +14,8 @@
  * only requested, model and ms are expected.
  */
 
+import { trailText } from './fallback-trail.js';
+
 /** 1234 -> '1.2k', 3400000 -> '3.4M', undefined -> '-' */
 export function fmtNum(n) {
   if(n == null || Number.isNaN(n)) return '-';
@@ -50,7 +52,14 @@ export function routeLine(meta) {
   parts.push(fmtMs(meta.ms));
   if(meta.fallbacks) parts.push(`${meta.fallbacks} fallback${meta.fallbacks > 1 ? 's' : ''}`);
   if(meta.error) parts.push(`error: ${meta.error}`);
+  if(meta.error && meta.retryAfter > 0) parts.push(`retry in ${fmtMs(meta.retryAfter * 1000)}`);
   return parts.join(', ');
+}
+
+/** when the gateway said the request could be tried again: its reset time, or the wait it asked for */
+export function retryText(meta) {
+  if(Number.isFinite(meta.retryAtMs)) return `gateway's soonest reset ${new Date(meta.retryAtMs).toISOString().slice(11, 19)}Z`;
+  if(meta.retryAfter > 0) return `${fmtMs(meta.retryAfter * 1000)} after the request (Retry-After)`;
 }
 
 /** every known fact of one request, one per line, for /last */
@@ -80,7 +89,8 @@ export function formatMeta(meta) {
     ['reasoning', meta.reasoning ? `${meta.reasoning.length} chars (Ctrl-O shows it)` : undefined],
     ['time', `${fmtMs(meta.ms)} total, ${fmtMs(meta.ttfbMs)} to headers${meta.firstTokenMs != null ? `, ${fmtMs(meta.firstTokenMs)} to first token` : ''}${meta.stream ? ' (streamed)' : ''}`],
     ['fallbacks', meta.fallbacks || undefined],
-    ['trail', meta.trail],
+    ['trail', trailText(meta.trail)],
+    ['retry', retryText(meta)],
     ['detail', meta.detail],
     ['compress', meta.compress],
     ['cache', meta.cache],

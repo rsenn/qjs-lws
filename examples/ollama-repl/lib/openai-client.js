@@ -59,6 +59,7 @@ const DEBUG_LOG_PATH = 'openai-repl-debug.log';
  * @property {string} [code]       OpenAI `error.code` (rate_limit_exceeded, login_required, ...)
  * @property {string} [type]       OpenAI `error.type`
  * @property {number} [retryAfter] seconds, from the Retry-After header
+ * @property {number} [retryAtMs]  epoch ms the gateway says its soonest cooldown ends (error body)
  * @property {string} [detail]     OpenAI `error.message`, the short human text
  */
 export class OpenAIError extends Error {
@@ -80,6 +81,7 @@ export class OpenAIError extends Error {
     this.detail = err?.message;
     const ra = Number(headers['retry-after']);
     if(ra > 0) this.retryAfter = ra;
+    if(Number.isFinite(err?.retryAtMs)) this.retryAtMs = err.retryAtMs;
   }
 
   /** the quota or rate limit of the model is used up */
@@ -369,6 +371,8 @@ export class OpenAIClient {
     this.onPhase?.('idle', meta);
     meta.model ??= meta.routedVia?.slice((meta.platform?.length ?? -1) + 1) || meta.requested;
     if(err) meta.error = err.detail ?? err.message?.split('\n')[0];
+    if(err?.retryAfter) meta.retryAfter = err.retryAfter;
+    if(err?.retryAtMs) meta.retryAtMs = err.retryAtMs;
     delete meta.t0;
     this.lastMeta = meta;
     this.onMeta?.(meta);

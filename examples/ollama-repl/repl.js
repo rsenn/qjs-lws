@@ -82,6 +82,10 @@ import { findPeers, askPeer, peerAnswer } from './lib/peer.js';
 import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './lib/skills.js';
 import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
 import { gatewayReport, reportText } from './lib/gateway-report.js';
+import { releaseRecovered } from './lib/skips.js';
+import { routingHealth } from './lib/routing-health.js';
+import { repairTurn } from './lib/turn-repair.js';
+import { spentModels, TRAIL_SKIP_MS } from './lib/fallback-trail.js';
 import { loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure } from './lib/availability.js';
 import { recordLatency } from './lib/latency.js';
 import { Tui } from './lib/tui.js';
@@ -624,6 +628,7 @@ let failoverHook = null;
    works from (the stats may not hold it yet) */
 let autoSkipHook = null;
 let skipError = null;
+let skipRetryMs = null; /* how long the gateway says it stays dry, from skipError's Retry-After / retryAtMs */
 const AUTO_SKIPS = 8;
 
 /* the control socket (--listen, /remote-control), set by startControl(); module level because chatRound() and runToolLoop() publish activity on it */
@@ -895,7 +900,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
       if(autoSkipHook && skips < AUTO_SKIPS && !opts.quiet && client === autoSkipHook.client() && (isExhaustedError(text) || isUpstreamFailure(text) || isGone(e) || e.code === 'timeout')) {
         const from = client.model;
         skips++;
-        if(await autoSkipHook.skip(text) && client.model !== from) continue;
+        if(await autoSkipHook.skip(text, e) && client.model !== from) continue;
       }
 
       /* a gateway model that fails with a limit or an outage: the warm standby takes the turn */
@@ -2045,9 +2050,18 @@ function resolveModel(pattern, known, remote) {
 }
 
 /** Marks a model as skipped with cooldown. */
-function skipModel(name, reason = 'manual') {
-  const until = Date.now() + SKIP_COOLDOWN_MS;
-  skippedModels.set(name, { until, reason });
+function skipModel(name, reason = 'manual', ms = SKIP_COOLDOWN_MS) {
+  /* a skip that is already longer stays, with its reason: a short Retry-After must not unskip a model that was dry for longer */
+  const until = Date.now() + ms;
+  if(skippedModels.get(name)?.until >= until) return;
+  skippedModels.set(name, { until, reason, since: Date.now() });
+}
+
+/** how long a gateway error says to stay away, in ms (Retry-After header or the body's retryAtMs, plus a
+    cushion, clamped to 30s..30min), or null when it gives no time */
+function retryMs(e) {
+  const ms = e?.retryAfter > 0 ? e.retryAfter * 1000 : e?.retryAtMs > 0 ? e.retryAtMs - Date.now() : 0;
+  return ms > 0 ? Math.min(30 * 60000, Math.max(30000, ms + 15000)) : null;
 }
 
 /** the providers named in a gateway's "all models exhausted" error (its attempt trail), [] for any other error */
@@ -2070,13 +2084,13 @@ function exhaustedPlatforms(error) {
 /** Skips every model whose name matches `pattern` (exact or glob). Returns the
     number skipped - used by `/model skip <pattern>` to batch-skip a failing
     provider family. */
-function skipModels(pattern, reason = 'manual', known = null) {
+function skipModels(pattern, reason = 'manual', known = null, ms = SKIP_COOLDOWN_MS) {
   const re = isModelGlob(pattern) ? modelGlobRe(pattern) : null;
   let n = 0;
 
   for(const name of allModelNames(known)) {
     if(re ? re.test(name) : name === pattern) {
-      skipModel(name, reason);
+      skipModel(name, reason, ms);
       n++;
     }
   }
@@ -2108,10 +2122,7 @@ function allModelNames(known = null) {
 
 /** Clears expired skips. */
 function cleanupSkips() {
-  const now = Date.now();
-  for(const [name, info] of skippedModels) {
-    if(info.until <= now) skippedModels.delete(name);
-  }
+  return releaseRecovered(skippedModels, availability);
 }
 
 /** window width in columns minus the panel border, 80 when it cannot be asked */
@@ -2258,8 +2269,9 @@ function completeArgs(cmd, args, word) {
 
 /** Shows the model list with strength coloring and skip status. */
 async function showModelList(remote, known, provider, showAll = false) {
-  cleanupSkips();
   if(gatewayRef?.hasLimits) availability = await loadAvailability(gatewayRef).catch(() => availability);
+  const released = cleanupSkips();
+  if(released.length) console.log(dim(`the gateway says ${released.length} skipped model(s) are usable again, skip ended: ${released.join(', ')}`));
   const all = getFilteredModels(known, remote);
   const models = all.filter(m => m.available && !m.limited?.blocked);
   const hidden = all.filter(m => !m.available && !m.limited?.blocked);
@@ -2304,6 +2316,13 @@ async function showModelList(remote, known, provider, showAll = false) {
     const wide = width >= 70;
     const rows = limited.map(m => [m.name, ...(wide ? [m.provider] : []), kindsText(m.limited), backText(m.limited, now)]);
     for(const l of compactTable([['name', ...(wide ? ['provider'] : []), 'limit', 'back'], ...rows], width, 0, [0, ...(wide ? [14] : []), 13, 18], (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : c === 0 ? dim(text) : text))) console.log(l);
+  }
+
+  /* skipped here: getFilteredModels leaves them out of the list above, so they would just vanish */
+  const mine = [...skippedModels].filter(([, k]) => k.until > Date.now());
+  if(mine.length) {
+    console.log(`\n${waveNote(`${mine.length} skipped in this session, not selectable until the skip ends (/model unskip <name>)`)}`);
+    for(const l of compactTable([['name', 'why', 'back'], ...mine.sort((a, b) => a[1].until - b[1].until).slice(0, 12).map(([n, k]) => [n, k.reason, untilText(k.until)])], width, 0, [0, 24, 18], (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : dim(text)))) console.log(l);
   }
 
   if(showAll && hidden.length) {
@@ -2377,6 +2396,8 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
     two.push(`${tc('⇆')} proxy ${proxyInfo.measuring ? 'measuring…' : o == null ? 'on' : `${o > 1000 ? '\x1b[33m' : ''}${signedMs(o)}\x1b[39m`}${last && last.proxied === false ? ' (last direct)' : ''}`);
   }
   if(standby.on) two.push(standby.state === 'ready' ? `${tc('⏻')} standby ${standby.id} ✓ ${fmtMs(standby.ms)}${standby.toolOk ? '' : ' (no tools)'}` : standby.state === 'probing' ? `${tc('⏻')} standby probing…` : `\x1b[33m⏻ standby ${standby.state}\x1b[39m`);
+  const health = gateway?.enabled ? routingHealth({ skips: skippedModels.values(), av: availability }) : null;
+  if(health) two.push(`\x1b[${health.level === 'bad' ? 31 : 33}m⚠ ${health.text}\x1b[39m`);
   if(last?.fallbacks) two.push(`\x1b[33m⚑ ${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
   if(queued) two.push(`\x1b[33m⏳ ${queued} queued\x1b[39m`);
   two.push(busy ? dimmed(`${lime('⎋')} Esc cancels · ^X^S sends now`) : dimmed(`${lime('⇧⇥')} mode · ${lime('^O')} verbose · ${lime('/help')}`));
@@ -2426,6 +2447,8 @@ async function main() {
   if('onMeta' in client)
     client.onMeta = meta => {
       meta.proxied = proxied(proxyInfo.settings, meta.platform);
+      /* the hops that ran out before this answer: the client's own picks (standby, /model skip) leave them alone for a while */
+      for(const m of spentModels(meta.trail, meta.routedVia)) skipModel(m, 'ran out in the gateway chain', TRAIL_SKIP_MS);
       stats.add(meta);
       if(standby.on && standbyHook) standbyHook.refresh().catch(() => {});
       tui?.drawStatus();
@@ -2439,6 +2462,9 @@ async function main() {
 
   /* a freellmapi gateway answers /v1/usage: its extra queries become available */
   let gateway = null;
+
+  /* sticky routing id; a real freellmapi (not the chat-bridge) also gets the task type, a soft bias towards stronger models for agentic turns */
+  const gatewayHeaders = sid => ({ 'x-session-id': sid, ...(gateway?.enabled && !gateway.isBridge ? { 'x-freellm-task-type': 'code' } : {}) });
 
   /* the gateway's upstream proxy and its measured latency; the first probe runs in the background */
   /* which providers of the gateway answer and still have models left (lib/gateway-report.js); refresh reloads the limits first */
@@ -2468,7 +2494,7 @@ async function main() {
   /* the standby: probes the model the gateway would use next, in the background, after turns */
   const makeClient = model => {
     const c = new OpenAIClient({ ...opts, model });
-    c.extraHeaders = { 'x-session-id': `${opts.sessionId ?? 'ollama-repl'}-standby` };
+    c.extraHeaders = gatewayHeaders(`${opts.sessionId ?? 'ollama-repl'}-standby`);
     return c;
   };
 
@@ -2602,7 +2628,7 @@ async function main() {
       /* sticky routing and the gateway's context handoff are keyed by this id: it lives as long as the
          conversation (kept over /restart), not as long as the process */
       opts.sessionId ??= `ollama-repl-${Date.now().toString(36)}-${getpid().toString(36)}`;
-      client.extraHeaders = { 'x-session-id': opts.sessionId };
+      client.extraHeaders = gatewayHeaders(opts.sessionId);
       if(await gateway.login({ cdp: { host: opts.cdpHost, port: opts.cdpPort } })) await loadProxy(true);
       await gateway.refresh(true);
       if(opts.standby) {
@@ -2916,14 +2942,16 @@ async function main() {
   /* the gateway ran out of models: the round skips and retries by itself (see autoSkipHook) */
   autoSkipHook = {
     client: () => (gateway?.enabled ? client : null),
-    skip: async error => {
+    skip: async (error, e) => {
       skipError = error;
+      skipRetryMs = retryMs(e);
       try {
         console.log(waveNote(isUpstreamFailure(error) ? 'every route failed upstream: skipping this model and trying the next' : 'no model could serve the request: skipping the spent one and trying the next'));
         await runLine('/model skip');
         return true;
       } finally {
         skipError = null;
+        skipRetryMs = null;
       }
     },
   };
@@ -3254,13 +3282,13 @@ async function main() {
         let byProvider = 0;
         if(spent.length) {
           const names = (known ?? []).filter(m => { const ps = availability?.byModel.get(m)?.platforms ?? []; return ps.length && ps.every(p => spent.includes(p)) && availability?.byModel.get(m)?.blocked !== false; });
-          for(const m of names) byProvider += skipModels(m, 'provider exhausted', known);
+          for(const m of names) byProvider += skipModels(m, 'provider exhausted', known, skipRetryMs ?? SKIP_COOLDOWN_MS);
           if(byProvider) {
             const err = skipError ?? stats.last()?.error ?? '';
             const why = isUpstreamFailure(err) ? 'every route failed upstream' : /quota|exhausted/i.test(err) && !/rate.?limit/i.test(err) ? 'quota used up' : 'rate limited';
             const ends = names.map(m => availability?.byModel.get(m)?.until).filter(Boolean);
             const resets = ends.length ? `, back ${untilText(Math.min(...ends))}` : '';
-            console.log(note(`the gateway ran out of models (${why}): skipped the ${byProvider} model(s) of ${spent.join(', ')}${resets}; asked again in ${SKIP_COOLDOWN_MS / 60000} min at the earliest`, 'skip'));
+            console.log(note(`the gateway ran out of models (${why}): skipped the ${byProvider} model(s) of ${spent.join(', ')}${resets}; asked again in ${Math.ceil((skipRetryMs ?? SKIP_COOLDOWN_MS) / 60000)} min at the earliest`, 'skip'));
           }
         }
 
@@ -3269,7 +3297,7 @@ async function main() {
         } else if(verb === 'skip') {
           /* the real cause when the round skips by itself, 'manual' only when the user typed it */
           const cause = !skipError ? 'manual' : /model_not_found|no longer available/i.test(skipError) ? 'no longer available' : isUpstreamFailure(skipError) ? 'every route failed upstream' : isExhaustedError(skipError) ? 'rate limited or quota used up' : String(skipError).split('\n')[0].slice(0, 60);
-          const n = skipModels(target, cause, known);
+          const n = skipModels(target, cause, known, skipRetryMs ?? SKIP_COOLDOWN_MS);
           if(!n) return void console.log(red(`error: no model matches "${target}"`));
           console.log(note(n === 1 ? skipNote(target, cause) : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`, 'skip'));
         } else {
@@ -3283,6 +3311,7 @@ async function main() {
         cleanupSkips();
         /* what the gateway says now: a stale picture would pin another model of the exhausted provider */
         if(gateway?.hasLimits && (!availability || Date.now() - availability.at > 5000)) availability = await loadAvailability(gateway).catch(() => availability);
+        cleanupSkips();
         const fresh = gateway?.enabled ? await client.listModels().catch(() => remote) : remote;
         const next = getFilteredModels(known, fresh).find(m => m.name !== opts.model && m.available && !m.limited?.blocked && m.status !== 'exhausted' && (m.tools !== false || opts.noTools));
         if(next) {
@@ -3576,7 +3605,7 @@ async function main() {
 
       if(arg === 'new') {
         opts.sessionId = `ollama-repl-${Date.now().toString(36)}-${getpid().toString(36)}`;
-        client.extraHeaders = { 'x-session-id': opts.sessionId };
+        client.extraHeaders = gatewayHeaders(opts.sessionId);
         return void console.log(waveNote(`sticky routing restarts: ${opts.sessionId}`));
       }
 
@@ -3787,7 +3816,9 @@ async function main() {
         reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
       } catch(e) {
         console.log(red(`error: ${e.message}`));
-        rollbackTurn(messages, turnMsg); // don't leave a dangling/partial turn behind
+        /* the command ran and its output was shown: it stays in the conversation, only the failed reaction goes */
+        repairTurn(messages, turnMsg, { sideEffects: true, reason: e.message });
+        saveSession();
         return;
       }
       saveSession();
@@ -3857,11 +3888,14 @@ async function main() {
     messages.push(turnMsg);
 
     let reply;
+    const writesBefore = writeCount;
     try {
       reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
     } catch(e) {
       console.log(red(`error: ${e.message}`));
-      rollbackTurn(messages, turnMsg); // don't leave a dangling/partial turn behind
+      /* a turn that changed files or ran commands keeps its finished rounds (the model must know), anything else goes whole */
+      const ran = messages.slice(Math.max(0, messages.indexOf(turnMsg))).some(m => m.role === 'tool' && m.name === 'run_command');
+      if(repairTurn(messages, turnMsg, { sideEffects: writeCount > writesBefore || ran, reason: e.message }) === 'kept') console.log(dim('the finished tool rounds of this turn stay in the conversation'));
       return;
     }
 
