@@ -1545,6 +1545,13 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
     if(!result.toolCalls?.length && !final) {
       const text = extractTextToolCalls(result.content, tools);
       if(text.toolCalls) Object.assign(result, text);
+    } else if(!result.toolCalls?.length) {
+      /* the tools-withdrawn round: a call written as text is not run, but the stop must not be silent */
+      const text = extractTextToolCalls(result.content, tools);
+      if(text.toolCalls) {
+        result.content = text.content;
+        if(!opts.quiet) console.log(note(`${repeatRounds >= MAX_REPEAT_ROUNDS ? 'repeated calls' : `round limit (${opts.maxRounds})`} reached - the model's next call (${text.toolCalls.map(tc => tc.name).join(', ')}) was not run; say "continue" to go on${repeatRounds >= MAX_REPEAT_ROUNDS ? '' : ', or raise --max-rounds'}`));
+      }
     }
 
     messages.push({ role: 'assistant', content: result.content, ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}) });
