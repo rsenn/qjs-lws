@@ -14,6 +14,7 @@ import { loadFile, open as fopen } from 'std';
 import { walk, fileMode } from './match.js';
 import { runCommand } from './run-command.js';
 import { expandHome } from './paths.js';
+import { aliasToolCall } from './text-tool-calls.js';
 import { getenv } from 'std';
 import { qjsProjectDirs } from './reference-files.js';
 
@@ -442,6 +443,10 @@ async function runTool(name, args, root, confirmRun, askUser, forEach) {
     if(!askUser) return '(no user prompt mechanism available)';
     return await askUser(args.question);
   }
+
+  /* a foreign tool name (glob, ls, cat, bash, ...) the model used out of habit */
+  const alias = aliasToolCall(name, args, TOOLS.map(t => t.name));
+  if(alias.name !== name) return runTool(alias.name, alias.args, root, confirmRun, askUser, forEach);
 
   return `unknown tool: ${name}`;
 }
