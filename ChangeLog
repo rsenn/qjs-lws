@@ -1,3 +1,56 @@
+2026-11-24  Roman Senn  <roman.l.senn@gmail.com>
+
+	* examples/ollama-repl/repl.js (skipModel, skipModels, retryMs,
+	autoSkipHook), examples/ollama-repl/lib/openai-client.js
+	(OpenAIError): Skip a spent model for as long as the gateway says:
+	the Retry-After header or the error body's retryAtMs, plus 15 s,
+	clamped to 30 s..30 min, 10 min when it gives no time. A longer
+	skip already set is kept together with its reason. The skip note
+	prints the real duration. OpenAIError keeps retryAtMs.
+
+	* examples/ollama-repl/repl.js (gatewayHeaders): New. A real
+	freellmapi (not the chat-bridge) gets X-FreeLLM-Task-Type: code
+	beside x-session-id, at session start, /route new and for the
+	standby client.
+
+	* examples/ollama-repl/lib/fallback-trail.js: New. Parse
+	X-Fallback-Trail and pick the models that ran out in the chain.
+	examples/ollama-repl/repl.js (main): Soft-skip them for 90 s from
+	onMeta, so the client's own picks leave them alone.
+
+	* examples/ollama-repl/lib/usage-stats.js (retryText, formatMeta,
+	routeLine), examples/ollama-repl/lib/openai-client.js
+	(#finishMeta): Show the fallback trail in words and a retry row in
+	/last, and name the wait on the route line of a failed request.
+	Failed request meta now carries retryAfter and retryAtMs.
+
+	* examples/ollama-repl/lib/turn-repair.js: New.
+	examples/ollama-repl/repl.js (runLine): A turn that failed after
+	writing files or running commands keeps its finished tool rounds,
+	drops a round with unanswered tool calls and ends with an assistant
+	note, instead of rolling the whole turn back. The !command
+	follow-up keeps the user's command and its output the same way.
+
+	* examples/ollama-repl/lib/routing-health.js: New.
+	examples/ollama-repl/repl.js (statusLines): Show a routing-health
+	segment in the status bar when 2 or more models are skipped or half
+	of the known models are limited.
+
+	* examples/ollama-repl/lib/skips.js: New.
+	examples/ollama-repl/repl.js (skipModel, cleanupSkips,
+	showModelList): End a skip the session set by itself early when a
+	fresh availability shows the model usable again. /model list loads
+	availability first, reports released skips and prints the live
+	skips it used to hide.
+
+	* examples/ollama-repl/test-fallback-trail.js,
+	examples/ollama-repl/test-turn-repair.js,
+	examples/ollama-repl/test-routing-health.js,
+	examples/ollama-repl/test-skips.js: New.
+
+	* examples/ollama-repl/TODO.md: Record the 2026-11-24 gateway
+	failover work as done and the remaining items as open.
+
 2026-11-21  Roman Senn  <roman.l.senn@gmail.com>
 
 	* BUGS: Add compact-single-turn.
