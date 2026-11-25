@@ -1,5 +1,5 @@
 /* test-net-pane.js: box lines are cut to the box width, so a box never wraps and changes height */
-import { fitLine, netPaneLines, kindOf, block, TYPES } from './lib/net-pane.js';
+import { fitLine, netPaneLines, kindOf, block, TYPES, routeBadge } from './lib/net-pane.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-net-pane: ${what}`);
@@ -39,4 +39,17 @@ check('plain rows above and below, no border glyphs', /^ +$/.test(plain(b[0])) &
   const rec = { label: 'exploration', t0: Date.now() - 3000, endedAt: Date.now(), done: true, phase: 'idle', meta: { ...m, bytesIn: 0 } };
   const lines = netPaneLines(60, [{ kind: 'tcp', state: 'ESTAB', peer: '127.0.0.1:3001', local: '127.0.0.1:50702', sent: 1, received: 1 }], [rec]).map(strip).join('\n');
   if(!/↳ blaze\/glm-5\.2 key1 rate_limited 62ms/.test(lines) || !/↳ \+3 more/.test(lines)) throw new Error(`test-net-pane: pane hop lines:\n${lines}`);
+}
+
+/* the chip that says how a connection leaves */
+{
+  const strip = x => x.replace(/\x1b\[[0-9;]*m/g, '');
+  const socks = [{ kind: 'tcp', state: 'ESTAB', peer: '127.0.0.1:9050', local: '127.0.0.1:50001', sent: 1, received: 1 }, { kind: 'tcp', state: 'ESTAB', peer: '127.0.0.1:11434', local: '127.0.0.1:50002', sent: 1, received: 1 }];
+  const lines = netPaneLines(60, socks, [], Date.now(), (s, r) => (/:9050$/.test(s?.peer ?? '') ? 'socks' : 'direct')).map(strip);
+  const rows = lines.filter(l => /^\s*(SOCKS|DIRECT)\s+\S/.test(l));
+  check('SOCKS chip before the proxy connection', rows.some(l => /^\s*SOCKS\s+tcp/.test(l)));
+  check('DIRECT chip on the other one', rows.some(l => /^\s*DIRECT\s+(model|tcp)/.test(l)));
+  check('legend names the chips used', lines.some(l => /^SOCKS\s+DIRECT$/.test(l.trim()) || /^DIRECT\s+SOCKS$/.test(l.trim())));
+  check('no route function, no chip', !netPaneLines(60, socks, []).map(strip).some(l => /^\s*(SOCKS|DIRECT)\s/.test(l)));
+  check('badge of an unknown route is empty', routeBadge(null) === '' && routeBadge('mixed').includes('SOCKS/DIRECT'));
 }

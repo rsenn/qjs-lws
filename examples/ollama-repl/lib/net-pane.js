@@ -15,6 +15,7 @@
  * other threads (the exploration worker) show without a request.
  */
 import { panel } from 'terminal/widgets';
+import { style } from 'terminal/style';
 import { meter } from './look.js';
 import { PORT_NAMES } from './resources.js';
 
@@ -189,12 +190,17 @@ export function block(kind, lines, width) {
   return panel(title, rest.join('\n'), width + 1, { kind: 'plain', background: TYPES[kind][0] }).split('\n');
 }
 
+/** how a connection leaves: through the SOCKS proxy, direct, or either (a gateway that proxies some platforms): the chip */
+const ROUTES = { socks: [' SOCKS ', '#7c3aed', '#ffffff'], direct: [' DIRECT ', '#16a34a', '#04130a'], mixed: [' SOCKS/DIRECT ', '#d97706', '#1a1100'] };
+export const routeBadge = route => (ROUTES[route] ? style(ROUTES[route][0], { fg: ROUTES[route][2], bg: ROUTES[route][1], bold: true }) : '');
+
 /**
  * @param {number} width       cells of the pane
  * @param {object[]} sockets   ownSockets() result, rates annotated
  * @param {object[]} records   NetActivity#records
+ * @param {(socket: object|null, record: object|undefined) => 'socks'|'direct'|'mixed'|null} [route]  how a connection leaves, shown as a chip before its title
  */
-export function netPaneLines(width, sockets, records, now = Date.now()) {
+export function netPaneLines(width, sockets, records, now = Date.now(), route = () => null) {
   const W = Math.max(24, width - 1); /* a rectangle */
   const w = W - 2; /* inside it */
   const tcp = sockets.filter(s => s.kind === 'tcp');
@@ -204,6 +210,7 @@ export function netPaneLines(width, sockets, records, now = Date.now()) {
   const out = [`${bold(col('45;212;191', 'network'))} ${dim(`${tcp.length} connections, ${live.length} requests active`)}`];
   const blocks = [];
   const seen = new Set();
+  const routes = new Set();
 
   const add = (kind, lines) => {
     seen.add(kind);
@@ -221,8 +228,12 @@ export function netPaneLines(width, sockets, records, now = Date.now()) {
     for(const r of rs) used.add(r);
     const kind = kindOf(port, (rs.find(r => !r.done) ?? rs[0])?.label);
 
+    const how = route(s, rs.find(r => !r.done) ?? rs[0]);
+    const chip = routeBadge(how);
+    if(chip) routes.add(how);
+
     add(kind, [
-      `${bold(`${TYPES[kind][1]}${name && name !== TYPES[kind][1] ? ` · ${name}` : ''}${rs.some(r => !r.done) ? ' ●' : ''}`)} ${dim(s.state)}`,
+      `${chip ? `${chip} ` : ''}${bold(`${TYPES[kind][1]}${name && name !== TYPES[kind][1] ? ` · ${name}` : ''}${rs.some(r => !r.done) ? ' ●' : ''}`)} ${dim(s.state)}`,
       dim(`${s.local} → ${s.peer}`),
       `${col('163;230;53', `↑ ${bytes(s.sent)}`)}${s.upRate ? dim(` ${bytes(s.upRate)}/s`) : ''}  ${col('125;211;252', `↓ ${bytes(s.received)}`)}${s.downRate ? dim(` ${bytes(s.downRate)}/s`) : ''}${s.rtt != null ? dim(`  rtt ${s.rtt}ms`) : ''}`,
       ...(s.sendQ || s.recvQ ? [dim(`queued ${s.sendQ} out / ${s.recvQ} in`)] : []),
@@ -234,10 +245,13 @@ export function netPaneLines(width, sockets, records, now = Date.now()) {
   for(const r of [...live, ...recent].filter(r => !used.has(r))) {
     const port = portOf(r.meta.url);
     const kind = kindOf(port, r.label);
-    add(kind, [`${bold(`${TYPES[kind][1]} · ${PORT_NAMES[port] ?? `:${port}`} · ${r.label}${r.done ? '' : ' ●'}`)}`, ...requestLines(r, w, now)]);
+    const how = route(null, r);
+    const chip = routeBadge(how);
+    if(chip) routes.add(how);
+    add(kind, [`${chip ? `${chip} ` : ''}${bold(`${TYPES[kind][1]} · ${PORT_NAMES[port] ?? `:${port}`} · ${r.label}${r.done ? '' : ' ●'}`)}`, ...requestLines(r, w, now)]);
   }
 
   if(!blocks.length) out.push('', dim('(no connection open, no request yet)'));
-  else out.push([...seen].map(k => `\x1b[48;2;${rgb(TYPES[k][0])}m ${TYPES[k][1]} \x1b[0m`).join(' '));
+  else out.push([...seen].map(k => `\x1b[48;2;${rgb(TYPES[k][0])}m ${TYPES[k][1]} \x1b[0m`).join(' '), ...(routes.size ? [[...routes].map(routeBadge).join(' ')] : []));
   return [...out, ...blocks.flat()];
 }

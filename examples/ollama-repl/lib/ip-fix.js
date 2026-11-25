@@ -124,24 +124,40 @@ export async function clearCooldowns(gateway, ids) {
 }
 
 /**
- * the keys that profit from another exit address and have no proxy yet: every enabled keyless key (its quotas are
- * counted per IP address) and every enabled key of a provider that has a model limited as an IP matter. A key that
- * is sent through some proxy already is left alone.
+ * the keys that go through the anonymizing proxy by themselves, and have no proxy yet: every enabled keyless key (its
+ * quotas are counted per IP address) and every enabled key of a provider that has several enabled keys (they share one
+ * address, so a second address helps). The only key of a provider goes direct. A key that is sent through some proxy
+ * already, or whose provider is, is left alone.
  *
- * @returns {{id: number, platform: string, label: string, why: 'keyless'|'ip-limited'}[]}
+ * @returns {{id: number, platform: string, label: string, why: 'keyless'|'multi-key'}[]}
  */
 export function ipProxyTargets(keys, av, proxyUrl = ANON_PROXY, isProxied = () => false) {
-  const ipPlatforms = new Set();
-  for(const [, e] of av?.byModel ?? []) if(e.blocked && e.kinds?.includes('ip')) for(const p of e.platforms ?? []) ipPlatforms.add(p);
+  const count = new Map();
+  for(const k of keys ?? []) if(k.enabled && !k.keyless) count.set(k.platform, (count.get(k.platform) ?? 0) + 1);
 
   const out = [];
   for(const k of keys ?? []) {
     if(!k.enabled || k.maskedProxyUrl || isProxied(k.platform)) continue;
     if(k.keyless) out.push({ id: k.id, platform: k.platform, label: k.label ?? '', why: 'keyless' });
-    else if(ipPlatforms.has(k.platform)) out.push({ id: k.id, platform: k.platform, label: k.label ?? '', why: 'ip-limited' });
+    else if(count.get(k.platform) > 1) out.push({ id: k.id, platform: k.platform, label: k.label ?? '', why: 'multi-key' });
   }
 
   return out;
+}
+
+/** the platforms whose models are all blocked by a limit a new IP address can lift (exhausted, as far as an address goes) */
+export function exhaustedPlatforms(av) {
+  const by = new Map();
+
+  for(const [, e] of av?.byModel ?? [])
+    for(const p of e.platforms ?? []) {
+      const x = by.get(p) ?? { n: 0, bad: 0 };
+      x.n++;
+      if(e.blocked && e.kinds?.some(k => IP_KINDS.has(k))) x.bad++;
+      by.set(p, x);
+    }
+
+  return new Set([...by].filter(([, x]) => x.bad === x.n).map(([p]) => p));
 }
 
 /** the platforms that have a model limited as an IP matter now */

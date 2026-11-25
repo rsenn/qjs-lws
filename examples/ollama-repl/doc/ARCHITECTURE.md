@@ -521,12 +521,12 @@ Why: keyless providers and some keyed ones limit per IP address.
   Tor control port itself (`AUTHENTICATE`, `SIGNAL NEWNYM`, `QUIT`; no script).
 - `lib/ip-check.js` `externalIp`: direct or via SOCKS, several "what is my IP" hosts.
 - `lib/ip-fix.js`: `ipCandidates` (keyless keys with limited models),
-  `ipProxyTargets` (keyless + keys of IP-limited platforms that have no proxy),
+  `ipProxyTargets` (keyless keys + the keys of providers with several keys that have no proxy; a provider's only key goes direct),
   `setKeyProxy`, `clearCooldowns`.
 - `main()`: `/proxy [on|off|exit|keyless [apply|clear|fix]|auto]`; `fixKeyless`
   (route keys through the proxy, NEWNYM, probe the new address, clear cooldowns,
   test one request per provider, a second round if needed); **`autoProxy`** (default
-  on; startup + when a platform turns IP-limited + every 5 min; only if the proxy
+  on; startup + when a platform turns IP-limited + every 5 min; targets: keyless keys and keys of providers with several keys; only if the proxy
   answers; `--no-auto-proxy`); `watchPace` (every 10 s, "pace time ran out" events)
   and `recheckAfterIpChange`.
 - Limits of the detection (see `TODO.md`): "per IP" is inferred (keyless flag,

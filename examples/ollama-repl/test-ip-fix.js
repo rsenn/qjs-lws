@@ -41,7 +41,7 @@ check('routedKeys finds those on the proxy', routedKeys(keys, ANON_PROXY).map(k 
 check('routedKeys by host and port, not scheme', routedKeys([{ keyless: true, maskedProxyUrl: 'socks5://127.0.0.1:9050' }], ANON_PROXY).length === 1);
 
 /* automatic routing: keyless keys and keys of IP-limited providers that have no proxy yet */
-import { ipProxyTargets, ipLimitedPlatforms, routedAll } from './lib/ip-fix.js';
+import { ipProxyTargets, ipLimitedPlatforms, routedAll, exhaustedPlatforms } from './lib/ip-fix.js';
 {
   const keys2 = [
     { id: 1, platform: 'kilo', keyless: true, enabled: true },
@@ -55,9 +55,11 @@ import { ipProxyTargets, ipLimitedPlatforms, routedAll } from './lib/ip-fix.js';
   const av2 = { byModel: new Map([['g', { blocked: true, kinds: ['ip'], platforms: ['groq'] }], ['k', { blocked: true, kinds: ['rpd'], platforms: ['google'] }]]) };
   const t = ipProxyTargets(keys2, av2, ANON_PROXY, p => p === 'free');
   check('auto: a keyless key without a proxy', t.some(x => x.id === 1 && x.why === 'keyless'));
-  check('auto: a key of an IP-limited provider', t.some(x => x.id === 3 && x.why === 'ip-limited'));
-  check('auto: a provider limited by a window only is left alone', !t.some(x => x.id === 4));
+  check('auto: a key of a provider with several keys', t.some(x => x.id === 3 && x.why === 'multi-key'));
+  check('auto: the only key of a provider goes direct, limited by IP or not', !t.some(x => x.id === 4) && !ipProxyTargets([{ id: 9, platform: 'solo', keyless: false, enabled: true }], { byModel: new Map([['s', { blocked: true, kinds: ['ip'], platforms: ['solo'] }]]) }).length);
   check('auto: routed, disabled, other-proxy and globally proxied keys are left alone', !t.some(x => [2, 5, 6, 7].includes(x.id)));
   check('auto: platforms limited per IP', [...ipLimitedPlatforms(av2)].join() === 'groq');
+  const av3 = { byModel: new Map([['a', { blocked: true, kinds: ['rpd'], platforms: ['kilo'] }], ['b', { blocked: true, kinds: ['cooldown'], platforms: ['kilo'] }], ['c', { blocked: true, kinds: ['rpd'], platforms: ['ovh'] }], ['d', { blocked: false, kinds: [], platforms: ['ovh'] }], ['e', { blocked: true, kinds: ['credit'], platforms: ['zai'] }]]) };
+  check('exhausted platforms: all models limited by an address-lifted limit', [...exhaustedPlatforms(av3)].join() === 'kilo');
   check('auto: routedAll finds keyed ones too', routedAll([...keys2, { id: 8, platform: 'groq', maskedProxyUrl: 'socks5://127.0.0.1:9050' }]).map(k => k.id).join() === '2,8');
 }

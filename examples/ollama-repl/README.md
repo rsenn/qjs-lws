@@ -510,8 +510,11 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
 - **Network pane (`/split net`).** A column on the right, no line art: every
   TCP connection of the process is a rectangle on a background colour by its
   type (model, sub-agent, standby, exploration, compaction, CDP, http, tcp;
-  a legend line names the ones shown), separated by half-block edges on the
-  black ground. Content is cut off with `…`, never wrapped, so a
+  a legend line names the ones shown), separated by blank rows on the
+  black ground. A chip in front of each title says how the connection leaves:
+  violet `SOCKS` (the connection to the proxy itself, or a request the gateway
+  sends through it for that platform), green `DIRECT`, amber `SOCKS/DIRECT` (a
+  gateway connection without a request: some platforms are proxied, some not). Content is cut off with `…`, never wrapped, so a
   rectangle's height does not change with the width of what flows. Each shows
   local models included: state, bytes up and
   down with rates, round trip, and for the request on it the phase, a

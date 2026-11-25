@@ -89,7 +89,7 @@ import { externalIp } from './lib/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
 import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
 import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
-import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted } from './lib/ip-fix.js';
+import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms } from './lib/ip-fix.js';
 import { ipGroups, ipChangePanel, ipChangeParts } from './lib/ip-pane.js';
 import { netPaneLines, annotateRates } from './lib/net-pane.js';
 import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting, loadEnvFile, userSystemPrompt } from './lib/config.js';
@@ -148,7 +148,7 @@ const USAGE = [
   '',
   '@Conversation',
   ['--no-takeover', 'the async exploration never offers a better model to take over the running task (it only logs it).'],
-  ['--no-auto-proxy', 'do not send the keys of keyless providers and of IP-limited providers through the socks proxy by itself (also /proxy auto off); it also keeps the exit address as it is when every keyless provider is exhausted (otherwise changed by itself, at most every 10 minutes).'],
+  ['--no-auto-proxy', 'do not send the keys of keyless providers and of providers with several keys through the socks proxy by itself (the only key of a provider goes direct) (also /proxy auto off); it also keeps the exit address as it is when every keyless provider is exhausted (otherwise changed by itself, at most every 10 minutes).'],
   ['--no-stream', 'wait for the whole reply instead of printing it as it arrives (streaming is the default; also /stream off).'],
   ['--temperature T', 'sampling temperature (default 0.2).'],
   ['--num-ctx N', 'context window requested from Ollama (default 16384; Ollama itself defaults to 4096).'],
@@ -798,6 +798,31 @@ function watchNet(client, label) {
   return client;
 }
 
+/**
+ * how a connection of the network pane leaves: a socket to the SOCKS proxy itself is socks; a request the gateway serves
+ * through a platform goes the way the gateway's proxy settings send that platform (a key's own proxy, else the global
+ * one unless bypassed); a connection to the gateway without a request says what its platforms do in general; anything
+ * else (a local model, the browser) is direct. null when the proxy settings are not known (no dashboard session).
+ */
+function netRoute(sock, rec) {
+  const st = proxyInfo.settings;
+  const socksPort = /:(\d+)\/?$/.exec(st?.url ?? '')?.[1] ?? '9050';
+  const peerPort = /:(\d+)$/.exec(sock?.peer ?? '')?.[1];
+  if(peerPort && /^socks/.test(st?.url ?? 'socks') && peerPort === socksPort) return 'socks';
+
+  const platform = rec?.meta?.platform ?? rec?.meta?.routedVia?.split('/')[0];
+  if(st && platform) {
+    const p = proxied(st, platform);
+    if(p != null) return p ? 'socks' : 'direct';
+  }
+
+  const url = rec?.meta?.url ?? '';
+  const gatewayPort = /:(\d+)/.exec(gatewayRef?.origin ?? '')?.[1];
+  if(!(peerPort && peerPort === gatewayPort) && !(url && gatewayPort && url.includes(`:${gatewayPort}`))) return 'direct';
+  if(!st) return null;
+  return st.active || st.keyProxies.size ? (st.active && !st.bypass.length && !st.keyProxies.size ? 'socks' : 'mixed') : 'direct';
+}
+
 /** lines of the pane, width cells wide (Tui clips them) */
 function paneLines(width, height) {
   const head = t => `\x1b[1;38;2;45;212;191m${t}\x1b[0m`;
@@ -809,7 +834,7 @@ function paneLines(width, height) {
 
   if(split.mode === 'git') return [head('git diff'), ...(split.git ? split.git.split('\n') : ['', '\x1b[2m(no changes)\x1b[0m'])];
 
-  if(split.mode === 'net') return netPaneLines(width, split.sockets, net.records);
+  if(split.mode === 'net') return netPaneLines(width, split.sockets, net.records, Date.now(), netRoute);
 
   return statusPane(width);
 }
@@ -3123,14 +3148,15 @@ async function main() {
   /* a client of its own per explored model, on the REPL's thread */
   /**
    * every key that profits from another exit address goes through the socks proxy by itself: the keys of keyless
-   * providers (their quotas are counted per IP address) and the keys of providers with a model limited as an IP
-   * matter. Needs a dashboard session and a proxy that answers; a key that has a proxy already is left alone. Switched
+   * providers (their quotas are counted per IP address) and the keys of providers with several keys; the only key of a
+   * provider goes direct. Needs a dashboard session and a proxy that answers; a key that has a proxy already is left alone. Switched
    * off by --no-auto-proxy, /proxy auto off and /proxy keyless clear. It does not change the exit address: /proxy exit
    * or /proxy keyless fix does.
    */
   let autoProxyBusy = false;
   let autoProxyUnreachable = null;
   const ipSeen = new Set();
+  const exhaustSeen = new Set();
 
   async function autoProxy(why = '') {
     if(opts.noAutoProxy || autoProxyBusy || !gateway?.enabled || !gateway.hasLimits || gateway.isBridge) return;
@@ -3154,7 +3180,7 @@ async function main() {
 
       const done = await setKeyProxy(gateway, targets.map(t => t.id), socks);
       const ok = done.filter(r => r.ok);
-      const names = [...new Set(targets.filter(t => ok.some(r => r.id === t.id)).map(t => `${t.platform}${t.why === 'ip-limited' ? ' (IP-limited)' : ''}`))];
+      const names = [...new Set(targets.filter(t => ok.some(r => r.id === t.id)).map(t => `${t.platform}${t.why === 'multi-key' ? ' (several keys)' : ''}`))];
       if(ok.length) emit('proxy', `${ok.length} key${ok.length > 1 ? 's' : ''} now go through ${socks} to profit from an exit change: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}${why ? ` (${why})` : ''}`, 'good');
       if(done.some(r => !r.ok)) emit('proxy', `the proxy could not be set on key ${done.filter(r => !r.ok).map(r => `${r.id} (${r.error})`).join(', ')}`, 'bad');
       await loadProxy(false);
@@ -3305,10 +3331,17 @@ async function main() {
       try {
         /* a provider that just turned out to be limited per IP address: its keys go through the proxy at once; otherwise every 5 minutes */
         const ipNow = [...ipLimitedPlatforms(availability)].filter(p => !ipSeen.has(p));
+
+        /* a provider that is exhausted (all its models limited per address): its keys go through the proxy now if they do not yet, not at the next 5 minute round */
+        const exhausted = exhaustedPlatforms(availability);
+        for(const p of [...exhaustSeen]) if(!exhausted.has(p)) exhaustSeen.delete(p);
+        const exhNow = autoProxyBusy ? [] : [...exhausted].filter(p => !exhaustSeen.has(p));
+
         paceTicks++;
-        if(ipNow.length) {
+        if(ipNow.length || exhNow.length) {
           for(const p of ipNow) ipSeen.add(p);
-          autoProxy(`${ipNow.join(', ')} limited per IP address`);
+          for(const p of exhNow) exhaustSeen.add(p);
+          autoProxy([ipNow.length ? `${ipNow.join(', ')} limited per IP address` : '', exhNow.length ? `${exhNow.join(', ')} exhausted` : ''].filter(Boolean).join('; '));
         } else if(paceTicks % 30 === 0) autoProxy();
         autoExit();
 
@@ -4266,7 +4299,7 @@ async function main() {
         else if(v === 'off') opts.noAutoProxy = true;
         else if(v) return void console.log('usage: /proxy auto [on|off]');
         if(!opts.noAutoProxy && v === 'on') autoProxy('switched on');
-        return void console.log(note(`automatic proxy routing is ${opts.noAutoProxy ? 'off' : 'on'}: the keys of keyless providers and of IP-limited providers go through the socks proxy by themselves${opts.noAutoProxy ? ' (/proxy auto on)' : ''}`));
+        return void console.log(note(`automatic proxy routing is ${opts.noAutoProxy ? 'off' : 'on'}: the keys of keyless providers and of providers with several keys go through the socks proxy by themselves (the only key of a provider goes direct)${opts.noAutoProxy ? ' (/proxy auto on)' : ''}`));
       }
 
       if(arg === 'keyless' || arg.startsWith('keyless ')) return void (await keylessProxy(arg.slice('keyless'.length).trim()));

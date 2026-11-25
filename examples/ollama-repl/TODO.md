@@ -1,3 +1,10 @@
+## Health, exploration, switchover improvements from the data (2026-11-25)
+
+The plan, by dependency, with tests and success metrics: doc/HEALTH-EXPERIMENTS.md, section Plan. The defects are in BUGS
+(7 entries). Waiting for the user: commit the pending work (0.1), how to run live probes (0.2), kilo behind Tor (0.3),
+who takes the gateway proposals (3.6 to 3.9). Nothing implemented yet.
+Order: 1.1 label usage records, 1.2 baseline script, 2.1 to 2.6 correctness, 3.1 to 3.5 harness policy, 4.1 to 4.3 verification.
+
 ## Exit address change pane, automatic exit change (2026-11-25)
 
 Done: lib/ip-pane.js (the pane: old/new address, models that could work again), keylessExhausted() in lib/ip-fix.js,
