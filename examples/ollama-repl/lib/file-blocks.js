@@ -93,8 +93,11 @@ function mkdirp(dir) {
   mkdir(dir);
 }
 
-/** Rejects paths that would escape `root` (`../..`, an absolute path, ...). */
-function isSafeRelativePath(path) {
+/** Rejects paths that would escape `root` (`../..`, an absolute path, ...).
+ *  Accepts paths starting with ./, ~ (after expansion), and absolute paths
+ *  within root (normalized to relative internally).
+ */
+function isSafeRelativePath(path, root) {
   // Accept paths starting with ./ (relative to root)
   if(path.startsWith('./')) {
     const innerPath = path.slice(2);
@@ -116,8 +119,16 @@ function isSafeRelativePath(path) {
   if(path.startsWith('~')) {
     return true;
   }
-  // Reject absolute paths that aren't normalized
-  if(path.startsWith('/')) return false;
+  // Handle absolute paths: resolve and verify they fall within root
+  if(path.startsWith('/')) {
+    // Normalize the absolute path using toRelativePath if inside root
+    const normalized = toRelativePath(path, root);
+    // toRelativePath returns './...' if inside root, or absPath unchanged otherwise
+    // If it returns './...' or the path is ./, it's safe
+    if(normalized.startsWith('./') || normalized === './') return true;
+    // Otherwise reject the absolute path
+    return false;
+  }
 
   const parts = path.split('/');
   let depth = 0;
@@ -149,7 +160,7 @@ export async function saveFileBlocks(blocks, root = '.', fileExchange) {
   const rejected = [];
 
   for(const { path, content } of blocks) {
-    if(!isSafeRelativePath(path)) {
+    if(!isSafeRelativePath(path, root)) {
       rejected.push(path);
       continue;
     }

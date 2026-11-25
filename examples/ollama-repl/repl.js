@@ -339,7 +339,7 @@ Absolute paths (e.g., /home/user/project/src/foo.js) are allowed but will be sho
 When calling tools (read_file, edit_file, etc.), prefer ./ relative paths. You may use ~ for homedir files.
 Never use .. to escape the project root.
 
-*Implementation note:* Since `opts.root` can change via `/cd`, the root is injected dynamically when the prompt is built, but the above rules are always in effect.
+*Implementation note:* Since \`opts.root\` can change via \`/cd\`, the root is injected dynamically when the prompt is built, but the above rules are always in effect.
 
 Tools: list_directory, read_file (optionally start/end lines), grep,
 insert_above (add lines above an existing line), edit_file (replace exact
@@ -494,7 +494,7 @@ function attachFiles(prompt, root, fileExchange) {
     fileExchange.recordSent(attached);
   }
 
-  return { text: [prompt, files.length ? formatFileBlocks(files, opts.root) : '', formatFileRefs(large)].filter(Boolean).join('\n\n'), attached };
+  return { text: [prompt, files.length ? formatFileBlocks(files, root) : '', formatFileRefs(large)].filter(Boolean).join('\n\n'), attached };
 }
 
 /** @returns {string[]} paths actually written (named "File:" blocks and auto-named anonymous ones alike) */
@@ -2811,7 +2811,7 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   const fileFg = file;
   const lime = s => `\x1b[38;2;163;230;53m${s}\x1b[39m`;
 
-  const left = `${modeBadge(opts.mode, MODE_COLOR[opts.mode])} ${tc('⌂')} ${fileFg(shortPath(realpath(opts.root)[0] ?? opts.root, Math.max(12, Math.floor(cols / 4))))}${ui.verbose ? ' \x1b[33m◉ verbose\x1b[0m' : ''}${remote ? ` ${tc('⇄')} \x1b[36m${remote}\x1b[0m` : ''}`;
+  const left = `${modeBadge(opts.mode, MODE_COLOR[opts.mode])} ${tc('⌂')} ${fileFg(shortPath(realpath(opts.root)[0] ?? opts.root, Math.max(12, Math.floor(cols / 4))))}${ui.verbose ? ' \x1b[38;5;124m◉ verbose\x1b[0m' : ''}${remote ? ` ${tc('⇄')} \x1b[36m${remote}\x1b[0m` : ''}`;
   const center = effective
     ? `${lime('◆')} \x1b[1m${effective}\x1b[22m${routedVia && routedVia !== effective ? dimmed(` → ${routedVia}`) : ''}${last.provider ? dimmed(` via ${last.provider}`) : ''}${effective !== opts.model && !effective.endsWith(opts.model) ? dimmed(` (asked ${opts.model})`) : ''}`
     : `${lime('◇')} ${gateway?.enabled && !gateway.isBridge ? `${opts.model}${(prov => (prov === '-' || /^auto(:|$)/.test(opts.model) ? '' : dimmed(` via ${prov}`)))(providerText({ name: opts.model }, availability))}` : `${opts.label ?? opts.provider}/${opts.model}`}${dimmed(' (no reply yet)')}`;

@@ -115,10 +115,22 @@ function writablePath(path, root) {
     console.warn('warning: path argument is missing or not a string');
     return null;
   }
-  if( path.startsWith('/') || path.split('/').includes('..')) {
-    console.warn('warning: path starts with / or contains .. segment and is rejected');
+  // Check for .. segments that would escape root
+  if(path.split('/').includes('..')) {
+    console.warn('warning: path contains .. segment and is rejected');
     return null;
   }
+  // Handle absolute paths: if they fall within root, normalize to relative
+  if(path.startsWith('/')) {
+    const normalized = toRelativePath(path, root);
+    if(normalized.startsWith('./') || normalized === './') {
+      // Normalized to relative path inside root
+      return root === '.' ? normalized.slice(2) : normalized;
+    }
+    console.warn('warning: absolute path does not fall within root and is rejected');
+    return null;
+  }
+  // Relative paths (starting with ./ or just relative)
   return root === '.' ? path : `${root}/${path}`;
 }
 
