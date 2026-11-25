@@ -36,6 +36,11 @@ export function modelStatusTable(av) {
       statusLabel = 'COOLDOWN';
       statusColor = '\x1b[33m';
       quotaCell = `until ${untilText(entry.until, now)}`;
+    } else if (entry.status === 'needsKey') {
+      /* the model is listed but its platform has no API key configured */
+      statusLabel = 'NEEDS_KEY';
+      statusColor = '\x1b[35m'; // magenta
+      quotaCell = 'add an API key for this platform';
     }
 
     const providers = (entry.platforms ?? []).join(', ') || '-';
@@ -47,8 +52,8 @@ export function modelStatusTable(av) {
     ]);
   }
 
-  // Sort: RATE_LIMITED first, then OUT_OF_QUOTA, then OFFLINE, then COOLDOWN
-  const rank = { RATE_LIMITED: 0, OUT_OF_QUOTA: 1, OFFLINE: 2, COOLDOWN: 3, READY: 4 };
+  // Sort: RATE_LIMITED first, then OUT_OF_QUOTA, then OFFLINE, then COOLDOWN, then NEEDS_KEY, then READY
+  const rank = { RATE_LIMITED: 0, OUT_OF_QUOTA: 1, OFFLINE: 2, COOLDOWN: 3, NEEDS_KEY: 4, READY: 5 };
   rows.sort((a, b) => {
     const ra = rank[a[1].replace(/\x1b\[[0-9;]*m/g, '')] ?? 4;
     const rb = rank[b[1].replace(/\x1b\[[0-9;]*m/g, '')] ?? 4;
