@@ -13,7 +13,7 @@ const remove = path => rmSync(path, { force: true });
 import { loadFile, open as fopen } from 'std';
 import { walk, fileMode } from './match.js';
 import { runCommand } from './run-command.js';
-import { expandHome } from './paths.js';
+import { expandHome, toRelativePath } from './paths.js';
 import { aliasToolCall } from './text-tool-calls.js';
 import { getenv } from 'std';
 import { qjsProjectDirs } from './reference-files.js';
@@ -82,11 +82,19 @@ function resolveBase(arg, root) {
 
 /** Lines `start`..`end` (1-based, inclusive; both optional) of a file. */
 function readFile(path, root, start, end) {
-  const full = root === '.' || path.startsWith('/') ? path : `${root}/${path}`;
+  // Normalize absolute paths: if they fall within root, convert to relative
+  const normalizedPath = toRelativePath(path, root);
+  const full = normalizedPath === '' ? '.' : normalizedPath;
 
   const mode = fileMode(full);
-  if(mode === 0) return `(not found: ${full} - check the path with list_directory, or use an absolute path or ~/...)`;
-  if(mode !== S_IFREG) return `(${full} is not a regular file${mode === S_IFDIR ? ' but a directory - use list_directory' : ''})`;
+  if(mode === 0) {
+    console.warn(`warning: file not found: ${full} - check the path with list_directory`);
+    return `(not found: ${full} - check the path with list_directory, or use an absolute path or ~/...)`;
+  }
+  if(mode !== S_IFREG) {
+    console.warn(`warning: not a regular file: ${full} (${mode === S_IFDIR ? 'directory' : 'special file'})`);
+    return `(${full} is not a regular file${mode === S_IFDIR ? ' but a directory - use list_directory' : ''})`;
+  }
 
   let content = loadFile(full);
   if(content == null) return `(cannot read ${full}: permission denied or unreadable)`;
@@ -103,8 +111,14 @@ function readFile(path, root, start, end) {
 
 /** Path inside `root` that a tool may write: relative, no "..". Returns the full path or null. */
 function writablePath(path, root) {
-  if(typeof path !== 'string' || !path) return null;
-  if( path.startsWith('/') || path.split('/').includes('..')) return null;
+  if(typeof path !== 'string' || !path) {
+    console.warn('warning: path argument is missing or not a string');
+    return null;
+  }
+  if( path.startsWith('/') || path.split('/').includes('..')) {
+    console.warn('warning: path starts with / or contains .. segment and is rejected');
+    return null;
+  }
   return root === '.' ? path : `${root}/${path}`;
 }
 
@@ -163,7 +177,10 @@ function insertAbove({ path, anchor, text }, root) {
   const full = writablePath(path, root);
   if(!full) return pathError(path);
   if(typeof anchor !== 'string' || !anchor || typeof text !== 'string') return 'error: anchor (text of the line to insert above) and text are required';
-  if(fileMode(full) !== S_IFREG) return `error: ${path} not found`;
+  if(fileMode(full) !== S_IFREG) {
+    console.warn(`warning: file not found or not regular: ${path}`);
+    return `error: ${path} not found`;
+  }
 
   const content = loadFile(full);
   let at = content.indexOf(anchor);
@@ -196,7 +213,10 @@ function editFile({ path, old_string: oldStr, new_string: newStr }, root) {
   if(!full) return pathError(path);
   if(typeof oldStr !== 'string' || !oldStr) return 'error: old_string is required (the exact existing text to replace)';
   if(typeof newStr !== 'string') return 'error: new_string is required';
-  if(fileMode(full) !== S_IFREG) return `error: ${path} not found - use write_file to create a new file`;
+  if(fileMode(full) !== S_IFREG) {
+    console.warn(`warning: file not found or not regular: ${path} - use write_file to create a new file`);
+    return `error: ${path} not found - use write_file to create a new file`;
+  }
 
   const content = loadFile(full);
   const first = content.indexOf(oldStr);
@@ -380,7 +400,12 @@ export async function executeTool(name, args, root, confirmRun, askUser, forEach
   /* a tool that throws (e.g. a missing argument) is reported to the model
      like any other tool error, not allowed to abort the whole turn */
   try {
-    return await runTool(name, args ?? {}, root, confirmRun, askUser, forEach);
+    // Normalize path arguments: convert absolute paths within root to relative
+    const normalizedArgs = { ...args };
+    if (normalizedArgs.path && typeof normalizedArgs.path === 'string') {
+      normalizedArgs.path = toRelativePath(normalizedArgs.path, root);
+    }
+    return await runTool(name, normalizedArgs ?? {}, root, confirmRun, askUser, forEach);
   } catch(e) {
     return `error: ${name} failed: ${e.message} (check the arguments)`;
   }
@@ -390,7 +415,14 @@ async function runTool(name, args, root, confirmRun, askUser, forEach) {
   if(name === 'list_directory') {
     const dir = args.dir === '.' || !args.dir ? '' : String(args.dir);
     const { base, rel, prefix } = resolveBase(dir, root);
-    const files = listFiles(rel, base).map(f => (prefix ? `${prefix}/${f}` : f));
+    const files = listFiles(rel, base).map(f => {
+      // Rewrite absolute paths to be relative to opts.root
+      if (!f.startsWith('./') && !f.startsWith('~')) {
+        const normalized = toRelativePath(f, root);
+        return normalized === '' ? './' : normalized;
+      }
+      return f;
+    });
     return files.length ? files.join('\n') : '(no matching files)';
   }
 

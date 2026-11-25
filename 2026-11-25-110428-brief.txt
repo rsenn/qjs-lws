@@ -1,0 +1,238 @@
+Project brief (condensed by qwen3:4b-instruct from 8 documents; read the real files for detail)
+
+Layout:
+doc/ (4 files)
+  API.md
+  ARCHITECTURE.md
+  DEMO.md
+  MODELS.md
+lib/ (66 files)
+  ansi.js
+  availability.js
+  binding-context.js
+  bridge-process.js
+  cdp-token.js
+  chat-repl.js
+  config.js
+  control-socket.js
+  delegates.js
+  diagnose.js
+  events.js
+  exploration.js
+  ... +54 more files
+reference/ (1 files)
+  quickjs-binding-api.md
+2026-11-25-101936-lazy-evaluating-penguin.txt
+2026-11-25-102327-lazy-evaluating-penguin-handoff.txt
+README.md
+TODO.md
+ctl.js
+harness.mp4
+ollama-repl.txt
+qwen2.5-coder.json
+repl.js
+smoke.sh
+test-availability-events.js
+test-availability.js
+... +28 more files
+
+## README.md
+# ollama-repl
+
+- **Dedicated HTTP client**: `lib/ollama-client.js` uses `fetch()` via `LWSContext`, new connection per prompt.  
+- **Token streaming**: `chatStream()` reads real `ReadableStream`, default; `--no-stream` disables.  
+- **File detection**: Paths/globs auto-resolved (`lib/file-refs.js`, `lib/match.js`); dir `/` loads up to 4 files, top-level first, newest-first per depth. Specific files trigger import extraction (`lib/imports.js`).  
+- **File exchange**: All file in/out tracked (`lib/file-exchange.js`); diffs saved to `diffs/NNN-name.diff`, revertable via `patch -R`.  
+- **File output**: `File: path` blocks written to project; other code blocks saved as `<model>-output-N.ext`, numbered to avoid collision.  
+- **Project awareness**: `LIST:/READ:/RUN:` auto-executed if model asks; `RUN:` requires approval via `ChatREPL#confirm()`.  
+- **Startup scan**: Shallow top-level listing (JS/C/HTML/CSS/MD, `.gitignore` filtered) + `README.md`, `CMakeLists.txt`. `/reset` keeps scan; `/clear` removes it.  
+- **Session persistence**: `session.json` saved after each turn; resumes on startup if exists; `/clear` discards.  
+- **QuickJS/qjs-modules**: `quickjs.h`, `qjs-modules` built-ins referenced; `LIST:/READ:` access sibling projects.  
+- **Real editing**: qjs-modules' `repl` module enables arrow history, `^R`, Tab completion (project paths), plain text input.  
+- **Session log**: `session.log` timestamps all prompts, replies, tools, file writes (read-only).  
+- **Thinking indicator**: Animated spinner (Unicode glyphs), nerd jokes by phase; capped at `DEFAULT_TIMEOUT_SECS` (15min).  
+- **Direct clients**: `lib/ollama-client.js`, `lib/gemini-client.js`, `lib/openai-client.js` support `tools: [{ name, description, parameters }]` with `chat()`/`chatStream()` returning `{ content, toolCalls? }`.  
+
+Open tasks: Tool calling via native APIs (not reply parsing), full recursive file scan, diff auto-merge.
+
+## TODO.md
+- Tool call panels: → MODEL · tool call \`NAME\`; assistant text then → key: value, tool NAME, (exit N), output; stats only in request titles.  
+- Strict file attachment: ≤10KB, 12 files, 40KB total; large files in `Not attached` with size/read_file hint; binary files skipped.  
+- `/context N`: opens in pager, save/copy/all; `/log` no subcommands; no unit test.  
+- `/brief save`: writes last brief to FILE or timestamped file; needs prior brief.  
+- Split pane scrolls: wheel scrolls pane, Alt-PgUp/PgDn scrolls pane; test: test-pane-scroll.js.  
+- Net pane: ↑ <subject> · <bytes sent>; handoff/compact: first line of user message; short subject if needed.  
+- Model chooser: filters rows by words, "none" always visible; Backspace, Ctrl-U, Esc, j/k/y/n/digits.  
+- Terminal caps: queryCapabilities, sync frames, bracketed paste, grapheme clusters; parent sends ESC[?2004h unconditionally; kitty keyboard off; ChatREPL matches legacy bytes; typeahead now via repl.insert().  
+- Verbose panels: Tui.write without kind reset fixed; inKind now cleared; panels gone with Ctrl-O off.  
+- Open: model choice, failover, standby, gateway health.  
+- Untested: real model delegating via spawn_agent, peer read-only, worker waiting, standby switch-on 429/5xx, ghost completion (TUI only), compaction removes skills, primary unaware of delegates, N restarts → N waiting qjsm.  
+- Housekeeping: restart sessions to pick up Esc, completion, verbose, strength; five untracked files (2026-11-19-*-qwen2.5-coder.txt, auto.json, out.c, qwen2.5-coder.json); ~/Sources/rsenn/skills/quickjs-scripting has uncommitted edits.
+
+## doc/ARCHITECTURE.md
+ollama-repl: one QuickJS process, one event loop. Core: repl.js (main), ctl.js (ctl), lws.so (HTTP/WebSocket). Layers: UI → turn engine → model choice → gateway → persistence. Model clients: openai-client.js, ollama-client.js, gemini-client.js. Turn engine: tool-requests.js, modes.js, failover.js, handoff.js. Gateway: availability.js, rating.js, exploration.js, probe-context.js. Failover: provider-fallback.js, fallback-trail.js. Standby/takeover: standby.js, takeover.js. Commands: wired in repl.js. Control socket: ctl.js → control-socket.js. Persistence: config.js, session-*.js, events.js. Self-edit/restart: in repl.js. Error: "could not load module lws.so" if QUICKJS_MODULE_PATH misses build/<triplet>.  
+Files: delegates.json — weaker sub-agent for delegation. lib/freellm.js: gateway, keyCells, FREELLM_URL. lib/gateway-report.js: gatewayReport, reportText. lib/proxy-probe.js: proxySettings, setProxyEnabled, proxied, measure, exitIp, newExit, PROBE_URL, EXIT_IP_URL. lib/ip-check.js: externalIp, parseIp, isPublicIp, IP_HOSTS. lib/ip-fix.js: ipCandidates, routedKeys, routedAll, setKeyProxy, clearCooldowns, ipProxyTargets, ipLimitedPlatforms, ANON_PROXY. lib/cdp-token.js: dashboardTokenFromBrowser. lib/bridge-process.js: startBridge, pickModel — --provider bridge. lib/net-activity.js: NetActivity. lib/resources.js: ownSockets, processInfo, PORT_NAMES. lib/tui.js: Tui, layout, history, panels, split pane. lib/chat-repl.js: ChatREPL, line editor, queue, dialogs, pager host. lib/pager.js: Pager, full-screen scrolling. lib/look.js: colour palette, note, card, panel, banner, meter, quotaCell, pctCell, toolLine, toolResult, highlight, gradientRule. lib/ansi.js: piped, red, yellow. lib/usage-stats.js: UsageStats, fitTable, formatTable, fmtNum, fmtMs, routeLine, routeName, formatMeta. lib/net-pane.js: netPaneLines, hopsOf, kindOf, TYPES, annotateRates. lib/events.js: emit, setSink, eventLine, eventsText, recent. lib/markdown.js: MarkdownStream, highlight, inline. lib/rawcolor.js: raw content colouring. lib/quips.js, lib/session-name.js: spinner words, session names. lib/session-cache.js: cacheDir, sessionKey, sessionDir, sessionFile, loadSessionState, saveSessionState, debugLogPath. lib/session-store.js: SessionStore — session.json. lib/session-log.js: SessionLog — plain-text transcript. lib/config.js: SETTINGS, globalSettings, setSetting, loadEnvFile, userSystemPrompt, writeConfigFile. lib/persist.js: appendUsage, readUsage, saveQuota, loadQuota, flushPersist, trimLogs. lib/file-refs.js, lib/file-blocks.js, lib/file-exchange.js, lib/sent-files.js: file names/globs, File: path blocks, diffs. lib/project-brief.js, lib/reference-files.js, lib/binding-context.js, lib/imports.js: project scan, reference docs. lib/skills.js: /skill — instruction files.
+
+## doc/API.md
+# Message/tool-use format rewrite
+
+## Problem  
+`GeminiClient#chat()`/`#chatStream()` and `OllamaClient` use flat arrays of `{ role, content }` turns. Ollama's shape lacks support for tool use; Gemini's API supports tool calls but only via `functionCall` and `functionResponse` parts in `contents`, not a dedicated role.
+
+## Research: API tool use  
+**Gemini `generateContent`**:  
+- `Content.role`: only `"user"` or `"model"`; no `"function"` role.  
+- `parts`: `{ text }`, `{ functionCall: { name, args } }` in model-role turn, `{ functionResponse: { name, response: object } }` in user-role turn.  
+- `tools`: `{ functionDeclarations: [{ name, description, parameters }] }` (OpenAPI JSON Schema).  
+- `toolConfig.functionCallingConfig.mode`: `'AUTO'` (default), `'ANY'`, `'NONE'`.  
+- `functionCall` parts arrive whole in streaming events.  
+
+**Ollama `/api/chat`**:  
+- `tools`: `{ type: 'function', function: { name, description, parameters } }`.  
+- Tool call reply: `message.tool_calls: [{ function: { name, arguments } }]`.  
+- Tool result: `{ role: 'tool', content: string, tool_name: string }`.  
+- No `tool_choice` knob; always behaves like `'AUTO'`.  
+- `tool_calls` appear whole in streaming NDJSON chunks.  
+
+## Design: Extended message format  
+Callers build array with:  
+- Plain turn: `{ role: 'system'|'user'|'assistant', content: string }`  
+- Assistant tool request: `{ role: 'assistant', content?: string, toolCalls: [{ id, name, args }] }`  
+- Tool result: `{ role: 'tool', name: string, content: string | object, toolCallId?: string }`  
+
+- `toolCalls.id`: synthesized as `${name}#${index}`; never sent over wire.  
+- `toolCalls.thoughtSignature`: for Gemini 3 models; must be echoed back in same part; stored and sent.  
+- `tool.content`: string (common) or object; `GeminiClient` wraps as `{ result: content }`, `OllamaClient` strings it.  
+
+New options:  
+- `tools: [{ name, description, parameters }]` – passed to wire format.  
+- `toolChoice: 'auto' | 'any' | 'none'` – maps to Gemini; Ollama ignores.  
+
+Return value:  
+```js
+{ content: string, toolCalls?: [{ id, name, args }] }
+```  
+`toolCalls` only if model requested a call. `chatStream()`'s `onToken` unchanged – tool calls not streamed.  
+
+## Out of Scope  
+- Multimodal parts (`inlineData`, `fileData`) – not needed for text-only workflow.  
+- Real tool-calling
+
+## doc/DEMO.md  
+# Demo redesign: writing a native QuickJS binding (zlib as the worked example)  
+
+## 0. Example prompts  
+- `what's the difference between JS_FreeValue and JS_FreeValueRT?` – exercises only chat(), no files or tools.  
+- `explain what lib/chat-repl.js is doing` – triggers file-refs.js to attach files via path/glob, up to MAX_FILES/MAX_TOTAL_BYTES.  
+- `why does the spinner in repl.js sometimes keep running after an error?` – no pre-attachment; model must LIST:/READ: to find answer (bounded by MAX_TOOL_ROUNDS).  
+- `run the tests and tell me what's failing` – triggers RUN: request (shell command, confirmed via repl.confirm()).  
+- `fix the bug in lib/sent-files.js where...` – model reply with File: path block → parsed and written by file-blocks.js.  
+- `rename the SentFiles class to FileTracker across the codebase` – multi-file edit; tests consistency of edits across files.  
+- `write a new native binding` – most demo.
+
+## 1. What the model needs to know  
+1. JSValue lifecycle: refcounted; JSValueConst = borrowed; returned values must be freed with JS_FreeValue(ctx,v) or JS_FreeValueRT (in finalizer).  
+2. Exceptions are values: JS_EXCEPTION is a JSValue returned on failure; every call must check and propagate (goto fail).  
+3. O
+
+## FILENAME  
+void *JS_GetOpaque(JSValueConst obj, JSClassID class_id);  
+void *JS_GetOpaque2(JSContext *ctx, JSValueConst obj, JSClassID class_id);  
+
+Allocate class ID once (module init). Register with JS_NewClass.  
+Constructor: JS_NewObjectProtoClass + JS_SetOpaque.  
+Getters/setters: JS_GetOpaque2 (throws on wrong class), not JS_GetOpaque.
+
+## FILENAME  
+JSValue JS_NewArrayBuffer(JSContext *ctx, uint8_t *buf, size_t len,  
+                          JSFreeArrayBufferDataFunc *free_func, void *opaque,  
+                          JS_BOOL is_shared);  
+uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj);  
+
+JS_GetArrayBuffer returns pointer into buffer — don’t free it.  
+Buffer freed by object via free_func.  
+To return owned buffer: allocate with js_malloc, fill, then:  
+JS_NewArrayBuffer(ctx, buf, actual_len, free_func, NULL, FALSE)  
+with free_func calling js_free_rt.  
+Pass actual used length, not allocated bound.
+
+## FILENAME  
+JSValue JS_NewBool(JSContext *ctx, JS_BOOL val);  
+JSValue JS_NewInt32(JSContext *ctx, int32_t val);  
+JSValue JS_NewUint32(JSContext *ctx, uint32_t val);  
+JSValue JS_NewFloat64(JSContext *ctx, double d);  
+int JS_ToInt32(JSContext *ctx, int32_t *pres, JSValueConst val);  
+int JS_ToInt64(JSContext *ctx, int64_t *pres, JSValueConst val);  
+
+JSValueConst in args = borrowed, don’t free.  
+JS_ToInt32/ToInt64 return -1 on failure; check return, not just *pres.
+
+## FILENAME  
+JSValue JS_ThrowTypeError(JSContext *ctx, const char *fmt, ...);  
+JSValue JS_ThrowRangeError(JSContext *ctx, const char *fmt, ...);  
+JSValue JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...);  
+JS_BOOL JS_IsException(JSValueConst v);  
+void JS_FreeValue(JSContext *ctx, JSValue v);  
+
+No C try/catch. Functions must call JS_Throw* on failure.  
+Check JS_IsException(v) and propagate.  
+Every JSValue returned or stored must be freed via JS_FreeValue or JS_FreeValueRT.
+
+## FILENAME  
+void *js_malloc(JSContext *ctx, size_t size);  
+void *js_mallocz(JSContext *ctx, size_t size);  
+void js_free(JSContext *ctx, void *ptr);  
+void js_free_rt(JSRuntime *rt, void *ptr);  
+
+js_malloc/js_free: context-bound.  
+js_free_rt: runtime-bound, used in finalizers.  
+Never mix with libc malloc/free.
+
+## FILENAME  
+JSClassID JS_NewClassID(JSClassID *pclass_id);  
+int JS_NewClass(JSRuntime *rt, JSClassID class_id, const JSClassDef *class_def);  
+
+Same pattern: JS_NewClassID, JS_NewClass, JS_SetOpaque, finalizer.  
+Finalizer uses js_free_rt.
+
+## FILENAME  
+#define JS_CFUNC_DEF(name, length, func1) { ... }  
+#define JS_CGETSET_MAGIC_DEF(name, f)  
+
+Functions with getter, fsetter, magic) { ... } are registered via JS_SetPropertyFunctionList.
+
+## Open Tasks  
+- Verify binding demo end-to-end with crc32() or compress2() via READ: quickjs.h if needed  
+- Test qwen3.5:9b tool parser  
+- Wire thinkingLevel support  
+- Verify gemma4:e4b  
+- Validate gemini-4-argon  
+- Fix Ctrl-C mid-stream  
+- Resolve EOF bug in ask_user  
+- Test rename/refactor  
+- Improve qwen2.5-coder tool parsing and retry logic  
+- Validate tool format parsing and anchor resolution  
+
+## Auto-attach vs. request  
+All prompts trigger top-level project scan (README/CMakeLists.txt). Unchanged.
+
+## Models  
+- qwen3.5:4b: 25/25, ~115s; native tool calls work  
+- qwen2.5-coder: 17-20/25, ~100-140s; needs lib/text-tool-calls.js, nudges, retry  
+- gemini-3.5-flash: tool loop works; needs thoughtSignature fix  
+- gemini-3.5-flash-lite: 0/25; 503 "high demand"  
+- qwen3.5:9b: 25/25; open tool-call parser issue — test  
+- gemma4:e4b: built-in tool calling & vision; unverified  
+- qwen2.5-coder:7b: tested; text tool calls  
+- gpt-oss:20b: MoE, partly offloaded  
+- qwen3-coder:30b: MoE, ~3.3B active; unverified; needs offload  
+- devstral-small:24b: strong agentic coder; slow on this card  
+
+Not realistic: Qwen3.6-27B (needs 24GB GPU)
+
+## Gemini  
+- Free tier: 20 requests/day per model; gemini-3.5-flash shares bucket; for_each over 25 items → 50+ requests → fails  
+- gemini-3.1-pro*: 0 limit (free); gemini-2.5-*: 404  
+- "High demand" 503s; slow responses (e.g., 115s on gemini-3.8-flash, 92s on gemini-3.7-flash)  
+- thinkingConfig.thinkingLevel: "low" accepted; "minimal" not; not wired
+...

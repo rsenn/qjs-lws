@@ -8,6 +8,7 @@
  */
 import { stat, mkdir } from 'os';
 import { open as fopen } from 'std';
+import { toRelativePath } from './paths.js';
 
 /* blank lines between the path and the fence, and a bare language line in
    front of it, are tolerated: chat sites render code blocks that way */
@@ -94,7 +95,29 @@ function mkdirp(dir) {
 
 /** Rejects paths that would escape `root` (`../..`, an absolute path, ...). */
 function isSafeRelativePath(path) {
-  if(path.startsWith('/') || path.startsWith('~')) return false;
+  // Accept paths starting with ./ (relative to root)
+  if(path.startsWith('./')) {
+    const innerPath = path.slice(2);
+    // Allow empty ./ or paths without .. escaping
+    if(innerPath === '') return true;
+    const parts = innerPath.split('/');
+    let depth = 0;
+    for(const part of parts) {
+      if(part === '..') {
+        depth--;
+        if(depth < 0) return false;
+      } else if(part !== '.' && part !== '') {
+        depth++;
+      }
+    }
+    return true;
+  }
+  // Accept paths starting with ~ (will be expanded by the caller)
+  if(path.startsWith('~')) {
+    return true;
+  }
+  // Reject absolute paths that aren't normalized
+  if(path.startsWith('/')) return false;
 
   const parts = path.split('/');
   let depth = 0;

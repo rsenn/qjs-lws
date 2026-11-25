@@ -32,3 +32,13 @@ export function unquote(s) {
   if(s.length > 1 && (s[0] === '"' || s[0] === "'") && s[s.length - 1] === s[0]) return s.slice(1, -1);
   return s.replace(/\\(.)/g, '$1');
 }
+
+/** Returns './relative/path' if absPath is inside root, else returns absPath unchanged. */
+export function toRelativePath(absPath, root) {
+  const normRoot = root.endsWith('/') ? root : root + '/';
+  if (absPath.startsWith(normRoot)) {
+    return './' + absPath.slice(normRoot.length);
+  }
+  if (absPath === root) return './';
+  return absPath;
+}

@@ -10,6 +10,7 @@ import { loadFile } from 'std';
 import { globMatch, isGlobPattern, walk, fileMode } from './match.js';
 import { referenceFiles } from './reference-files.js';
 import { directDependencies } from './imports.js';
+import { toRelativePath } from './paths.js';
 
 /* A path-shaped token: contains a `/`, or a glob metacharacter, or ends in
    a plausible file extension. Deliberately permissive - false positives
@@ -253,11 +254,12 @@ export function formatFileRefs(large) {
   return `Not attached (too large, generated or over the size budget of this message): read the part you need with read_file (path, and start/end for a line range), do not guess what is in them:\n${rows.join('\n')}`;
 }
 
-export function formatFileBlocks(files) {
+export function formatFileBlocks(files, root) {
   return files
     .map(f => {
+      const normalizedPath = toRelativePath(f.path, root);
       const deps = f.dependencies?.length ? `\n(imports/includes: ${f.dependencies.join(', ')} - read_file any of these you actually need)` : '';
-      return `File: ${f.path}\n\`\`\`${languageFor(f.path)}\n${f.content}\n\`\`\`${deps}`;
+      return `File: ${normalizedPath}\n\`\`\`${languageFor(f.path)}\n${f.content}\n\`\`\`${deps}`;
     })
     .join('\n\n');
 }

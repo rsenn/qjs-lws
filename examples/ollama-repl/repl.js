@@ -332,6 +332,15 @@ const BUILTIN_SYSTEM_PROMPT = `You are a coding assistant that maintains and ref
 current project directory, like Claude Code. You act through tools: you do
 not just describe changes, you make them.
 
+Path Conventions:
+~ refers to your home directory (e.g., ~/config.json).
+./ refers to the project root (current working directory). The project root is currently: [INSERT_ROOT_HERE].
+Absolute paths (e.g., /home/user/project/src/foo.js) are allowed but will be shown to you as relative paths (e.g., ./src/foo.js) if they fall within the project root.
+When calling tools (read_file, edit_file, etc.), prefer ./ relative paths. You may use ~ for homedir files.
+Never use .. to escape the project root.
+
+*Implementation note:* Since `opts.root` can change via `/cd`, the root is injected dynamically when the prompt is built, but the above rules are always in effect.
+
 Tools: list_directory, read_file (optionally start/end lines), grep,
 insert_above (add lines above an existing line), edit_file (replace exact
 existing text), write_file (new files),
@@ -485,7 +494,7 @@ function attachFiles(prompt, root, fileExchange) {
     fileExchange.recordSent(attached);
   }
 
-  return { text: [prompt, files.length ? formatFileBlocks(files) : '', formatFileRefs(large)].filter(Boolean).join('\n\n'), attached };
+  return { text: [prompt, files.length ? formatFileBlocks(files, opts.root) : '', formatFileRefs(large)].filter(Boolean).join('\n\n'), attached };
 }
 
 /** @returns {string[]} paths actually written (named "File:" blocks and auto-named anonymous ones alike) */
@@ -1483,6 +1492,9 @@ let delegateCache = { at: 0, ids: [] };
 
 const systemNotes = root => (isQuickJsProject(root) ? QJS_NOTES : '') + (editsHarness(root) ? SELF_NOTES() : '') + (delegateNotesOn && delegates.enabled ? DELEGATE_NOTES : '');
 
+/** Replace [INSERT_ROOT_HERE] placeholder with actual root in SYSTEM_PROMPT */
+const formatSystemPrompt = root => SYSTEM_PROMPT.replace('[INSERT_ROOT_HERE]', root);
+
 /** the memory's key of a model: the provider keeps a gateway's name apart from an Ollama one */
 const delegateKey = (opts, id) => `${opts.label ?? opts.provider}:${id}`;
 
@@ -1981,7 +1993,10 @@ async function gatherProjectContext(root) {
     .map(name => ({ name, isDir: fileMode(root === '.' ? name : `${root}/${name}`) === S_IFDIR }))
     .filter(({ name, isDir }) => isDir || SOURCE_EXT.has(name.slice(name.lastIndexOf('.') + 1).toLowerCase()))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    .map(({ name, isDir }) => (isDir ? `${name}/` : name))
+    .map(({ name, isDir }) => {
+      const fullPath = root === '.' ? name : `${root}/${name}`;
+      return isDir ? `${name}/` : toRelativePath(fullPath, root);
+    })
     .join('\n');
 
   /* Capped per file: a small model's context is precious, and the full
@@ -3755,7 +3770,7 @@ async function main() {
     saved = store.load();
     pendingQueue = saved?.queue ?? [];
     delegateNotesOn = !opts.noDelegate && !opts.failsafe && !opts.noSystem && !opts.noTools && (opts.provider === 'openai' || opts.provider === 'ollama');
-    messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : SYSTEM_PROMPT + systemNotes(opts.root) }];
+    messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : formatSystemPrompt(opts.root) }];
     baseMessageCount = saved ? saved.baseMessageCount : messages.length;
     /* a resumed session carries the system prompt of the run that saved it */
     if(opts.noSystem && messages[0]?.role === 'system') {
@@ -3905,9 +3920,21 @@ async function main() {
 
     const before = { ...phase };
     setPhase('you');
-    const k = await repl.choose('Change the harness itself?', ['Yes, this edit', 'No'], tui?.active ? { view: () => repl.openPager(title, detail) } : {});
+    // Check if we already have a whole-session approval stored in phase
+    const wholeSession = phase.approveSelfWholeSession;
+    const options = wholeSession
+      ? ['Yes, whole session', 'No, ask again next time']
+      : ['Yes, this edit', 'No'];
+    const k = await repl.choose('Change the harness itself?', options, tui?.active ? { view: () => repl.openPager(title, detail) } : {});
+    // If user chose "Yes, whole session", remember it for the rest of the session
+    if(k === 0 && !wholeSession) {
+      Object.assign(phase, { approveSelfWholeSession: true });
+    } else if(k === 2) {
+      // "No, ask again next time" - clear the flag if it was set
+      Object.assign(phase, { approveSelfWholeSession: false });
+    }
     Object.assign(phase, before, { since: Date.now() });
-    return k === 0;
+    return k === 0 || k === 2; // k===0 means accept, k===2 means "no but remember preference"
   };
   const askUser = question => repl.ask(question);
 
@@ -3927,7 +3954,7 @@ async function main() {
 
       const text = hasSlot ? task.replaceAll('{item}', item).replaceAll('{}', item) : `${task}\n\nItem: ${item}`;
       const subMessages = [
-        { role: 'system', content: SYSTEM_PROMPT + systemNotes(opts.root) },
+        { role: 'system', content: formatSystemPrompt(opts.root) },
         { role: 'user', content: `${text}\n\n(This is one item of a batch: do only this item, and nothing else in the file. Make exactly the change asked for, as short as asked, in your own words - do not copy whole comment blocks from other files. Then reply with one short line saying what you did.)` },
       ];
 
@@ -4193,7 +4220,7 @@ async function main() {
       control?.update({ root: opts.root });
 
       /* the system prompt's QuickJS notes and the project scan describe the old root */
-      if(messages[0]?.role === 'system' && messages[0].content.startsWith(SYSTEM_PROMPT)) messages[0].content = SYSTEM_PROMPT + systemNotes(opts.root);
+      if(messages[0]?.role === 'system' && messages[0].content.startsWith(SYSTEM_PROMPT)) messages[0].content = formatSystemPrompt(opts.root) + systemNotes(opts.root);
       const scan = messages.findIndex(m => m.role === 'user' && m.content.startsWith('(automatic project scan'));
       if(scan >= 0) {
         const projectContext = await gatherProjectContext(opts.root);
@@ -4771,7 +4798,7 @@ async function main() {
       const key = id => (id.includes(':') && /^(openai|freellm|ollama|bridge|gemini):/.test(id) ? id : delegateKey(opts, id));
       const plain = id => id.replace(/^[a-z]+:/, '');
       const refreshPrompt = () => {
-        if(messages[0]?.role === 'system' && messages[0].content.startsWith(SYSTEM_PROMPT)) messages[0].content = SYSTEM_PROMPT + systemNotes(opts.root);
+        if(messages[0]?.role === 'system' && messages[0].content.startsWith(SYSTEM_PROMPT)) messages[0].content = formatSystemPrompt(opts.root) + systemNotes(opts.root);
       };
 
       if(verb === 'on' || verb === 'off') {
@@ -4989,7 +5016,7 @@ async function main() {
     if(prompt === '/system' || prompt.startsWith('/system ')) {
       const arg = prompt.slice('/system'.length).trim();
       const has = messages[0]?.role === 'system';
-      const defaultPrompt = SYSTEM_PROMPT + systemNotes(opts.root);
+      const defaultPrompt = formatSystemPrompt(opts.root) + systemNotes(opts.root);
 
       if(!arg) return void console.log(has ? messages[0].content : '(no system prompt)');
 
