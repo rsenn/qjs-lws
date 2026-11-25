@@ -9,8 +9,7 @@ export function modelStatusTable(av) {
   const rows = [];
 
   for (const [modelId, entry] of av.byModel) {
-    // Hide models that are fully READY with no rate-limit window, and OFFLINE models (just key scope issues).
-    if (!entry.blocked && entry.until == null) continue;
+    // Hide OFFLINE models (permanent, or outside key scope). READY models are shown.
     if (entry.permanent || (entry.kinds?.length === 1 && entry.kinds[0] === 'scope')) continue;
 
     let statusLabel = 'READY';
