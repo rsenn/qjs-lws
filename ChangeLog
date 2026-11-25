@@ -1,5 +1,19 @@
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
+	* cmake/BuildQuickJS.cmake (quickjs_configure_args): Forward
+	CMAKE_SYSTEM_NAME and CMAKE_SYSROOT to the nested quickjs configure
+	only when this project cross compiles.  On Termux the system name
+	Android made the nested build a cross build and it failed looking
+	for a host qjsc.
+
+	* tests/unittests/test-build-quickjs-args.js,
+	tests/unittests/fixtures/quickjs-configure-args.cmake,
+	tests/unittests/test-tinytest-exit-code.js: New.
+
+	* BUGS (tinytest-failures-exit-zero,
+	build-quickjs-forwards-cmake-system-name): Removed, fixed
+	(tinytest.js already exits 1 on a failure).
+
 	* lws-socket.c (lwsjs_socket_wrap, lwsjs_socket_init),
 	lws-context.c (lwsjs_context_constructor, lwsjs_create_server,
 	lwsjs_context_init): Keep the socket and context prototypes as
