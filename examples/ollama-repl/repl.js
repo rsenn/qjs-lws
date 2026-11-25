@@ -58,7 +58,7 @@ import { ProviderFallback, classify, isGone } from './lib/provider-fallback.js';
 import { buildHandoff, buildKnowledge, HANDOFF_MODEL } from './lib/handoff.js';
 import { buildBrief, briefSize, lastBrief } from './lib/project-brief.js';
 import { startBridge, pickModel } from './lib/bridge-process.js';
-import { extractFileRefs, formatFileBlocks, SOURCE_EXT } from './lib/file-refs.js';
+import { extractFileRefs, formatFileBlocks, formatFileRefs, SOURCE_EXT } from './lib/file-refs.js';
 import { saveAllBlocks } from './lib/file-blocks.js';
 import { TOOLS, executeTool, resetJournal, undoJournal, writeCount } from './lib/tool-requests.js';
 import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
@@ -112,6 +112,7 @@ import { done as doneQuip, quip } from './lib/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
 import { file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
+import * as terminal from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
 /* rmSync throws on a missing file, os.remove did not */
@@ -471,17 +472,20 @@ function isQuickJsProject(root) {
 }
 
 function attachFiles(prompt, root, fileExchange) {
-  const { files, skipped } = extractFileRefs(prompt, root);
+  const { files, skipped, large } = extractFileRefs(prompt, root);
 
-  if(skipped.length) console.log(note(`skipped, too large or unreadable: ${skipped.join(', ')}`, 'skip'));
-  if(!files.length) return { text: prompt, attached: [] };
+  if(skipped.length) console.log(note(`skipped, binary or unreadable: ${skipped.join(', ')}`, 'skip'));
+  if(large.length) console.log(note(`not attached, the model reads them on demand: ${large.map(f => `${f.path} (${Math.round(f.size / 1024)}k)`).join(', ')}`, 'skip'));
+  if(!files.length && !large.length) return { text: prompt, attached: [] };
 
   const attached = files.map(f => f.path);
 
-  console.log(note(`attached: ${attached.join(', ')}`, 'attach'));
-  fileExchange.recordSent(attached);
+  if(attached.length) {
+    console.log(note(`attached: ${attached.join(', ')}`, 'attach'));
+    fileExchange.recordSent(attached);
+  }
 
-  return { text: `${prompt}\n\n${formatFileBlocks(files)}`, attached };
+  return { text: [prompt, files.length ? formatFileBlocks(files) : '', formatFileRefs(large)].filter(Boolean).join('\n\n'), attached };
 }
 
 /** @returns {string[]} paths actually written (named "File:" blocks and auto-named anonymous ones alike) */
@@ -1969,6 +1973,31 @@ async function gatherProjectContext(root) {
   return `Project layout (top-level only):\n${layout || '(empty)'}${reads.length ? `\n\n${reads.join('\n\n')}` : ''}`;
 }
 
+/** one message in full: index, role, char count, then the content and its tool calls, nothing cut */
+function messageText(m, i) {
+  const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+  const calls = (m.toolCalls ?? []).map(tc => `[called ${tc.name} ${JSON.stringify(tc.args ?? {})}]`);
+  return `[${i}] ${m.role}${m.name ? ` ${m.name}` : ''} (${content.length} chars)\n${content}${calls.length ? `\n${calls.join('\n')}` : ''}`;
+}
+
+/** message numbers from "3", "#3", "1-4", "1,3,5" or "all" (whole list `n` long); null when one is not a message */
+function messageSelection(text, n) {
+  if(/^all$/i.test(text)) return Array.from({ length: n }, (_, i) => i);
+
+  const out = [];
+
+  for(const part of text.split(/[\s,]+/).filter(Boolean)) {
+    const m = /^#?(\d+)(?:-#?(\d+))?$/.exec(part);
+    if(!m) return null;
+
+    const [a, b] = [+m[1], m[2] === undefined ? +m[1] : +m[2]];
+    if(a > b || b >= n) return null;
+    for(let i = a; i <= b; i++) if(!out.includes(i)) out.push(i);
+  }
+
+  return out.length ? out : null;
+}
+
 /** One line per message: index, role, char count, and a truncated preview - the
     non-debug ("summary") view for /context and /log below. */
 function summarizeMessages(msgs) {
@@ -2046,7 +2075,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /fallback [NAME|off] - show or set fallback model for auto-failover
 /route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new] - freellmapi routing: show what the gateway does with this session, pick a sort axis, a named chain or one pinned model; new restarts sticky routing
 /handoff-model [NAME|default] - show or set the local ollama model that writes the summaries of /handoff, /compact, /brief and the failover handoff (Tab completes the installed models)
-/brief [CHARS|refresh|show] - read CLAUDE.md, README, TODO, BUGS, doc/ and the tree, have the local model condense them to a size fit for this model's window (or CHARS) and make that the project context
+/brief [CHARS|refresh|show|save [FILE]] - read CLAUDE.md, README, TODO, BUGS, doc/ and the tree, have the local model condense them to a size fit for this model's window (or CHARS) and make that the project context
 /handoff [--local] [--size N] [--replace] [TEXT] - the model in use writes a document for another assistant (a web chat, another model) from this conversation, reading more files first when the knowledge is not in it yet; TEXT says what to keep and is given to the reader as its instructions. Then copy it to the clipboard / save it. --local has the local summarizer take notes from the results already read instead. The conversation stays unless --replace swaps it for the document. Esc cancels
 /compact [N]    - summarize the older turns now with a local model and keep the last N (default 3) verbatim; also done automatically at --compact-at percent of the context window
 /standby [on|off|probe|switch|MODEL|auto] - the warm standby model: what the gateway would use next, probed with a tool call (--standby starts it on); switch takes it over, MODEL pins one, spawn_agent with model "standby" runs a sub-agent on it
@@ -2067,7 +2096,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /js <code>      - evaluate JavaScript in the REPL
 /status         - show model/connection/session info
 /files          - dump this session's file exchange (sent, received, diffs)
-/context        - inspect the full context about to be sent to the model (system prompt + project scan + conversation) - raw, inspect()-colored, with -x; a one-line-per-message summary without it
+/context [show|save|copy SELECTION [FILE]] - inspect the full context about to be sent to the model (system prompt + project scan + conversation) - raw, inspect()-colored, with -x; a one-line-per-message summary without it. /context 1 (or show 1-3, all) opens the messages in full, save writes them to FILE, copy to the clipboard
 /log            - inspect just the conversation so far (no system prompt/project scan) - same raw-with--x/summary-without split as /context
 /export         - export the conversation: copy it to the clipboard or save it to a file (<YYYY-MM-DD-HHMMSS>-<session>.txt in the working directory)
 Anything else is sent to the model as a prompt.`;
@@ -2606,7 +2635,7 @@ function completeArgs(cmd, args, word) {
     case '/help':
       return n === 0 ? HELP_TEXT.match(/^\/[a-z-]+/gm).map(c => c.slice(1)) : [];
     case '/brief':
-      return n === 0 ? ['refresh', 'show'] : [];
+      return n === 0 ? ['refresh', 'show', 'save'] : [];
     case '/handoff-model':
       return n === 0 ? ['default', ...localOllamaModels()] : [];
     case '/handoff':
@@ -2632,6 +2661,7 @@ function completeArgs(cmd, args, word) {
     case '/quit':
     case '/files':
     case '/context':
+      return n === 0 ? ['show', 'save', 'copy', 'all'] : [];
     case '/log':
     case '/export':
       return [];
@@ -3741,8 +3771,15 @@ async function main() {
 
   /* full-terminal layout when a person types into a terminal */
   let repl;
+  /* keys typed while the terminal was asked what it can do, fed to the editor once it exists */
+  let typeahead = '';
   if(!piped && !opts.noTui && isatty(0) && isatty(1)) {
+    /* what the terminal can do, asked once before anything reads stdin (an older terminal module has no such query): synchronized output for the frames, bracketed paste and grapheme clusters switched on, off again by Tui.close() */
+    const caps = terminal.queryCapabilities?.(stdout) ?? null;
+    typeahead = caps?.typeahead ?? '';
     tui = new Tui({
+      sync: !!caps?.syncOutput,
+      restore: caps && terminal.enableCapabilities ? terminal.enableCapabilities(stdout, caps, { paste: true, graphemes: true }) : null,
       status: () => statusLines(opts, stats, messages, ctxWindow, repl?.busy, gateway, control && opts.name, tui.cols, repl?.queue.length),
       statusRows: 3,
       paintRule: (cols, label) => gradientRule(cols, label),
@@ -4863,6 +4900,22 @@ async function main() {
         return void console.log(last ? `${last.brief}\n\n${dim(`${last.brief.length} chars, by ${last.by}, ${new Date(last.at).toLocaleString()}`)}` : note('no brief yet: /brief builds one'));
       }
 
+      /* /brief save [FILE]: the last brief to a file (FILE relative to the working directory, else <YYYY-MM-DD-HHMMSS>-brief.txt there) */
+      if(arg === 'save' || arg.startsWith('save ')) {
+        const last = lastBrief(opts.root);
+        if(!last) return void console.log(note('no brief yet: /brief builds one'));
+
+        const given = expandHome(unquote(arg.slice('save'.length).trim()));
+        const ts = new Date().toISOString().slice(0, 19).replace('T', '-').replaceAll(':', '');
+        const path = given ? (given.startsWith('/') ? given : `${getcwd()[0]}/${given}`) : `${getcwd()[0]}/${ts}-brief.txt`;
+        const f = fopen(path, 'w');
+        if(!f) return void console.log(red(`(cannot write ${path})`));
+
+        f.puts(`${last.brief}\n`);
+        f.close();
+        return void console.log(`\x1b[32m✓ Brief saved to:\x1b[0m ${path} ${dim(`(${last.brief.length} chars)`)}`);
+      }
+
       const chars = /^\d+$/.test(arg) ? +arg : briefSize(ctxWindowNow ?? opts.numCtx);
       const model = opts.handoffModel ?? HANDOFF_MODEL;
       console.log(waveNote(`brief: ${chars} chars for ${opts.model}${/^\d+$/.test(arg) ? '' : ` (a ${fmtNum(ctxWindowNow ?? opts.numCtx)}-token window)`}, condensed by ${model} ...`));
@@ -4954,6 +5007,44 @@ async function main() {
     if(prompt === '/files') {
       console.log(fileExchange.dump());
       return;
+    }
+
+    /* /context show|save|copy SELECTION [FILE]: messages of the context in full (SELECTION: 1, #1, 1-3, 1,4 or all) */
+    if(/^\/context\s+\S/.test(prompt)) {
+      const [first, ...rest] = prompt.slice('/context'.length).trim().split(/\s+/);
+      const verb = /^(show|save|copy)$/i.test(first) ? first.toLowerCase() : /^(#?\d|all$)/i.test(first) ? 'show' : null;
+      const args = verb === 'show' && first.toLowerCase() !== 'show' ? [first, ...rest] : rest;
+
+      if(!verb) {
+        console.log(note('/context [show|save|copy] SELECTION [FILE] - SELECTION is a message number as in /context (1, #1, 1-3, 1,4, all); show opens the full text, save writes it to FILE (default <YYYY-MM-DD-HHMMSS>-context.txt in the working directory), copy puts it on the clipboard', 'info'));
+        return;
+      }
+
+      const sel = args.length && /^(#?\d+([-,]#?\d+)*|all)$/i.test(args[0]) ? args.shift() : verb === 'show' ? null : 'all';
+      const picked = sel === null ? null : messageSelection(sel, messages.length);
+
+      if(!picked) return void console.log(note(`no such message: ${sel ?? args.join(' ')} (the context has ${messages.length}, numbered 0-${messages.length - 1}; /context lists them)`, 'warn'));
+
+      const text = picked.map(i => messageText(messages[i], i)).join('\n\n');
+      const title = `context ${picked.length === messages.length ? 'all' : picked.map(i => `[${i}]`).join(' ')} · ${text.length} chars`;
+
+      if(verb === 'show') {
+        if(tui?.active) repl.openPager(title, text);
+        else console.log(text);
+        return;
+      }
+
+      if(verb === 'copy') return void copyText(text, 'Context');
+
+      const given = expandHome(unquote(args.join(' ')));
+      const ts = new Date().toISOString().slice(0, 19).replace('T', '-').replaceAll(':', '');
+      const path = given ? (given.startsWith('/') ? given : `${getcwd()[0]}/${given}`) : `${getcwd()[0]}/${ts}-context.txt`;
+      const f = fopen(path, 'w');
+      if(!f) return void console.log(red(`(cannot write ${path})`));
+
+      f.puts(`${text}\n`);
+      f.close();
+      return void console.log(`\x1b[32m✓ Context saved to:\x1b[0m ${path} ${dim(`(${text.length} chars)`)}`);
     }
 
     if(prompt === '/context') {
@@ -5167,6 +5258,8 @@ async function main() {
     repl.tui = tui;
     repl.pagerHeader = (cols, label) => gradientRule(cols, label);
     repl.addCleanupHandler(() => tui.close());
+    /* plain text only: a key command (Enter) before the REPL runs would call its null readline callback, left-over reply bytes are dropped */
+    if(/^[^\x00-\x1f\x7f]+$/.test(typeahead)) repl.insert(typeahead);
   }
 
   repl.argCompleter = completeArgs;

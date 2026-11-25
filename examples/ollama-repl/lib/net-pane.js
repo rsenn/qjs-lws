@@ -125,6 +125,7 @@ function requestLines(r, w, now) {
     const bad = m.error || (m.status && m.status >= 400);
     out.push(`${bad ? col('248;113;113', '✗') : col('74;222;128', '✔')} ${m.status ?? ''} ${secs(el)} ${dim(`↓ ${bytes(m.bytesIn)}`)} ${clip(route, w - 20)}`.replace(/\s+/g, ' '));
     if(m.error) out.push(col('248;113;113', clip(m.error, w)));
+    if(m.subject) out.push(dim('↑ ') + col('251;191;36', clip(m.subject, w - 3)));
     out.push(...hopLines(m, w));
     return out;
   }
@@ -134,7 +135,8 @@ function requestLines(r, w, now) {
   out.push(`${meter(Math.min(1, el / limit), Math.max(6, Math.min(16, w - 24)))} ${secs(el)}${m.ttfbMs != null ? dim(` headers ${secs(m.ttfbMs)}`) : ''}${m.chunks ? dim(` ${m.chunks} chunks ${(m.chunks / Math.max(0.001, el / 1000)).toFixed(1)}/s`) : ''}`);
   out.push(...hopLines(m, w, 1));
   if(m.url) out.push(dim(`POST ${clip(pathOf(m.url), w - 5)}${m.status ? `  → ${m.status}` : ''}`));
-  if(m.request) out.push(dim('↑ ') + col('251;191;36', peek(m.request, w - 3)));
+  if(m.subject) out.push(dim('↑ ') + col('251;191;36', clip(m.subject, w - 3)) + (m.bytesOut ? dim(` · ${bytes(m.bytesOut)}`) : ''));
+  else if(m.request) out.push(dim('↑ ') + col('251;191;36', peek(m.request, w - 3)));
   if(m.tailReasoning && !m.tail) out.push(dim('◌ ') + col('125;211;252', peek(m.tailReasoning, w - 3)));
   if(m.tail) out.push(dim('↓ ') + col('163;230;53', peek(m.tail, w - 3)));
   return out;

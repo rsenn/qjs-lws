@@ -13,6 +13,17 @@
  */
 const KEEP = 24;
 
+/**
+ * what a request is about, for the network pane: the file or document a condensing call is given ("file README.md"),
+ * else the first line of the last user message
+ */
+export function subjectOf(messages) {
+  const u = [...(messages ?? [])].reverse().find(m => m.role === 'user');
+  const t = typeof u?.content === 'string' ? u.content : '';
+  const c = /^Condense this (.+?) to at most/s.exec(t);
+  return (c ? c[1] : (t.split('\n').find(l => l.trim()) ?? '').trim()).replace(/\s+/g, ' ').slice(0, 120);
+}
+
 export class NetActivity {
   records = [];
 
@@ -48,7 +59,7 @@ export class NetActivity {
       if(!orig) continue;
 
       client[method] = async (messages, options, onToken) => {
-        const meta = { requested: client.model, t0: Date.now(), url, request: text([...(messages ?? [])].reverse().find(m => m.role === 'user')).slice(-200), bytesIn: 0, bytesOut: 0, chunks: 0, stream: method === 'chatStream', tail: '' };
+        const meta = { requested: client.model, t0: Date.now(), url, subject: subjectOf(messages), request: text([...(messages ?? [])].reverse().find(m => m.role === 'user')).slice(-200), bytesIn: 0, bytesOut: 0, chunks: 0, stream: method === 'chatStream', tail: '' };
         meta.bytesOut = JSON.stringify(messages ?? []).length;
         this.phase(label, 'waiting', meta);
 

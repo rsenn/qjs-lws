@@ -24,10 +24,13 @@
  * passes them as up and down keys), else through alternate scroll mode
  * (1007), where the terminal sends it as up and down keys itself.
  */
-import { ScrollView, pad, truncate, ttyWrite, windowSize, wrap } from 'terminal';
+import { ScrollView, pad, stringWidth, truncate, ttyWrite, windowSize, wrap } from 'terminal';
+import * as terminal from 'terminal';
+
+/* a frame in synchronized output (mode 2026) where the terminal has it */
+const syncWrite = terminal.syncOutput ?? ttyWrite;
 
 const CSI = '\x1b[';
-const stripLen = s => [...String(s).replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')].length;
 const goto = row => `${CSI}${row};1H`;
 
 const KEYS = {
@@ -67,7 +70,8 @@ export class Pager {
    *   Filtering needs columns (the header names), cell (the plain text of a cell) and build (the text of the header and the
    *   given rows, the focused header and the filters shown in it)
    */
-  constructor({ title, text, out, onClose, header, select }) {
+  constructor({ title, text, out, onClose, header, select, sync = false }) {
+    this.sync = sync;
     this.select = select ?? null;
     this.cursor = 0;
     this.marked = new Set();
@@ -136,7 +140,7 @@ export class Pager {
     const bg = here ? CUR : on ? MARK : '';
     const line = truncate(`${here ? `${CSI}1;32m▶${CSI}0m` : ' '}${on ? `${CSI}1;35m[x]${CSI}0m` : `${CSI}2m[ ]${CSI}0m`} ${l}`, this.cols - 1);
     if(!bg) return line;
-    return `${bg}${line.replace(/\x1b\[0m/g, `${CSI}0m${bg}`)}${' '.repeat(Math.max(0, this.cols - 1 - stripLen(line)))}${CSI}0m`;
+    return `${bg}${line.replace(/\x1b\[0m/g, `${CSI}0m${bg}`)}${' '.repeat(Math.max(0, this.cols - 1 - stringWidth(line)))}${CSI}0m`;
   }
 
   /** moves the cursor; with `extend` the rows between where the range started and the cursor are marked */
@@ -283,7 +287,7 @@ export class Pager {
     let s = goto(1) + `${CSI}2K` + this.header(this.cols, truncate(this.title, this.cols - 4));
     body.forEach((l, k) => (s += `${goto(k + 2)}${CSI}2K${l}${CSI}0m`));
     s += `${goto(this.rows)}${CSI}2K${foot}`;
-    ttyWrite(this.#out, s);
+    (this.sync ? syncWrite : ttyWrite)(this.#out, s);
   }
 
   /** one key from the line editor; returns false once the pager closed */

@@ -21,7 +21,7 @@ import { in as stdin, out as stdout } from 'std';
 import { fileMode } from './match.js';
 import { expandHome } from './paths.js';
 import { REPL } from 'repl';
-import { gradient, stripAnsi, ttyRead, EAGAIN } from 'terminal';
+import { gradient, stringWidth, stripAnsi, ttyRead, EAGAIN } from 'terminal';
 import { Pager } from './pager.js';
 import { STOPS, remoteMark, remoteText, note } from './look.js';
 import { red, yellow } from './ansi.js';
@@ -44,12 +44,11 @@ const RESET = '\x1b[0m';
 /* a steering line that only says stop */
 const STOP_WORD = /^(stop|cancel|abort|halt)[.!]?$/i;
 
-const shownLen = s => [...String(s).replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')].length;
 
 /** the widest cell of each column over the rows that have cells */
 const cellWidths = rows => {
   const w = [];
-  for(const r of rows) if(r) r.forEach((c, i) => (w[i] = Math.max(w[i] ?? 0, shownLen(c))));
+  for(const r of rows) if(r) r.forEach((c, i) => (w[i] = Math.max(w[i] ?? 0, stringWidth(c))));
   return w;
 };
 
@@ -71,7 +70,7 @@ function keepColumns(rows, drop, room) {
 }
 
 /** row k as aligned columns of `keep`, separated by two spaces; the last column is not padded */
-const columns = (rows, k, { keep, w }) => keep.map((i, j) => (j === keep.length - 1 ? rows[k][i] ?? '' : (rows[k][i] ?? '') + ' '.repeat(Math.max(0, w[i] - shownLen(rows[k][i] ?? ''))))).join('  ');
+const columns = (rows, k, { keep, w }) => keep.map((i, j) => (j === keep.length - 1 ? rows[k][i] ?? '' : (rows[k][i] ?? '') + ' '.repeat(Math.max(0, w[i] - stringWidth(rows[k][i] ?? ''))))).join('  ');
 
 /** Ctrl-X and then this key: a view of the split pane */
 const SPLIT_CHORD = { d: '/split diff', g: '/split git', s: '/split status', n: '/split net', o: '/split off', '0': '/split off', '\t': '/split next' };
@@ -213,6 +212,9 @@ export class ChatREPL extends REPL {
     /* PgUp/PgDn scroll the transcript back and forth (the TUI keeps its own history) */
     this.commands['\x1b[5~'] = () => void this.tui?.scrollBy(-Math.max(1, this.tui.top - 2));
     this.commands['\x1b[6~'] = () => void this.tui?.scrollBy(Math.max(1, this.tui.top - 2));
+    /* Alt-PgUp/PgDn scroll the split pane instead of the transcript */
+    this.commands['\x1b[5;3~'] = () => void this.tui?.scrollPane(-Math.max(1, this.tui.top - 2));
+    this.commands['\x1b[6;3~'] = () => void this.tui?.scrollPane(Math.max(1, this.tui.top - 2));
   }
 
   /** the prompts waiting behind the running one, oldest first */
@@ -673,6 +675,7 @@ export class ChatREPL extends REPL {
       out: stdout,
       header: this.pagerHeader,
       select,
+      sync: this.tui.sync,
       onClose: () => {
         this.#pager = null;
         this.tui.resume();
@@ -686,7 +689,10 @@ export class ChatREPL extends REPL {
    * TUI: a dialog in the input rows, up/down (j/k, Tab) and Enter, a
    * digit, y for the first and n, Esc Esc or Ctrl-C for the last option.
    * elsewhere a numbered question answered by number, y or n. a line from
-   * the control socket answers it the same way.
+   * the control socket answers it the same way. a list of cell rows (the
+   * model chooser) is filtered by typing instead (j k y n and digits are
+   * text then): the words must all be in a row, the last option stays, Esc Esc
+   * clears the filter first.
    *
    *   await repl.choose('Apply this change?', ['Yes', 'Yes, always', 'No'])   // 0, 1 or 2
    */
@@ -713,6 +719,10 @@ export class ChatREPL extends REPL {
         sel: 0,
         pick,
         view,
+        /* a list of aligned cells (the model chooser) is filtered by typing; the last option stays, it is the way out */
+        filterable: !!cells,
+        filter: '',
+        plain: options.map(o => stripAnsi(o).toLowerCase()),
         finish: k => {
           this.#dialog = null;
           this.tui.showCursor();
@@ -725,12 +735,21 @@ export class ChatREPL extends REPL {
     });
   }
 
+  /** the options (indexes) a filterable dialog shows: those holding every word typed, and always the last one */
+  #visible(d) {
+    const all = d.options.map((_, i) => i);
+    const words = d.filter.toLowerCase().split(/\s+/).filter(Boolean);
+    return words.length ? all.filter(i => i === all.length - 1 || words.every(w => d.plain[i].includes(w))) : all;
+  }
+
   #drawDialog() {
     const d = this.#dialog;
+    const vis = this.#visible(d);
     /* a long list scrolls: a window that keeps the selection in view, with how many options are hidden above and below */
     const room = Math.max(5, (this.tui.rows ?? 30) - 9);
-    const n = d.options.length;
+    const n = vis.length;
     const rows = Math.min(n, room);
+    d.sel = Math.min(d.sel, n - 1);
     d.top = Math.max(0, Math.min(d.top ?? 0, n - rows));
     if(d.sel < d.top) d.top = d.sel;
     if(d.sel >= d.top + rows) d.top = d.sel - rows + 1;
@@ -738,21 +757,24 @@ export class ChatREPL extends REPL {
     const lines = [
       `\x1b[1;33m? ${d.question}\x1b[0m`,
       ...(d.top > 0 ? [`\x1b[2m  ↑ ${d.top} more above\x1b[0m`] : []),
-      ...d.options.slice(d.top, d.top + rows).map((o, j) => {
-        const k = d.top + j;
+      ...vis.slice(d.top, d.top + rows).map((k, j) => {
+        const o = d.options[k];
+        const at = d.top + j;
         if(d.layoutCols !== this.tui.cols) {
           d.layoutCols = this.tui.cols;
           d.layout = d.cells ? keepColumns(d.cells.filter(Boolean), d.drop, (this.tui.cols ?? 80) - 6) : null;
         }
         const text = d.cells?.[k] ? columns(d.cells, k, d.layout) : o;
-        if(k !== d.sel) return `  \x1b[2m○\x1b[0m ${text}`;
+        if(at !== d.sel) return `  \x1b[2m○\x1b[0m ${text}`;
         /* the selected row: a background across the width, kept through the resets inside the cells */
         const bg = '\x1b[48;2;30;64;60m';
         const row = `  \x1b[1;32m●\x1b[0m${bg} ${text}`.replace(/\x1b\[0m/g, `\x1b[0m${bg}`);
-        return `${row}${' '.repeat(Math.max(0, (this.tui.cols ?? 80) - shownLen(row) - 1))}\x1b[0m`;
+        return `${row}${' '.repeat(Math.max(0, (this.tui.cols ?? 80) - stringWidth(row) - 1))}\x1b[0m`;
       }),
       ...(d.top + rows < n ? [`\x1b[2m  ↓ ${n - d.top - rows} more below · PgDn End\x1b[0m`] : []),
-      `\x1b[2m  ↑↓ PgUp PgDn choose · Enter · 1-9 · y · n/Esc Esc${d.view ? ' · v view all' : ''}\x1b[0m`,
+      d.filterable
+        ? `\x1b[2m  type to filter\x1b[0m${d.filter ? ` \x1b[33m${d.filter}▏\x1b[0m\x1b[2m · ${n - 1} of ${d.options.length - 1}` : ''}\x1b[2m · ↑↓ PgUp PgDn · Enter · Esc Esc${d.filter ? ' clears, again' : ''} none\x1b[0m`
+        : `\x1b[2m  ↑↓ PgUp PgDn choose · Enter · 1-9 · y · n/Esc Esc${d.view ? ' · v view all' : ''}\x1b[0m`,
     ];
 
     this.tui.drawInput(lines);
@@ -762,7 +784,7 @@ export class ChatREPL extends REPL {
     if(this.#pager) return void this.#pager.key(keys);
 
     /* any other key while scrolled back returns to the end first, then does its job */
-    if(this.tui?.scrollOff && keys !== '\x1b[5~' && keys !== '\x1b[6~') this.tui.scrollEnd();
+    if(this.tui?.scrollOff && keys !== '\x1b[5~' && keys !== '\x1b[6~' && keys !== '\x1b[5;3~' && keys !== '\x1b[6;3~') this.tui.scrollEnd();
 
     const d = this.#dialog;
     if(!d) {
@@ -775,19 +797,34 @@ export class ChatREPL extends REPL {
       return super.handleKey(keys);
     }
 
-    if(keys === 'v' && d.view) return void d.view();
+    if(keys === 'v' && d.view && !d.filterable) return void d.view();
 
-    const n = d.options.length;
+    const vis = this.#visible(d);
+    const n = vis.length;
+    const filtering = d.filterable;
 
-    if(keys === '\x1b[A' || keys === 'k' || keys === '\x10') d.sel = (d.sel + n - 1) % n;
-    else if(keys === '\x1b[B' || keys === 'j' || keys === '\x0e' || keys === '\t') d.sel = (d.sel + 1) % n;
+    /* typing filters: printable text is added, Backspace removes, Ctrl-U and the first Esc Esc clear it */
+    if(filtering && /^[^\x00-\x1f\x7f]+$/.test(keys) && !keys.startsWith('\x1b')) {
+      d.filter += keys;
+      d.sel = 0;
+    } else if(filtering && (keys === '\x7f' || keys === '\b')) {
+      d.filter = [...d.filter].slice(0, -1).join('');
+      d.sel = 0;
+    } else if(filtering && keys === '\x15') {
+      d.filter = '';
+      d.sel = 0;
+    } else if(filtering && keys === '\x1b\x1b' && d.filter) {
+      d.filter = '';
+      d.sel = 0;
+    } else if(keys === '\x1b[A' || (!filtering && keys === 'k') || keys === '\x10') d.sel = (d.sel + n - 1) % n;
+    else if(keys === '\x1b[B' || (!filtering && keys === 'j') || keys === '\x0e' || keys === '\t') d.sel = (d.sel + 1) % n;
     else if(keys === '\x1b[6~') d.sel = Math.min(n - 1, d.sel + Math.max(3, (this.tui.rows ?? 30) - 12));
     else if(keys === '\x1b[5~') d.sel = Math.max(0, d.sel - Math.max(3, (this.tui.rows ?? 30) - 12));
     else if(keys === '\x1b[H' || keys === '\x1b[1~') d.sel = 0;
     else if(keys === '\x1b[F' || keys === '\x1b[4~') d.sel = n - 1;
-    else if(keys === '\r' || keys === '\n') return d.finish(d.sel);
-    else if(/^[1-9yYnN]$/.test(keys)) return d.finish(d.pick(keys));
-    else if(keys === '\x1b\x1b' || keys === '\x03') return d.finish(n - 1);
+    else if(keys === '\r' || keys === '\n') return d.finish(vis[d.sel]);
+    else if(!filtering && /^[1-9yYnN]$/.test(keys)) return d.finish(d.pick(keys));
+    else if(keys === '\x1b\x1b' || keys === '\x03') return d.finish(d.options.length - 1);
 
     this.#drawDialog();
   }
@@ -802,7 +839,12 @@ export class ChatREPL extends REPL {
     if(b !== 64 && b !== 65) return;
 
     if(this.#pager) for(let k = 0; k < 3; k++) this.#pager.key(b === 64 ? '\x1b[A' : '\x1b[B');
-    else if(this.#tuiOn && !this.#dialog) this.tui.scrollBy(b === 64 ? -3 : 3);
+    else if(this.#tuiOn && !this.#dialog) {
+      /* over the split pane (right of the transcript) the wheel scrolls the pane */
+      const x = +(/<\d+;(\d+)/.exec(keys)?.[1] ?? 0);
+      if(this.tui.pane && x > this.tui.width) this.tui.scrollPane(b === 64 ? -3 : 3);
+      else this.tui.scrollBy(b === 64 ? -3 : 3);
+    }
   }
 
   get #tuiOn() {

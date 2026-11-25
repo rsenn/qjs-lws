@@ -1,3 +1,67 @@
+## Strict file attachment (2026-11-25, done)
+
+- Done: `extractFileRefs` attaches a file only when it is at most 10 KB (`ATTACH_MAX_BYTES`), 12 files and 40 KB in
+  all; bigger, generated (build/, node_modules, .git, *.min.js, lockfiles) and over-budget files come back in `large`
+  and are named in a "Not attached" block in backticks with lines and size, with the read_file hint (start/end for a
+  part); binary files (by extension or a NUL byte) are skipped. Before: 256 KB per file, 1 MB in all. Test:
+  test-file-refs.js.
+- Open: the limits are constants in lib/file-refs.js, no option or command to change them yet; a file the user
+  names explicitly could be allowed up to 100 KB (decide).
+
+## /context subcommands (2026-11-25, done)
+
+- Done: `/context N` (or `show N`, `#N`, `1-3`, `1,4`, `all`) opens those messages in full in the pager (printed outside
+  the TUI), `/context save [SEL] [FILE]` writes them (default all, `<YYYY-MM-DD-HHMMSS>-context.txt` in the working
+  directory), `/context copy [SEL]` to the clipboard. Before, `/context 1` was sent to the model as a prompt.
+  `messageText`/`messageSelection` in repl.js; Tab completes show/save/copy/all.
+- Open: /log has no such subcommands; the same selection could apply to the conversation part. No unit test (the
+  helpers live in repl.js, which runs main() on import).
+
+## /brief save [FILE] (2026-11-25, done)
+
+- Done: `/brief save [FILE]` writes the last brief (`lastBrief()`, as /brief show prints it) to FILE, relative to the
+  working directory, or `<YYYY-MM-DD-HHMMSS>-brief.txt` there; Tab completes `save`.
+- Not run in a session (it needs a brief built by the local model first).
+
+## Split pane scrolls (2026-11-25, done)
+
+- Done: the wheel over the split pane (mouse column right of the transcript) scrolls the pane, PgUp/PgDn still the
+  transcript, Alt-PgUp/PgDn (`ESC[5;3~`, `ESC[6;3~`) the pane (`Tui.scrollPane`, `paneOff`/`paneMax`, lib/tui.js).
+  A new pane view starts at the top, live updates keep the offset. Test: test-pane-scroll.js.
+- Not checked in a real terminal; a terminal that sends another sequence for Alt-PgUp/PgDn needs its own entry in
+  chat-repl.js.
+
+## Net pane: what a request sends (2026-11-25, done)
+
+- Done: each request card of the network pane shows `↑ <subject> · <bytes sent>`: the file of a /brief call ("file
+  README.md", from the "Condense this ... to at most" prompt), else the first line of the last user message
+  (`subjectOf()` in lib/net-activity.js; only for clients tracked by `NetActivity.wrap`, the OpenAI-style ones keep
+  the tail of the last user message). Done cards keep the line.
+- Open: handoff and /compact prompts have their own wording, so they show the first line of the user message; give
+  them a short subject if that reads badly.
+
+## Model chooser filter (2026-11-25)
+
+- Done: typing in `repl.choose()` lists made of cells (`/model next`, skip) filters the rows by words, the last
+  option ("none") always stays; Backspace, Ctrl-U and Esc Esc edit or clear it. j/k/y/n/digits are text there.
+- Not checked in a real terminal; no unit test (the dialog state is private to `ChatREPL`).
+
+## Terminal capabilities from qjs-modules terminal.js (2026-11-25)
+
+- Done: repl.js asks `queryCapabilities(stdout)` once before the TUI starts
+  (feature-tested, older terminal modules skip it); `Tui` writes frames in
+  synchronized output when `caps.syncOutput`, the `Pager` too (`sync`);
+  bracketed paste and grapheme clusters are enabled and undone by
+  `Tui.close()`; `stringWidth` replaces `shownLen` (chat-repl.js) and
+  `stripLen` (pager.js).
+- Open: the parent `/usr/local/lib/quickjs/repl.js:2241` sends ESC[?2004h
+  unconditionally, so paste is not gated on `caps.bracketedPaste` (outside
+  this repo).
+- Open: kitty keyboard stays off; ChatREPL matches legacy byte strings. A
+  proposal for translating `decodeKeys()` keys to them needs the user's ok.
+- Fixed 2026-11-25: the typeahead was fed with `repl.handleKey()` before the REPL ran, a key command in it crashed on the null readline callback (`null.call`); now plain printable text only goes in with `repl.insert()`.
+- Not checked in a real terminal: sync frames, the undo at exit.
+
 ## Verbose panels leaked into the compact view (2026-11-25, done)
 
 - Done: `Tui.write(text)` without a kind reset `Tui.kind` to 0, so `inKind`
@@ -16,19 +80,6 @@
   subsystem changes; line numbers in it are hints only.
 - Fixed on the way: `ChatREPL` had two `handleKey` methods, the Ctrl-X chord
   (split views, Ctrl-X Ctrl-S) lived in the shadowed one; merged into one.
-
-# TODO
-
-## Verbose panels leaked into the compact view (2026-11-25, done)
-
-- Done: `Tui.write(text)` without a kind reset `Tui.kind` to 0, so `inKind`
-  (and held writes replayed by `resume`) never tagged anything; every
-  verbose-only panel (assistant request, read_file tool panel and result,
-  /brief traces) showed with Ctrl-O off. Fixed in `lib/tui.js`; covered by
-  `test-verbose.js`.
-- Open: `repl.js` cannot be imported by a test (it runs `main()`), so
-  `inKind` itself is only mirrored in `test-verbose.js`; check by eye in a
-  real terminal that the panels are gone with Ctrl-O off.
 
 ## Gateway failover follow-ups (2026-11-24, commit 8c815e1)
 

@@ -27,6 +27,10 @@ import { out as stdout } from 'std';
 import { signal, setTimeout } from 'os';
 import { SIGWINCH } from 'util';
 import { Region, charWidth, layoutInput, stringWidth, ttyWrite, windowSize } from 'terminal';
+import * as terminal from 'terminal';
+
+/* one frame in synchronized output (mode 2026) where the terminal has it; an older terminal module has no syncOutput */
+const syncWrite = terminal.syncOutput ?? ttyWrite;
 
 const ESC = '\x1b';
 const CSI = ESC + '[';
@@ -97,6 +101,9 @@ export class Tui {
   verbose = false;
   /** lines the view is scrolled up from the end of the transcript, 0: following it */
   scrollOff = 0;
+  /** the first pane line shown, and the most it can be (the pane's lines minus its height) */
+  paneOff = 0;
+  paneMax = 0;
   /** whether the terminal reports the mouse (the wheel scrolls the transcript) */
   mouse = true;
 
@@ -137,8 +144,15 @@ export class Tui {
    * @param {(cols: number, label: string) => string} [opts.paintRule]  draws the rule above the input, else a dim line
    * @param {FILE} [opts.out]            terminal to draw on (std.out)
    */
-  constructor({ status, onResize, paintRule, statusRows = 1, mouse = true, out = stdout } = {}) {
+  /** frames go out in synchronized output (queryCapabilities().syncOutput) */
+  sync = false;
+  /** switches the terminal features off again (enableCapabilities()'s undo), run by close() */
+  #restore = null;
+
+  constructor({ status, onResize, paintRule, statusRows = 1, mouse = true, out = stdout, sync = false, restore = null } = {}) {
     this.mouse = mouse;
+    this.sync = sync;
+    this.#restore = restore;
     this.#out = out;
     this.statusRows = statusRows;
     this.#status = status ?? (() => '');
@@ -164,6 +178,7 @@ export class Tui {
     const had = !!this.pane;
 
     this.pane = fn && this.cols >= 80 ? fn : null;
+    this.paneOff = 0;
     this.paneWidth = this.pane ? Math.max(30, Math.floor(this.cols * 0.42)) : 0;
 
     /* the transcript may run into the pane's columns, and back */
@@ -178,12 +193,25 @@ export class Tui {
     return !!this.pane;
   }
 
+  /** scrolls the pane's lines by n (negative goes back); returns whether it moved */
+  scrollPane(n) {
+    if(!this.pane || this.#closed || this.#held) return false;
+    const off = Math.max(0, Math.min(this.paneMax, this.paneOff + n));
+    if(off === this.paneOff) return false;
+    this.paneOff = off;
+    this.drawPane();
+    return true;
+  }
+
   drawPane() {
     if(!this.pane || this.#closed || this.#held) return;
 
     const height = this.top - 1;
     const w = this.paneWidth - 2;
-    const lines = this.pane(w, height) ?? [];
+    const all = this.pane(w, height) ?? [];
+    this.paneMax = Math.max(0, all.length - height);
+    this.paneOff = Math.min(this.paneOff, this.paneMax);
+    const lines = all.slice(this.paneOff);
     let s = SAVE;
 
     for(let r = 1; r <= height; r++) s += `${goto(r, this.width + 1)}${CSI}0m${CSI}2m│${CSI}0m ${clip(lines[r - 1] ?? '', w)}${CSI}K`;
@@ -202,7 +230,7 @@ export class Tui {
   }
 
   #write(s) {
-    ttyWrite(this.#out, s);
+    (this.sync ? syncWrite : ttyWrite)(this.#out, s);
   }
 
   /** write a verbose protocol line (kind = 1) - appears only when verbose view is on */
@@ -245,6 +273,8 @@ export class Tui {
     signal(SIGWINCH, null);
     if(this.mouse) this.#write(MOUSE_OFF);
     this.#write(`${CSI}r${goto(this.rows)}\r${CSI}K\n`);
+    this.#restore?.();
+    this.#restore = null;
   }
 
   #layout() {

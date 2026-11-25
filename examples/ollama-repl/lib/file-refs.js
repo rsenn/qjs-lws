@@ -16,9 +16,16 @@ import { directDependencies } from './imports.js';
    are filtered out below by actually trying to resolve them on disk. */
 const TOKEN_RE = /[./]*[\w.\-\/*?[\]{}]*[\w*?\]][\w.\-\/*?[\]{}]*/g;
 
-const MAX_FILES = 20;
-const MAX_FILE_BYTES = 256 * 1024;
-const MAX_TOTAL_BYTES = 1024 * 1024;
+/* what goes into the message as text: a file over ATTACH_MAX_BYTES, generated or binary, or one past the count or total budget
+   is only named (see formatFileRefs()) and the model reads it with read_file when it needs it */
+const MAX_FILES = 12;
+export const ATTACH_MAX_BYTES = 10 * 1024;
+const MAX_TOTAL_BYTES = 40 * 1024;
+/* largest file read just to count its lines for the reference (and to spot a binary) */
+const COUNT_MAX_BYTES = 512 * 1024;
+const MAX_REFS = 20;
+const BINARY_EXT = /\.(png|jpe?g|gif|webp|ico|bmp|pdf|zip|gz|xz|bz2|zst|tar|7z|so|o|a|dll|exe|bin|wasm|class|jar|mp[34]|mkv|mov|woff2?|ttf|otf|sqlite3?|db|cpio)$/i;
+const GENERATED = /(^|\/)(node_modules|\.git|build[^/]*|dist|out)\/|\.min\.(js|css)$|(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/;
 const MAX_DIR_FILES = 4;
 export const SOURCE_EXT = new Set(['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'c', 'h', 'cpp', 'hpp', 'html', 'css', 'md']);
 
@@ -145,22 +152,28 @@ export function extractFileRefs(text, root = '.') {
   const files = [];
   let totalBytes = 0;
   const skipped = [];
+  const large = [];
 
   for(const [label, full] of paths) {
-    if(files.length >= MAX_FILES) {
+    const [st] = stat(full);
+
+    if(!st || BINARY_EXT.test(label)) {
       skipped.push(label);
       continue;
     }
 
-    const [st] = stat(full);
+    const why = GENERATED.test(label) ? 'generated' : st.size > ATTACH_MAX_BYTES ? 'too large' : files.length >= MAX_FILES || totalBytes + st.size > MAX_TOTAL_BYTES ? 'over the budget' : null;
 
-    if(!st || st.size > MAX_FILE_BYTES || totalBytes + st.size > MAX_TOTAL_BYTES) {
-      skipped.push(label);
+    if(why) {
+      /* named only: its size and lines tell the model whether to read it whole or by line range */
+      const text = st.size <= COUNT_MAX_BYTES ? loadFile(full) : null;
+      if(text?.includes('\0')) skipped.push(label);
+      else large.push({ path: label, size: st.size, lines: text == null ? null : text.split('\n').length - (text.endsWith('\n') ? 1 : 0), why });
       continue;
     }
 
     const content = loadFile(full);
-    if(content == null) {
+    if(content == null || content.includes('\0')) {
       skipped.push(label);
       continue;
     }
@@ -171,7 +184,7 @@ export function extractFileRefs(text, root = '.') {
     totalBytes += st.size;
   }
 
-  return { files, skipped };
+  return { files, skipped, large };
 }
 
 const EXT_LANG = {
@@ -227,6 +240,19 @@ export function languageFor(path) {
     dependencies note when `extractFileRefs()` found any - see its own
     doc comment), the same shape the assistant is instructed (see
     SYSTEM_PROMPT in repl.js) to reply with. */
+/** "53 KB", "812 B", "1.4 MB" */
+const fmtSize = n => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 102.4) / 10} KB` : `${Math.round(n / 104857.6) / 10} MB`);
+
+/** the files that were not attached, by name in backticks with size and lines, and how to get at them */
+export function formatFileRefs(large) {
+  if(!large?.length) return '';
+
+  const rows = large.slice(0, MAX_REFS).map(f => `- \`${f.path}\` (${f.lines != null ? `${f.lines} lines, ` : ''}${fmtSize(f.size)}${f.why === 'too large' ? '' : `, ${f.why}`})`);
+  if(large.length > MAX_REFS) rows.push(`- ... and ${large.length - MAX_REFS} more`);
+
+  return `Not attached (too large, generated or over the size budget of this message): read the part you need with read_file (path, and start/end for a line range), do not guess what is in them:\n${rows.join('\n')}`;
+}
+
 export function formatFileBlocks(files) {
   return files
     .map(f => {
