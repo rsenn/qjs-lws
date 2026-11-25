@@ -233,7 +233,7 @@ export class Exploration {
    *   tools: model id -> whether the catalog says it takes tools
    * @returns {number} how many were queued
    */
-  run(ids, makeClient, { concurrency = 2, tools = {}, onResult, onDone, onEvent, diagnose, deep = () => 0, force = false } = {}) {
+  run(ids, makeClient, { concurrency = 2, tools = {}, onResult, onDone, onEvent, diagnose, deep = () => 0, force = false, platformsOf = () => [], priority = () => 0 } = {}) {
     /* force: probe again whatever is cached (a sweep the user asked for) */
     const todo = ids.filter(id => !this.pending.has(id) && (force || !this.fresh(id) || (deep(id) > 0 && this.needsDeep(id))));
     if(!todo.length) return 0;
@@ -241,13 +241,27 @@ export class Exploration {
     for(const id of todo) this.pending.add(id);
     this.total += todo.length;
 
-    const queue = [...todo];
+    /* best first: what traffic will pick is verified before what nothing asked for */
+    const queue = [...todo].sort((a, b) => priority(b) - priority(a));
     let usable = 0;
+    let skipped = 0;
+    /* platform -> when it may be asked again: a transient diagnosis (rate limit, a day's quota) says the whole provider
+       is busy, so its other models are not probed now (they would only repeat the same refusal) */
+    const busy = new Map();
 
     const lane = async n => {
       let count = 0;
       for(let id; (id = queue.shift()); ) {
         let result;
+        const now = Date.now();
+        const plats = platformsOf(id);
+        if(plats.length && plats.every(p => (busy.get(p) ?? 0) > now)) {
+          this.pending.delete(id);
+          this.done++;
+          skipped++;
+          onEvent?.(n, id, { type: 'skipped', platforms: plats, until: Math.min(...plats.map(p => busy.get(p))) });
+          continue;
+        }
         const c = makeClient(id);
         onEvent?.(n, id, { type: 'start', queued: queue.length });
 
@@ -285,6 +299,7 @@ export class Exploration {
           }
         }
 
+        if(!result.ok && result.transient && result.retryAt) for(const p of plats) busy.set(p, Math.max(busy.get(p) ?? 0, result.retryAt));
         this.#set(id, { ...result, at: result.at && result.ok ? result.at : Date.now() });
         this.pending.delete(id);
         this.done++;
@@ -296,7 +311,7 @@ export class Exploration {
       onEvent?.(n, null, { type: 'idle', count });
     };
 
-    Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, (_, n) => lane(n))).then(() => onDone?.({ explored: todo.length, usable }));
+    Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, (_, n) => lane(n))).then(() => onDone?.({ explored: todo.length - skipped, usable, skipped }));
     return todo.length;
   }
 }

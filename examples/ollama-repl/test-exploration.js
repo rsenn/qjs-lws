@@ -136,3 +136,40 @@ import { probeCells } from './lib/exploration.js';
   chk('a model that passed tier 0 only needs tier 1 when it is wanted', ex.run(['unlisted'], makeClient, { deep }) === 0 && ex.run(['unlisted'], makeClient, { deep: () => 3000, onResult() {}, onDone() {} }) === 1);
   chk('says column shows the context result', /3k ctx: 3\/3 facts/.test(strip(deepText(ex.get('sharp')))) && /413/.test(strip(deepText(ex.get('toobig')))));
 }
+
+/* 3.1 / 3.2: a busy provider is not probed again at once, and the queue goes best first */
+{
+  const { Exploration } = await import('./lib/exploration.js');
+  const { setenv } = await import('std');
+  setenv('XDG_CACHE_HOME', `/tmp/ollama-repl-test-explore-busy-${Date.now()}`);
+  const chk = (w, ok) => { if(!ok) throw new Error(`test-exploration: ${w}`); };
+
+  const asked = [];
+  const makeClient = id => ({
+    destroy() {},
+    abort() {},
+    async chat() {
+      asked.push(id);
+      if(id.startsWith('hub/')) throw Object.assign(new Error('rate-limited'), { detail: 'All models rate-limited after 1 attempt. Soonest cooldown reset ~57600s.' });
+      return { content: 'x', meta: {} };
+    },
+  });
+
+  const ex = new Exploration('http://busy');
+  const skipped = [];
+  const done = await new Promise(resolve => {
+    ex.run(['hub/a', 'hub/b', 'ok/c', 'hub/d'], makeClient, {
+      concurrency: 1,
+      platformsOf: id => [id.split('/')[0]],
+      priority: id => (id === 'ok/c' ? 10 : id === 'hub/a' ? 5 : 0),
+      diagnose: async () => ({ cause: 'rate-limited', detail: 'resumes in 16 h', transient: true, retryInMs: 57600e3, steps: [] }),
+      onEvent: (n, id, ev) => ev.type === 'skipped' && skipped.push(id),
+      onDone: resolve,
+    });
+  });
+
+  chk('best priority is asked first', asked[0] === 'ok/c' && asked[1] === 'hub/a');
+  chk('after hub rate-limited, its other models are skipped', !asked.includes('hub/b') && !asked.includes('hub/d') && skipped.join() === 'hub/b,hub/d');
+  chk('the done count says so', done.skipped === 2 && done.explored === 2);
+  chk('a skipped model is not cached', !ex.fresh('hub/b') && ex.pending.size === 0);
+}

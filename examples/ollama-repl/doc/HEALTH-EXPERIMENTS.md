@@ -188,6 +188,43 @@ Gateway (G, proposals for freellmapi, not harness code):
   candidates of a request with tools: filter before counting routes. Success: fewer
   `All models exhausted` with a tool-less route in the count.
 
+### Phase 3 design (2026-11-25, written before the code)
+
+Built now (harness, with tests; all wired in `repl.js: exploreOrder`):
+
+- **3.3 Rating reliability** (`lib/rating.js: reliability`; used instead of the Wilson bound of the plan, it is simpler and gives the same order for the three test cases). The learned success term
+  `((ok + 1) / (n + 2) - 0.5) * 20` is nearly flat near 100 % (428/0 and 2314/53 differ by
+  0.45 points) and the +-25 `adj` cap saturates, so models of very different quality tie.
+  New: `reliability(ok, fail) = w * clamp(10 - 150 * failRate, -10, 10)` with
+  `w = n / (n + 10)` (the confidence in the rate: few requests count little, a model with
+  no data gets 0). Worked: 428/0 gives 9.8, 150/1 gives 8.4, 2314/53 gives 6.6, a 7 %
+  failure rate gives about 0, a 20 % one -10. The latency term and the cap of `adj` stay.
+  Failures that are only a limit still do not count (unchanged).
+- **3.1 Do not probe a provider that just rate-limited** (`lib/exploration.js: run`,
+  option `platformsOf`). When a probe fails with a transient diagnosis and a `retryAt`,
+  the platforms of that model are busy until `retryAt`; a queued model whose platforms
+  are all busy is skipped (not probed, not cached, reported as `skipped` in `onDone`)
+  and is tried again by the next run. Evidence: 106 electronhub models were probed one
+  by one while the first diagnosis already said "resumes in 16 h".
+- **3.2 Explore what traffic needs first** (`run`, option `priority`). The queue is
+  sorted by `priority(id)` (best first); the callers use the rating plus 100 for a model
+  that served a request in the last 24 h (usage.jsonl), so the models traffic will pick
+  are verified before the ones nothing asked for.
+
+Designed, not built (reason):
+
+- **3.4 Failover headroom, 3.5 faster switch, 3.11 req/day meter.** They change the
+  retry chain of `chatRound` and the `/model skip` choice in `repl.js`, which has
+  unfinished work of another change (the hop line) in the same file, and they need a
+  live gateway to measure (success: share of `kilo` after failures, run length). Part
+  of 3.5 exists already: `/model skip` drops every model of a provider the error names
+  (`exhaustedPlatforms(error)`). Next step: Phase 4.2 baseline with `attempt` rows, then
+  decide from the runs that remain.
+- **3.10 Quota bar.** "584M/2.3G budgeted tokens" vs 876M this month: which tokens
+  `budget.totalUsed` counts could not be told from the data at hand; the text is not
+  reworded on a guess. Open question for the gateway API (see GATEWAY-PROPOSALS.md).
+- **3.6 to 3.9 (gateway):** written up with their evidence in `doc/GATEWAY-PROPOSALS.md`.
+
 ### Phase 4: verification
 
 - **4.1 max_tokens rerun.** Tier 1 probe of nemotron-3.5-lightning (and -30b,

@@ -2247,6 +2247,19 @@ const tierOf = id => modelStrength(id, availability?.byModel.get(id)?.intelligen
 
 /** Rainbow gradient colors for model strength: purple (strongest) through red (weakest). */
 const STRENGTH_COLORS = [
+/**
+ * options that make an exploration run sensible (lib/exploration.js): the platforms of a model, so a provider that just
+ * rate-limited is not probed again at once, and the order, best rated first with the models that served a request in the
+ * last 24 hours ahead of the rest
+ */
+const exploreOrder = () => {
+  let served = new Set();
+  try {
+    served = new Set(readUsage({ origin: gatewayRef?.enabled ? gatewayRef.origin : undefined, sinceMs: Date.now() - 86400e3 }).filter(r => !r.error && r.routedVia).map(r => catalogId(r.routedVia)));
+  } catch(e) {}
+  return { platformsOf: id => availability?.byModel.get(id)?.platforms ?? [], priority: id => (served.has(id) ? 100 : 0) + (rateOf(id) ?? 0) };
+};
+
   '#8b5cf6', // violet (tier 0)
   '#a855f7', // purple
   '#d946ef', // fuchsia
@@ -3265,6 +3278,7 @@ async function main() {
    * every keyless provider is exhausted (all their models limited per IP address, so nothing is left to try without a
    * new address): the exit address of the proxy changes by itself, at most every 10 minutes, with a pane that shows the
    * old and the new address and the models that could work again. Their keys go through the proxy first (autoProxy).
+      ...exploreOrder(),
    * Off with --no-auto-proxy and /proxy auto off.
    */
   const AUTO_EXIT_GAP_MS = 10 * 60e3;
@@ -3448,6 +3462,7 @@ async function main() {
   /** why a probe failed (lib/diagnose.js): the error, the gateway's picture of the model, its provider and keys, one more try; run by the exploration worker */
   async function diagnoseModel(id, result) {
     const [keys, provs] = await Promise.all([gateway.api('/api/keys').catch(() => []), gateway.providers().then(p => p.providers ?? []).catch(() => [])]);
+        ...exploreOrder(),
 
     return diagnose({
       id,
@@ -4636,6 +4651,7 @@ async function main() {
         });
         return;
       }
+          ...exploreOrder(),
 
       if(arg === 'health') {
         const av = await loadAvailability(gatewayRef);
@@ -4650,7 +4666,7 @@ async function main() {
         await refreshExplored(av);
         const tools = {};
         for(const m of gateway?.modelsCached() ?? []) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
-        const queued = exploration.run(ready, makeExploreClient, { tools, deep: deepFor(ready), diagnose: diagnoseModel, onEvent: exploreEvent, onResult: explored, onDone: ({ explored: n, usable }) => { exploreLanes = []; emit('explore', `exploration finished: ${usable} of ${n} models usable`, usable ? 'good' : 'warn'); tui?.drawStatus(); console.log(note(`async exploration: ${usable} of ${n} models usable (/model health shows them)`)); } });
+        const queued = exploration.run(ready, makeExploreClient, { ...exploreOrder(), tools, deep: deepFor(ready), diagnose: diagnoseModel, onEvent: exploreEvent, onResult: explored, onDone: ({ explored: n, usable }) => { exploreLanes = []; emit('explore', `exploration finished: ${usable} of ${n} models usable`, usable ? 'good' : 'warn'); tui?.drawStatus(); console.log(note(`async exploration: ${usable} of ${n} models usable (/model health shows them)`)); } });
         if(queued) emit('explore', `${queued} ready models are explored in the background`);
         if(queued) console.log(dim(`probe: ${queued} ready models are being explored in the background, /model health again shows the results`));
         const { rows, header } = modelStatusTable(av, exploration, modelInfo, rateOf);

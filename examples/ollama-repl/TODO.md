@@ -6,7 +6,7 @@ Open: not seen in a live terminal; the colour wiring in repl.js (hopText, modelN
 
 ## Open threads (2026-11-25)
 
-Phase 1 of the health plan (instrumentation) is done and pushed (0d57bec). Phase 2 (correctness 2.1 to 2.6) is done, not committed; next is Phase 3 (the decisions below first).
+Phase 1 of the health plan (instrumentation) is done and pushed (0d57bec). Phases 1 and 2 are done and pushed. Phase 3: 3.1, 3.2, 3.3 built 2026-11-25 (not committed), 3.4, 3.5, 3.10, 3.11 designed and postponed (need a live gateway and the unfinished hop-line work in repl.js), 3.6 to 3.10 written up in doc/GATEWAY-PROPOSALS.md; next is Phase 4 (verification).
 
 Detours taken on the way, done:
 - exhaustedPlatforms name clash: repl.js has its own exhaustedPlatforms(error) (line 2531) which silently overrode my import from

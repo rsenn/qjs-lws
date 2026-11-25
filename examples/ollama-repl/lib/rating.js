@@ -37,6 +37,19 @@ function deepScore(d) {
 }
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
+/**
+ * what the share of requests that worked adds, -10 .. +10: steep near 100 % (a 7 % failure rate is already 0), weighted
+ * by how many requests it rests on, so no data gives 0
+ *
+ *   reliability(428, 0)     // 9.8
+ *   reliability(2314, 53)   // 6.6
+ */
+export function reliability(ok, fail) {
+  const n = ok + fail;
+  if(!n) return 0;
+  return (n / (n + 10)) * clamp(10 - (150 * fail) / n, -10, 10);
+}
+
 /** the pure part: the score of a record and the live inputs */
 export function score(rec = {}, { intelligence = null, tier = null, ctx = null, blocked = false, permanent = false, cooling = false, quotaLeft = null, toolsNeeded = false } = {}, now = Date.now()) {
   const i = typeof intelligence === 'number' ? intelligence : tier != null ? ((10 - tier) / 10) * 0.8 : 0.3;
@@ -47,8 +60,7 @@ export function score(rec = {}, { intelligence = null, tier = null, ctx = null, 
   const age = rec.at ? Math.max(0, now - rec.at) : 0;
   s += clamp((rec.adj ?? 0) * 0.5 ** (age / HALF_LIFE_MS), -ADJ_CAP, ADJ_CAP);
 
-  const n = (rec.ok ?? 0) + (rec.fail ?? 0);
-  if(n) s += (((rec.ok ?? 0) + 1) / (n + 2) - 0.5) * 20;
+  s += reliability(rec.ok ?? 0, rec.fail ?? 0);
 
   if(rec.latMs != null) s += rec.latMs < 2000 ? 6 : rec.latMs < 5000 ? 3 : rec.latMs < 15000 ? 0 : rec.latMs < 30000 ? -4 : -8;
 

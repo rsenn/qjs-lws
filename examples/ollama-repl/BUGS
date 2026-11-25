@@ -1,3 +1,0 @@
-- rating-adj-saturates (lib/rating.js:30): the adjustment is capped at 25, so laguna-xs-2.1 (428 ok, 0 failed) and nemotron-3.5-lightning (2314 ok, 53 failed) and nemotron-3-ultra-550b-a55b both reach the cap and can no longer be told apart.
-
-    note: see ratings.json, adj 25 for all three

@@ -1,5 +1,5 @@
 /* test-rating.js: the rating of a model and how events move it */
-import { score, Ratings, setRater, rateOf, sortByRating } from './lib/rating.js';
+import { score, reliability, Ratings, setRater, rateOf, sortByRating } from './lib/rating.js';
 import { setenv } from 'std';
 
 setenv('XDG_CACHE_HOME', '/tmp/ollama-repl-test-rating');
@@ -15,6 +15,11 @@ check('cooling costs a little', score({}, { intelligence: 0.5, cooling: true }, 
 check('bigger context helps', score({}, { intelligence: 0.5, ctx: 200000 }, now) > score({}, { intelligence: 0.5, ctx: 4000 }, now));
 check('clamped 0..100', score({ adj: 25, probe: { ok: true, toolOk: true } }, { intelligence: 1, ctx: 2e5 }, now) <= 100 && score({}, { intelligence: 0, blocked: true, permanent: true }, now) === 0);
 check('adjustment decays with time', score({ adj: 20, at: now - 21 * 86400e3 }, { intelligence: 0.5 }, now) < score({ adj: 20, at: now }, { intelligence: 0.5 }, now));
+check('reliability: no data is neutral', reliability(0, 0) === 0);
+check('reliability: 428/0 is about 9.8', Math.abs(reliability(428, 0) - 9.8) < 0.1);
+check('reliability: 2314/53 is about 6.6', Math.abs(reliability(2314, 53) - 6.6) < 0.1);
+check('reliability: 7 % failures is about zero, 20 % the floor', Math.abs(reliability(930, 70)) < 1 && reliability(80, 20) < -8);
+check('reliability: 150/1 beats 2314/53', reliability(150, 1) > reliability(2314, 53));
 check('fast beats slow', score({ latMs: 1000 }, { intelligence: 0.5 }, now) > score({ latMs: 40000 }, { intelligence: 0.5 }, now));
 
 const r = new Ratings('http://t');
