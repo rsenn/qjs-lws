@@ -1,0 +1,49 @@
+/* test-persist.js: usage rows, quota snapshots and cooldowns survive in the cache directory */
+import { setenv } from 'std';
+import { usageRow, appendUsage, readUsage, saveQuota, loadQuota, flushPersist, trimLogs, usagePath } from './lib/persist.js';
+import { recordCooldownEvent, getLearnedCooldown, recordLocalFailure, saveCooldowns, loadCooldowns } from './lib/availability.js';
+import { UsageStats } from './lib/usage-stats.js';
+import { remove } from 'os';
+
+const dir = `/tmp/ollama-repl-test-persist-${Date.now()}`;
+setenv('XDG_CACHE_HOME', dir);
+const check = (what, ok) => {
+  if(!ok) throw new Error(`test-persist: ${what}`);
+};
+
+const now = Date.now();
+const rec = (o = {}) => ({ at: now, model: 'kimi', routedVia: 'kilo/kimi', platform: 'kilo', usage: { prompt: 10, completion: 5, total: 15 }, ms: 1200, messages: ['SECRET'], ...o });
+
+check('row keeps no messages', !('messages' in usageRow('o', 's', rec())) && usageRow('o', 's', rec()).usage.total === 15);
+check('error is one short line', usageRow('o', 's', rec({ error: new Error('boom\nsecond line') })).error === 'boom');
+
+appendUsage('http://a', 'sess', rec());
+appendUsage('http://a', 'sess', rec({ at: now - 10 * 86400e3 }));
+appendUsage('http://b', 'sess', rec());
+check('rows are read back by origin', readUsage({ origin: 'http://a' }).length === 2);
+check('and by age', readUsage({ origin: 'http://a', sinceMs: now - 86400e3 }).length === 1);
+
+const past = new UsageStats();
+past.records = readUsage({ origin: 'http://a' });
+check('they feed the /usage summary', past.summary('last 7 days').startsWith('last 7 days: 2 requests'));
+
+appendUsage('http://a', 'sess', rec({ at: now - 200 * 86400e3 }));
+trimLogs(now);
+check('old rows are trimmed', readUsage({}).every(r => r.at > now - 91 * 86400e3));
+
+check('no snapshot yet', loadQuota('http://a') === null);
+saveQuota('http://a', { usage: { tokens: 5, month: '2026-11' }, budget: { totalUsed: 1, totalBudget: 2 } });
+flushPersist();
+const q = loadQuota('http://a');
+check('snapshot written at flush', q?.usage.tokens === 5 && q.budget.totalBudget === 2 && q.at >= now);
+
+recordCooldownEvent('kilo/x', 'failure', now - 60000);
+recordCooldownEvent('kilo/x', 'success', now);
+recordLocalFailure('some-model', { status: 429 }, now);
+saveCooldowns();
+check('learned cooldown kept', getLearnedCooldown('kilo/x') === 60000);
+loadCooldowns();
+check('cooldowns load without error and keep the value', getLearnedCooldown('kilo/x') === 60000);
+
+remove(usagePath());
+console.log('test-persist: ok');
