@@ -1,5 +1,16 @@
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
+	* BUGS (h1-late-queued-pipeline-never-promoted): Rewritten for the
+	current lws layout; not reproducible with fetch() at idle gaps of 0
+	to 30 s.
+	* lib/fetch.js (fetch): Retry once on a fresh connection also when a
+	request on a reused connection fails with "dropped", the server
+	resetting an idle connection just as the request went out.  Only
+	"closed before responding" was retried.
+
+	* tests/unittests/test-fetch-keepalive-race.js,
+	tests/unittests/fixtures/drop-second-request-server.py: New.
+
 	* cmake/BuildQuickJS.cmake (quickjs_configure_args): Forward
 	CMAKE_SYSTEM_NAME and CMAKE_SYSROOT to the nested quickjs configure
 	only when this project cross compiles.  On Termux the system name
