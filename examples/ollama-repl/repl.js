@@ -663,7 +663,7 @@ function tuiSpinner(label) {
  * The reply line (`<provider>> ...`) is only printed when there's actual
  * text content - a tool-only turn (see runToolLoop() below) has none, and
  * printing an empty "<provider>> " line for it would just be noise.
- * `chatOptions` (`{ tools, toolChoice }` - see API.md) is passed straight
+ * `chatOptions` (`{ tools, toolChoice }` - see doc/ARCHITECTURE.md section 8) is passed straight
  * through to client.chat()/chatStream().
  * @returns {Promise<{content: string, toolCalls?: object[]}>}
  */
@@ -2108,7 +2108,7 @@ function renderExport(msgs) {
 }
 
 /** Total char count across `msgs` - a rough proxy for outgoing request
-    size (see DEMO.md 5 on why this is a diagnostic, not a target), shown
+    size (a diagnostic to catch a ballooning attachment, not a target to minimise), shown
     alongside the message count in /context. */
 /** The first installed clipboard tool (`wl-copy`, `xclip`, `xsel`,
     `pbcopy`), or null if none - for /export's "Copy to clipboard". */

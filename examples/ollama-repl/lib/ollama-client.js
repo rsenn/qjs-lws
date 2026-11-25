@@ -24,7 +24,7 @@
  * ReadableStream already (see chatStream()'s own comment below).
  *
  * `messages`/`options`/return value follow this project's shared message
- * and tool-use format (documented in `../API.md`) - `#toMessages()`/
+ * and tool-use format (documented in `../doc/ARCHITECTURE.md` section 8) - `#toMessages()`/
  * `#toTools()`/`#toResult()` convert it natively into Ollama's own
  * `messages`/`tools`/`message.tool_calls` wire shape and back.
  */
@@ -249,7 +249,7 @@ export class OllamaClient {
   }
 
   /**
-   * Converts this project's shared message format (see API.md) into
+   * Converts this project's shared message format (see doc/ARCHITECTURE.md section 8) into
    * Ollama's own `messages` shape: a `tool` message's `content` is
    * stringified if it isn't already a string (Ollama wants a plain string
    * there, unlike Gemini's object-shaped `functionResponse.response`), and
@@ -265,13 +265,13 @@ export class OllamaClient {
     });
   }
 
-  /** `tools` (see API.md) -> Ollama's `{ type: 'function', function: {...} }` wrapping. */
+  /** `tools` (see doc/ARCHITECTURE.md section 8) -> Ollama's `{ type: 'function', function: {...} }` wrapping. */
   #toTools(tools) {
     return tools?.map(({ name, description, parameters }) => ({ type: 'function', function: { name, description, parameters } }));
   }
 
   /**
-   * Pulls `{ content, toolCalls }` (see API.md) out of one Ollama
+   * Pulls `{ content, toolCalls }` (see doc/ARCHITECTURE.md section 8) out of one Ollama
    * `message` object - shared between chat()'s single response and
    * chatStream()'s per-chunk `message`. `id` is synthesized here
    * (`name#index`); Ollama's own `tool_calls` entries don't carry one.
@@ -338,7 +338,7 @@ export class OllamaClient {
   /**
    * POSTs one non-streaming `/api/chat` request over the kept-alive
    * connection. `messages`/`options` follow this project's shared
-   * message/tool-use format - see API.md. `toolChoice` is accepted but
+   * message/tool-use format - see doc/ARCHITECTURE.md section 8. `toolChoice` is accepted but
    * silently ignored: Ollama's `/api/chat` has no forced-call knob, it
    * always behaves like Gemini's `AUTO` mode.
    *
@@ -378,7 +378,7 @@ export class OllamaClient {
    * @param {(token: string) => void} onToken called once per token, in
    *   order, as they arrive - not once per network chunk, since a chunk
    *   can (and often does) contain a partial line or several complete
-   *   ones. Never fires for a `tool_calls` chunk - see API.md, those
+   *   ones. Never fires for a `tool_calls` chunk - see doc/ARCHITECTURE.md section 8, those
    *   arrive whole rather than token-by-token, and only show up in the
    *   returned object.
    * @returns {Promise<{content: string, toolCalls?: object[]}>}

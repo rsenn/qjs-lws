@@ -17,7 +17,7 @@
  * connection needed.
  *
  * `messages`/`options`/return value follow this project's shared message
- * and tool-use format (documented in `../API.md`, not Ollama's own wire
+ * and tool-use format (documented in `../doc/ARCHITECTURE.md` section 8, not Ollama's own wire
  * shape) - `#toContents()` converts it natively into Gemini's `contents`/
  * `tools`/`toolConfig` request shape and back out of its response.
  *
@@ -131,7 +131,7 @@ export class GeminiClient {
   }
 
   /**
-   * Converts this project's shared message format (see API.md) into
+   * Converts this project's shared message format (see doc/ARCHITECTURE.md section 8) into
    * Gemini's `contents` array. `Content.role` only ever accepts `'user'` or
    * `'model'` in this API - there is no third `'function'`/`'tool'` role -
    * so `assistant` maps to `model`, `system` messages are pulled out into a
@@ -165,7 +165,7 @@ export class GeminiClient {
     return { contents, systemInstruction: systemParts.length ? { parts: systemParts } : undefined };
   }
 
-  /** `toolChoice` (see API.md) -> Gemini's `toolConfig.functionCallingConfig`. */
+  /** `toolChoice` (see doc/ARCHITECTURE.md section 8) -> Gemini's `toolConfig.functionCallingConfig`. */
   #toToolConfig(toolChoice) {
     if(!toolChoice) return undefined;
 
@@ -292,10 +292,10 @@ export class GeminiClient {
   }
 
   /**
-   * Pulls `{ content, toolCalls }` (see API.md) out of one candidate's
+   * Pulls `{ content, toolCalls }` (see doc/ARCHITECTURE.md section 8) out of one candidate's
    * `parts[]` - shared between chat()'s single response and chatStream()'s
    * per-event chunks. `id` is synthesized here (`name#index`); neither this
-   * API nor Ollama's gives one - see API.md's "common shape" note.
+   * API nor Ollama's gives one - see ARCHITECTURE.md section 8.
    */
   #toResult(parts) {
     const content = parts
@@ -340,7 +340,7 @@ export class GeminiClient {
 
   /**
    * POSTs one non-streaming `:generateContent` request. `messages`/`options`
-   * follow this project's shared message/tool-use format - see API.md.
+   * follow this project's shared message/tool-use format - see doc/ARCHITECTURE.md section 8.
    *
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
@@ -364,7 +364,7 @@ export class GeminiClient {
    * Same as chat(), but posts to `:streamGenerateContent?alt=sse` -
    * Gemini sends the response as Server-Sent Events, one `data: {...}`
    * JSON chunk per event, as each part of the reply is generated. A
-   * `functionCall` part arrives whole in one event (see API.md) rather
+   * `functionCall` part arrives whole in one event (see doc/ARCHITECTURE.md section 8) rather
    * than token-by-token like `text`, so it's only visible in the returned
    * object, not via `onToken`.
    *

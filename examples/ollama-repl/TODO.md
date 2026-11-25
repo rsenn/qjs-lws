@@ -1,6 +1,6 @@
 # ollama-repl TODO (status 2026-11-25)
 
-Only open work is listed here. What is done lives in git history, in `README.md` (user
+Only open work is listed here; `doc/PLAN.md` splits it into coarse tasks with steps, checks, owners and an order. What is done lives in git history, in `README.md` (user
 view) and in `doc/ARCHITECTURE.md` (implementor view). Defects are in `BUGS`.
 Tests are in `tests/` (`qjsm tests/test-x.js`, run from this directory) with the installed
 `qjsm` (it has `terminal/*` since 2026-11-25; built from
@@ -256,6 +256,7 @@ Everything below is unit tested or run on mock data only. Each needs one real se
   still inserts comments above a neighbouring declaration and ends items with a text `run_command` call.
 - `ask_user`/`[y/N]` at EOF of piped stdin ends the session without an answer: re-test piped input against a
   `confirm()`/`ask()` prompt (a PoC run piped as `<prompt>\n/exit\n` hit a 90 s timeout).
-- The binding-writing demo (`doc/DEMO.md`) has not been re-run live: needs an Ollama server or a
-  `GEMINI_API_KEY`; the outcome decides whether the curated context fixed the old never-replies case
-  (its `BUGS` entry is gone), record it in `doc/DEMO.md` section 9.
+- The binding-writing demo (the README "Demo" section: zlib `deflate`/`inflate`/`crc32` with the
+  auto-attached `fib.c`, `point.c` and `reference/quickjs-binding-api.md`) has not been re-run live: needs an
+  Ollama server or a `GEMINI_API_KEY`; the outcome decides whether the curated context fixed the old
+  never-replies case (its `BUGS` entry is gone); record the result in the README demo section.

@@ -6,11 +6,9 @@ claim names the source file and the function or class it lives in. Line numbers
 use `grep -n` when a line has moved.
 
 Companion documents: `README.md` (user manual, every command and option),
-`TODO.md` (open work only), `BUGS` (open defects), `doc/API.md` (the message and
-tool-call format of the model clients), `doc/MODELS.md` (what is known about
-models), `doc/HEALTH-EXPERIMENTS.md` (model health data, the fixes made from it and
+`TODO.md` (open work only), `doc/PLAN.md` (the same work split into coarse tasks with steps and order), `BUGS` (open defects), `doc/HEALTH-EXPERIMENTS.md` (model health data, the fixes made from it and
 what is left), `doc/GATEWAY-PROPOSALS.md` (changes wanted in freellmapi),
-`doc/DEMO.md` (the binding-writing demo and its context design), `reference/`
+`reference/`
 (QuickJS binding reference given to models that write bindings).
 
 Contents
@@ -357,6 +355,26 @@ Common surface (all three clients): `chat(messages, {tools, toolChoice, ...})`
   `trail`/`detail`/`fallbacks` (the gateway's failed hops), `rateLimit`,
   `headers` (all `x-*`), `error`, `proxied` (set by `main`),
 - errors: `OpenAIError` with `status`, `detail`, `headers`, `body`, `code` (`'timeout'`).
+
+**The shared message format** (callers build it once; each client converts it natively to its wire shape):
+
+```js
+{ role: 'system' | 'user' | 'assistant', content: string }                       // plain turn
+{ role: 'assistant', content?: string, toolCalls: [{ id, name, args }] }          // the model asks for calls
+{ role: 'tool', name: string, content: string | object, toolCallId?: string }      // the app's result
+```
+
+`chat()`/`chatStream()` take `tools: [{ name, description, parameters }]` (`parameters` a JSON Schema object)
+and `toolChoice: 'auto' | 'any' | 'none'` (Gemini and OpenAI honour it, Ollama ignores it), and return
+`{ content, toolCalls?, reasoning?, meta? }`; `toolCalls` is present only when the model asked for a call.
+`toolCalls[].id` is made up by the client (`name#index`) as a local handle: no provider has a call id on
+the wire, so two parallel calls of the same tool name in one turn cannot be told apart by the provider.
+Per wire: Gemini has roles `user`/`model` only (a result is a `user` turn with a `functionResponse` part whose
+`response` must be an object, so a string becomes `{ result }`; Gemini 3 attaches an opaque `thoughtSignature`
+to a `functionCall` part that must be echoed back or the API answers HTTP 400, so keep the `toolCalls` objects
+as returned); Ollama has a real `tool` role (`tool_name`, string content, `arguments` not `args`); OpenAI uses
+`tool_calls[].function.arguments` (a JSON string) and `tool_call_id`. Tool calls arrive whole, never token by
+token, so `onToken` fires for text only. Not covered: multimodal parts (images, audio, PDFs).
 
 Clients for side work are separate instances pinned to one model:
 `makeClient(model)` (standby probes), `makeExploreClient(id)` (exploration, headers

@@ -133,7 +133,7 @@ driven in your own browser (`--provider bridge`).
 are all usable on their own from a `qjsm` REPL, independent of `repl.js`'s
 own chat loop - handy for poking at a model manually, or for driving real
 API-native tool/function calling, the way `repl.js`'s own tool loop uses it. See
-`doc/API.md` for the message format and more examples; short version:
+`doc/ARCHITECTURE.md` section 8 for the message format; short version:
 
 ```js
 import { OllamaClient } from './lib/ollama-client.js';
@@ -150,7 +150,7 @@ console.log(content);
 toolCalls? }` - `toolCalls` (`[{ id, name, args }]`) is present whenever the
 model asks to call one. Feed the result back as a `{ role: 'tool', name,
 content }` message to continue the exchange - same message shapes work
-against any of the three clients. `doc/API.md` has a full round-trip example.
+against any of the three clients. Section 8 of `doc/ARCHITECTURE.md` describes the call round trip.
 
 For how the program is built (module map, turn lifecycle, failover, model
 choice, TUI, persistence), see `doc/ARCHITECTURE.md`.
@@ -164,7 +164,10 @@ choice, TUI, persistence), see `doc/ARCHITECTURE.md`.
   (`ollama pull MODEL`); without `--model` the first model `ollama list`
   shows is used, there is no built-in default model.
 - `--provider gemini`: `GEMINI_API_KEY` exported in the environment (a
-  free-tier key from https://aistudio.google.com/apikey works).
+  free-tier key from https://aistudio.google.com/apikey works; a free key allows about
+  20 generate requests per model per day, `gemini-3.5-flash` shares the bucket of `gemini-3.6-flash`,
+  the pro models have limit 0, and the newest flash models answer slowly or with 503 "high demand";
+  `GeminiClient` retries 429/5xx with backoff).
 - `--provider openai`: `OPENAI_API_KEY` exported in the environment (a
   key from https://platform.openai.com/api-keys), or set `opts.apiKeyEnv`
   to use a different environment variable for other OpenAI-compatible

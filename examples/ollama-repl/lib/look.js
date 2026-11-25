@@ -73,7 +73,23 @@ export function highlight(text, base = {}) {
 }
 
 /** kept for the callers that name it so: the highlighter with a base style */
-export const paintText = (text, base = {}) => highlight(text, base);
+export function paintText(text, base = {}) {
+  if(!/\x1b\[/.test(text)) return highlight(text, base);
+
+  /* text that carries its own colours (a model name in its strength colour): the escapes pass through and the
+     text between a colour and its reset is left as it is, only the rest is highlighted */
+  let open = false;
+  return text
+    .split(/(\x1b\[[0-9;]*m)/)
+    .map((part, i) => {
+      if(i % 2) {
+        open = !/^\x1b\[0?m$/.test(part);
+        return part;
+      }
+      return open || !part ? part : highlight(part, base);
+    })
+    .join('');
+}
 
 /** a file name or path in the file colour */
 export const file = text => style(text, { fg: FILE });

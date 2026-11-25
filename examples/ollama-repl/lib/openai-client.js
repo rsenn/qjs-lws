@@ -12,7 +12,7 @@
  * up to but not including `/chat/completions`), `apiKey`, and `model`.
  *
  * The wire shape is: `messages`/`tools` already close to this project's
- * shared format (see API.md), and streaming is SSE (`data: {...}` chunks,
+ * shared format (see doc/ARCHITECTURE.md section 8), and streaming is SSE (`data: {...}` chunks,
  * terminated by a literal `data: [DONE]`), same framing as GeminiClient's
  * `alt=sse` stream - just with a different chunk shape and, unlike
  * Gemini/Ollama, tool-call *arguments* arriving as incremental string
@@ -20,7 +20,7 @@
  * one event - see chatStream()'s own comment.
  *
  * `messages`/`options`/return value follow this project's shared message
- * and tool-use format (documented in `../API.md`, not any particular
+ * and tool-use format (documented in `../doc/ARCHITECTURE.md` section 8, not any particular
  * provider's wire shape) - `#toMessages()` converts it natively into the
  * OpenAI-style `messages`/`tools`/`tool_choice` request shape and back
  * out of its response.
@@ -279,12 +279,12 @@ export class OpenAIClient {
   }
 
   /**
-   * Converts this project's shared message format (see API.md) into the
+   * Converts this project's shared message format (see doc/ARCHITECTURE.md section 8) into the
    * OpenAI `messages` shape: an assistant message's `toolCalls` becomes
    * `tool_calls: [{ id, type: 'function', function: { name, arguments } }]`
    * (`arguments` is a JSON *string* here, unlike Ollama's object), and a
    * `tool` reply needs `tool_call_id` naming which call it answers - the
-   * shared format's `toolCallId` (see API.md) is used when the caller
+   * shared format's `toolCallId` (see doc/ARCHITECTURE.md section 8) is used when the caller
    * supplied it, else it falls back to the id of the oldest not-yet-
    * answered call from the immediately preceding assistant message (the
    * order tool results are pushed in the documented manual-usage loop),
@@ -308,13 +308,13 @@ export class OpenAIClient {
     });
   }
 
-  /** `tools` (see API.md) -> OpenAI's `{ type: 'function', function: {...} }` wrapping. */
+  /** `tools` (see doc/ARCHITECTURE.md section 8) -> OpenAI's `{ type: 'function', function: {...} }` wrapping. */
   #toTools(tools) {
     return tools?.map(({ name, description, parameters }) => ({ type: 'function', function: { name, description, parameters } }));
   }
 
   /**
-   * Pulls `{ content, toolCalls }` (see API.md) out of one OpenAI
+   * Pulls `{ content, toolCalls }` (see doc/ARCHITECTURE.md section 8) out of one OpenAI
    * `message` object (the non-streaming response shape) - `arguments` is a
    * JSON string here, unlike Ollama's object, so it needs parsing.
    */
@@ -493,7 +493,7 @@ export class OpenAIClient {
 
   /**
    * POSTs one non-streaming `chat/completions` request. `messages`/`options`
-   * follow this project's shared message/tool-use format - see API.md.
+   * follow this project's shared message/tool-use format - see doc/ARCHITECTURE.md section 8.
    * `toolChoice` ('auto'|'any'|'none') is passed straight through as the
    * OpenAI-style `tool_choice` - unlike Gemini, no per-mode reshaping
    * needed.

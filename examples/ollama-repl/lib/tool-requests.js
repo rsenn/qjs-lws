@@ -1,6 +1,6 @@
 /**
  * Native tool schemas (`TOOLS`, passed as `tools` to client.chat()/
- * chatStream() - see API.md) and their execution (`executeTool()`), for
+ * chatStream() - see doc/ARCHITECTURE.md section 8) and their execution (`executeTool()`), for
  * the tool-calling loop in repl.js (`runToolLoop()`) - replaces the
  * earlier LIST:/READ:/RUN: plain-text-in-the-reply-body protocol with
  * real, provider-native function calling.
@@ -256,7 +256,7 @@ function editFile({ path, old_string: oldStr, new_string: newStr }, root) {
   return `edited ${path}: ${count(oldStr)} line(s) replaced by ${count(newStr)}${warning}`;
 }
 
-/** `{ name, description, parameters }` triples - see API.md's shared
+/** `{ name, description, parameters }` triples - see ARCHITECTURE.md section 8's shared
     message/tool-use format; passed straight through to whichever wire
     shape a given client needs (OllamaClient#toTools()/OpenAIClient#toTools()/
     GeminiClient's functionDeclarations wrapping). */
@@ -406,7 +406,7 @@ export const TOOLS = [
 
 /**
  * Executes one tool call and returns its result as a string (the `tool`
- * message's `content` - see API.md).
+ * message's `content` - see doc/ARCHITECTURE.md section 8).
  *
  * @param {string} name
  * @param {object} args

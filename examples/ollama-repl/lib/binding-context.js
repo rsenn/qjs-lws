@@ -2,8 +2,9 @@
  * Auto-attached context for a "write a native QuickJS binding" prompt -
  * examples/fib.c (plain function export) and examples/point.c (class
  * binding) from the QuickJS source tree, plus this project's own curated
- * cheat sheet (reference/quickjs-binding-api.md) - see DEMO.md 3/4 for
- * why these three and not the full quickjs.h.
+ * cheat sheet (reference/quickjs-binding-api.md) - the three are small and
+ * imitation-worthy, while the full quickjs.h (1041 lines) is about 94% timer, promise, module-loader and
+ * debugger internals that a binding never touches.
  */
 import { loadFile } from 'std';
 import { quickjsDir } from './reference-files.js';
