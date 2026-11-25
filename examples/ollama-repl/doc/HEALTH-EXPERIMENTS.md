@@ -119,31 +119,33 @@ installed qjsm has no `terminal/*` yet); examples/ needs no ChangeLog entry.
 
 ### Phase 2: correctness (each with a test, each closes a BUGS entry)
 
-- **2.1 exit-change-uses-wrong-tor-host.** `repl.js: autoExit` and `/proxy exit`:
+- **2.1 exit-change-uses-wrong-tor-host.** DONE (`torHost` in lib/proxy-probe.js, test-proxy-probe.js; TORHOST still wins). `repl.js: autoExit` and `/proxy exit`:
   take the host from the socks URL (as `fixKeyless` and `keylessProxy` do), one helper
   `torHost(socksUrl)` in `lib/proxy-probe.js`. Test: the helper on
   `socks5://192.168.178.52:9050`, `socks5h://[::1]:9050`, no URL. Success: NEWNYM
   reaches the control port of the proxy's host; exit address changes in the pane. H
-- **2.2 deep-probe-max-tokens-too-small.** `lib/exploration.js: probeDeep`: raise
+- **2.2 deep-probe-max-tokens-too-small.** DONE (1500, one retry with 3000 on finish length with recall 3 and no tool call, `retried` in the result; test-probe-deep.js). `lib/exploration.js: probeDeep`: raise
   `max_tokens` (1500), and on `finish: length` with recall 3 and no tool call retry
   once with 3000 before failing. Test: fake client answering length then a tool
   call. Success: the three nemotron-3.5-lightning variants pass tier 1 in
   exploration.json; run the rerun at 400/1500 (item 4.1) to confirm. H
-- **2.3 deep-probe-transient-error-shown-as-context-lost.** `repl.js: explored`
+- **2.3 deep-probe-transient-error-shown-as-context-lost.** DONE (event: `not tested (provider busy)`, card, Probe cell `12k?`; test-events.js, test-probe-deep.js). `repl.js: explored`
   (about line 3075) and `lib/exploration.js: probeBrief/deepText`: a deep result
   with `transient` is "busy", never "context failed/lost"; `needsDeep` already
   retries it. Test: test-events.js and a probeBrief case. Success: no `context
   lost` event for a rate-limited deep probe. H
-- **2.4 failed-request-rated-against-requested-name.** `repl.js: onMeta` (about
-  line 2938): no `routedVia` means a gateway-wide failure, rated against nobody;
-  a harness-side exception (not an HTTP/provider error) is not rated and not
-  written as a usage error. Test: onMeta with and without routedVia, with a
-  TypeError. Success: `auto` has no failures in ratings.json after a day; 12 of 236
-  logged errors (harness exceptions) disappear. H
-- **2.5 rawcolor-test-expects-old-colors.** `test-rawcolor.js`: import the colors
+- **2.4 failed-request-rated-against-requested-name.** DONE. `repl.js: onMeta`: a failed
+  request with no `routedVia` (no route answered, the whole pool would take the blame)
+  or whose error is our own (`lib/harness-error.js: isHarnessError`: ReferenceError, "is
+  not a function", "unknown color", ...) is not rated. Decision changed from the plan:
+  the row stays in usage.jsonl (the user's request did fail), the baseline classes it as
+  `harness exception`. Tests: test-harness-error.js, test-usage-baseline.js. Success: `auto`
+  gets no failures in ratings.json from now on; the 12 harness exceptions of 2026-11-25
+  (10 unknown color, 1 not defined, 1 not a function) would not have been rated. H
+- **2.5 rawcolor-test-expects-old-colors.** DONE (the test takes GREEN, RED, TEAL from lib/palette.js). `test-rawcolor.js`: import the colors
   from `lib/palette.js` instead of hard-coding the values. Success: the 4 failures go
   away and a palette change cannot break the test again. H
-- **2.6 Harness exceptions in the request path** (`is not defined`, `not a
+- **2.6 Harness exceptions in the request path** DONE: found `fg` used and not imported in repl.js livePanel (the long live reasoning panel threw), same class as `colorReasoning is not defined`; imported. `check-names.cjs` (node --expose-internals, flat undefined-name check) is in the repo and reports 0 now; `unknown color` was an escape passed as a border color, no longer in the code; the single bare `not a function` of 20:07 could not be traced. (`is not defined`, `not a
   function`, `unknown color`): find what throws where a request is made, fix it;
   2.4 only stops them from being rated. Success: none in the next day's usage.jsonl. H
 

@@ -51,5 +51,7 @@ console.log('test-events: ok');
   if(!l.includes('38;2;139;92;246mqwen-x')) throw new Error('test-events: strength colour of the name');
   if(!/✅ qwen-x is usable: 1s, ✘ no tool calls, 💥 12k context lost/.test(strip(l))) throw new Error(`test-events: marks: ${strip(l)}`);
   if(!l.includes('\x1b[91m✘ no tool calls')) throw new Error('test-events: red cross');
+  const busy = line({ at: Date.now(), kind: 'explore', level: 'info', text: 'qwen-x is usable: 1s, calls tools, 12k context not tested (provider busy)' });
+  if(!/12k context not tested \(provider busy\)/.test(strip(busy)) || /context lost/.test(strip(busy))) throw new Error(`test-events: a busy deep probe is not a lost context: ${strip(busy)}`);
   setNamer(() => null);
 }

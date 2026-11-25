@@ -67,6 +67,7 @@ function decorateExplore(text, base) {
     .replace(/, calls tools/, `, ${hi('92', '✔ calls tools')}`)
     .replace(/, no tool calls/, `, ${hi('91', '✘ no tool calls')}`)
     .replace(/, (\d+k) context ok/, (m, k) => `, ${hi('96', `🧬 ${k} context holds`)}`)
+    .replace(/, (\d+k) context not tested/, (m, k) => `, ${hi('33', `⏳ ${k} context not tested`)}`)
     .replace(/, (\d+k) context failed/, (m, k) => `, ${hi('95', `💥 ${k} context lost`)}`)
     .replace(/diagnosed: ([\w-]+)/, (m, c) => `🩺 diagnosed: ${hi((cause[c] ?? ['❓', '1;35'])[1], `${(cause[c] ?? ['❓'])[0]} ${c}`)}`)
     .replace(/(\S+) is (rate_limited|\w+), resumes in (\S+ ?\S*?)(;|$)/g, (m, who, st, when, end) => `${name(who)} is ${hi('33', st)}, resumes in ${hi('1;33', `⏱ ${when}`)}${end}`)

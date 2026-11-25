@@ -4,6 +4,10 @@
  * a failure.
  */
 import { stripAnsi } from 'terminal';
+import { GREEN, RED, TEAL } from './lib/palette.js';
+
+/* the escape of a palette color, so a palette change does not break the checks */
+const rgb = hex => [1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';');
 import { exit } from 'std';
 import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
 
@@ -36,11 +40,11 @@ for(const [name, text] of Object.entries(samples)) {
 
 const meta = 'requested   auto:fast\nmodel       kilo/x\nstatus      200\ntime        3.2s total, 80ms to headers\nheaders\n  x-routed-via: kilo/x\n  retry-after: 3';
 check('colorMeta keeps the text', stripAnsi(colorMeta(meta)) === meta);
-check('colorMeta colors the status green', /\x1b\[38;2;74;222;128m200/.test(colorMeta(meta)));
-check('colorMeta colors a 503 red', /\x1b\[38;2;248;113;113m503/.test(colorMeta('status      503')));
+check('colorMeta colors the status green', new RegExp(`\\x1b\\[38;2;${rgb(GREEN)}m200`).test(colorMeta(meta)));
+check('colorMeta colors a 503 red', new RegExp(`\\x1b\\[38;2;${rgb(RED)}m503`).test(colorMeta('status      503')));
 
-check('colorJson colors a key teal', /\x1b\[38;2;45;212;191m"path"/.test(colorJson(samples.json)));
-check('colorContent colors a + line green', /\x1b\[38;2;74;222;128m\+new/.test(colorContent(samples.diff)));
+check('colorJson colors a key teal', new RegExp(`\\x1b\\[38;2;${rgb(TEAL)}m"path"`).test(colorJson(samples.json)));
+check('colorContent colors a + line green', new RegExp(`\\x1b\\[38;2;${rgb(GREEN)}m\\+new`).test(colorContent(samples.diff)));
 
 const args = stripAnsi(colorArgs({ path: 'a.js', old_string: 'one\ntwo', n: 2 }));
 check('colorArgs shows keys', args.includes('path:') && args.includes('old_string:') && args.includes('n: 2'));

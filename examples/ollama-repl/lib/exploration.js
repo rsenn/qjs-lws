@@ -87,6 +87,10 @@ export async function probeUsable(client, id, { toolsKnown, onStep, deep = 0, ba
   return out;
 }
 
+/** reply budget of the tier 1 probe, and of its one retry after a reply cut off at the limit */
+const DEEP_TOKENS = 1500;
+const DEEP_RETRY_TOKENS = 3000;
+
 /** tier 1: the synthetic compacted context; the result is `{ ok, tokens, recall, toolCall, ms, tps?, finish?, error?, transient? }` */
 async function probeDeep(client, tokens, withTools, onStep) {
   const p = buildProbe(tokens);
@@ -95,11 +99,20 @@ async function probeDeep(client, tokens, withTools, onStep) {
 
   const timer = setTimeout(() => client.abort(), 120000);
   try {
-    const r = await client.chat(withTools ? p.messages : plainQuestion(p), { ...(withTools ? { tools: p.tools, toolChoice: 'auto' } : {}), max_tokens: 400 });
-    const g = grade({ content: String(r.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''), toolCalls: r.toolCalls });
+    /* a reasoning model spends part of the budget on thinking: a reply cut off at the limit (finish length) that already
+       recalled the facts but made no tool call is asked once more with a larger budget before it counts as failed */
+    const ask1 = async max => {
+      const r = await client.chat(withTools ? p.messages : plainQuestion(p), { ...(withTools ? { tools: p.tools, toolChoice: 'auto' } : {}), max_tokens: max });
+      return [r, grade({ content: String(r.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''), toolCalls: r.toolCalls })];
+    };
+
+    let [r, g] = await ask1(DEEP_TOKENS);
+    const retried = withTools && g.recall === 3 && !g.toolCall && r.meta?.finish === 'length';
+    if(retried) [r, g] = await ask1(DEEP_RETRY_TOKENS);
+
     const ms = Date.now() - t;
     const done = r.meta?.usage?.completionTokens ?? r.meta?.usage?.completion_tokens;
-    const res = { ok: g.recall === 3 && (!withTools || g.toolCall), tokens: p.approxTokens, recall: g.recall, toolCall: g.toolCall, ms, ...(done && ms > 0 ? { tps: Math.round((done / ms) * 1e4) / 10 } : {}), ...(r.meta?.finish ? { finish: r.meta.finish } : {}), at: Date.now() };
+    const res = { ok: g.recall === 3 && (!withTools || g.toolCall), tokens: p.approxTokens, recall: g.recall, toolCall: g.toolCall, ms, ...(done && ms > 0 ? { tps: Math.round((done / ms) * 1e4) / 10 } : {}), ...(r.meta?.finish ? { finish: r.meta.finish } : {}), ...(retried ? { retried: true } : {}), at: Date.now() };
     onStep?.({ step: 'tier 1', kind: 'answer', text: `${g.recall}/3 facts${withTools ? (g.toolCall ? ', tool call made' : ', no tool call') : ''}${r.meta?.finish ? `, finish ${r.meta.finish}` : ''}`, ok: res.ok, ms });
     return res;
   } catch(e) {
@@ -340,5 +353,5 @@ export function probeBrief(ex, key) {
   if(e.live?.blocked) return '\x1b[33m⏸\x1b[0m';
 
   const ms = e.latencyMs ?? e.ms;
-  return `\x1b[32m✔\x1b[0m ${ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`}${e.toolOk ? ' T' : ''}${e.deep ? (e.deep.ok ? ` \x1b[32m${Math.round(e.deep.tokens / 1000)}k\x1b[0m` : ` \x1b[33m${Math.round(e.deep.tokens / 1000)}k✗\x1b[0m`) : ''}`;
+  return `\x1b[32m✔\x1b[0m ${ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`}${e.toolOk ? ' T' : ''}${e.deep ? (e.deep.ok ? ` \x1b[32m${Math.round(e.deep.tokens / 1000)}k\x1b[0m` : ` ${e.deep.transient ? '\x1b[2m' : '\x1b[33m'}${Math.round(e.deep.tokens / 1000)}k${e.deep.transient ? '?' : '✗'}\x1b[0m`) : ''}`;
 }

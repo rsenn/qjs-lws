@@ -11,12 +11,12 @@
  * first try (attempt 0, or a row without the field) and the retries after it, and it failed only when its last row did.
  * `interrupted` rows (the user pressed a key) are neither failures nor successes.
  */
-const HARNESS = /is not defined|not a function|unknown color|undefined is not/i;
+import { isHarnessError } from './harness-error.js';
 
 /** the class of an error text, for the table of what failed */
 export function errorClass(e) {
   const t = String(e ?? '');
-  if(HARNESS.test(t)) return 'harness exception';
+  if(isHarnessError(t)) return 'harness exception';
   for(const [name, re] of [
     ['gateway rpm cap', /more than \d+ requests per minute/i],
     ['all models exhausted/rate-limited', /all models/i],

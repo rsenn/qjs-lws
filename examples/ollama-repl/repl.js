@@ -106,11 +106,12 @@ import { noteIpChange, saveCooldowns, loadCooldowns, loadAvailability, kindsText
 import { modelStatusTable } from './lib/model-status.js';
 import { recordLatency } from './lib/latency.js';
 import { Tui } from './lib/tui.js';
-import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
+import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled, torHost } from './lib/proxy-probe.js';
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
-import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning, HEADER, BORDER, HINT, THEME } from './lib/rawcolor.js';
+import { isHarnessError } from './lib/harness-error.js';
+import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning, fg, HEADER, BORDER, HINT, THEME } from './lib/rawcolor.js';
 import { file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { stripAnsi } from 'terminal';
 import { enableCapabilities, queryCapabilities } from 'terminal/capabilities';
@@ -2941,7 +2942,9 @@ async function main() {
       for(const m of spentModels(meta.trail, meta.routedVia)) skipModel(m, 'ran out in the gateway chain', TRAIL_SKIP_MS);
       stats.add(meta);
       if(gatewayRef?.enabled) appendUsage(gatewayRef.origin, cacheKey, stats.last());
-      if(ratings && gatewayRef?.enabled) {
+      /* a failure that no route answered (no routedVia: the gateway had nothing to try, so auto or the pinned name would take the blame
+         of the whole pool) and an exception of our own code say nothing about a model: they are not rated */
+      if(ratings && gatewayRef?.enabled && !(meta.error && (!meta.routedVia || isHarnessError(meta.error)))) {
         const rid = catalogId(meta.routedVia ?? meta.requested ?? opts.model);
         ratings.recordResult(rid, { ok: !meta.error, ms: meta.ms, error: meta.error });
         if(meta.error && !/rate.?limit|429|quota|cooldown|exhaust|too many|credit|limited/i.test(String(meta.error?.message ?? meta.error))) emit('rating', `${rid} failed a request (${String(meta.error?.message ?? meta.error).split('\n')[0].slice(0, 80)}): its rating goes down, now ${rateOf(rid) ?? '-'}`, 'warn');
@@ -3079,7 +3082,7 @@ async function main() {
     if(ev.type === 'start') emit('explore', `worker ${n + 1} asks ${id} (${ev.queued} more queued)`);
     else if(ev.type === 'done') {
       const r = ev.result;
-      emit('explore', r.ok ? `${id} is usable: ${fmtMs(r.latencyMs ?? r.ms)}, ${r.toolOk ? 'calls tools' : 'no tool calls'}${r.deep ? `, ${Math.round(r.deep.tokens / 1000)}k context ${r.deep.ok ? 'ok' : 'failed'}` : ''}` : r.diagnosis ? `${id} failed, diagnosed: ${r.diagnosis.cause} - ${r.diagnosis.detail}` : `${id} failed: ${String(r.error ?? 'no answer').slice(0, 100)}`, r.ok ? 'good' : 'warn');
+      emit('explore', r.ok ? `${id} is usable: ${fmtMs(r.latencyMs ?? r.ms)}, ${r.toolOk ? 'calls tools' : 'no tool calls'}${r.deep ? `, ${Math.round(r.deep.tokens / 1000)}k context ${r.deep.ok ? 'ok' : r.deep.transient ? 'not tested (provider busy)' : 'failed'}` : ''}` : r.diagnosis ? `${id} failed, diagnosed: ${r.diagnosis.cause} - ${r.diagnosis.detail}` : `${id} failed: ${String(r.error ?? 'no answer').slice(0, 100)}`, r.ok ? 'good' : 'warn');
     }
 
     if(!tui?.active) return;
@@ -3117,8 +3120,8 @@ async function main() {
     if(takeStandby) Object.assign(standby, { id, name: id, state: 'ready', ms: r.ms, toolOk: r.toolOk, servedBy: r.servedBy ?? '', error: '', at: Date.now() });
 
     /* a model that answered but failed the deep context test is a failure: it shows in the verbose view only (the explore event says so) */
-    const ctxLost = r.deep && !r.deep.ok;
-    if((!quiet || takeStandby) && !ctxLost) console.log(card('🔎', `probe: ${bold(fgHex(strengthColor(tierOf(id)), id))} ${quiet ? 'is usable' : 'responds'} in ${fgHex('#fbbf24', fmtMs(r.latencyMs ?? r.ms))}, ${r.toolOk ? fgHex('#86efac', '✔ calls tools') : fgHex('#f87171', '✘ no tool calls')}${r.deep ? `, ${r.deep.ok ? fgHex('#22d3ee', `🧬 ${Math.round(r.deep.tokens / 1000)}k context holds`) : fgHex('#e879f9', `💥 ${Math.round(r.deep.tokens / 1000)}k context lost`)}` : ''}${quiet ? '' : dim(' - warm')}${takeStandby ? `, ${fgHex('#2dd4bf', 'now the standby')}` : ''}`, [], '#2dd4bf'));
+    const ctxLost = r.deep && !r.deep.ok && !r.deep.transient;
+    if((!quiet || takeStandby) && !ctxLost) console.log(card('🔎', `probe: ${bold(fgHex(strengthColor(tierOf(id)), id))} ${quiet ? 'is usable' : 'responds'} in ${fgHex('#fbbf24', fmtMs(r.latencyMs ?? r.ms))}, ${r.toolOk ? fgHex('#86efac', '✔ calls tools') : fgHex('#f87171', '✘ no tool calls')}${r.deep ? `, ${r.deep.ok ? fgHex('#22d3ee', `🧬 ${Math.round(r.deep.tokens / 1000)}k context holds`) : r.deep.transient ? fgHex('#fbbf24', `⏳ ${Math.round(r.deep.tokens / 1000)}k context not tested (provider busy)`) : fgHex('#e879f9', `💥 ${Math.round(r.deep.tokens / 1000)}k context lost`)}` : ''}${quiet ? '' : dim(' - warm')}${takeStandby ? `, ${fgHex('#2dd4bf', 'now the standby')}` : ''}`, [], '#2dd4bf'));
     if(takeStandby) tui?.drawStatus();
 
     considerTakeover(id, { ...r, ms: r.latencyMs ?? r.ms }).catch(e => console.log(note(`takeover: ${String(e.message).split('\n')[0]}`, 'warn')));
@@ -3296,7 +3299,7 @@ async function main() {
       const pane = tui?.active ? livePanel('⚠ every keyless provider is exhausted', dim(`${ex.platforms.join(', ')}: asking for a new exit address …`), { border: '#fbbf24' }) : null;
 
       try {
-        await newExit();
+        await newExit({ host: torHost(socks) });
       } catch(e) {
         emit('proxy', `the exit address could not be changed: ${String(e.message).split('\n')[0]}`, 'bad');
         return void pane?.update('⚠ exit address not changed', `\x1b[31m${String(e.message).split('\n')[0]}\x1b[0m`, { border: '#f87171' });
@@ -3490,7 +3493,7 @@ async function main() {
    * the model works again through the new address. A second round with another address follows for those that
    * still fail. The one question is asked first, it changes the gateway's keys.
    */
-  async function fixKeyless(rows, socks, host) {
+  async function fixKeyless(rows, socks) {
     const step = text => console.log(waveNote(text));
     const probe = async proxy => (await externalIp({ proxy }))?.ip ?? null;
 
@@ -3510,7 +3513,7 @@ async function main() {
 
     for(let round = 1; round <= 2 && left.length; round++) {
       try {
-        await newExit({ host });
+        await newExit({ host: torHost(socks) });
       } catch(e) {
         return void PrintError(e);
       }
@@ -3608,7 +3611,7 @@ async function main() {
     const up = m && (await runCommand(`timeout 2 bash -c 'exec 3<>/dev/tcp/${m[1]}/${m[2]}'`, { timeoutMs: 4000 }).catch(() => ({ status: 1 }))).status === 0;
     if(!up) return void console.log(red(`error: nothing answers at ${m?.[1]}:${m?.[2]}, start the anonymizing proxy first`));
 
-    if(sub === 'fix') return void (await fixKeyless(rows, socks, m[1]));
+    if(sub === 'fix') return void (await fixKeyless(rows, socks));
 
     const k = await repl.choose(`Send ${todo.length} keyless key${todo.length > 1 ? 's' : ''} (${todo.map(r => r.platform).join(', ')}) through ${socks} in the gateway?`, ['Yes, and clear their cooldowns', 'Yes, only the proxy', 'No']);
     if(k === 2 || k === undefined || k < 0) return void console.log(note('nothing changed'));
@@ -4335,7 +4338,7 @@ async function main() {
         const keys = gateway.hasLimits ? await gateway.api('/api/keys').catch(() => []) : [];
         const before = await exitIp(url);
         try {
-          await newExit();
+          await newExit({ host: torHost(url) });
         } catch(e) {
           return void PrintError(e);
         }

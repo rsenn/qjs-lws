@@ -178,6 +178,7 @@ place that knows about all subsystems.
 | `lib/ip-check.js` | `externalIp`, `parseIp`, `isPublicIp`, `IP_HOSTS`. |
 | `lib/ip-fix.js` | `ipCandidates`, `routedKeys`, `routedAll`, `setKeyProxy`, `clearCooldowns`, `ipProxyTargets`, `ipLimitedPlatforms`, `ANON_PROXY`. §14. |
 | `lib/usage-baseline.js` | `baseline`, `baselineText`, `errorClass`: the numbers of usage.jsonl (turns, failure runs, per platform); run by `usage-baseline.js`. |
+| `lib/harness-error.js` | `isHarnessError`: an error of our own code, not rated against a model, classed apart by the baseline. |
 | `lib/cdp-token.js` | `dashboardTokenFromBrowser`: reads the dashboard session token over Chrome DevTools Protocol. |
 | `lib/bridge-process.js` | `startBridge`, `pickModel`: `--provider bridge`. |
 | `lib/net-activity.js` | `NetActivity`: in-flight HTTP requests with phases (feeds the net pane). |

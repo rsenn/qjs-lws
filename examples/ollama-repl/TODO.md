@@ -1,6 +1,12 @@
+## Hop line for automatic model switches (2026-11-25), done, not seen in a terminal
+
+Design: doc/ARCHITECTURE.md section 10, "The hop line". repl.js: autoSkipHook (no wave note), /model skip (one coloured line
+per automatic hop, printed after the next model is known). Done: lib/hop-line.js (test-hop-line.js), modelName() colours every "switching to MODEL" note by strength tier too.
+Open: not seen in a live terminal; the colour wiring in repl.js (hopText, modelName) has no test; the manual /model skip keeps its own notes.
+
 ## Open threads (2026-11-25)
 
-Phase 1 of the health plan (instrumentation) is done and waits for a commit; next is Phase 2 (decisions first, see below).
+Phase 1 of the health plan (instrumentation) is done and pushed (0d57bec). Phase 2 (correctness 2.1 to 2.6) is done, not committed; next is Phase 3 (the decisions below first).
 
 Detours taken on the way, done:
 - exhaustedPlatforms name clash: repl.js has its own exhaustedPlatforms(error) (line 2531) which silently overrode my import from
@@ -9,7 +15,7 @@ Detours taken on the way, done:
 - the finding "failures are exploration probes" was wrong (only the main client logs usage, the bursts are the retry chain of
   chatRound, AUTO_SKIPS 8): corrected in doc/HEALTH-EXPERIMENTS.md and BUGS (usage-rows-lack-attempt)
 
-Postponed: Phase 2 to 4 of the health plan, the decisions listed there (live probes, kilo behind Tor, gateway proposals).
+Postponed: Phase 3 and 4 of the health plan; run check-names.cjs in the checks (node --expose-internals check-names.cjs repl.js lib/*.js), the decisions listed there (live probes, kilo behind Tor, gateway proposals).
 
 ## Health, exploration, switchover: fixes and improvements (2026-11-25), plan done, nothing implemented
 
@@ -32,7 +38,7 @@ Phase 1, instrumentation, DONE 2026-11-25 (not committed), design in doc/HEALTH-
   Baseline of 2026-11-25 (4206 requests, rows without attempt, so every row is a turn): 114 failed hops = 2.8 %, run time to the next
   success median 16 s, p90 381 s. Rerun it after Phase 2 and 3 and compare (attempt rows exist from now on)
 
-Phase 2, correctness (each with a test, each closes its BUGS entry):
+Phase 2, correctness, DONE 2026-11-25, not committed (BUGS entries removed, tests: test-proxy-probe, test-probe-deep, test-harness-error, test-events, test-rawcolor):
 - 2.1 exit-change-uses-wrong-tor-host: autoExit and /proxy exit take the host from the socks URL (helper in lib/proxy-probe.js)
 - 2.2 deep-probe-max-tokens-too-small: lib/exploration.js probeDeep max_tokens 1500, one retry with 3000 on finish length
 - 2.3 deep-probe-transient-error-shown-as-context-lost: repl.js explored, probeBrief, deepText: a transient deep error is busy;

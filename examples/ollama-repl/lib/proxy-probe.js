@@ -109,6 +109,21 @@ export async function exitIp(proxyUrl) {
  *
  * @throws {Error} when the control port does not answer, the password is refused or Tor says no
  */
+/**
+ * the host of Tor's control port: TORHOST when set, else the host of the proxy URL (the control port sits on the machine
+ * of the proxy), else 127.0.0.1
+ *
+ *   torHost('socks5://192.168.178.52:9050')   // '192.168.178.52'
+ *   torHost('socks5h://[::1]:9050')           // '::1'
+ */
+export function torHost(proxyUrl) {
+  const env = getenv('TORHOST');
+  if(env) return env;
+
+  const m = /^[a-z0-9+.-]+:\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:]+)/i.exec(String(proxyUrl ?? ''));
+  return m ? m[1].replace(/^\[|\]$/g, '') : '127.0.0.1';
+}
+
 export async function newExit({ host = getenv('TORHOST') || '127.0.0.1', port = +(getenv('CTRLPORT') || 9051), password = getenv('CTRLPASS') ?? '', timeoutMs = 8000 } = {}) {
   let buf = '';
   let wake = null;

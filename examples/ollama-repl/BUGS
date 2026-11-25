@@ -1,26 +1,3 @@
-- deep-probe-max-tokens-too-small (lib/exploration.js:98): the tier 1 probe asks for max_tokens 400, a reasoning model spends it on thinking and the reply ends with finish length before the tool call, so the model fails the tier although it recalled all 3 facts. Seen in exploration.json for the three nemotron-3.5-lightning variants (recall 3, toolCall false, finish length); nemotron-3.5-lightning then served 2314 real requests with 53 failures.
-
-    not reproduced from a script (no gateway key at hand); evidence is the cached deep results: recall 3, toolCall false, finish length
-
-- deep-probe-transient-error-shown-as-context-lost (repl.js:3075): a tier 1 probe that failed with a rate limit (deep.error, deep.transient) is reported as k context failed, which events.js turns into context lost, and probeBrief shows 12k with a cross. 5 of the 9 failed deep results in exploration.json are electronhub rate limits (qwen3.8-27b, deepseek-v4-flash, gemma-4-26b-a4b-it, glm-4.7-flash, openai-gpt-6-luna), none says anything about the context window.
-
-    /model health   (the probe column of qwen3.8-27b reads 12k with a cross)
-
-- failed-request-rated-against-requested-name (repl.js:2938): a request that failed has no routedVia, so recordResult rates the failure against meta.requested: the pseudo model auto has 30 failures and 0 successes in ratings.json (adj -25), and a pinned name collects failures of the whole gateway. Harness side exceptions that surface as the request error (is not defined, not a function, unknown color: 12 of the 236 logged errors, 11 of them on nemotron-3.5-lightning) count as model failures too.
-
-    note: see ratings.json and usage.jsonl in the cache directory
-
-- usage-rows-lack-attempt (lib/persist.js:usageRow, repl.js:chatRound): a usage row does not say whether it is the first try of a request or one hop of the automatic retry chain (chatRound skips the spent model and asks again, up to AUTO_SKIPS 8 times), so the 104 failures that are not interrupted mix failed turns with failed hops; the 73 All models exhausted/rate-limited rows are mostly such hops (runs of up to 9 requests, 0.3 s each).
-
-    note: see usage.jsonl, bursts of different requested models within seconds in one session
-
 - rating-adj-saturates (lib/rating.js:30): the adjustment is capped at 25, so laguna-xs-2.1 (428 ok, 0 failed) and nemotron-3.5-lightning (2314 ok, 53 failed) and nemotron-3-ultra-550b-a55b both reach the cap and can no longer be told apart.
 
     note: see ratings.json, adj 25 for all three
-- exit-change-uses-wrong-tor-host (repl.js:3292, repl.js:4331): the automatic exit change (autoExit) and /proxy exit call newExit() with no host, which falls back to TORHOST or 127.0.0.1, while the gateway's proxy is on another machine (socks5://192.168.178.52:9050 in the live session, TORHOST is not set), so NEWNYM goes to the wrong control port; only fixKeyless (repl.js:3506) passes the host taken from the socks URL.
-
-    note: needs a proxy on another host to reproduce; compare newExit() calls with the one in fixKeyless
-
-- rawcolor-test-expects-old-colors (test-rawcolor.js:39): 4 checks (colorMeta status green and 503 red, colorJson key teal, colorContent + line green) hard-code the old truecolor values (74;222;128, 248;113;113, 45;212;191) while rawcolor.js takes TEAL, GREEN, RED from palette.js (1f8181, 07923a, f83171), so they fail since the colors were changed; the code is fine, the test is stale.
-
-    qjsm test-rawcolor.js   (4 failed)
