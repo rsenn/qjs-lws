@@ -15,9 +15,16 @@ function(check_cflag FLAG OUTPUT_VAR)
   endif()
 
   message(CHECK_START "Compiler flag ${FLAG}")
-   set(CMAKE_REQUIRED_QUIET TRUE)
-  check_c_compiler_flag("${FLAG}" RESULT)
+  # check_c_compiler_flag() stores its result in a cache variable, so the
+  # name must differ per flag: with a shared name every probe after the first
+  # returned the first answer without running
+  string(MAKE_C_IDENTIFIER "${FLAG}" _flag_id)
+  set(_result_var CHECK_CFLAG${_flag_id})
+
+  set(CMAKE_REQUIRED_QUIET TRUE)
+  check_c_compiler_flag("${FLAG}" ${_result_var})
   set(CMAKE_REQUIRED_QUIET FALSE)
+  set(RESULT "${${_result_var}}")
 
   if(RESULT)
     message(CHECK_PASS "supported")

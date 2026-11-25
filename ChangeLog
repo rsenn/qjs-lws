@@ -1,5 +1,20 @@
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
+	* cmake/Checks.cmake (check_cflag): Probe each flag under its own
+	result variable.  The shared cache variable made every probe after
+	the first return the first answer, so a rejected flag made -O0 and
+	-g look unsupported.
+
+	* cmake/BuildLibwebsockets.cmake: Pass -DTERMUX:BOOL=TRUE; the
+	untyped -DTERMUX=TRUE was ignored by ExternalProject, so the Termux
+	resolv.conf patch never applied.
+
+	* tests/unittests/test-check-cflag.js,
+	tests/unittests/fixtures/check-cflag/CMakeLists.txt: New.
+
+	* BUGS (check-cflag-result-cached-under-fixed-name,
+	lws-termux-flag-not-applied): Removed, fixed.
+
 	* BUGS (h1-late-queued-pipeline-never-promoted): Rewritten for the
 	current lws layout; not reproducible with fetch() at idle gaps of 0
 	to 30 s.

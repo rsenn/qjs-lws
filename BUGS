@@ -42,19 +42,6 @@
 
 - serve-websocket-options-silently-ignored (lib/serve.js:~640): backpressureLimit, closeOnBackpressureLimit and sendPings are read and never used (perMessageDeflate, maxPayloadLength and publishToSelf work now); they need the write queue size / ping control from lws.
 
-- check-cflag-result-cached-under-fixed-name (cmake/Checks.cmake:19, check_cflag()): result stored
-  in the shared cache variable RESULT, so every probe after the first one returns the first answer.
-  Full description and repro in qjs-modules/BUGS (identical copy of the function).
-
-- lws-termux-flag-not-applied (cmake/BuildLibwebsockets.cmake:381-385): the Termux branch appends
-  " -DTERMUX=TRUE" to LIBWEBSOCKETS_ARGS, a string, and that reaches ExternalProject without a
-  cache type, so CMake 4.5 prints "Line 'TERMUX=TRUE' does not match regex.  Ignoring." and the
-  libwebsockets build never sees TERMUX. patches/0004-termux-resolvconf.patch only adds
-  -DTERMUX_PREFIX under `if (TERMUX)`, so the Termux resolv.conf path is not applied. Found
-  2026-11-15 on a fresh Termux. Fix: -DTERMUX:BOOL=TRUE (every other -D in that list has a type).
-
-    cmake -S . -B build/x   # on Termux, look for "Line 'TERMUX=TRUE' does not match regex"
-
 - lws-endif-arguments-mismatch (cmake/BuildLibwebsockets.cmake:387-392 and 394-396): `if(WIN32 AND
   NOT MSYS)` is closed by `endif(WIN32)`; CMake 4.5 warns "A logical block opening on the line ...
   closes on the line ... with mis-matching arguments" on every configure. Harmless, noisy.
