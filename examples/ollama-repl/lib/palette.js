@@ -61,6 +61,9 @@ export const BORDER = '#a000ff';
 export const HEADER = '#ffcc00';
 export const HINT = '#9C8F7E';
 
+/** the plain text of a model reply: soft light grey, not the terminal's own (often bright white) foreground */
+export const REPLY = '#c0c0c0';
+
 /** prose, inline code and code fences of the reasoning text */
 export const PROSE = '#999999';
 export const INLINE_CODE = '#5080ff';

@@ -374,7 +374,10 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   - `verbose` and `remote:NAME` while those are on.
 - Replies are rendered markdown, line by line as they stream: headings,
   lists, quotes, tables, inline code, and code blocks in a frame with
-  strings, numbers, comments and keywords colored.
+  strings, numbers, comments and keywords colored. The plain text of a
+  reply (paragraphs, list items, table rows) is a soft light grey, `REPLY`
+  in `lib/palette.js`, never the terminal's own foreground (often bright
+  white) and never bold; bold is for `**emphasis**` and headings only.
 - A tool call is one line (`● read_file a.txt`) with its result below
   (`⎿ 31 lines, 231 chars`). A file change shows as a panel with the
   file's line numbers, - lines red and + lines green.

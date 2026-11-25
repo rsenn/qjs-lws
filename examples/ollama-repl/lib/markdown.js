@@ -16,6 +16,7 @@
  *   `code` **b** *i* ~~s~~ [text](url)   inline styles
  */
 import { stripAnsi } from 'terminal';
+import { REPLY } from './palette.js';
 
 const CSI = '\x1b[';
 const fg = hex => `${CSI}38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
@@ -28,6 +29,10 @@ const GREEN = fg('#4ade80');
 const DIM = CSI + '2m';
 const BOLD = CSI + '1m';
 const RESET = CSI + '0m';
+const BASE = fg(REPLY);
+
+/* the plain text of a reply in the reply color; every reset inside it (inline code, bold) starts the color again */
+const body = s => (s ? BASE + s.replaceAll(RESET, RESET + BASE) + RESET : s);
 
 const KEYWORDS = new Set(
   'async await break case catch class const continue def default delete do elif else enum export extends false fn for from func function if impl import in include instanceof let match mut new nil None null pub return self static struct switch this throw true True False try type typeof undefined var void while yield'.split(' '),
@@ -97,11 +102,11 @@ export class MarkdownStream {
     if((m = /^(#{1,6})\s+(.*)$/.exec(l))) return (m[1].length === 1 ? BOLD + TEAL : m[1].length === 2 ? BOLD + AMBER : BOLD) + stripAnsi(inline(m[2])) + RESET;
     if(/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) return DIM + '─'.repeat(40) + RESET;
     if((m = /^(\s*)>\s?(.*)$/.exec(l))) return `${m[1]}${TEAL}▎${RESET} ${DIM}${inline(m[2])}${RESET}`;
-    if((m = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(l))) return `${m[1]}${m[2] === ' ' ? '☐' : GREEN + '☑' + RESET} ${inline(m[3])}`;
-    if((m = /^(\s*)[-*+]\s+(.*)$/.exec(l))) return `${m[1]}${TEAL}•${RESET} ${inline(m[2])}`;
-    if((m = /^(\s*)(\d+)([.)])\s+(.*)$/.exec(l))) return `${m[1]}${TEAL}${m[2]}${m[3]}${RESET} ${inline(m[4])}`;
-    if(/^\s*\|.*\|\s*$/.test(l)) return inline(l).replace(/\|/g, DIM + '│' + RESET);
+    if((m = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/.exec(l))) return `${m[1]}${m[2] === ' ' ? '☐' : GREEN + '☑' + RESET} ${body(inline(m[3]))}`;
+    if((m = /^(\s*)[-*+]\s+(.*)$/.exec(l))) return `${m[1]}${TEAL}•${RESET} ${body(inline(m[2]))}`;
+    if((m = /^(\s*)(\d+)([.)])\s+(.*)$/.exec(l))) return `${m[1]}${TEAL}${m[2]}${m[3]}${RESET} ${body(inline(m[4]))}`;
+    if(/^\s*\|.*\|\s*$/.test(l)) return body(inline(l).replace(/\|/g, DIM + '│' + RESET));
 
-    return inline(l);
+    return body(inline(l));
   }
 }
