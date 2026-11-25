@@ -128,10 +128,12 @@ export class Pager {
       this.#view = new ScrollView(height, this.#text.split('\n').flatMap(l => wrap(l, width)));
     } else if(this.#view?.width !== undefined) {
       /* a resize: the view keeps its wrapped lines per width, so a new height alone wraps nothing */
-      this.#view.resize(height).setWidth(width);
+      this.#view.resize(height);
     } else {
+      /* new ScrollView: avoid setWidth() to prevent double-wrapping;
+         initialize with wrapped lines directly via setText() */
       this.#view = new ScrollView(height);
-      this.#view.setWidth(width).setText(this.#text.split('\n'));
+      this.#view.setText(this.#text.split('\n'));
     }
 
     this.#view.follow = false;

@@ -26,7 +26,7 @@
 import { out as stdout } from 'std';
 import { signal, setTimeout } from 'os';
 import { SIGWINCH } from 'util';
-import { Region, charWidth, layoutInput, stringWidth, ttyWrite, windowSize } from 'terminal';
+import { Region, charWidth, layoutInput, stringWidth, ttyWrite, windowSize, mouseEnable, mouseDisable } from 'terminal';
 import * as terminal from 'terminal';
 
 /* one frame in synchronized output (mode 2026) where the terminal has it; an older terminal module has no syncOutput */
@@ -43,37 +43,14 @@ const ANSI_AT = /^\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[PX
 const goto = (row, col = 1) => `${CSI}${row};${col}H`;
 
 /* press, release and wheel reports in SGR form (decoded by the REPL's line editor) */
-const MOUSE_ON = `${CSI}?1000h${CSI}?1006h`;
-const MOUSE_OFF = `${CSI}?1000l${CSI}?1006l`;
 const HISTORY_MAX = 10000;
 /** a live panel repaints the view at most this often (ms) */
 const REPAINT_MS = 120;
 const SGR = /^\x1b\[[\d;]*m$/;
 
-/** str cut to `width` cells, escape sequences kept, attributes reset at the end */
+/** str cut to `width` cells using terminal.js truncate, escape sequences kept, reset at the end */
 export function clip(str, width) {
-  let out = '',
-    w = 0;
-
-  for(let i = 0; i < str.length; ) {
-    const m = str[i] === ESC && ANSI_AT.exec(str.slice(i));
-
-    if(m) {
-      out += m[0];
-      i += m[0].length;
-      continue;
-    }
-
-    const ch = String.fromCodePoint(str.codePointAt(i));
-    const cw = charWidth(ch);
-    if(w + cw > width) break;
-
-    out += ch;
-    w += cw;
-    i += ch.length;
-  }
-
-  return out + CSI + '0m';
+  return terminal.truncate(str, width, '') + '\x1b[0m';
 }
 
 export class Tui {
@@ -255,13 +232,13 @@ export class Tui {
     this.#out.puts = s => (this.#closed ? puts(s) : this.write(String(s)));
 
     signal(SIGWINCH, () => this.resize());
-    if(this.mouse) this.#write(MOUSE_ON);
+    if(this.mouse) mouseEnable(this.#out);
   }
 
   /** mouse reports on (wheel scrolls, Shift-drag selects text) or off (the terminal's own selection) */
   setMouse(on) {
     this.mouse = !!on;
-    if(!this.#closed) this.#write(on ? MOUSE_ON : MOUSE_OFF);
+    if(!this.#closed) on ? mouseEnable(this.#out) : mouseDisable(this.#out);
   }
 
   /** gives the terminal back: whole screen scrolls again, cursor below everything */
@@ -271,7 +248,7 @@ export class Tui {
 
     if(this.#puts) this.#out.puts = this.#puts;
     signal(SIGWINCH, null);
-    if(this.mouse) this.#write(MOUSE_OFF);
+    if(this.mouse) mouseDisable(this.#out);
     this.#write(`${CSI}r${goto(this.rows)}\r${CSI}K\n`);
     this.#restore?.();
     this.#restore = null;

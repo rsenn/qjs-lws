@@ -64,6 +64,7 @@ function(hide_static_symbols TARGET INIT_SYMBOL)
   endif()
 
   if(NOT CMAKE_OBJCOPY OR NOT CMAKE_NM OR APPLE OR MSVC OR WASI OR EMSCRIPTEN
+     OR CMAKE_C_COMPILER MATCHES "cosmo"
      OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
     message(STATUS "hide_static_symbols: ${TARGET} keeps all its symbols (no objcopy/nm for this platform)")
     return()

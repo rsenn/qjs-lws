@@ -74,7 +74,7 @@ import { extractTextToolCalls } from './lib/text-tool-calls.js';
 import { formatUsage } from './lib/usage.js';
 import { UsageStats, routeLine, routeName, formatMeta, formatTable, fitTable, fmtNum, fmtMs } from './lib/usage-stats.js';
 import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAllowed, needsApproval, describeWrite, WRITE_TOOLS } from './lib/modes.js';
-import { expandHome, unquote } from './lib/paths.js';
+import { expandHome, toRelativePath, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/standby.js';
 import { diagnose } from './lib/diagnose.js';
@@ -1190,8 +1190,11 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   /* TUI: the reasoning as one panel, before the reply (kind 0: not verbose only); it grows while the model thinks */
   let liveReasoning = null;
   const showReasoning = () => {
-    if(reasoning && liveReasoning) liveReasoning.update('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`);
-    else if(reasoning) showPanel('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`, { border: '#f472b6' }); /* pink frame (pink-400, the 400 tones of the rest of the palette), sky blue italic text (a Balearic sunset): stands out from the dim tool lines - shown in the compact view, too */
+    if(reasoning) {
+      const body = colorReasoning(reasoning.trim());
+      if(liveReasoning) liveReasoning.update('◌ reasoning', body);
+      else showPanel('◌ reasoning', body, { border: '#f472b6' });
+    }
     reasoning = '';
     liveReasoning = null;
   };
@@ -1203,7 +1206,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
       onReasoning: text => {
         reasoning += text;
         control?.activity('reasoning', { text });
-        const body = `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`;
+        const body = colorReasoning(reasoning.trim());
         if(!liveReasoning) liveReasoning = livePanel('◌ reasoning', body, { border: '#f472b6', tail: true });
         else if(Date.now() - reasonAt >= 100) liveReasoning.update('◌ reasoning', body);
         reasonAt = Date.now();
@@ -3811,9 +3814,10 @@ async function main() {
   let repl;
   /* keys typed while the terminal was asked what it can do, fed to the editor once it exists */
   let typeahead = '';
+  let caps = null;
   if(!piped && !opts.noTui && isatty(0) && isatty(1)) {
     /* what the terminal can do, asked once before anything reads stdin (an older terminal module has no such query): synchronized output for the frames, bracketed paste and grapheme clusters switched on, off again by Tui.close() */
-    const caps = terminal.queryCapabilities?.(stdout) ?? null;
+    caps = terminal.queryCapabilities?.(stdout) ?? null;
     typeahead = caps?.typeahead ?? '';
     tui = new Tui({
       sync: !!caps?.syncOutput,
@@ -3910,7 +3914,10 @@ async function main() {
 
     return approve(name, `✎ ${head}`, detail || head, 'Apply this change?', ['Yes, allow once', `Yes, allow ${name} for the rest of this session`, 'No']);
   };
+  let selfAllowed = false;
   approveSelf = async (text, name, args) => {
+    if(selfAllowed) return true;
+
     const [head, ...body] = text.split('\n');
     const detail = tui?.active ? numberedDiff(name, args, loadFile(underRoot(opts.root, args.path)), false) : body.join('\n');
     const title = `⚠ ${head} - changes ollama-repl itself`;
@@ -3920,21 +3927,10 @@ async function main() {
 
     const before = { ...phase };
     setPhase('you');
-    // Check if we already have a whole-session approval stored in phase
-    const wholeSession = phase.approveSelfWholeSession;
-    const options = wholeSession
-      ? ['Yes, whole session', 'No, ask again next time']
-      : ['Yes, this edit', 'No'];
-    const k = await repl.choose('Change the harness itself?', options, tui?.active ? { view: () => repl.openPager(title, detail) } : {});
-    // If user chose "Yes, whole session", remember it for the rest of the session
-    if(k === 0 && !wholeSession) {
-      Object.assign(phase, { approveSelfWholeSession: true });
-    } else if(k === 2) {
-      // "No, ask again next time" - clear the flag if it was set
-      Object.assign(phase, { approveSelfWholeSession: false });
-    }
+    const k = await repl.choose('Change the harness itself?', ['Yes, this edit', 'Yes, whole session', 'No'], tui?.active ? { view: () => repl.openPager(title, detail) } : {});
     Object.assign(phase, before, { since: Date.now() });
-    return k === 0 || k === 2; // k===0 means accept, k===2 means "no but remember preference"
+    if(k === 1) selfAllowed = true;
+    return k < 2;
   };
   const askUser = question => repl.ask(question);
 
@@ -5291,6 +5287,7 @@ async function main() {
   };
 
   repl = new ChatREPL(opts.model, reportLine, opts.root, () => abortRef.current?.() ?? false, sessionFile(cacheKey, 'history'));
+
   /* the /model pattern of the last run of this session */
   const lastPattern = loadSessionState(cacheKey).modelPattern;
   if(lastPattern) console.log(dim(`last /model pattern of this session: ${lastPattern} (/model ${lastPattern} cycles it)`));
