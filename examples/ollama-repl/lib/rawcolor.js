@@ -15,20 +15,22 @@ import { highlight } from './markdown.js';
 
 /* keep the existing exports */
 const CSI = '\x1b[';
-const fg = hex => `${CSI}38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
+
+export const fg = hex => `${CSI}38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
+export const bg = hex => `${CSI}48;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
 
 const TEAL = fg('#1f8181');
-const LIME = fg('#24ff00');
+const LIME = fg('#67ff00');
 const AMBER = fg('#d9a51f');
 const VIOLET = fg('#651dff');
 const GREEN = fg('#07923a');
 const RED = fg('#f83171');
-const SKYBLUE = fg('#7dd3fc');
+const SKYBLUE = fg('#a9d8ea');
 const DIM = `${CSI}2m`;
 const BOLD = `${CSI}1m`;
 const RESET = `${CSI}0m`;
 
-const paint = (color, s) => (s === '' ? s : `${color}${s}${RESET}`);
+export const paint = (color, s) => (s === '' || !color ? s : `${color}${s}${RESET}`);
 
 /**
  * JSON text, one line at a time: keys teal, strings lime, numbers amber,

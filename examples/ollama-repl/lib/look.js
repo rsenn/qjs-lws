@@ -12,6 +12,17 @@ import { BOX_ROUNDED, bigText, boxLines, gradient, keyValue, pad, progressBar, r
 import { getenv } from 'std';
 import { piped } from './ansi.js';
 import { fmtNum } from './usage-stats.js';
+import { bg, paint as paintColor } from './rawcolor.js';
+
+/** the colour of every file name: mustard yellow */
+export const FILE = '#ffcc00';
+
+/** colours of the generic highlighter: token counts, sizes, times, other numbers, arrows */
+export const TOKENS = '#38bdf8';
+export const SIZES = '#a78bfa';
+export const TIMES = '#fba000';
+export const NUMBERS = '#fdba74';
+export const ARROWS = '#a3e635';
 
 /** colors of the gradient, the accent is its first stop */
 export const STOPS = ['#2dd4bf', '#a3e635', '#fbbf24'];
@@ -28,17 +39,10 @@ export const remoteMark = () => `${style('⇄', { fg: ACCENT })} ${style('remote
 export const remoteText = text => style(text, { fg: '#8a8a8a' });
 
 /** the control socket line: where it listens and how to talk to it, in colour */
-export const controlNote = (path, name) => (piped ? `(control socket: ${path}, session name: ${name} - ollama-repl-ctl -s ${name} send ...)` : `${style('⇄', { fg: ACCENT })} ${style('control socket', { fg: ACCENT, bold: true })} ${style(path, { fg: FILE })} ${style('·', { dim: true })} ${style('session', { fg: ACCENT })} ${style(name, { fg: STOPS[1], bold: true })} ${style('·', { dim: true })} ${style(`ollama-repl-ctl -s ${name} send …`, { fg: WARN })}`);
-
-/** the colour of every file name: mustard yellow */
-export const FILE = '#ffcc00';
-
-/** colours of the generic highlighter: token counts, sizes, times, other numbers, arrows */
-export const TOKENS = '#38bdf8';
-export const SIZES = '#a78bfa';
-export const TIMES = '#fba000';
-export const NUMBERS = '#fdba74';
-export const ARROWS = '#a3e635';
+export const controlNote = (path, name) =>
+  piped
+    ? `(control socket: ${path}, session name: ${name} - ollama-repl-ctl -s ${name} send ...)`
+    : `${style('⇄', { fg: ACCENT })} ${style('control socket', { fg: ACCENT, bold: true })} ${style(path, { fg: FILE })} ${style('·', { dim: true })} ${style('session', { fg: ACCENT })} ${style(name, { fg: STOPS[1], bold: true })} ${style('·', { dim: true })} ${style(`ollama-repl-ctl -s ${name} send …`, { fg: WARN })}`;
 
 const N = String.raw`\d[\d.,]*`;
 const HL_RE = new RegExp(
@@ -50,7 +54,7 @@ const HL_RE = new RegExp(
     String.raw`(?<time>~?\b\d+(?:\.\d+)?(?:ms|min|s|m|h|d)\b)`,
     String.raw`(?<num>~?\b${N}[kMG]?\b)`,
   ].join('|'),
-  'g'
+  'g',
 );
 
 const ARROW = { '->': '→', '=>': '⇒', '<-': '←' };
@@ -92,7 +96,18 @@ function labelled(text, color) {
 }
 
 /** icon and colour of each kind of note() */
-const NOTES = { info: ['ⓘ', ACCENT], ok: ['✓', '#4ade80'], warn: ['⚠', WARN], skip: ['⤼', STOPS[1]], attach: ['📎', ACCENT], link: ['⇄', ACCENT], wait: ['◌', ACCENT], resume: ['↻', STOPS[1]], quit: ['⏻', WARN], explore: ['⌕', ACCENT] };
+const NOTES = {
+  info: ['ⓘ', ACCENT],
+  ok: ['✓', ARROWS],
+  warn: ['⚠', WARN],
+  skip: ['⤼', STOPS[1]],
+  attach: ['📎', ACCENT],
+  link: ['⇄', ACCENT],
+  wait: ['◌', ACCENT],
+  resume: ['↻', STOPS[1]],
+  quit: ['⏻', WARN],
+  explore: ['⌕', ACCENT],
+};
 
 /** a one-line message: an icon in the accent colour, then the text dimmed; piped, the old `(text)` */
 export const note = (text, kind = 'info') => {
@@ -129,13 +144,14 @@ export const gradientRule = (cols, label = '') => gradient(rule(cols, { label })
  *   │ model  qwen3-coder │
  *   ╰───────────────────╯
  */
-export function panel(title, text, cols, { border = ACCENT, max = Infinity, more } = {}) {
+export function panel(title, text, cols, { border = ACCENT, max = Infinity, background, more } = {}) {
   let lines = String(text).replace(/\n+$/, '').split('\n');
   if(lines.length > max) lines = [...lines.slice(0, max), style(more?.(lines.length - max) ?? `… ${lines.length - max} more lines`, { dim: true })];
 
   const width = Math.max(10, Math.min(cols - 1, Math.max(...lines.map(stringWidth), stringWidth(title) + 4) + 4));
 
-  return boxLines(lines, { title: style(title, { bold: true }), width, chars: BOX_ROUNDED, border: { fg: border } }).join('\n');
+  const s = boxLines(lines, { title: style(title, { bold: true }), width, chars: BOX_ROUNDED, border: { fg: border } }).join('\n');
+  return background ? paintColor(bg(background), s) : s;
 }
 
 /** lines of left and right next to each other, right starting gap cells after the widest left line */
@@ -159,7 +175,7 @@ export function banner(rows, tips, cols) {
   const top = beside ? sideBySide(['', ...name], box) : [...name, '', ...box];
   const tip = (t, k) => `${style(`${k + 1}.`, { fg: ACCENT })} ${t.replace(/\/[a-z-]+/g, c => style(c, { fg: WARN, bold: true }))}`;
 
-  return [...top, '', `${style('●', { fg: '#4ade80' })} ${style('session initialized', { fg: '#4ade80' })}`, '', style('Tips for getting started:', { bold: true }), ...tips.map(tip), ''].join('\n');
+  return [...top, '', `${style('●', { fg: ARROWS })} ${style('session initialized', { fg: ARROWS })}`, '', style('Tips for getting started:', { bold: true }), ...tips.map(tip), ''].join('\n');
 }
 
 /** text that already is a panel (starts with a rounded corner) */
@@ -238,14 +254,18 @@ export function numberedDiff(name, args, content, after) {
     const k = s && content ? content.indexOf(s) : -1;
     return k < 0 ? null : content.slice(0, k).split('\n').length;
   };
-  const rows = (text, sign, from) => String(text ?? '').split('\n').map((l, k) => style(`${num(from == null ? null : from + k)} ${sign} ${l}`, { fg: sign === '+' ? '#4ade80' : '#f87171' }));
+  const rows = (text, sign, from) =>
+    String(text ?? '')
+      .split('\n')
+      .map((l, k) => style(`${num(from == null ? null : from + k)} ${sign} ${l}`, { fg: sign === '+' ? ARROWS : '#f87171' }));
 
   if(name === 'edit_file') {
     const at = lineOf(after ? args.new_string : args.old_string);
     return [...rows(args.old_string, '-', at), ...rows(args.new_string, '+', at)].join('\n');
   }
 
-  if(name === 'insert_above') return [style(`${num(lineOf(args.anchor))}   above: ${args.anchor ?? '?'}`, { dim: true }), ...rows(args.text, '+', after ? lineOf(args.text) : lineOf(args.anchor))].join('\n');
+  if(name === 'insert_above')
+    return [style(`${num(lineOf(args.anchor))}   above: ${args.anchor ?? '?'}`, { dim: true }), ...rows(args.text, '+', after ? lineOf(args.text) : lineOf(args.anchor))].join('\n');
   if(name === 'write_file') return rows(args.content, '+', 1).join('\n');
   return '';
 }
@@ -260,7 +280,18 @@ export function toolTarget(name, args = {}) {
 }
 
 /* a colour per kind of tool: looking is sky blue, changing amber, running pink, talking violet */
-const TOOL_COLORS = { read_file: '#38bdf8', list_directory: '#38bdf8', grep: '#38bdf8', write_file: '#fb923c', edit_file: '#fb923c', insert_above: '#fb923c', run_command: '#f472b6', ask_user: '#c084fc', for_each: '#c084fc', spawn_agent: '#c084fc' };
+const TOOL_COLORS = {
+  read_file: '#3ed610',
+  list_directory: '#10a0ff',
+  grep: '#3e6efa',
+  write_file: '#b40035',
+  edit_file: '#ff8000',
+  insert_above: '#cec03f',
+  run_command: '#e52087',
+  ask_user: '#8d1fff',
+  for_each: '#96c507',
+  spawn_agent: '#6148ff',
+};
 
 /**
  * A shell command with a simple regex syntax colouring: the command word of every
@@ -270,36 +301,40 @@ const TOOL_COLORS = { read_file: '#38bdf8', list_directory: '#38bdf8', grep: '#3
 export function paintShell(cmd) {
   let atCommand = true;
 
-  return String(cmd ?? '').replace(/('[^']*'|"(?:[^"\\]|\\.)*")|(\|\||&&|[|;]|&(?!>)|\d*>>?&?\d*|<|\$\(|[()])|(\$\{?\w+\}?)|(--?[A-Za-z][\w-]*)|([^\s|;&<>'"$()]+)/g, (m, str, op, variable, flag, word) => {
-    if(str) {
+  return String(cmd ?? '').replace(
+    /('[^']*'|"(?:[^"\\]|\\.)*")|(\|\||&&|[|;]|&(?!>)|\d*>>?&?\d*|<|\$\(|[()])|(\$\{?\w+\}?)|(--?[A-Za-z][\w-]*)|([^\s|;&<>'"$()]+)/g,
+    (m, str, op, variable, flag, word) => {
+      if(str) {
+        atCommand = false;
+        return style(m, { fg: '#86efac' });
+      }
+
+      if(op) {
+        if(/^(\|\||&&|\||;|&|\$\(|\()$/.test(m)) atCommand = true;
+        return style(m, { fg: '#f472b6' });
+      }
+
+      if(variable) {
+        atCommand = false;
+        return style(m, { fg: '#c084fc' });
+      }
+
+      if(flag) {
+        atCommand = false;
+        return style(m, { fg: TOKENS });
+      }
+
+      const first = atCommand;
       atCommand = false;
-      return style(m, { fg: '#86efac' });
-    }
-
-    if(op) {
-      if(/^(\|\||&&|\||;|&|\$\(|\()$/.test(m)) atCommand = true;
-      return style(m, { fg: '#f472b6' });
-    }
-
-    if(variable) {
-      atCommand = false;
-      return style(m, { fg: '#c084fc' });
-    }
-
-    if(flag) {
-      atCommand = false;
-      return style(m, { fg: '#38bdf8' });
-    }
-
-    const first = atCommand;
-    atCommand = false;
-    return first ? style(m, { bold: true, fg: '#4ade80' }) : /^[./~]|\//.test(m) ? style(m, { fg: '#fde68a' }) : m;
-  });
+      return first ? style(m, { bold: true, fg: ARROWS }) : /^[./~]|\//.test(m) ? style(m, { fg: '#fde68a' }) : m;
+    },
+  );
 }
 
 /** ● tool target, the line shown when the model calls a tool */
 export const toolLine = (name, args) => {
-  const target = name === 'run_command' ? `${style('$', { bold: true, fg: '#f472b6' })} ${paintShell(args?.command)}` : name === 'ask_user' ? toolTarget(name, args) : paintText(toolTarget(name, args));
+  const target =
+    name === 'run_command' ? `${style('$', { bold: true, fg: '#f472b6' })} ${paintShell(args?.command)}` : name === 'ask_user' ? toolTarget(name, args) : paintText(toolTarget(name, args));
   return `${style('●', { fg: ACCENT })} ${style(name, { bold: true, fg: TOOL_COLORS[name] ?? ACCENT })} ${target}`;
 };
 
@@ -316,7 +351,7 @@ export function toolResult(output) {
 /** fraction as a bar of width cells, green, amber from 60 %, red from 85 % */
 export function meter(fraction, width) {
   const f = Math.max(0, Math.min(1, fraction || 0));
-  const fg = f >= 0.85 ? '#f87171' : f >= 0.6 ? WARN : '#4ade80';
+  const fg = f >= 0.85 ? '#f87171' : f >= 0.6 ? WARN : ARROWS;
 
   return progressBar(f, width, { style: { fg }, empty: '·', emptyStyle: { dim: true } });
 }
@@ -324,7 +359,7 @@ export function meter(fraction, width) {
 /** a share as a meter in one calm color (teal): how much of something, not how close to a limit */
 export function shareBar(fraction, width) {
   const f = Math.max(0, Math.min(1, fraction || 0));
-  return progressBar(f, width, { style: { fg: '#2dd4bf' }, empty: '·', emptyStyle: { dim: true } });
+  return progressBar(f, width, { style: { fg: STOPS[0] }, empty: '·', emptyStyle: { dim: true } });
 }
 
 /** text in a color, plain when piped */
@@ -333,7 +368,7 @@ export const paint = (text, fg, bold = false) => (piped ? String(text) : style(S
 /** a status word colored by what it says: ok green, trouble red, anything else amber */
 export function statusWord(s) {
   const t = String(s);
-  return paint(t, /^(ok|ready|active|healthy|enabled|up)$/i.test(t) ? '#4ade80' : /^(down|error|failed|disabled|exhausted|invalid|dead|unavailable)/i.test(t) ? '#f87171' : '#fbbf24');
+  return paint(t, /^(ok|ready|active|healthy|enabled|up)$/i.test(t) ? ARROWS : /^(down|error|failed|disabled|exhausted|invalid|dead|unavailable)/i.test(t) ? '#f87171' : STOPS[2]);
 }
 
 /** a fraction (0..1) as a meter and percent: `███··· 40%`; no meter when piped or width 0 */
@@ -343,7 +378,8 @@ export function pctCell(f, width = 6) {
 }
 
 /** a quota as a meter, the percent and used/limit: `███··· 40%  4/10` (no meter when piped); no limit: just `used` */
-export function quotaCell(used, limit, width = 6) {  /* width 0: no meter */
+export function quotaCell(used, limit, width = 6) {
+  /* width 0: no meter */
   if(!(limit > 0)) return fmtNum(used);
 
   const f = used / limit;

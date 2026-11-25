@@ -63,7 +63,7 @@ import { saveAllBlocks } from './lib/file-blocks.js';
 import { TOOLS, executeTool, resetJournal, undoJournal, writeCount } from './lib/tool-requests.js';
 import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
 import { fileMode, SKIP_DIRS } from './lib/match.js';
-import { ChatREPL } from './lib/chat-repl.js';
+import { ChatREPL,PrintError } from './lib/chat-repl.js';
 import { ControlSocket, controlDir, listSessions } from './lib/control-socket.js';
 import { SessionLog } from './lib/session-log.js';
 import { SessionStore } from './lib/session-store.js';
@@ -2873,7 +2873,7 @@ async function main() {
     try {
       bridgeProc = await startBridge({ scriptPath: scriptArgs[0], cdpHost: opts.cdpHost, cdpPort: opts.cdpPort, allowPaid: opts.allowPaid });
     } catch(e) {
-      console.log(red(`error: ${e.message}`));
+      PrintError(e);
       exit(1);
     }
 
@@ -2888,7 +2888,7 @@ async function main() {
   try {
     client = opts.provider === 'gemini' ? new GeminiClient(opts) : opts.provider === 'openai' ? new OpenAIClient(opts) : new OllamaClient(opts);
   } catch(e) {
-    console.log(red(`error: ${e.message}`));
+    PrintError(e);
     exit(1);
   }
 
@@ -3349,7 +3349,7 @@ async function main() {
       try {
         await newExit({ host });
       } catch(e) {
-        return void console.log(red(`error: ${e.message}`));
+        return void PrintError(e);
       }
 
       /* a circuit takes a moment to build; Tor answers NEWNYM at most every 10 s */
@@ -3695,7 +3695,7 @@ async function main() {
     try {
       for(const m of await client.listModels()) console.log(`${m.name.padEnd(44)} ${String(m.inputTokenLimit ?? '').padStart(8)} in ${String(m.outputTokenLimit ?? '').padStart(6)} out  ${m.displayName ?? ''}`);
     } catch(e) {
-      console.log(red(`error: ${e.message}`));
+      PrintError(e);
       bridgeProc?.stop();
       exit(1);
     }
@@ -3970,7 +3970,7 @@ async function main() {
         console.log(dim(`  ${summary}`));
         results.push(`${item}: ${summary}`);
       } catch(e) {
-        console.log(red(`  error: ${e.message}`));
+        PrintError(e);
         results.push(`${item}: error: ${e.message}`);
       }
     }
@@ -4169,7 +4169,7 @@ async function main() {
         try {
           await newExit();
         } catch(e) {
-          return void console.log(red(`error: ${e.message}`));
+          return void PrintError(e);
         }
         const after = await exitIp(url);
         proxyInfo.exits = [before ?? '?', after ?? '?'];
@@ -5164,7 +5164,7 @@ async function main() {
       try {
         reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
       } catch(e) {
-        console.log(red(`error: ${e.message}`));
+        PrintError(e);
         /* the command ran and its output was shown: it stays in the conversation, only the failed reaction goes */
         repairTurn(messages, turnMsg, { sideEffects: true, reason: e.message });
         saveSession();
@@ -5194,7 +5194,7 @@ async function main() {
       try {
         ({ content: reply } = await chatRound(client, messages, opts, abortRef));
       } catch(e) {
-        console.log(red(`error: ${e.message}`));
+        PrintError(e);
         rollbackTurn(messages, turnMsg); // don't leave a dangling/partial turn behind
         return;
       }
@@ -5235,7 +5235,7 @@ async function main() {
     try {
       reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
     } catch(e) {
-      console.log(red(`error: ${e.message}`));
+      PrintError(e);
       /* a turn that changed files or ran commands keeps its finished rounds (the model must know), anything else goes whole */
       const ran = messages.slice(Math.max(0, messages.indexOf(turnMsg))).some(m => m.role === 'tool' && m.name === 'run_command');
       if(repairTurn(messages, turnMsg, { sideEffects: writeCount > writesBefore || ran, reason: e.message }) === 'kept') console.log(dim('the finished tool rounds of this turn stay in the conversation'));
@@ -5604,7 +5604,7 @@ async function main() {
     try {
       control.start();
     } catch(e) {
-      console.log(red(`error: ${e.message}`));
+      PrintError(e);
       control = null;
       return false;
     }

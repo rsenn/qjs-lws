@@ -16,7 +16,12 @@ const q = s => `'${String(s).replaceAll("'", "'\\''")}'`;
 
 /* tools other harnesses offer that models call out of habit, mapped onto ours */
 const ALIASES = {
-  glob: a => ['run_command', { command: `find ${q(a.path || '.')} ${String(a.pattern ?? '*').includes('/') ? '-path ' + q('*/' + String(a.pattern).replace(/^\.?\//, '')) : '-name ' + q(a.pattern ?? '*')} -not -path '*/.git/*' -not -path '*/build/*' -not -path '*/node_modules/*' 2>/dev/null | head -n 100` }],
+  glob: a => [
+    'run_command',
+    {
+      command: `find ${q(a.path || '.')} ${String(a.pattern ?? '*').includes('/') ? '-path ' + q('*/' + String(a.pattern).replace(/^\.?\//, '')) : '-name ' + q(a.pattern ?? '*')} -not -path '*/.git/*' -not -path '*/build/*' -not -path '*/node_modules/*' 2>/dev/null | head -n 100`,
+    },
+  ],
   ls: a => ['list_directory', { dir: a.path ?? a.dir ?? '.' }],
   cat: a => ['read_file', { path: a.path ?? a.file }],
   read: a => ['read_file', { path: a.path ?? a.file_path ?? a.file, start: a.start ?? a.offset, end: a.end }],
@@ -57,7 +62,11 @@ function xmlCalls(content, tools) {
     for(const p of m[2].matchAll(/<parameter=([\w.-]+)>([\s\S]*?)(?:<\/parameter>|(?=<parameter=)|$)/g))
       args[p[1]] = coerce(p[2].replace(/^\n/, '').replace(/\n$/, ''), tool.parameters?.properties?.[p[1]]?.type);
 
-    const call = aliasToolCall(tool.name, args, tools.map(t => t.name));
+    const call = aliasToolCall(
+      tool.name,
+      args,
+      tools.map(t => t.name),
+    );
     out.push({ ...call, span: [m.index, m.index + m[0].length] });
   }
 
@@ -137,7 +146,12 @@ export function extractTextToolCalls(content, tools) {
     }
 
     if(typeof name === 'string' && !toolNames.includes(name) && ALIASES[name]) {
-      if(typeof args === 'string') try { args = JSON.parse(args); } catch(e) { continue; }
+      if(typeof args === 'string')
+        try {
+          args = JSON.parse(args);
+        } catch(e) {
+          continue;
+        }
       ({ name, args } = aliasToolCall(name, args, toolNames));
     }
 

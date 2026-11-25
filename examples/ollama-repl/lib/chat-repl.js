@@ -26,6 +26,8 @@ import { Pager } from './pager.js';
 import { STOPS, remoteMark, remoteText, note } from './look.js';
 import { red, yellow } from './ansi.js';
 
+export const PrintError = e => console.log(red(`error: ${e.detail ?? e.message}${e.stack ? '\nstack: ' + e.stack : ''}`));
+
 /* Bright white (not bold-as-in-JS-syntax-colors - just the one plain,
    readable color) instead of the base REPL's live JS-syntax highlighting
    (identifiers/keywords/strings each in a different color, since it
@@ -43,7 +45,6 @@ const RESET = '\x1b[0m';
 
 /* a steering line that only says stop */
 const STOP_WORD = /^(stop|cancel|abort|halt)[.!]?$/i;
-
 
 /** the widest cell of each column over the rows that have cells */
 const cellWidths = rows => {
@@ -70,7 +71,8 @@ function keepColumns(rows, drop, room) {
 }
 
 /** row k as aligned columns of `keep`, separated by two spaces; the last column is not padded */
-const columns = (rows, k, { keep, w }) => keep.map((i, j) => (j === keep.length - 1 ? rows[k][i] ?? '' : (rows[k][i] ?? '') + ' '.repeat(Math.max(0, w[i] - stringWidth(rows[k][i] ?? ''))))).join('  ');
+const columns = (rows, k, { keep, w }) =>
+  keep.map((i, j) => (j === keep.length - 1 ? (rows[k][i] ?? '') : (rows[k][i] ?? '') + ' '.repeat(Math.max(0, w[i] - stringWidth(rows[k][i] ?? ''))))).join('  ');
 
 /** Ctrl-X and then this key: a view of the split pane */
 const SPLIT_CHORD = { d: '/split diff', g: '/split git', s: '/split status', n: '/split net', o: '/split off', '0': '/split off', '\t': '/split next' };
@@ -281,7 +283,7 @@ export class ChatREPL extends REPL {
 
   /** a command line from a shortcut key: runs at once, beside a running request, without touching the line being typed */
   runNow(line) {
-    if(this.onImmediate) Promise.resolve(this.onImmediate(line)).catch(err => console.log(red(`error: ${err.message}`)));
+    if(this.onImmediate) Promise.resolve(this.onImmediate(line)).catch(PrintError);
     else this.restoreQueue([line]);
   }
 
@@ -454,7 +456,8 @@ export class ChatREPL extends REPL {
     if(expr === '') return false;
 
     this.historyAdd(expr);
-    if(this.#tuiOn) this.tui.write(`\n${from === 'remote' ? `${remoteMark()} ` : from ? `[${from}]> ` : '\x1b[38;2;45;212;191m❯\x1b[0m '}${from === 'remote' ? remoteText(expr) : `\x1b[1;97m${expr}\x1b[0m`}\n`);
+    if(this.#tuiOn)
+      this.tui.write(`\n${from === 'remote' ? `${remoteMark()} ` : from ? `[${from}]> ` : '\x1b[38;2;45;212;191m❯\x1b[0m '}${from === 'remote' ? remoteText(expr) : `\x1b[1;97m${expr}\x1b[0m`}\n`);
 
     /* Reset the line buffer *before* onLine() below resolves -
        termReadHandler() (repl.js) drains every currently-buffered byte in
@@ -509,7 +512,7 @@ export class ChatREPL extends REPL {
       const before = this.getModel?.();
 
       Promise.resolve(this.onImmediate(expr))
-        .catch(err => console.log(red(`error: ${err.message}`)))
+        .catch(PrintError)
         .then(() => {
           if(redo === null || !this.#busy || this.#current !== redo || this.getModel?.() === before) return;
 
@@ -541,7 +544,7 @@ export class ChatREPL extends REPL {
     this.pipeBusy = true; // piped: hold EOF/the next line back until this settles
 
     this.onLine(expr)
-      .catch(err => console.log(red(`error: ${err.message}`)))
+      .catch(PrintError)
       .then(() => {
         this.#busy = false;
 
@@ -549,8 +552,7 @@ export class ChatREPL extends REPL {
           const next = this.#queue.shift();
           this.#queueChanged();
           this.#run(next);
-        }
-        else {
+        } else {
           /* TUI: keys typed while the model worked stay in the input */
           const typed = this.#tuiOn ? this.cmd : '';
           this.handleCmdEnd();

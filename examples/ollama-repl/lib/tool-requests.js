@@ -49,7 +49,10 @@ export function listFiles(dir, root) {
 
 /** Model-given path made usable: quotes, file:// and $HOME / ${HOME} / ~ expanded, "./" prefix dropped. */
 function normalizePath(p) {
-  p = String(p).trim().replace(/^(['"`])(.*)\1$/, '$2').replace(/^file:\/\//, '');
+  p = String(p)
+    .trim()
+    .replace(/^(['"`])(.*)\1$/, '$2')
+    .replace(/^file:\/\//, '');
   p = p.replace(/^\$\{?HOME\}?(?=\/|$)/, getenv('HOME') ?? '$&');
   p = expandHome(p);
   while(p.startsWith('./')) p = p.slice(2);
@@ -134,7 +137,8 @@ function writablePath(path, root) {
   return root === '.' ? path : `${root}/${path}`;
 }
 
-const pathError = path => (path ? `error: ${path}: path must be relative to the project root and must not contain ".."` : 'error: the path argument is missing - give the file to change, e.g. path: "lib/path.h"');
+const pathError = path =>
+  path ? `error: ${path}: path must be relative to the project root and must not contain ".."` : 'error: the path argument is missing - give the file to change, e.g. path: "lib/path.h"';
 
 /* Original content (null = file did not exist) of every file written since
    the last resetJournal(), first write wins - what /undo restores. */
@@ -178,7 +182,8 @@ function nearLines(content, text) {
 
   for(const id of ids) {
     const lines = content.split('\n').filter(l => l.includes(id));
-    if(lines.length) return `\nLines of the file containing "${id}":\n${lines.slice(0, 4).join('\n')}\nCopy the text to match from these (this tool edits the file given as path, not the file you read the function from).`;
+    if(lines.length)
+      return `\nLines of the file containing "${id}":\n${lines.slice(0, 4).join('\n')}\nCopy the text to match from these (this tool edits the file given as path, not the file you read the function from).`;
   }
 
   return '';
@@ -246,9 +251,7 @@ function editFile({ path, old_string: oldStr, new_string: newStr }, root) {
      declaration, a closing brace) without noticing. Say so in the result. */
   const kept = new Set(newStr.split('\n').map(l => l.trim()));
   const dropped = oldStr.split('\n').filter(l => l.trim() && !kept.has(l.trim()));
-  const warning = dropped.length
-    ? `\nWARNING: this edit REMOVED ${dropped.length} line(s):\n${dropped.slice(0, 6).join('\n')}\nIf that was not intended, put them back now (insert_above).`
-    : '';
+  const warning = dropped.length ? `\nWARNING: this edit REMOVED ${dropped.length} line(s):\n${dropped.slice(0, 6).join('\n')}\nIf that was not intended, put them back now (insert_above).` : '';
 
   return `edited ${path}: ${count(oldStr)} line(s) replaced by ${count(newStr)}${warning}`;
 }
@@ -294,7 +297,8 @@ export const TOOLS = [
   },
   {
     name: 'insert_above',
-    description: 'Inserts new line(s) directly above an existing line of a file, e.g. a comment above a function declaration. Nothing existing is changed or removed. anchor must identify that line (copy it, or its beginning, from read_file) and occur exactly once in the file.',
+    description:
+      'Inserts new line(s) directly above an existing line of a file, e.g. a comment above a function declaration. Nothing existing is changed or removed. anchor must identify that line (copy it, or its beginning, from read_file) and occur exactly once in the file.',
     parameters: {
       type: 'object',
       properties: {
@@ -365,7 +369,8 @@ export const TOOLS = [
   },
   {
     name: 'restart_harness',
-        description: 'Restarts ollama-repl itself with the current session (messages, model, mode). Call it after changing its own files. When it runs from the source tree it first runs smoke.sh; if that fails the restart is refused, this session stays as it is and the failure output comes back so you can fix it. If the new version dies at startup anyway, the version this one started from is run instead.',
+    description:
+      'Restarts ollama-repl itself with the current session (messages, model, mode). Call it after changing its own files. When it runs from the source tree it first runs smoke.sh; if that fails the restart is refused, this session stays as it is and the failure output comes back so you can fix it. If the new version dies at startup anyway, the version this one started from is run instead.',
     parameters: {
       type: 'object',
       properties: {},
@@ -374,13 +379,23 @@ export const TOOLS = [
   },
   {
     name: 'spawn_agent',
-    description: 'Spawns a sub-agent with an isolated conversation to handle a bounded task, on a cheaper model where one is available (documentation, build wiring, summaries, simple repetitive jobs). The sub-agent runs with read-only tools when read_only is true, and returns only its final summary to the parent conversation.',
+    description:
+      'Spawns a sub-agent with an isolated conversation to handle a bounded task, on a cheaper model where one is available (documentation, build wiring, summaries, simple repetitive jobs). The sub-agent runs with read-only tools when read_only is true, and returns only its final summary to the parent conversation.',
     parameters: {
       type: 'object',
       properties: {
         task: { type: 'string', description: 'The task for the sub-agent to perform' },
-        kind: { type: 'string', enum: ['docs', 'build', 'summary', 'repetitive', 'other'], description: 'What kind of job it is: docs (documentation), build (build-system wiring), summary (summarizing files or logs), repetitive (simple repeated edits). The harness picks the weaker model that did this kind best before' },
-        model: { type: 'string', description: 'Usually leave empty so the harness chooses by kind. Optional model name to use for the sub-agent; "standby" uses the warm standby model of the gateway (when /standby is on), which spares the main model\'s quota' },
+        kind: {
+          type: 'string',
+          enum: ['docs', 'build', 'summary', 'repetitive', 'other'],
+          description:
+            'What kind of job it is: docs (documentation), build (build-system wiring), summary (summarizing files or logs), repetitive (simple repeated edits). The harness picks the weaker model that did this kind best before',
+        },
+        model: {
+          type: 'string',
+          description:
+            'Usually leave empty so the harness chooses by kind. Optional model name to use for the sub-agent; "standby" uses the warm standby model of the gateway (when /standby is on), which spares the main model\'s quota',
+        },
         max_turns: { type: 'integer', description: 'Maximum tool-calling rounds for the sub-agent (default 10)' },
         read_only: { type: 'boolean', description: 'If true, restrict the sub-agent to read-only tools (default false)' },
       },
@@ -414,7 +429,7 @@ export async function executeTool(name, args, root, confirmRun, askUser, forEach
   try {
     // Normalize path arguments: convert absolute paths within root to relative
     const normalizedArgs = { ...args };
-    if (normalizedArgs.path && typeof normalizedArgs.path === 'string') {
+    if(normalizedArgs.path && typeof normalizedArgs.path === 'string') {
       normalizedArgs.path = toRelativePath(normalizedArgs.path, root);
     }
     return await runTool(name, normalizedArgs ?? {}, root, confirmRun, askUser, forEach);
@@ -429,7 +444,7 @@ async function runTool(name, args, root, confirmRun, askUser, forEach) {
     const { base, rel, prefix } = resolveBase(dir, root);
     const files = listFiles(rel, base).map(f => {
       // Rewrite absolute paths to be relative to opts.root
-      if (!f.startsWith('./') && !f.startsWith('~')) {
+      if(!f.startsWith('./') && !f.startsWith('~')) {
         const normalized = toRelativePath(f, root);
         return normalized === '' ? './' : normalized;
       }
@@ -489,7 +504,11 @@ async function runTool(name, args, root, confirmRun, askUser, forEach) {
   }
 
   /* a foreign tool name (glob, ls, cat, bash, ...) the model used out of habit */
-  const alias = aliasToolCall(name, args, TOOLS.map(t => t.name));
+  const alias = aliasToolCall(
+    name,
+    args,
+    TOOLS.map(t => t.name),
+  );
   if(alias.name !== name) return runTool(alias.name, alias.args, root, confirmRun, askUser, forEach);
 
   return `unknown tool: ${name}`;
