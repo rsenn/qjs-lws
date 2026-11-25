@@ -958,14 +958,35 @@ const shownMessages = new WeakMap();
 const ROLE_COLOR = { system: '#2dd4bf', user: '#fbbf24', assistant: '#a3e635', tool: '#c084fc' };
 
 /** messages as text for a panel: a colored role line, then the content */
+/** a tool call's arguments, one "→ key: value" each: a command in ``` ```, a long or multi-line text in a fenced block, else the value */
+function callText(tc) {
+  const args = tc.args ?? tc.function?.arguments ?? {};
+  const arrow = k => `\x1b[38;2;192;132;252m→ ${k}:\x1b[0m`;
+  const lime = s => `\x1b[38;2;163;230;53m${s}\x1b[0m`;
+  if(typeof args !== 'object' || args === null) return `${arrow('arguments')} ${colorJson(JSON.stringify(args))}`;
+
+  const entries = Object.entries(args);
+  if(!entries.length) return `${arrow('(no arguments)')}`;
+
+  return entries
+    .map(([k, v]) => {
+      if(typeof v !== 'string') return `${arrow(k)} ${colorJson(JSON.stringify(v))}`;
+      if(k === 'command' && !v.includes('\n')) return `${arrow(k)} ${lime(`\`\`\`${v}\`\`\``)}`;
+      if(v.includes('\n') || v.length > 120) return `${arrow(k)}\n${lime(`\`\`\`\n${v}\n\`\`\``)}`;
+      return `${arrow(k)} ${lime(v)}`;
+    })
+    .join('\n');
+}
+
 function messagesText(msgs) {
   return msgs
     .map(m => {
       const head = `\x1b[1;38;2;${(ROLE_COLOR[m.role] ?? '#ffffff').match(/\w\w/g).map(h => parseInt(h, 16)).join(';')}m${m.role}${m.name ? ` ${m.name}` : ''}\x1b[0m`;
-      const calls = (m.toolCalls ?? m.tool_calls ?? []).map(tc => `\x1b[38;2;192;132;252m→ ${tc.name ?? tc.function?.name}\x1b[0m(${colorJson(JSON.stringify(tc.args ?? tc.function?.arguments ?? {}))})`);
+      const calls = (m.toolCalls ?? m.tool_calls ?? []).map(callText);
       /* the system prompt is long and known: dim; everything else by what each line is */
       const body = typeof m.content == 'string' ? (m.role === 'system' ? `\x1b[2m${m.content}\x1b[0m` : colorContent(m.content, { code: m.role === 'tool' && m.name === 'read_file' })) : m.content ? colorJson(JSON.stringify(m.content)) : null;
-      return [head, ...(body === null ? [] : [body]), ...calls].join('\n');
+      /* an assistant turn that calls tools needs no "assistant" label: its text, then the calls, then the results */
+      return [...(m.role === 'assistant' && calls.length ? [] : [head]), ...(body === null ? [] : [body]), ...(calls.length && body !== null ? [''] : []), ...calls].join('\n');
     })
     .join('\n\n');
 }
@@ -1148,7 +1169,9 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   shownMessages.set(messages, messages.length);
 
   if(panes) {
-    showPanel(`→ ${client.model} · ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${from ? `, ${messages.length - from} new` : ''}`, messagesText(messages.slice(from)) || '(nothing new)', { border: '#c084fc', kind: 1 });
+    /* a round of tool calls is titled by them, the stats of a plain request are in the title otherwise */
+    const called = [...new Set(messages.slice(from).flatMap(m => (m.toolCalls ?? m.tool_calls ?? []).map(tc => tc.name ?? tc.function?.name)))];
+    showPanel(called.length ? `→ ${client.model} · tool call ${called.map(n => `\`${n}\``).join(', ')}` : `→ ${client.model} · ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${from ? `, ${messages.length - from} new` : ''}`, messagesText(messages.slice(from)) || '(nothing new)', { border: '#c084fc', kind: 1 });
   } else if(verbose) console.log(dim(`-> ${client.model}: ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${opts.stream ? ', streamed' : ''}${chatOptions.toolChoice ? `, tool_choice ${chatOptions.toolChoice}` : ''}`));
 
   /* verbose: reasoning text as it streams, dim, before the reply */

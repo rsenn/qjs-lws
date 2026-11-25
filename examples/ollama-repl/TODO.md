@@ -1,3 +1,11 @@
+## Tool call panels (2026-11-25, done)
+
+- Done: the request panel of a round with tool calls is titled `→ MODEL · tool call \`NAME\``; the assistant turn
+  shows its text (no "assistant" label), then each argument as `→ key: value` (`command` in ```, multi-line or long
+  text in a fenced block), then `tool NAME`, `(exit N)` and the output (`callText`/`messagesText` in repl.js). The
+  messages/chars/tools stats are only in the title of requests without tool calls.
+- Not checked in a real terminal; the live "⚙ NAME · running" panel and the result panel are unchanged.
+
 ## Strict file attachment (2026-11-25, done)
 
 - Done: `extractFileRefs` attaches a file only when it is at most 10 KB (`ATTACH_MAX_BYTES`), 12 files and 40 KB in
