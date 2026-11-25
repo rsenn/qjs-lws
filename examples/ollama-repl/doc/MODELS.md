@@ -1,13 +1,14 @@
 # Models for ollama-repl
 
-What was tested and what is only a candidate. Status as of 2026-10-20. Anything
+What was tested and what is only a candidate. Status as of 2026-10-20 for the local and Gemini
+models, 2026-11-25 for the gateway section. Anything
 marked *unverified* comes from third-party blog posts (see Sources), not from a
 run here - check the provider's own page before relying on it.
 
 Benchmark task: "add a 1-2 line documentation comment in front of every
 function declaration in lib/path.h, inferring its purpose from
 lib/path/<function-name>.c" (25 declarations, a copy of ~/Sources/shish).
-Details and the harness changes that came out of it are in `TODO.md`.
+The ideas that came out of it are in `TODO.md` (section 4), the harness changes are in git history.
 
 ## Tested
 
@@ -17,6 +18,24 @@ Details and the harness changes that came out of it are in `TODO.md`.
 | `qwen2.5-coder` (7.6B) | ollama | 17-20/25, ~100-140 s (5 runs), nothing lost or duplicated | Writes tool calls as text instead of `tool_calls`; needs `lib/text-tool-calls.js`, the nudges and the retry. |
 | `gemini-3.5-flash` | gemini | tool loop works (needs the `thoughtSignature` fix) | Free tier quota exhausted during testing (see below). |
 | `gemini-3.5-flash-lite` | gemini | 0/25: 503 "high demand" outlasted all retries | Answered a trivial request, so it exists and has quota. |
+
+## Free models through the freellmapi gateway (the default provider)
+
+`--provider freellm` (model `auto`) reaches about 700 models of dozens of free providers; which one
+answers changes by the minute, so the harness rates and probes them itself (README, "Model rating" and
+"Two-tier exploration"; the data behind it in `HEALTH-EXPERIMENTS.md`). What one day (2026-11-25,
+4264 requests) showed:
+
+- Most traffic went to `nemotron-3.5-lightning` (and its `-30b` and `-30b-a3b` variants) served by
+  `kilo`: median 1.9 s per request, p90 6.5 s, 2.3 % failures over 2314 requests. A reasoning model: it
+  needs a reply budget of about 1500 tokens in the 12k-token tier 1 probe (at 400 one run in three was
+  cut off before its tool call).
+- The model name says little about the model: a passed `claude-sonnet-4-5` was served by
+  `nvidia/poolside/laguna-xs-2.1`; `servedBy` is the truth.
+- Keyless providers (Kilo, OVH, ...) count their quotas per IP address; the harness routes them through
+  the anonymizing proxy (README, `/proxy`).
+- Gateway models without tool calling cannot serve the harness (the gateway's route check counts them
+  anyway, "1 model lacks tool-calling").
 
 ## Ollama candidates (8 GB VRAM, 32 GB RAM) - not tried yet
 
@@ -69,9 +88,9 @@ Findings with a free-tier key:
 
 ## Other free API tiers (*unverified*)
 
-`--provider openai` talks to any OpenAI-compatible endpoint; today the base
-URL is set with the `OPENAI_API_URL` environment variable (and the key with
-`OPENAI_API_KEY`). Untested with this harness.
+`--provider openai` talks to any OpenAI-compatible endpoint (`OPENAI_API_URL`, `OPENAI_API_KEY`);
+`--provider freellm` is the same client pointed at the local gateway (`FREELLMAPI_URL`, `FREELLMAPI_KEY`).
+The providers below are untested directly with this harness; most of them are behind the gateway.
 
 | Provider | Free tier (per recent third-party sources) |
 |---|---|

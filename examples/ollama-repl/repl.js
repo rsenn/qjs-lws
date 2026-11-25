@@ -88,6 +88,7 @@ import { loadKeyData, parseKeyScope, modelsOfKeys } from './lib/key-models.js';
 import { externalIp } from './lib/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
 import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
+import { hopLine } from './lib/hop-line.js';
 import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
 import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms as exhaustedByAddress } from './lib/ip-fix.js';
 import { ipGroups, ipChangePanel, ipChangeParts } from './lib/ip-pane.js';
@@ -109,8 +110,8 @@ import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled, torHost } from './lib/proxy-probe.js';
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
-import { done as doneQuip, quip } from './lib/quips.js';
 import { isHarnessError } from './lib/harness-error.js';
+import { done as doneQuip, quip } from './lib/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning, fg, HEADER, BORDER, HINT, THEME } from './lib/rawcolor.js';
 import { file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { stripAnsi } from 'terminal';
@@ -1174,7 +1175,10 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
       /* everything failed: a limit or an outage is waited out, a few times, before the error is surfaced */
       if(providerHook && fail && ['limit', 'upstream', 'network'].includes(fail.kind) && !opts.quiet && backoffs < BACKOFF_SECS.length) {
         const secs = BACKOFF_SECS[backoffs++];
-        console.log(note(`every route failed (${attempts.map(([r, why]) => `${r} ${why}`).join(', ') || fail.reason}), waiting ${secs}s, retry ${backoffs}/${BACKOFF_SECS.length}`, 'skip'));
+        const lines = attempts.length ? attempts.map(([r, why]) => routeFailure(r, why)) : [fail.reason];
+        const title = `every route failed · waiting ${secs}s · retry ${backoffs}/${BACKOFF_SECS.length}`;
+        if(tui?.active) console.log(panel(title, lines.join('\n'), tui.width, { border: '#fbbf24' }));
+        else console.log(card('⤼', `every route failed: waiting ${secs}s, retry ${backoffs}/${BACKOFF_SECS.length}`, lines, '#a3e635'));
         if(await backoff(secs, abortRef)) {
           providerHook.pf.release(['limit', 'upstream', 'network']);
           tried.clear();
@@ -2243,10 +2247,6 @@ function modelStrength(modelName, intelligence = null) {
 }
 
 /** the strength tier of a model id as /model list has it: the gateway's intelligence score when it has one, else the name */
-const tierOf = id => modelStrength(id, availability?.byModel.get(id)?.intelligence).tier;
-
-/** Rainbow gradient colors for model strength: purple (strongest) through red (weakest). */
-const STRENGTH_COLORS = [
 /**
  * options that make an exploration run sensible (lib/exploration.js): the platforms of a model, so a provider that just
  * rate-limited is not probed again at once, and the order, best rated first with the models that served a request in the
@@ -2260,6 +2260,10 @@ const exploreOrder = () => {
   return { platformsOf: id => availability?.byModel.get(id)?.platforms ?? [], priority: id => (served.has(id) ? 100 : 0) + (rateOf(id) ?? 0) };
 };
 
+const tierOf = id => modelStrength(id, availability?.byModel.get(id)?.intelligence).tier;
+
+/** Rainbow gradient colors for model strength: purple (strongest) through red (weakest). */
+const STRENGTH_COLORS = [
   '#8b5cf6', // violet (tier 0)
   '#a855f7', // purple
   '#d946ef', // fuchsia
@@ -2609,6 +2613,25 @@ function listWidth() {
     return 76;
   }
 }
+
+/** the hop line of an automatic model switch: model names by strength tier, providers teal, times amber (lib/hop-line.js) */
+const HOP_COLORS = { provider: '#2dd4bf', time: '#fbbf24', arrow: '#a3e635', warn: '#fbbf24', bad: '#f87171' };
+/** one route that failed, as a card line: provider dim, model by strength, the first sentence of the error, the reset time amber */
+function routeFailure(route, why) {
+  const text = String(why ?? '');
+  const back = /Soonest cooldown reset ~?(\S+?)\.?(\s|$)/i.exec(text)?.[1];
+  const what = text.split(/\.\s/)[0].replace(/\s+/g, ' ').slice(0, 90);
+  const i = String(route).lastIndexOf('/');
+  const name = i < 0 ? modelName(route) : `${dim(route.slice(0, i + 1))}${modelName(route.slice(i + 1))}`;
+  return `${name}  ${what}${back ? `  ${piped ? '' : '\x1b[38;2;251;191;36m'}back in ~${back}${piped ? '' : '\x1b[0m'}` : ''}`;
+}
+
+/** a model name in its strength colour (as in /model list); plain when piped */
+const modelName = id => (piped || !id ? id : `\x1b[1m${fgHex(strengthColor(tierOf(id)), id)}\x1b[0m`);
+const hopText = hop => hopLine(hop, piped ? {} : {
+  model: modelName,
+  paint: (kind, text) => (kind === 'dim' ? dim(text) : fgHex(HOP_COLORS[kind], text)),
+});
 
 /** 38;2;r;g;b text from a #rrggbb color */
 const fgHex = (hex, text) => `\x1b[38;2;${hex.slice(1).match(/.{2}/g).map(h => parseInt(h, 16)).join(';')}m${text}\x1b[0m`;
@@ -3255,6 +3278,7 @@ async function main() {
     for(const m of gateway.modelsCached() ?? []) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
 
     const queued = exploration.run(ids, makeExploreClient, {
+      ...exploreOrder(),
       tools,
       deep: deepFor(ids),
       force: true /* a failure from before the change is not fresh news */,
@@ -3278,7 +3302,6 @@ async function main() {
    * every keyless provider is exhausted (all their models limited per IP address, so nothing is left to try without a
    * new address): the exit address of the proxy changes by itself, at most every 10 minutes, with a pane that shows the
    * old and the new address and the models that could work again. Their keys go through the proxy first (autoProxy).
-      ...exploreOrder(),
    * Off with --no-auto-proxy and /proxy auto off.
    */
   const AUTO_EXIT_GAP_MS = 10 * 60e3;
@@ -3439,6 +3462,7 @@ async function main() {
       const tools = {};
       for(const m of gateway.modelsCached()) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
       exploration.run(todo, makeExploreClient, {
+        ...exploreOrder(),
         tools,
         deep: deepFor(ids),
         diagnose: diagnoseModel,
@@ -3462,7 +3486,6 @@ async function main() {
   /** why a probe failed (lib/diagnose.js): the error, the gateway's picture of the model, its provider and keys, one more try; run by the exploration worker */
   async function diagnoseModel(id, result) {
     const [keys, provs] = await Promise.all([gateway.api('/api/keys').catch(() => []), gateway.providers().then(p => p.providers ?? []).catch(() => [])]);
-        ...exploreOrder(),
 
     return diagnose({
       id,
@@ -4170,7 +4193,6 @@ async function main() {
       skipError = error;
       skipRetryMs = retryMs(e);
       try {
-        console.log(waveNote(isUpstreamFailure(error) ? 'every route failed upstream: skipping this model and trying the next' : 'no model could serve the request: skipping the spent one and trying the next'));
         await runLine('/model skip');
         return true;
       } finally {
@@ -4629,6 +4651,7 @@ async function main() {
         emit('explore', `sweep of ${ready.length} models matching ${arg.slice(7).trim()}`);
 
         exploration.run(ready, makeExploreClient, {
+          ...exploreOrder(),
           tools,
           deep,
           force: true,
@@ -4651,7 +4674,6 @@ async function main() {
         });
         return;
       }
-          ...exploreOrder(),
 
       if(arg === 'health') {
         const av = await loadAvailability(gatewayRef);
@@ -4731,7 +4753,7 @@ async function main() {
         repl.setPromptName(to);
         control?.update({ model: to });
         tui?.drawStatus();
-        return void console.log(note(`switching to ${to}`));
+        return void console.log(note(`switching to ${modelName(to)}`));
       }
 
       if(arg === 'skip' || arg.startsWith('skip ') || arg === 'unskip' || arg.startsWith('unskip ')) {
@@ -4749,6 +4771,7 @@ async function main() {
         /* "All models exhausted: 1 route checked" names no trail: the providers behind the pinned (or last routed) model are the spent ones */
         if(verb === 'skip' && !pattern && !spent.length && isExhaustedError(skipError ?? stats.last()?.error)) spent = availability?.byModel.get(target)?.platforms ?? [];
         let byProvider = 0;
+        let hop = null; /* an automatic skip is one line, printed with the next model (hopLine) */
         if(spent.length) {
           const names = (known ?? []).filter(m => { const ps = availability?.byModel.get(m)?.platforms ?? []; return ps.length && ps.every(p => spent.includes(p)) && availability?.byModel.get(m)?.blocked !== false; });
           for(const m of names) byProvider += skipModels(m, 'provider exhausted', known, skipRetryMs ?? SKIP_COOLDOWN_MS);
@@ -4757,7 +4780,8 @@ async function main() {
             const why = isUpstreamFailure(err) ? 'every route failed upstream' : /quota|exhausted/i.test(err) && !/rate.?limit/i.test(err) ? 'quota used up' : 'rate limited';
             const ends = names.map(m => availability?.byModel.get(m)?.until).filter(Boolean);
             const resets = ends.length ? `, back ${untilText(Math.min(...ends))}` : '';
-            console.log(note(`the gateway ran out of models (${why}): skipped the ${byProvider} model(s) of ${spent.join(', ')}${resets}; asked again in ${Math.ceil((skipRetryMs ?? SKIP_COOLDOWN_MS) / 60000)} min at the earliest`, 'skip'));
+            if(skipError) hop = { from: target, why, providers: spent, count: byProvider, back: resets.replace(/^, /, '') };
+            else console.log(note(`the gateway ran out of models (${why}): skipped the ${byProvider} model(s) of ${spent.join(', ')}${resets}; asked again in ${Math.ceil((skipRetryMs ?? SKIP_COOLDOWN_MS) / 60000)} min at the earliest`, 'skip'));
           }
         }
 
@@ -4768,7 +4792,8 @@ async function main() {
           const cause = !skipError ? 'manual' : /model_not_found|no longer available/i.test(skipError) ? 'no longer available' : isUpstreamFailure(skipError) ? 'every route failed upstream' : isExhaustedError(skipError) ? 'rate limited or quota used up' : String(skipError).split('\n')[0].slice(0, 60);
           const n = skipModels(target, cause, known, skipRetryMs ?? SKIP_COOLDOWN_MS);
           if(!n) return void console.log(red(`error: no model matches "${target}"`));
-          console.log(note(n === 1 ? skipNote(target, cause) : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`, 'skip'));
+          if(skipError && n === 1) hop = { from: target, why: `${cause}, skipped ${Math.ceil((skipRetryMs ?? SKIP_COOLDOWN_MS) / 60000)}m` };
+          else console.log(note(n === 1 ? skipNote(target, cause) : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`, 'skip'));
         } else {
           const n = unskipModels(target);
           if(!n) return void console.log(red(`error: "${target}" is not skipped`));
@@ -4807,9 +4832,11 @@ async function main() {
           control?.update({ model: next.name });
           const rating = rateOf(next.name);
           emit('failover', `switching to ${next.name} (${standby.state === 'used' && standby.id === next.name ? 'the warm standby' : 'best rated'}${rating != null ? `, rating ${rating}` : ''})`, 'good');
-          console.log(note(`switching to ${next.name} (${standby.state === 'used' && standby.id === next.name ? 'the warm standby' : 'best rated'}${rating != null ? `, rating ${rating}` : ''})`));
+          if(hop) console.log(hopText({ ...hop, next: next.name, rating }));
+          else console.log(note(`switching to ${modelName(next.name)} (${standby.state === 'used' && standby.id === next.name ? 'the warm standby' : 'best rated'}${rating != null ? `, rating ${rating}` : ''})`));
         } else {
-          console.log(note('no other model available to switch to', 'warn'));
+          if(hop) console.log(hopText(hop));
+          else console.log(note('no other model available to switch to', 'warn'));
         }
         if(wasAuto && next) console.log(waveNote('the gateway has no exclusion: skipping pins the next best model, /route auto hands the choice back'));
         return;
@@ -4834,7 +4861,7 @@ async function main() {
         arg = matches[modelCycle.index];
 
         const ofN = matches.length === 1 ? ' (only model matching)' : ` (${modelCycle.index + 1} of ${matches.length})`;
-        console.log(note(`pattern "${modelCycle.pattern}" matched: ${matches.join(', ')} - switching to ${arg}${ofN}`));
+        console.log(note(`pattern "${modelCycle.pattern}" matched: ${matches.map(modelName).join(', ')} - switching to ${modelName(arg)}${ofN}`));
       } else {
         if(gateway?.hasLimits && (!availability || Date.now() - availability.at > 30000)) availability = await loadAvailability(gateway).catch(() => null);
         const lim = availability?.byModel.get(arg);

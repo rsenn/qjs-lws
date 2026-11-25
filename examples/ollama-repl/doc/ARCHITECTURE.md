@@ -6,10 +6,12 @@ claim names the source file and the function or class it lives in. Line numbers
 use `grep -n` when a line has moved.
 
 Companion documents: `README.md` (user manual, every command and option),
-`TODO.md` (open work, per-feature "Done / Open" notes), `doc/API.md` (the
-control-socket and client API), `doc/MODELS.md` (what is known about models),
-`doc/DEMO.md` (a walk through the features), `reference/` (QuickJS binding
-reference given to models that write bindings).
+`TODO.md` (open work only), `BUGS` (open defects), `doc/API.md` (the message and
+tool-call format of the model clients), `doc/MODELS.md` (what is known about
+models), `doc/HEALTH-EXPERIMENTS.md` (model health data, the fixes made from it and
+what is left), `doc/GATEWAY-PROPOSALS.md` (changes wanted in freellmapi),
+`doc/DEMO.md` (the binding-writing demo and its context design), `reference/`
+(QuickJS binding reference given to models that write bindings).
 
 Contents
 
@@ -81,8 +83,9 @@ program that talks to a running session over its control socket).
   Synchronous work is only for small files (`std.loadFile`, `writeConfigFile`).
 - **Native modules used**: `lws.so` (via `lib/lws/*` wrappers `fetch`-like
   `httpClient` protocol adapter, `lib/lws/protocols.js`), `terminal` (qjs-modules
-  `lib/terminal.js`: `ScrollView`, `Region`, `truncate`, `wrap`, `stringWidth`,
-  `ttyWrite`, `windowSize`, `layoutInput`, ...), `repl` (qjs-modules readline
+  `lib/terminal*`: the facade `terminal` and the parts `terminal/style`, `screen`, `widgets`,
+  `scrollview`, `capabilities`, `keys`, `lineeditor`, `core`: `ScrollView`, `Region`,
+  `truncate`, `wrap`, `stringWidth`, `ttyWrite`, `windowSize`, `panel`, `meter`, ...), `repl` (qjs-modules readline
   `REPL` base class), `sockets` (`TCPSocket`, `Socket`, `SockAddr`, used for the
   control socket, Tor control port, CDP), `textcode`, `os`, `std`, `fs`.
 - **Module path.** `qjsm` finds native modules through `QUICKJS_MODULE_PATH`
@@ -126,6 +129,8 @@ place that knows about all subsystems.
 |---|---|
 | `repl.js` | The program. ~5500 lines: arg parsing, prompts, the turn engine, all slash commands, all background wiring. §5. |
 | `ctl.js` | `ollama-repl-ctl`: `list`, `send`, `watch`, `monitor`, `steer`, `cancel`, `restart` against a session's control socket. |
+| `usage-baseline.js` | `qjsm usage-baseline.js [--days N] [--origin URL] [--json]`: the health numbers of `usage.jsonl` (over `lib/usage-baseline.js`). |
+| `check-names.cjs` | `node --expose-internals check-names.cjs repl.js lib/*.js`: names used but not declared, and doubly declared names (§22). |
 | `smoke.sh` | Restart gate and quick check: imports every `lib/*.js`, runs a few tests, starts the REPL in a pty and sends 7 commands. §19–20. |
 
 ### Model clients (`lib/*-client.js`)
@@ -191,7 +196,10 @@ place that knows about all subsystems.
 | `lib/tui.js` | `Tui`: layout, history with kinds, panels, split pane, status/input rows. §15. |
 | `lib/chat-repl.js` | `ChatREPL extends REPL`: line editor, queue, dialogs (`choose`, `confirm`, `ask`), pager host, shortcut keys. §15. |
 | `lib/pager.js` | `Pager`: full-screen scrolling view, optionally a selectable list with column filters. |
-| `lib/look.js` | Colour palette, `note`, `card`, `panel`, `banner`, `meter`, `quotaCell`, `pctCell`, `toolLine`, `toolResult`, `highlight`, `gradientRule`, ... |
+| `lib/palette.js` | Every colour of the TUI as a `#rrggbb` string (`STOPS`, `ACCENT`, `REPLY`, `TOOL_COLORS`, the raw-content colours, ...); `look.js` and `rawcolor.js` take their colours from here. |
+| `lib/look.js` | `note`, `card`, `banner`, `quotaCell`, `pctCell`, `toolLine`, `toolResult`, `highlight`, ...; `panel`, `meter`, `gradientRule`, `sideBySide`, `shortPath` are thin wrappers over `terminal/widgets` that pass the palette. |
+| `lib/hop-line.js` | `hopLine`: the one transcript line of an automatic model switch (§10). |
+| `lib/ip-pane.js` | `ipGroups`, `ipChangeParts`, `ipChangePanel`: the old/new exit address pane with the models that could work again (§14). |
 | `lib/ansi.js` | `piped` (stdout is not a tty), `red`, `yellow`, ... |
 | `lib/usage-stats.js` | `UsageStats` (session ledger), `fitTable`, `formatTable`, `fmtNum`, `fmtMs`, `routeLine`, `routeName`, `formatMeta`. |
 | `lib/net-pane.js` | `netPaneLines`, `hopsOf`, `kindOf`, `TYPES`, `annotateRates`: the `/split net` pane. |
@@ -395,6 +403,29 @@ All inside `chatRound` (`repl.js` ≈1028), in this order, each step either
    finally local Ollama.
 8. **Backoff** (`BACKOFF_SECS` 30/45/60) with everything released, then surface the error.
 
+**The hop line (design 2026-11-25).** One automatic skip is one transcript line, not
+three or four (the "no model could serve..." wave note, the skip note and the
+"switching to" note used to follow each other per hop, and a run of nine hops
+filled the screen). It is printed once the next model is known, in `/model skip`:
+
+    ⇄ SPENT  REASON[: N models of P1, P2, P3 +K more][, back TIME]  →  NEXT  rating R
+
+Rules: the spent model and the next one are named, coloured by strength tier
+(`strengthColor`); providers teal, times amber, the reason red (amber for a plain
+rate limit), the arrow lime; at most 4 providers are named, the rest is `+K more`;
+without colour (piped) the same text. A skip typed by the user keeps its own notes
+and the chooser. The `failover` event text is unchanged. Open: the hop line
+does not say which provider served the spent model (the gateway names it only in
+the trail).
+
+**The give-up panel (2026-11-25).** When every route failed and the round waits before
+trying again (`chatRound`, backoff), the message is an amber panel in the TUI (a card
+when piped or without TUI), not one long line: the
+title `every route failed · waiting 30s · retry 1/3`, then one line per route
+(`routeFailure`: provider dim, model by strength colour, the first sentence of the
+error cut at 90 characters, the gateway's "Soonest cooldown reset" as an amber
+`back in ~48s`). The full error stays in verbose mode.
+
 Skipped models live in `skippedModels` (Map, 10 min, `skipModel`, `releaseRecovered`
 ends self-set skips when availability shows recovery) and are saved over `/restart`.
 
@@ -535,6 +566,12 @@ Why: keyless providers and some keyed ones limit per IP address.
   on; startup + when a platform turns IP-limited + every 5 min; targets: keyless keys and keys of providers with several keys; only if the proxy
   answers; `--no-auto-proxy`); `watchPace` (every 10 s, "pace time ran out" events)
   and `recheckAfterIpChange`.
+- **Automatic exit change**: `autoExit` (called by `watchPace`) asks Tor for a new exit when every
+  keyless provider is exhausted (`keylessExhausted`), at most every 10 minutes (`AUTO_EXIT_GAP_MS`),
+  prints the `ip-pane` panel and schedules `exploreKeylessAgain` (a background probe of the unverified
+  keyless models); the Tor control host is `torHost(socksUrl)` (`TORHOST` wins). Off with
+  `--no-auto-proxy` or `/proxy auto off`.
+- The net pane marks each connection `SOCKS`, `DIRECT` or `SOCKS/DIRECT` (`netRoute`).
 - Limits of the detection (see `TODO.md`): "per IP" is inferred (keyless flag,
   error text matching `IP_ERROR`); the gateway exposes no per-IP flag.
 
@@ -659,7 +696,7 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
 | `.../session.log`, `history`, `state.json`, `diffs/` | `SessionLog`, `ChatREPL`, `session-cache.js`, `FileExchange` | transcript, input history, `/model` pattern and picked model, file diffs |
 | `~/.cache/ollama-repl/exploration.json` | `Exploration` | per-model probe results (`ORIGIN\|MODEL`) |
 | `~/.cache/ollama-repl/ratings.json` | `Ratings` | per-model rating state |
-| `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per request (trimmed to 90 days) |
+| `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per main-client request (trimmed to 90 days); `attempt` = n-th automatic skip retry of its round (0, the first try, is not written) |
 | `~/.cache/ollama-repl/quota.json`, `quota.jsonl` | `saveQuota` | last gateway snapshot; 15-minute history (180 days) |
 | `~/.cache/ollama-repl/cooldowns.json` | `availability.js` | learned cooldowns, shadow blocks |
 | `~/.cache/ollama-repl/logs/` | `session-cache.js` `debugLogPath` | `-x` debug logs |
@@ -693,15 +730,17 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
 
 ## 20. Tests and verification
 
-- `test-*.js` in this directory: plain scripts, `qjsm test-x.js`; a test throws
+- `tests/test-*.js`: plain scripts (they import `../lib/...`), run from this directory as `qjsm tests/test-x.js`; a test throws
   (or exits non-zero) on failure and prints `test-x: ok`. Run all:
-  `for t in test-*.js; do qjsm $t >/dev/null 2>&1 || echo FAIL $t; done`.
+  `for t in tests/test-*.js; do qjsm $t >/dev/null 2>&1 || echo FAIL $t; done`.
   They use mocks and fixtures only; **none runs against a live gateway** (see
   `TODO.md` for what was never seen in a real terminal).
-- `test-pager-select.js` needs a tty (`script -qec "qjsm test-pager-select.js" /dev/null`);
+- `tests/test-pager-select.js` needs a tty (`script -qec "qjsm tests/test-pager-select.js" /dev/null`);
   it skips itself otherwise.
 - `smoke.sh [REPL.js]`: the restart gate (§19); `SMOKE_ARGS`, `SMOKE_WAIT`.
-- Syntax: `node --check file.js` is a fast pre-check (the code is plain ES modules).
+- Syntax and names: `node --check file.js` is a fast pre-check (the code is plain ES modules);
+  `node --expose-internals check-names.cjs repl.js lib/*.js` finds undeclared and doubly declared names.
+- Health numbers: `qjsm usage-baseline.js --days 1` (before/after a change to failover or exploration).
 - Add a test per new `lib/` module, named after it; keep tests independent of the
   network and of `~/.cache` (set `XDG_CACHE_HOME` to a temp dir *before* importing
   modules that read it, as `test-exploration.js` does).
@@ -763,6 +802,11 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
 - **Reasoning models** write their thinking into the content: the old
   system-prompt probe called them disobedient (16 of 276 models); tier 0/1 grade
   tool calls and recalled facts, not style.
+- **Shadowed names**: QuickJS accepts a module-level function with the same name as an import, and
+  the function silently wins (`exhaustedPlatforms` in `repl.js` once made the proxy trigger of
+  `lib/ip-fix.js` inert). `check-names.cjs` parses with acorn, which rejects such a redeclaration, and
+  also lists undeclared names (a missing import such as `fg` only throws when the path runs); run it
+  before a commit.
 - **Restart safety**: anything the restart check imports must load without a
   network and without `~/.cache` state; keep `lib/*.js` import-clean.
 

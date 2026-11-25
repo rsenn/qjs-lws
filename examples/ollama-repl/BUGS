@@ -1,0 +1,8 @@
+
+- availability-load-uncoalesced-and-429-swallowed (lib/availability.js:319): every loadAvailability() call sends 7 requests at once (/v1/models of about 340 KB, /api/models, rate-limit-usage, token-usage, penalty-inspector, keys, routing) and repl.js calls it from about 20 places (startup, /model skip, /model next, takeover, exploration, /gateway views) without sharing a load that is in flight, while the gateway answers at most 120 requests per minute (RateLimit-Limit: 120, status bar gw 103/120/min); a 429 on one of the six dashboard calls is turned into null by get() so the availability is silently built without that table (no limits, no budget, no keys). A 429 is visible in strace.log.txt; the burst of 7 connects is its lines 616-640.
+
+    note: count GET lines to port 3001 per minute in a strace of a session that is using /model skip and /split net; not reproduced from a script
+
+- reasoning-test-never-ran (tests/test-rawcolor-reasoning.js:4): the test imports ../examples/ollama-repl/lib/rawcolor.js, a path that does not exist from tests/ (it was written for the repo root), and calls assert(), which is not defined in qjsm, so it fails on load; its checks of colorReasoning (lib/rawcolor.js:189) never ran. It was tests/test-rawcolor.js until the tests were moved and that name went to the test smoke.sh runs.
+
+    qjsm tests/test-rawcolor-reasoning.js   (ReferenceError: assert is not defined)

@@ -1,4 +1,10 @@
-# Message/tool-use format rewrite
+# Message and tool-use format of the model clients
+
+Status: implemented and in use by `repl.js` (`runToolLoop`) with all three clients, `OllamaClient`,
+`GeminiClient` and `OpenAIClient` (`lib/openai-client.js`, the main one: it speaks the OpenAI wire
+format, `tools`/`tool_calls`, honours `toolChoice` and returns the gateway's `meta`; see
+`doc/ARCHITECTURE.md` section 8). The text below is the original design and research for the first
+two; the OpenAI wire shape is the Ollama one plus tool call ids.
 
 ## Problem
 
@@ -115,8 +121,11 @@ existing plain-text calls are unaffected:
 And the return value of both methods changes from a bare `string` to:
 
 ```js
-{ content: string, toolCalls?: [{ id, name, args }] }
+{ content: string, toolCalls?: [{ id, name, args }], reasoning?: string, meta?: object }
 ```
+
+(`reasoning` and `meta` are filled by `OpenAIClient` only: `meta` holds the route, status, tokens, timings
+and the gateway headers, see ARCHITECTURE section 8.)
 
 `toolCalls` is only present when the model actually asked for a call;
 plain replies still just have `content`. `chatStream()`'s `onToken`
@@ -146,8 +155,7 @@ returned object, same as a non-streamed `chat()` call).
 
 ## Manual REPL usage
 
-Both clients can be driven by hand from a `qjsm` REPL (see `TODO.md` item 1
-for the still-missing in-chat `ASK:`-style version of this same idea).
+Both clients can be driven by hand from a `qjsm` REPL (the in-chat version of this is `repl.js`'s tool loop).
 Plain text, no tools:
 
 ```js
@@ -193,7 +201,7 @@ console.log(content);
 
 Same loop works unchanged against `OllamaClient` (with a tool-capable
 model, e.g. `qwen2.5-coder`) - just swap the constructor and drop
-`toolChoice` if you were relying on it, since only Gemini honors it:
+`toolChoice` if you were relying on it, since Ollama ignores it:
 
 ```js
 import { OllamaClient } from './lib/ollama-client.js';
@@ -201,7 +209,7 @@ const client = new OllamaClient({ model: 'qwen2.5-coder' });
 // ... identical messages/tools/loop as above
 ```
 
-Forcing a call (Gemini only) or streaming both work the same way `chat()`
+Forcing a call (Gemini and OpenAI; Ollama ignores it) or streaming both work the same way `chat()`
 does above, just with the extra option / callback:
 
 ```js

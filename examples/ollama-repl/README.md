@@ -53,19 +53,17 @@ driven in your own browser (`--provider bridge`).
   convention. The system prompt asks it to suggest a real filename for
   every snippet it writes (even a quick example), so the auto-numbered
   fallback is mostly a safety net rather than the common case.
-- **Project awareness (LIST:/READ:/RUN:).** The system prompt
-  tells the model it can ask the REPL to list files (`lib/tool-
-  requests.js`, restricted to JS/C/HTML/CSS/Markdown + README\*), read a
-  file or glob, run a shell command itself - to grep/search the codebase,
-  test a change (including a quick `qjsm -e '<code>'` one-liner to check
-  a JS/C-binding API call actually works before writing it into a file),
-  or drive `git` (status/diff/log). The model's told to do all of this proactively, as soon as it's unsure
-  about something, rather than guessing. Each reply is scanned for these
-  request lines; if any are found, they're run and the results fed back
-  as the model's next turn automatically (up to `MAX_TOOL_ROUNDS` rounds
-  per prompt, in `repl.js`) before the final answer is shown. `RUN:`
-  commands are never run silently - you're shown the exact command and
-  asked to approve it (`ChatREPL#confirm()`, `lib/chat-repl.js`) before it
+- **Project awareness (native tool calls).** The model has tools
+  (`lib/tool-requests.js`: `list_directory`, `read_file`, `grep`, `edit_file`,
+  `write_file`, `run_command`, ...) and is told to use them proactively, as soon as it
+  is unsure about something, rather than guessing: grep the codebase, test a change
+  (including a quick `qjsm -e '<code>'` one-liner to check a JS/C-binding API call
+  actually works before writing it into a file), drive `git`. Each round's tool calls are
+  run and their results fed back as the next turn automatically (up to `--max-rounds`
+  rounds per prompt, `runToolLoop` in `repl.js`) before the final answer is shown. A
+  model that writes its calls as text instead (`qwen2.5-coder`) is understood too
+  (`lib/text-tool-calls.js`). `run_command` is never run silently in the default mode - you
+  are shown the exact command and asked to approve it (`ChatREPL#confirm()`) before it
   executes; a declined command is reported back to the model as declined.
 - **Automatic project scan at startup.** Before the first prompt, the
   REPL seeds the conversation with a shallow, top-level-only listing of
@@ -134,10 +132,8 @@ driven in your own browser (`--provider bridge`).
 `lib/ollama-client.js`, `lib/gemini-client.js` and `lib/openai-client.js`
 are all usable on their own from a `qjsm` REPL, independent of `repl.js`'s
 own chat loop - handy for poking at a model manually, or for driving real
-API-native tool/function calling, which `repl.js`'s own `LIST:`/`READ:`/
-`RUN:` loop doesn't use (that loop is a plain-text protocol parsed out of
-the reply body, not any provider's actual tool-calling API). See `API.md`
-for the full design and more examples; short version:
+API-native tool/function calling, the way `repl.js`'s own tool loop uses it. See
+`doc/API.md` for the message format and more examples; short version:
 
 ```js
 import { OllamaClient } from './lib/ollama-client.js';
@@ -154,7 +150,7 @@ console.log(content);
 toolCalls? }` - `toolCalls` (`[{ id, name, args }]`) is present whenever the
 model asks to call one. Feed the result back as a `{ role: 'tool', name,
 content }` message to continue the exchange - same message shapes work
-against any of the three clients. `API.md` has a full round-trip example.
+against any of the three clients. `doc/API.md` has a full round-trip example.
 
 For how the program is built (module map, turn lifecycle, failover, model
 choice, TUI, persistence), see `doc/ARCHITECTURE.md`.
@@ -459,7 +455,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   the external address direct and through the proxy (a list of "what is my
   IP" hosts tried in turn, as the shell function `inet_extip` does, the
   first public address wins), puts the keys on the proxy, sends NEWNYM to
-  the control port (`127.0.0.1:9051`), probes again until the address
+  the control port (on the host of the proxy URL, `TORHOST` overrides it; port 9051), probes again until the address
   really differs (and says so if it does not), clears the cooldowns and
   sends one small request per provider to see whether its model answers
   through the new address; providers that still fail get a second address.
@@ -536,13 +532,16 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
 - **What is kept (`~/.cache/ollama-repl/`).** Beside the session
   directories: `exploration.json` (what the exploration found per model),
   `ratings.json` (the rating state), `usage.jsonl` (a line per request:
-  model, route, tokens, time, error; 90 days), `quota.json` (the last quota
+  model, route, tokens, time, error, the retry number in its round; 90 days; `qjsm usage-baseline.js
+  [--days N]` sums it up into failure rates, failure runs and time to recovery), `quota.json` (the last quota
   snapshot per gateway: usage, limits, token budgets - it stands in for
   the live numbers until the gateway answers, `/gateway quota` says so),
   `quota.jsonl` (the month's use per platform every 15 minutes; 180 days) and
   `cooldowns.json` (learned cooldowns and the unexpired local blocks).
   `/usage history [DAYS]` sums up the earlier sessions from `usage.jsonl`.
   `lib/persist.js`.
+- **Hop line.** An automatic skip (the gateway ran out of models, a route failed upstream) is one line,
+  `⇄ SPENT reason[: N models of providers][, back TIME] → NEXT rating R`, model names in their strength colour.
 - **Failover and choice (`/model next`, `/model skip`).** A model that
   failed or ran dry hands over in one order everywhere: the warm standby
   while it is usable, else the best rated usable model. `/model next` lists
@@ -569,17 +568,19 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   The keys that profit from another exit address go through the socks proxy
   (`socks5h://127.0.0.1:9050`, or the gateway's own socks URL) by
   themselves: every enabled keyless key (its quotas count per IP address) and
-  every enabled key of a provider with a model limited as an IP matter. A key
-  with a proxy already, or whose provider the gateway proxies globally, is left
-  alone. It runs a few seconds after startup, at once when a provider turns out
-  to be limited per IP address, and every 5 minutes, only when something
-  answers on the proxy address. It never changes the exit address (`/proxy
-  exit`, `/proxy keyless fix`); `/proxy keyless clear` takes the keys off the
-  proxy again and turns the routing off. Each step is a `proxy` event.
+  the keys of a provider that has several keys (spread over addresses); a
+  provider's only key goes direct. A provider that is exhausted or limited per IP
+  address gets its keys on the proxy at once. A key with a proxy already, or
+  whose provider the gateway proxies globally, is left alone. It runs a few seconds
+  after startup, when a provider turns out to be limited or exhausted, and every
+  5 minutes, only when something answers on the proxy address. The exit address
+  changes by itself only when every keyless provider is exhausted (see `/proxy exit`
+  above); `/proxy keyless clear` takes the keys off the proxy again and turns the
+  routing off. Each step is a `proxy` event.
 - **Probe column.** `✔` verified (latency, `T` = calls tools), `⚠ busy` the
   provider was rate limited or down when the model was asked (says nothing
   about the model: no rating penalty, asked again after 10 minutes), `✗` it
-  really failed its prompts (`✗ sys` ignores the system prompt; asked again
+  really failed its probe (asked again
   after an hour and left out of the startup list), `◌` being probed, `⏸`
   limited now, `·` not probed. `/model health` shows the reason.
 - **The `/model next` picker** lists every candidate, best rated first, not only
@@ -627,14 +628,14 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   to a quarter of the model's context window, 1.5k to 12k tokens, and the model
   must report the facts with one tool call. Nothing of your project is sent. The
   result (`deep`: tokens, facts recalled, tool call, time, tok/s, finish) shows in
-  the Says column of `/model health` and as `12k` / `12k✗` in the Probe cell, and
+  the Says column of `/model health` and as `12k` / `12k✗` (`12k?`: not tested, the provider was busy) in the Probe cell, and
   moves the rating (+4..+6 for a clean pass, -3..-6 for lost facts or a refused
   prompt). A tier 1 failure by a provider hiccup is asked again after 10 minutes,
   a real one after 6 hours; passed tiers are never repeated.
 - **Diagnosis of failed probes.** When the exploration's probe of a model
   fails, the worker looks into it right there (`lib/diagnose.js`): what the
   error says (rate limited, upstream error, timeout, model gone, key
-  refused, ignores the system prompt, empty answer), the gateway's own
+  refused, empty answer), the gateway's own
   picture of the model (limited by which window, back when), its providers
   (status, usable keys, cooling keys) and, when it looks like a hiccup, one
   more try after the short wait the error asks for. A model that answers on
@@ -663,7 +664,9 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   window, real requests (answered, failed, how fast; limits such as 429
   do not count against it), the async exploration (passed its prompts,
   calls tools), and its state now (limited, cooling, quota nearly used up).
-  What was learned fades with a half-life of a week. The best rating
+  Reliability is the share of requests that worked, weighted by how many there were
+  (steep near 100 %: 7 % failures count as nothing, 20 % as -10). What was learned fades
+  with a half-life of a week. The best rating
   wins when the standby or the takeover picks a model, and the lists sort by
   it, best first: `/model list`, `/model health` (`Rate` column),
   `/gateway models`, `/gateway limited` and `/gateway providers` (a
@@ -683,9 +686,10 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   are never read: the gateway's reveal and export endpoints are not used.
 - **Async exploration.** `/model health` starts a background exploration
   (`lib/exploration.js`, on the REPL's own event loop, two models at a
-  time) of every READY gateway model: it is asked which model it is, whether it obeys a system
-  prompt (a tool call is only tried when the gateway's catalog does not say
-  whether it takes tools). The answers are kept in one file for all
+  time) of every READY gateway model, best first: the models that served a request in the
+  last day, then the rating. Each model gets the two probes described below; a provider
+  that just rate-limited is not probed again in the same run (its other models are skipped
+  and tried the next time). The answers are kept in one file for all
   gateways, `~/.cache/ollama-repl/exploration.json`, and appear in the
   Probe and Says columns the next time `/model health` runs. A model that
   passed is never prompted again (a failed one is asked again after an
@@ -787,15 +791,16 @@ question answered with a number, y or n. `--no-tui` keeps the old
 scrolling output on a terminal. Tab-completion lists and `/js` output are
 written by the base REPL and do not go through the transcript.
 
-The TUI needs a qjsm built from qjs-modules after 2026-11-19 (its
-`terminal` module gained the widgets used here).
+The TUI needs a qjsm with the split `terminal` modules (`terminal`, `terminal/style`,
+`terminal/widgets`, `terminal/screen`, ...: qjs-modules 59882b5e or later); the `qjsm` installed
+from `~/Sources/quickjs/qjs-modules` has them.
 
 ### Colours in verbose mode
 
 Ctrl-O (`/verbose`) shows the raw content in colour (`lib/rawcolor.js`, in
 the theme palette). The colouring only adds colour: with the escape
 sequences removed the text is exactly what was sent or received
-(`test-rawcolor.js`, run by `smoke.sh`).
+(`tests/test-rawcolor.js`, run by `smoke.sh`).
 
 - **request panel**: the system prompt dim, every other message by what its
   lines are: a JSON document (keys teal, strings lime, numbers amber,
@@ -1110,7 +1115,7 @@ documented afterwards, and only read, not run - see TODO.md.
   - **Check first**: the restart runs `smoke.sh` on the edited source
     tree. A failing check refuses the restart, the running session is
     untouched, and the failure output goes back to the model to fix.
-    `smoke.sh` imports every `lib/*.js`, runs `test-rawcolor.js` and starts
+    `smoke.sh` imports every `lib/*.js`, runs `tests/test-rawcolor.js` and starts
     the REPL in a pty (with `--listen`, plus `SMOKE_ARGS`) with a fixed
     command set. An installed copy that is told to restart then runs the
     source tree's `repl.js` and says so (`≋ restarting from the source
@@ -1212,7 +1217,7 @@ prompt's own explicit "writing a new native (C) binding" guidance
 pointing at these same steps. A smaller/less capable local model may need
 more nudging in the prompt itself to actually follow through on every
 step (verify via `RUN:` instead of just describing code, in particular)
-than a larger hosted one does - see `TODO.md` item 3 for the broader
+than a larger hosted one does - see `TODO.md` (section 3, "Context, compaction, handoff") for the broader
 "push the model harder toward using the harness" gap this demo exercises
 end to end.
 
@@ -1236,7 +1241,7 @@ end to end.
   `/queue drop N` and `/queue clear` remove entries; the status line shows `N
   queued`). Ctrl-X Ctrl-S sends the typed prompt now: it goes first and the
   running request is cancelled. The queue is saved with the session (the
-  `queue` field of `<model>.json`, and of a restart's resume file) and runs
+  `queue` field of `session.json`, and of a restart's resume file) and runs
   again, in order, when the session is resumed.
 - When the gateway ends a request with "All models rate-limited ... Attempt
   trail: ...", the next bare `/model skip` skips every model of the

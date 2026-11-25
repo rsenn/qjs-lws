@@ -1,5 +1,10 @@
 # Demo redesign: writing a native QuickJS binding (zlib as the worked example)
 
+Status 2026-11-25: the redesign below is built (section 9, steps 1 to 5); the live re-run (step 6) was never
+done. Wording: the old text protocol `LIST:`/`READ:`/`RUN:` of the first design is now the model's native tool
+calls `list_directory`, `read_file` and `run_command` (`lib/tool-requests.js`); where this file says
+`LIST:`/`READ:`/`RUN:` it means those tools.
+
 ## 0. Example prompts: what this REPL is actually good for
 
 The binding-writing walkthrough below is one worked example, not the only
@@ -66,7 +71,7 @@ either, and it's much faster to find that out on the small case.
 The current "write a native binding" demo (README.md's "Demo" section) was
 never actually verified end to end - the one live attempt
 (`qwen2.5-coder:latest`, asked to bind `crc32()`) ran for 900s and never
-produced a reply (see `BUGS: ollama-native-binding-demo-never-replies`).
+produced a reply (the old `ollama-native-binding-demo-never-replies` bug entry; it is no longer in `BUGS` and stays unverified until step 6 runs).
 Before retrying it, this document reconsiders what we actually hand the
 model to work with - both what's attached automatically and what it has to
 `READ:`/`LIST:` for itself - rather than assuming more context is better.
@@ -269,7 +274,7 @@ and asking about, or defaulting to a documented "guess, retry larger on
 
 The README demo currently tells the model to verify via *this project's*
 `CMakeLists.txt`/`build/` machinery. That's almost certainly implicated
-in why the one live attempt never returned (see `BUGS` entry linked
+in why the one live attempt never returned (see the bug named
 above) - it entangles a tiny standalone module with qjs-lws's own full
 native build (libwebsockets, multiple translation units, a
 minutes-long link step) for something that doesn't need any of it.
@@ -289,7 +294,7 @@ both point at this instead - much faster, and isolates whether the
 *binding* is correct from whether qjs-lws's own build happens to be
 green that day.
 
-## 9. Concrete next steps (not yet implemented - this file is the plan)
+## 9. Steps (1 to 5 done, 6 open)
 
 1. **Done.** `examples/ollama-repl/reference/quickjs-binding-api.md`
    (§3's curated excerpt) - grouped by concern, signatures checked
@@ -313,7 +318,7 @@ green that day.
    recipe - replacing the old, still-unverified crc32-only version.
 6. **Not done.** Re-running the live demo needs a reachable Ollama server
    or a valid `GEMINI_API_KEY`, neither available in the environment this
-   work was done in (same gap noted in `TODO.md` item 4a). What *was*
+   work was done in (same gap noted in `TODO.md`, section 4). What *was*
    verified directly, standalone, without either provider: `point.c`
    compiles and runs correctly via the exact `gcc -shared -fPIC ...`
    recipe now in the system prompt/README (`new Point(3,4).norm() ===
@@ -327,8 +332,8 @@ green that day.
 ## Open questions for a human to weigh in on
 
 Resolved: the heuristic auto-detects (§4); the explicit `/binding
-<prompt>` command that once forced the attach has been removed
-mechanism. The cheat sheet (§3) is markdown (`reference/
+<prompt>` command that once forced the attach has been removed, the
+auto-detection is the only mechanism. The cheat sheet (§3) is markdown (`reference/
 quickjs-binding-api.md`) - the recommended option, prose + snippets
 read naturally in a chat transcript; a compilable `.h` excerpt wasn't
 built (readability in-context mattered more here than "compiles as a

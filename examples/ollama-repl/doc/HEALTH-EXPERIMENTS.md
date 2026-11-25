@@ -1,11 +1,14 @@
-# Model health, exploration and switchover: what the data says (2026-11-25)
+# Model health, exploration and switchover: what the data says and what was done (2026-11-25)
 
-Data: the live session `qjs-modules` read through `ollama-repl-ctl` (`/gateway
+Status: the fixes below are built and tested (Phases 1 to 3, 4.1, 4.3); the numbers are the
+state before them. What is left is in the last section. Data: the live session `qjs-modules` read through `ollama-repl-ctl` (`/gateway
 status|usage|limited|keys|quota|providers|models`, `/events`, `/proxy`,
 `/standby`), and the files under `~/.cache/ollama-repl/` of that day:
 `usage.jsonl` (4206 requests, 07:22 to 21:42), `exploration.json` (276 models),
 `ratings.json` (69), `cooldowns.json`, `quota.jsonl`. Numbers below are from
 that one day and one gateway (freellmapi at localhost:3001, 699 models, 83 keys).
+The safe way to run experiments: a script that talks to the gateway uses `FREELLMAPI_URL`
+(default `http://localhost:3001/v1`) and `FREELLMAPI_KEY`, never `OPENAI_API_URL`.
 
 ## What happened to the requests
 
@@ -37,7 +40,7 @@ that one day and one gateway (freellmapi at localhost:3001, 699 models, 83 keys)
   rate limits (shown to the user as `12k context lost`) and 3 are the
   nemotron-3.5-lightning family: recall 3/3 but `finish: length` with
   `max_tokens` 400, so the tool call never came. The same model served 2314
-  real requests with 53 failures (2.3 %). Two defects, see BUGS.
+  real requests with 53 failures (2.3 %). Two defects, fixed (2.2, 2.3).
 - 74 of the 98 usable models were never used in the 14 hours: traffic is
   concentrated on 3 models, the exploration verifies the other 95.
 - Verdicts of passed models are never asked again (by design); their median
@@ -60,7 +63,7 @@ that one day and one gateway (freellmapi at localhost:3001, 699 models, 83 keys)
 - A failed request is rated against the requested name (`auto` has 30
   failures, 0 successes); harness exceptions count as model failures;
   `adj` saturates at +25 (laguna 428/0, nemotron-3.5-lightning 2314/53 and
-  nemotron-3-ultra 150/1 all at the cap). See BUGS.
+  nemotron-3-ultra 150/1 all at the cap). Fixed (2.4, 3.3).
 
 ## Switchover
 
@@ -70,204 +73,52 @@ that one day and one gateway (freellmapi at localhost:3001, 699 models, 83 keys)
 - The gateway reports 195 of 699 models ready; the pace-time "back" column
   is exact for daily resets and `?` for `exhausted` (gemini-3.5-flash).
 
-## Plan
+## What was done
 
-Order is by dependency. Every item: where, the change, the test, how success
-shows in `usage.jsonl` / `exploration.json`, and who owns it (H = this harness,
-G = the freellmapi gateway). A fix removes its entry from BUGS in the same commit;
-tests run with `~/Sources/quickjs/qjs-modules/build/x86_64-linux-gnu/qjsm` (the
-installed qjsm has no `terminal/*` yet); examples/ needs no ChangeLog entry.
+Every item had a test and closed its `BUGS` entry; tests are in `tests/`.
 
-### Phase 0: before any fix
+| Item | What | Where |
+|---|---|---|
+| 1.1 | `attempt` on usage rows: 0 is the first try, n the n-th automatic `/model skip` retry of the round (only the main client logs usage; the rows cannot otherwise tell a failed turn from a failed hop of the retry chain) | `repl.js` `chatRound`/`onMeta`, `lib/persist.js` `usageRow` |
+| 1.2 | `qjsm usage-baseline.js [--days N] [--origin URL] [--json]` prints the numbers of this document (turns, error classes, fallbacks vs latency, per platform, failure runs, time to next success) | `lib/usage-baseline.js` |
+| 2.1 | Tor control host from the socks URL (`torHost`; `TORHOST` still wins) for `autoExit`, `/proxy exit` and `fixKeyless` | `lib/proxy-probe.js` |
+| 2.2 | tier 1 probe budget 400 to 1500 reply tokens, one retry with 3000 when cut off at the limit after all facts were recalled | `lib/exploration.js` `probeDeep` |
+| 2.3 | a rate-limited tier 1 probe is "not tested (provider busy)" (`12k?`), never "context lost" | `repl.js`, `lib/events.js`, `lib/exploration.js` |
+| 2.4 | a failed request with no `routedVia`, or an error of our own code, is not rated; the row stays in usage.jsonl and the baseline classes it `harness exception` | `lib/harness-error.js`, `repl.js` `onMeta` |
+| 2.5 | `test-rawcolor.js` takes its colours from `lib/palette.js` | tests |
+| 2.6 | `fg` was used and not imported in `repl.js` (the long live reasoning panel threw); `check-names.cjs` finds undeclared and doubly declared names | `repl.js`, `check-names.cjs` |
+| 3.1 | a provider that just rate-limited (transient diagnosis with `retryAt`) is not probed again in the same run: its other models are skipped, not cached (evidence: 106 electronhub models probed one by one after "resumes in 16 h") | `lib/exploration.js` `run`, option `platformsOf` |
+| 3.2 | the probe queue goes best first: served in the last 24 h (+100), then rating | `lib/exploration.js` option `priority`, `repl.js` `exploreOrder` |
+| 3.3 | rating: `reliability(ok, fail) = n/(n+10) * clamp(10 - 150 * failRate, -10, 10)` replaces the flat `((ok+1)/(n+2)-0.5)*20` (428/0 gives 9.8, 150/1 8.4, 2314/53 6.6, 7 % failures 0, 20 % -10; no data 0); the `adj` cap stays; used instead of the Wilson bound of the first plan: simpler, same order for the three cases | `lib/rating.js` |
+| 4.1 | tier 1 rerun (12k tokens, with tools, 3 runs each, local gateway): at 400 tokens 1 run in 3 of `-30b` and of `-30b-a3b` was cut off without a tool call, at 1500 all 6 passed; the base `nemotron-3.5-lightning` was not testable (5 routes: 3 rate-limited, 2 without tool calling; one provider key rejected as invalid) | rerun |
 
-- **0.1 Commit what is pending** (proxy policy, exhausted-provider trigger, net-pane
-  chips, BUGS, this doc), so every item below is one commit. Needs the user's OK. H
-- **0.2 Experiment safety rule.** A script that talks to the gateway uses
-  `FREELLMAPI_URL` (default `http://localhost:3001/v1`) and `FREELLMAPI_KEY`,
-  never `OPENAI_API_URL` (it points to another service here). The key comes from
-  the user; it is not read from the live session's environment. Alternative with no
-  key: drive the live session's own `/model explore PATTERN` (a forced sweep under
-  its key), only with the user's OK. H
-- **0.3 The proxy policy is live and persistent.** The session put 22 keys behind
-  the LAN Tor (`192.168.178.52:9050`), `kilo` (77 % of the tokens) among them; this
-  is gateway key state and outlives the harness. Measure before/after per platform
-  (latency, ttfb, errors; split usage.jsonl at about 21:58 on 2026-11-25) and let the
-  user decide whether the main provider should stay on Tor. H + user
+## Before snapshot (4.2)
 
-### Phase 1: instrumentation (everything below depends on it)
+`qjsm usage-baseline.js --days 1` on 2026-11-25, 4264 requests, all with the old code:
 
-- **1.1 `attempt` on usage records.** Decision (2026-11-25, replaces "label"): a
-  usage row says how many automatic skips came before it in its round: `attempt` 0
-  is the first try of a request, n is the n-th retry after `/model skip` by
-  `chatRound` (`skips`, max `AUTO_SKIPS`). Reason: the rows are all main-client
-  requests; what they cannot tell is a turn that failed from a hop of the retry
-  chain that failed, which is what health and failover statistics need. Where:
-  module variable set in `chatRound` before each `chatRoundOnce`, read by
-  `repl.js: onMeta` into the record, kept by `lib/persist.js: usageRow`. Attempt 0 is not
-  written; rows written before this have none; readers treat a missing one as 0. Other
-  clients (explore, standby, sub-agent) stay unlogged (open: whether they should be,
-  with a `label`; not needed for the plan). Test: `usageRow` keeps `attempt`; the
-  baseline test counts a turn as failed only when its last attempt failed. H
-- **1.2 Baseline script.** Decision: `usage-baseline.js` next to `ctl.js` (qjsm, no
-  python) over the pure `lib/usage-baseline.js`: `baseline(rows)` returns the
-  numbers of this document (records, span, status, error classes, fallbacks vs
-  latency, per platform, failure runs, time to the next success, by hour);
-  options `--days N`, `--origin URL`. A "turn" is a run of rows ending with the
-  first success or the last failure of a chain: rows with `attempt` n+1 follow
-  rows with attempt n within the same session; without the field every row is
-  its own turn. Success: one command prints the tables of this document. H
+| measure | before | after (fill in after a day on the new code) |
+|---|---|---|
+| failed turns | 131 of 4255 = 3.2 % | |
+| failed hops | 140 (94 all exhausted, 25 upstream, 12 harness exceptions) | |
+| time to next success | median 17 s, p90 396 s, longest run 9 turns | |
+| kilo share of requests | 2865 of 4264 = 67 % | |
+| gateway retries 1+ | 61 requests | |
 
-### Phase 2: correctness (each with a test, each closes a BUGS entry)
+## Not built, with the reason
 
-- **2.1 exit-change-uses-wrong-tor-host.** DONE (`torHost` in lib/proxy-probe.js, test-proxy-probe.js; TORHOST still wins). `repl.js: autoExit` and `/proxy exit`:
-  take the host from the socks URL (as `fixKeyless` and `keylessProxy` do), one helper
-  `torHost(socksUrl)` in `lib/proxy-probe.js`. Test: the helper on
-  `socks5://192.168.178.52:9050`, `socks5h://[::1]:9050`, no URL. Success: NEWNYM
-  reaches the control port of the proxy's host; exit address changes in the pane. H
-- **2.2 deep-probe-max-tokens-too-small.** DONE (1500, one retry with 3000 on finish length with recall 3 and no tool call, `retried` in the result; test-probe-deep.js). `lib/exploration.js: probeDeep`: raise
-  `max_tokens` (1500), and on `finish: length` with recall 3 and no tool call retry
-  once with 3000 before failing. Test: fake client answering length then a tool
-  call. Success: the three nemotron-3.5-lightning variants pass tier 1 in
-  exploration.json; run the rerun at 400/1500 (item 4.1) to confirm. H
-- **2.3 deep-probe-transient-error-shown-as-context-lost.** DONE (event: `not tested (provider busy)`, card, Probe cell `12k?`; test-events.js, test-probe-deep.js). `repl.js: explored`
-  (about line 3075) and `lib/exploration.js: probeBrief/deepText`: a deep result
-  with `transient` is "busy", never "context failed/lost"; `needsDeep` already
-  retries it. Test: test-events.js and a probeBrief case. Success: no `context
-  lost` event for a rate-limited deep probe. H
-- **2.4 failed-request-rated-against-requested-name.** DONE. `repl.js: onMeta`: a failed
-  request with no `routedVia` (no route answered, the whole pool would take the blame)
-  or whose error is our own (`lib/harness-error.js: isHarnessError`: ReferenceError, "is
-  not a function", "unknown color", ...) is not rated. Decision changed from the plan:
-  the row stays in usage.jsonl (the user's request did fail), the baseline classes it as
-  `harness exception`. Tests: test-harness-error.js, test-usage-baseline.js. Success: `auto`
-  gets no failures in ratings.json from now on; the 12 harness exceptions of 2026-11-25
-  (10 unknown color, 1 not defined, 1 not a function) would not have been rated. H
-- **2.5 rawcolor-test-expects-old-colors.** DONE (the test takes GREEN, RED, TEAL from lib/palette.js). `test-rawcolor.js`: import the colors
-  from `lib/palette.js` instead of hard-coding the values. Success: the 4 failures go
-  away and a palette change cannot break the test again. H
-- **2.6 Harness exceptions in the request path** DONE: found `fg` used and not imported in repl.js livePanel (the long live reasoning panel threw), same class as `colorReasoning is not defined`; imported. `check-names.cjs` (node --expose-internals, flat undefined-name check) is in the repo and reports 0 now; `unknown color` was an escape passed as a border color, no longer in the code; the single bare `not a function` of 20:07 could not be traced. (`is not defined`, `not a
-  function`, `unknown color`): find what throws where a request is made, fix it;
-  2.4 only stops them from being rated. Success: none in the next day's usage.jsonl. H
+- **3.4 failover headroom** (prefer a provider with quota left over the biggest one; target: the kilo
+  share after failures, 17 of 38, falls), **3.5 faster switch** (on "All models exhausted" for a pinned
+  model switch at once; cheap 0.3 s failures repeat up to 9 times, median 13 s to recovery; part of it
+  exists: `/model skip` drops every model of a provider the error names) and **3.11 the req/day meter**
+  feeding failover and the automatic exit decision. They change the retry chain of `chatRound`
+  and need a live gateway to measure; next step: the 4.2 baseline with `attempt` rows.
+- **3.10 quota bar:** "584M/2.3G budgeted tokens" vs 876M this month: which tokens `budget.totalUsed`
+  counts is not known; the text is not reworded on a guess (question in `GATEWAY-PROPOSALS.md`).
+- **3.6 to 3.9** are gateway changes, written up with their evidence in `GATEWAY-PROPOSALS.md`.
 
-### Phase 3: policy, each measured against the Phase 1 baseline
+## Decisions still needed from the user
 
-Harness (H):
-- **3.1 Do not probe a limited provider.** `repl.js: exploreKeylessAgain`,
-  startup exploration, `/model health`: skip ids whose provider the availability
-  or `cooldowns.json` marks limited; re-probe at the known reset (exact clock
-  times, e.g. 01:00 and 13:35) instead of after a fixed hour (`Exploration.fresh`
-  uses `retryAt`). Test: availability fixture. Success: share of transient
-  `rate-limited` verdicts in exploration.json falls from 160 of 178 (90 %). H
-- **3.2 Explore what traffic will need.** Order the probe queue by rating and
-  recent use (usage.jsonl, ratings.json), not by the ready list. Success: of the
-  verified models, the share used within the day rises from 24 of 98. H
-- **3.3 Rating without a cap.** `lib/rating.js: ADJ_CAP`: lower confidence bound
-  of the success rate (Wilson) plus a latency term. Test: 428/0, 2314/53 and 150/1
-  rank in that order of bound, not tied. Success: ratings.json has no three-way tie
-  at the cap. H
-- **3.4 Failover headroom.** `repl.js: /model next`, `skip`, takeover and the
-  standby choice: prefer a provider with quota left (`/gateway quota`) over the
-  biggest one. Success: the share of kilo after failures (17 of 38) falls, no new
-  failure runs. H
-- **3.5 Gateway-wide failure pacing.** On `All models exhausted` for a pinned
-  model, switch at once (the cheap 0.3 s failures repeat up to 9 times in a run);
-  longest run 9 requests, median 13 s to recovery today. Success: run length and
-  time to next success in usage.jsonl. H
-
-Gateway (G, proposals for freellmapi, not harness code):
-- **3.6 Key spread.** kilo's three keys carry 87/12/1 %; a balanced pick per
-  request. Success: spread over the keys in `/gateway usage`.
-- **3.7 `blocked` false negatives.** The gateway lists a model usable while its
-  provider is `rate_limited` (the diagnosis of 144 probes says so); the
-  availability should reflect the provider status. Success: probes failing with
-  rate-limited on a model the gateway listed usable drop.
-- **3.8 Daily resets are not cooldowns.** Fixed clock times (01:00, 06:55..07:04,
-  13:35) labelled `cooldown`; expose the reset kind and the exact end. Success:
-  the "back" column has no `?` for exhausted models.
-- **3.9 Route check for tool support.** "1 model lacks tool-calling" among the
-  candidates of a request with tools: filter before counting routes. Success: fewer
-  `All models exhausted` with a tool-less route in the count.
-
-### Phase 3 design (2026-11-25, written before the code)
-
-Built now (harness, with tests; all wired in `repl.js: exploreOrder`):
-
-- **3.3 Rating reliability** (`lib/rating.js: reliability`; used instead of the Wilson bound of the plan, it is simpler and gives the same order for the three test cases). The learned success term
-  `((ok + 1) / (n + 2) - 0.5) * 20` is nearly flat near 100 % (428/0 and 2314/53 differ by
-  0.45 points) and the +-25 `adj` cap saturates, so models of very different quality tie.
-  New: `reliability(ok, fail) = w * clamp(10 - 150 * failRate, -10, 10)` with
-  `w = n / (n + 10)` (the confidence in the rate: few requests count little, a model with
-  no data gets 0). Worked: 428/0 gives 9.8, 150/1 gives 8.4, 2314/53 gives 6.6, a 7 %
-  failure rate gives about 0, a 20 % one -10. The latency term and the cap of `adj` stay.
-  Failures that are only a limit still do not count (unchanged).
-- **3.1 Do not probe a provider that just rate-limited** (`lib/exploration.js: run`,
-  option `platformsOf`). When a probe fails with a transient diagnosis and a `retryAt`,
-  the platforms of that model are busy until `retryAt`; a queued model whose platforms
-  are all busy is skipped (not probed, not cached, reported as `skipped` in `onDone`)
-  and is tried again by the next run. Evidence: 106 electronhub models were probed one
-  by one while the first diagnosis already said "resumes in 16 h".
-- **3.2 Explore what traffic needs first** (`run`, option `priority`). The queue is
-  sorted by `priority(id)` (best first); the callers use the rating plus 100 for a model
-  that served a request in the last 24 h (usage.jsonl), so the models traffic will pick
-  are verified before the ones nothing asked for.
-
-Designed, not built (reason):
-
-- **3.4 Failover headroom, 3.5 faster switch, 3.11 req/day meter.** They change the
-  retry chain of `chatRound` and the `/model skip` choice in `repl.js`, which has
-  unfinished work of another change (the hop line) in the same file, and they need a
-  live gateway to measure (success: share of `kilo` after failures, run length). Part
-  of 3.5 exists already: `/model skip` drops every model of a provider the error names
-  (`exhaustedPlatforms(error)`). Next step: Phase 4.2 baseline with `attempt` rows, then
-  decide from the runs that remain.
-- **3.10 Quota bar.** "584M/2.3G budgeted tokens" vs 876M this month: which tokens
-  `budget.totalUsed` counts could not be told from the data at hand; the text is not
-  reworded on a guess. Open question for the gateway API (see GATEWAY-PROPOSALS.md).
-- **3.6 to 3.9 (gateway):** written up with their evidence in `doc/GATEWAY-PROPOSALS.md`.
-
-### Phase 4: verification
-
-- **4.1 max_tokens rerun.** Tier 1 probe of nemotron-3.5-lightning (and -30b,
-  -30b-a3b) at 400 and 1500, 3 runs each, through the gateway's own URL and an
-  approved key (see 0.2). Success: pass at 1500, finish length at 400.
-- **4.2 A day later.** Rerun the baseline script (1.2) on the day after 2.x and 3.x
-  are in and fill a before/after table here: real failure rate (label main), median
-  time to recovery, transient verdict share, used share of verified models, kilo
-  share, rating ties.
-- **4.1 result (2026-11-25, 12k-token tier 1 probe, with tools, 3 runs each, through the
-  gateway at localhost:3001 with the user's gateway key from accounts.txt):**
-
-  | model | max_tokens 400 | max_tokens 1500 |
-  |---|---|---|
-  | nemotron-3.5-lightning-30b | 3/3 recall, 1 of 3 cut off at the limit without a tool call | 3/3 pass |
-  | nemotron-3.5-lightning-30b-a3b | 3/3 recall, 1 of 3 cut off at the limit without a tool call | 3/3 pass |
-  | nemotron-3.5-lightning | not measurable: 5 routes, 3 rate-limited, 2 without tool calling; one provider key rejected as invalid ("look invalid") | same |
-
-  Confirmed: the old budget of 400 fails a third of the runs by cutting reasoning off, 1500
-  never did. The base model could not be tested; the gateway names an invalid upstream key
-  for one provider, which is for the gateway's owner to fix.
-- **Status:** the "after" half of 4.2 waits for a day of traffic on the new code (restart
-  the sessions to pick up Phases 1 to 3). 4.1 and 4.3 are done.
-- **4.2 before snapshot** (`qjsm usage-baseline.js --days 1`, 4264 requests, all with the old code):
-
-  | measure | before | after (fill in) |
-  |---|---|---|
-  | failed turns | 131 of 4255 = 3.2 % | |
-  | failed hops | 140 (94 all exhausted, 25 upstream, 12 harness exceptions) | |
-  | time to next success | median 17 s, p90 396 s, longest run 9 turns | |
-  | kilo share of requests | 2865 of 4264 = 67 % | |
-  | gateway retries 1+ | 61 requests | |
-
-- **4.3 Doc and TODO.** DONE. Move done items to Done in `TODO.md`, remove closed BUGS
-  entries, update README and ARCHITECTURE for the label and the exploration order.
-
-### Decisions needed from the user
-
-1. Commit the pending work now (0.1)?
-2. Live probes: a key from you, or may I drive the live session's `/model explore` (0.2)?
-3. Should kilo (the main provider) stay behind Tor (0.3)?
-4. Who takes the gateway proposals 3.6 to 3.9?
-
-Not done: no live experiment against the gateway (see the note in the session
-report: an attempt with the wrong endpoint was rejected, nothing was served);
-the max_tokens hypothesis rests on the cached results, not on a rerun.
+1. Should kilo (the main provider, 22 keys behind the LAN Tor since the proxy policy went live,
+   about 21:58 on 2026-11-25; split usage.jsonl there to compare latency, ttfb and errors per platform)
+   stay on Tor?
+2. Who takes the gateway proposals 3.6 to 3.9?
