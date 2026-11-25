@@ -14,6 +14,7 @@
  * they are paired by the peer port of the request's URL, so connections of
  * other threads (the exploration worker) show without a request.
  */
+import { panel } from 'terminal/widgets';
 import { meter } from './look.js';
 import { PORT_NAMES } from './resources.js';
 
@@ -175,22 +176,17 @@ const rgb = hex => `${parseInt(hex.slice(1, 3), 16)};${parseInt(hex.slice(3, 5),
 const strip = s => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
 
 /**
- * a rectangle: the lines on the background of the type, padded to the width (the resets inside coloured text would
- * end the background, so each one starts it again), a half-block edge above and below, square corners
+ * a rectangle: a plain terminal/widgets panel on the background of the type, the first line its bold title, one
+ * blank row above and below; the lines are cut and padded to the width so every card is as wide as the pane
  */
 export function block(kind, lines, width) {
-  const bg = `\x1b[48;2;${rgb(TYPES[kind][0])}m`;
-  const fg = `\x1b[38;2;${rgb(TYPES[kind][0])}m`;
-  const edge = (l, mid, r) => `${fg}${l}${mid.repeat(Math.max(0, width - 2))}${r}\x1b[0m`;
+  const inner = width - 2;
+  const [title, ...rest] = lines.map(l => {
+    const t = fitLine(l, inner);
+    return t + ' '.repeat(Math.max(0, inner - [...strip(t)].length));
+  });
 
-  return [
-    edge('▄', '▄', '▄'),
-    ...lines.map(l => {
-      const t = fitLine(l, width - 2);
-      return `${bg} ${t.replaceAll('\x1b[0m', `\x1b[0m${bg}`)}${bg}${' '.repeat(Math.max(0, width - 2 - [...strip(t)].length))} \x1b[0m`;
-    }),
-    edge('▀', '▀', '▀'),
-  ];
+  return panel(title, rest.join('\n'), width + 1, { kind: 'plain', background: TYPES[kind][0] }).split('\n');
 }
 
 /**

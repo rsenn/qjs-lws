@@ -24,7 +24,8 @@
  * passes them as up and down keys), else through alternate scroll mode
  * (1007), where the terminal sends it as up and down keys itself.
  */
-import { ScrollView, pad, stringWidth, truncate, ttyWrite, windowSize, wrap } from 'terminal';
+import { pad, stringWidth, truncate, ttyWrite, windowSize, wrap } from 'terminal';
+import { ScrollView } from 'terminal/scrollview';
 import * as terminal from 'terminal';
 
 /* a frame in synchronized output (mode 2026) where the terminal has it */

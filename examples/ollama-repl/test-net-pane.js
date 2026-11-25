@@ -24,9 +24,9 @@ check('height does not depend on the content width', heights[0] === heights[1]);
 
 check('kinds by port and label', kindOf('9222') === 'cdp' && kindOf('3001', 'explore') === 'explore' && kindOf('3001', 'main') === 'model' && kindOf('3001', 'sub-agent') === 'sub' && kindOf('3001', 'standby') === 'standby' && kindOf('11434') === 'model' && kindOf('443') === 'http' && kindOf('22') === 'tcp' && kindOf('1', 'brief') === 'compact');
 const b = block('model', ['ab', '\x1b[1mcd\x1b[0m ef'], 20);
-check('rectangle: edge, one row per line, edge', b.length === 4 && b.every(l => [...plain(l)].length === 20));
+check('rectangle: blank row, one row per line, blank row', b.length === 4 && b.every(l => [...plain(l)].length === 20));
 check('background survives the resets inside a line', b[2].split('\x1b[0m').slice(0, -1).filter(x => x).length > 0 && b[2].includes('\x1b[0m\x1b[48;2;'));
-check('half-block edges, square corners', /^▄+$/.test(plain(b[0])) && /^▀+$/.test(plain(b[3])));
+check('plain rows above and below, no border glyphs', /^ +$/.test(plain(b[0])) && /^ +$/.test(plain(b[3])) && b.every(l => !/[▄▀▗▖▝▘╭╮╰╯│]/.test(plain(l))));
 
 /* the hops the gateway tried, from its fallback headers */
 {

@@ -1,5 +1,6 @@
 /* test-pager-rewrap.js: the pager's ScrollView keeps its wrapped lines per width (terminal.js source mode) */
-import { ScrollView, wrap } from 'terminal';
+import { ScrollView } from 'terminal/scrollview';
+import { wrap } from 'terminal';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-pager-rewrap: ${what}`);

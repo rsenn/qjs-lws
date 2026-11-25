@@ -8,7 +8,10 @@
  * console.log(panel('request #3', formatMeta(meta), tui.width));
  * ```
  */
-import { BOX_ROUNDED, bigText, boxLines, gradient, keyValue, pad, progressBar, rule, stringWidth, stripAnsi, style, wrap } from 'terminal';
+import { pad, stringWidth, stripAnsi, wrap } from 'terminal';
+import { BOX_ROUNDED } from 'terminal/screen';
+import { gradient, style } from 'terminal/style';
+import { bigText, boxLines, keyValue, progressBar, rule } from 'terminal/widgets';
 import { getenv } from 'std';
 import { piped } from './ansi.js';
 import { fmtNum } from './usage-stats.js';

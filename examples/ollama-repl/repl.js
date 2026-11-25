@@ -109,10 +109,11 @@ import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } fro
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
-import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning } from './lib/rawcolor.js';
+import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning, HEADER, BORDER, HINT, THEME } from './lib/rawcolor.js';
 import { file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
-import { keyValue, statusBar, stripAnsi } from 'terminal';
-import * as terminal from 'terminal';
+import { stripAnsi } from 'terminal';
+import { enableCapabilities, queryCapabilities } from 'terminal/capabilities';
+import { keyValue, statusBar } from 'terminal/widgets';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
 /* rmSync throws on a missing file, os.remove did not */
@@ -929,7 +930,7 @@ function livePanel(title, text, { kind = 0, tail = false, ...opts } = {}) {
   const max = () => Math.max(6, Math.floor(tui.rows / 2) - 4);
   const render = (t, x, o = {}) => {
     const lines = String(x).replace(/\n+$/, '').split('\n');
-    const body = tail && lines.length > max() ? [dim(`… ${lines.length - max()} earlier lines · /view ${n} shows all`), ...lines.slice(-max())].join('\n') : x;
+    const body = tail && lines.length > max() ? [fg(HINT)+ `… ${lines.length - max()} earlier lines · /view ${n} shows all`, ...lines.slice(-max())].join('\n') : x;
     return panel(t, body, tui.width, { max: tail ? Infinity : max(), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts, ...o });
   };
   const id = tui.openPanel(render(title, text), kind);
@@ -1193,7 +1194,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     if(reasoning) {
       const body = colorReasoning(reasoning.trim());
       if(liveReasoning) liveReasoning.update('◌ reasoning', body);
-      else showPanel('◌ reasoning', body, { border: '#f472b6' });
+      else showPanel('◌ reasoning', body, { border: '#E07A5F' });
     }
     reasoning = '';
     liveReasoning = null;
@@ -1207,7 +1208,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
         reasoning += text;
         control?.activity('reasoning', { text });
         const body = colorReasoning(reasoning.trim());
-        if(!liveReasoning) liveReasoning = livePanel('◌ reasoning', body, { border: '#f472b6', tail: true });
+        if(!liveReasoning) liveReasoning = livePanel('◌ reasoning', body, { border: BORDER, tail: true });
         else if(Date.now() - reasonAt >= 100) liveReasoning.update('◌ reasoning', body);
         reasonAt = Date.now();
       },
@@ -3817,11 +3818,11 @@ async function main() {
   let caps = null;
   if(!piped && !opts.noTui && isatty(0) && isatty(1)) {
     /* what the terminal can do, asked once before anything reads stdin (an older terminal module has no such query): synchronized output for the frames, bracketed paste and grapheme clusters switched on, off again by Tui.close() */
-    caps = terminal.queryCapabilities?.(stdout) ?? null;
+    caps = queryCapabilities(stdout) ?? null;
     typeahead = caps?.typeahead ?? '';
     tui = new Tui({
       sync: !!caps?.syncOutput,
-      restore: caps && terminal.enableCapabilities ? terminal.enableCapabilities(stdout, caps, { paste: true, graphemes: true }) : null,
+      restore: caps ? enableCapabilities(stdout, caps, { paste: true, graphemes: true }) : null,
       status: () => statusLines(opts, stats, messages, ctxWindow, repl?.busy, gateway, control && opts.name, tui.cols, repl?.queue.length),
       statusRows: 3,
       paintRule: (cols, label) => gradientRule(cols, label),

@@ -5,6 +5,10 @@ Waiting on the qjs-modules session: lib/terminal.js is being split into 'termina
 'terminal/keys', 'terminal/capabilities' (provisional names, no shim, not built yet). Do not touch look.js
 until that session says it landed and qjsm is rebuilt and installed.
 
+net-pane.js block() already uses panel({ kind: 'plain', background }) from 'terminal/widgets' (done 2026-11-25), so
+net-pane.js, and everything importing look.js, only loads with the new qjsm: test-net-pane.js passes with
+~/Sources/quickjs/qjs-modules/build/x86_64-linux-gnu/qjsm only after the look.js imports below are switched too.
+
 Then, in one pass:
 - look.js: import BOX_ROUNDED from 'terminal/screen'; bigText, boxLines, keyValue, progressBar, rule from
   'terminal/widgets'; gradient, style from 'terminal/style'; pad, stringWidth, stripAnsi, wrap stay on 'terminal'

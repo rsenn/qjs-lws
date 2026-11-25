@@ -26,7 +26,8 @@
 import { out as stdout } from 'std';
 import { signal, setTimeout } from 'os';
 import { SIGWINCH } from 'util';
-import { Region, charWidth, layoutInput, stringWidth, ttyWrite, windowSize, mouseEnable, mouseDisable } from 'terminal';
+import { charWidth, layoutInput, stringWidth, ttyWrite, windowSize, mouseEnable, mouseDisable } from 'terminal';
+import { Region } from 'terminal/screen';
 import * as terminal from 'terminal';
 
 /* one frame in synchronized output (mode 2026) where the terminal has it; an older terminal module has no syncOutput */
