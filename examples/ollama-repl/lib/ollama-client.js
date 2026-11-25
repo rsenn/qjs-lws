@@ -68,6 +68,7 @@ export class OllamaClient {
   #settled = new Map();
   #logger;
   #timeoutSecs;
+  #tui = null;
 
   /**
    * @param {object} opts
@@ -140,6 +141,10 @@ export class OllamaClient {
 
     this.#logger.request('POST', url, headers);
     this.#logger.body(payload);
+
+    /* abbreviate the payload for verbose logging */
+    const abbreviated = this._abbreviatePayload(payload);
+    this.#tui?.writeVerbose(`[POST /api/chat] ${abbreviated}`);
 
     const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
       method: 'POST',
@@ -265,6 +270,29 @@ export class OllamaClient {
     return { content: message?.content ?? '', toolCalls: toolCalls?.length ? toolCalls : undefined };
   }
 
+/** abbreviate a payload for verbose protocol logging - hides large fields */
+  _abbreviatePayload(payload) {
+    const { tools, toolChoice, ...rest } = payload;
+    const parts = [];
+
+    /* model, stream, options, num_ctx, temperature */
+    if(rest.model) parts.push(`model=${rest.model}`);
+    if(rest.stream !== undefined) parts.push(`stream=${rest.stream}`);
+    if(rest.options) parts.push(`options=${JSON.stringify(rest.options).slice(0, 200)}`);
+    if(rest.num_ctx) parts.push(`num_ctx=${rest.num_ctx}`);
+    if(rest.temperature) parts.push(`temperature=${rest.temperature}`);
+    if(rest.think) parts.push(`think=${rest.think}`);
+
+    /* tools - show only names */
+    if(tools && tools.length) {
+      const toolNames = tools.map(t => t.name || 'unnamed').join(',');
+      parts.push(`tools=[${toolNames}]`);
+    }
+
+    return parts.join(' ');
+  }
+
+  /* done_reason "length" means the prompt filled the context window (the
   /* done_reason "length" means the prompt filled the context window (the
      reply is cut off or empty) - Ollama's default num_ctx is only 4096
      tokens, which a project scan plus a few attached files already
@@ -345,6 +373,10 @@ export class OllamaClient {
   async chatStream(messages, { think = this.think, tools, toolChoice, ...options } = {}, onToken) {
     think = await this.resolveThink(think);
     const payload = { ...options, options: { num_ctx: this.numCtx, temperature: this.temperature }, model: this.model, messages: this.#toMessages(messages), stream: true, ...(think === 'auto' ? {} : { think }), ...(tools ? { tools: this.#toTools(tools) } : {}) };
+
+    /* abbreviate the payload for verbose logging */
+    const abbreviated = this._abbreviatePayload(payload);
+    this.#tui?.writeVerbose(`[POST /api/chat] ${abbreviated}`);
 
     const resp = await this.#post(payload);
     const reader = resp.body.getReader();

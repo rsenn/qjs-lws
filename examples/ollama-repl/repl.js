@@ -3276,7 +3276,7 @@ async function main() {
           row[0],  // model id
           row[1],  // status with color
           row[2],  // quota/reset
-        ];
+        ]);
         // Format as a simple table
         const widths = [header[0].length, header[1].length, header[2].length].map((h, i) => Math.max(...[header[i], ...tableRows.map(r => r[i].length)]));
         const line = widths.map((w, i) => h => `${h.padEnd(w)}`).join('  ');

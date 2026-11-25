@@ -116,6 +116,10 @@ export class Tui {
   oRow = 1;
   oCol = 0;
 
+  #progressLabel = '';
+  #progressPercent = 0;
+  #progressActive = false;
+
   /**
    * @param {object} opts
    * @param {() => string|string[]} opts.status  the status lines, read on every repaint
@@ -192,6 +196,11 @@ export class Tui {
     ttyWrite(this.#out, s);
   }
 
+  /** write a verbose protocol line (kind = 1) - appears only when verbose view is on */
+  writeVerbose(text) {
+    this.write(text, 1);
+  }
+
   /**
    * takes over the terminal: blank screen (the old content goes to the
    * scrollback), scroll region set, std.out.puts redirected into the
@@ -249,7 +258,13 @@ export class Tui {
    * it was. Wrapping and scrolling are tracked, so the next write goes on
    * where this one ended.
    */
-  write(text) {
+write(text, kind) {
+    if(kind !== undefined) {
+      this.kind = kind;
+    } else {
+      this.kind = 0;
+    }
+
     if(this.#held) return void this.#held.push({ text, kind: this.kind });
 
     /* a line the current view hides is still kept in the history, wrapped like a shown one, for when the view changes */
@@ -371,6 +386,22 @@ export class Tui {
     if(!this.#closed) this.drawRule();
   }
 
+  /** progress bar in the rule line: label is a string, percent is 0-100 */
+  setProgress(label, percent) {
+    this.#progressLabel = label ?? '';
+    this.#progressPercent = Math.max(0, Math.min(100, percent ?? 0));
+    this.#progressActive = this.#progressPercent > 0 && this.#progressPercent <= 100;
+    if(!this.#closed) this.drawRule();
+  }
+
+  /** clear the progress bar */
+  clearProgress() {
+    this.#progressActive = false;
+    this.#progressLabel = '';
+    this.#progressPercent = 0;
+    if(!this.#closed) this.drawRule();
+  }
+
   /**
    * scrolls the transcript view by n lines, negative goes back. returns
    * whether it moved. back at the end the view follows the output again.
@@ -468,11 +499,31 @@ export class Tui {
       return this.#drawRuleLine(`${CSI}7m${clip(` ${label} `.padEnd(this.cols), this.cols)}`);
     }
 
-    if(this.#paintRule) return this.#drawRuleLine(clip(this.#paintRule(this.cols, this.#activity), this.cols));
+    /* build the rule line: activity, then progress bar if active, then fill */
+    const activityPart = this.#activity ? `─ ${this.#activity} ` : '';
+    const progressPart = this.#progressActive ? this._progressBarString() : '';
+    const minLen = Math.max(activityPart.length, progressPart.length);
+    const fillCount = Math.max(0, this.cols - minLen);
+    const filler = '─'.repeat(fillCount);
 
-    const label = this.#activity ? `─ ${this.#activity} ` : '';
-    const line = label + '─'.repeat(Math.max(0, this.cols - stringWidth(label)));
+    let line = '';
+    if(this.#progressActive) {
+      line = progressPart + ' ' + filler;
+    } else if(this.#activity) {
+      line = activityPart + filler;
+    }
+
     this.#drawRuleLine(`${CSI}2m${clip(line, this.cols)}`);
+  }
+
+  /** returns a progress bar string like [████████░░░░░░░░] 50% */
+  _progressBarString() {
+    const filledBlocks = Math.round((this.#progressPercent / 100) * 16);
+    const emptyBlocks = 16 - filledBlocks;
+    const filled = '\x1b[44;97m█'.repeat(filledBlocks) + '\x1b[0m';
+    const empty = '\x1b[100m░'.repeat(emptyBlocks) + '\x1b[0m';
+    const percentText = ` ${this.#progressPercent}%`;
+    return `[${filled}${empty}]${percentText}`;
   }
 
   /* the rule row, written only when it changed */
