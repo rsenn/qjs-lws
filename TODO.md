@@ -96,18 +96,16 @@ in the relevant spec.
 ## Open Items
 
 Spec violations are tracked individually in `BUGS`; this lists the larger
-gaps. The earlier WHATWG Fetch fixes (Response.status, Body.bytes/formData,
-clone() checks, sorted Headers iteration) and the Bun `Server` basics
-(`timeout`, `ref`/`unref`, `subscriberCount`, `requestIP`) and WebSocket
-`idleTimeout`/`ping`/`pong`/`drain` handlers are done.
+gaps.
 
 ### Bun.serve() (`lib/serve.js`)
 - `server.closeIdleConnections()` returns 0, `server.reload()` is a no-op and
   `server.fetch()` answers 501: all three are admitted stubs.
-- `websocket` options `perMessageDeflate`, `maxPayloadLength`,
-  `backpressureLimit`, `closeOnBackpressureLimit`, `sendPings` and
-  `publishToSelf` are accepted but have no effect (BUGS:
-  serve-websocket-options-silently-ignored).
+- `websocket.backpressureLimit` has no default (Bun: 16 MiB) and
+  `websocket.sendPings` pings only when set to `true` (Bun: default true), so
+  existing servers keep their wire behaviour; make both Bun's defaults once
+  that is acceptable. `closeOnBackpressureLimit`, `perMessageDeflate`,
+  `maxPayloadLength` and `publishToSelf` are implemented.
 
 ### UDPSocket (`lib/udpsocket.js`)
 - All socket-option methods are no-ops that return `this`: `setBroadcast`,
@@ -191,6 +189,13 @@ Open Items).
 - `HttpClientProtocol.connect()` buffers the full request body to know
   `content-length` before sending (no chunked-encoding path).
 - `lib/lws/mimetypes.js` extra list is dev-specific (`.sublime-project` etc).
+- `h1-late-queued-pipeline-never-promoted` (BUGS) is unreproduced with the
+  current lws; confirm it against a real Ollama server, then drop the entry
+  (`tests/unittests/test-fetch-idle-gap.js` guards the idle-gap case) and
+  decide whether `lib/fetch.js` should keep `LCCSCF_PIPELINE` on by default.
+- The installed `lws.so` (/usr/local/lib/x86_64-linux-gnu/quickjs/) predates
+  the fix for logging megabyte-sized websocket messages (lws.c, stack
+  overflow); reinstall it from `build/x86_64-linux-debug`.
 - Root-level `tests/test-{app,client,fetch,keepalive,middleware,serve,websocket}.js`
   are not wired into `DO_TESTS` (only `tests/unittests/test-*.js` are).
 - 19% of libwebsockets' public C API was bound (162/847) when last measured;
@@ -198,7 +203,13 @@ Open Items).
 
 ## Build on a fresh machine (found 2026-11-15, Termux restore)
 
-- fix the three BUGS above (TERMUX flag first: DNS on Termux depends on it)
+- done: the nested quickjs configure no longer forwards CMAKE_SYSTEM_NAME on a
+  native build (BuildQuickJS.cmake, synced to the other qjs-* projects and the
+  quickjs-native-bindings skill), check_cflag() probes each flag on its own,
+  -DTERMUX:BOOL=TRUE is typed, the nested libwebsockets build gets
+  CMAKE_INSTALL_PREFIX (CMP0225) and the endif() arguments match. Still to do:
+  sync the check_cflag() fix to the Checks.cmake copies of the other qjs-*
+  projects, and check a real Termux configure
 - configure applies patches to the libwebsockets submodule in place ("applied
   0010-cygwin-msys-no-net-route-ether-addr-len.patch" in the log): a default build writes into the
   source tree; apply on a copy in the build dir, or in a temporary clone (see

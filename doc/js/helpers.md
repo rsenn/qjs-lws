@@ -76,6 +76,13 @@ Recognised options (subset):
 | `tls`    | TLS server options + per-vhost SSL context. Sub-keys: `ca`, `cert`, `key`, `rejectUnauthorized` |
 | `h2`     | `LCCSCF_H2_PRIOR_KNOWLEDGE` |
 | `pwsi(wsi)` | Hook called with the freshly created `LWSSocket` |
+| `keepAlive` | default `true`: requests share a kept-alive connection (`LCCSCF_PIPELINE`, kept warm 5 s); `false` opens a new one |
+
+A request that dies on a reused connection before any response byte
+arrives (the server had already closed it: "closed before responding", or
+"dropped" when it reset the connection just as the request went out) is
+retried once on a fresh connection, for a body that can be sent again (no
+stream) and never after an abort.
 
 The body is exposed as a `ReadableStream` from
 `lib/lws/streams.js`. `Response.redirected` is `true` when lws

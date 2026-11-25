@@ -14,36 +14,3 @@
     PIPELINE-less workaround in examples/ollama-repl/lib/*-client.js reverted); remove the entry if
     that works. tests/unittests/test-fetch-idle-gap.js covers the idle-gap case. lib/fetch.js:139 still enables LCCSCF_PIPELINE by default, so ordinary fetch()
     users would be exposed if the bug were real.
-
-- vhost-destroy-logs-spurious-not-on-no-listener-list-error
-  (libwebsockets/lib/core-net/vhost.c:1706-1707, __lws_vhost_destroy2()):
-  destroying any vhost logs "ERR [vh|N|name||-1]: not on no_listener list"
-  unconditionally unless the vhost is on `no_listener_vlist` - but a vhost
-  only ever gets added to that list from server.c's `sockfd_probe_listener()`
-  path, gated on `a->vhost->iface` being set (binding to one specific
-  network interface). A normal vhost (no `iface` option - the common case,
-  including every vhost this project creates) never takes that path, so
-  it's permanently "not on the list" and this fires every single time such
-  a vhost is destroyed. Cosmetic/harmless - not an actual error, nothing is
-  broken - just noisy: confirmed by reading vhost.c/server.c, not something
-  worth patching in the vendored libwebsockets submodule without being
-  asked. Running tests/test-jsonrpc-ws.js prints it 3 times: once each for
-  the "default" and implicit "system" vhosts of the main server context at
-  shutdown, and once for a second client context's default vhost - named
-  after the machine's hostname since no `vhostName` was passed - torn down
-  later and asynchronously by ContextRefCounter (lib/lws/context.js) once
-  its ref count hits zero after the reversed-roles self-test's
-  `reverseWs.close()`, which is why that third one appears interleaved with
-  later output (e.g. after the REPL banner) instead of at the same point in
-  the script.
-
-    // any LWSContext without an `iface` option on its vhost(s) logs this
-    // on destroy; e.g. just running tests/test-jsonrpc-ws.js reproduces it.
-
-- lws-endif-arguments-mismatch (cmake/BuildLibwebsockets.cmake:387-392 and 394-396): `if(WIN32 AND
-  NOT MSYS)` is closed by `endif(WIN32)`; CMake 4.5 warns "A logical block opening on the line ...
-  closes on the line ... with mis-matching arguments" on every configure. Harmless, noisy.
-
-- compact-single-turn (examples/ollama-repl/repl.js:3760): compactHook with one long user turn (a job with ~11 tool calls) summarizes the whole turn down to 2 messages, so the running job loses its context (reported after a model switch to a smaller context window)
-
-    ollama-repl --compact-at 1 and send one prompt that makes the model call ~10 tools

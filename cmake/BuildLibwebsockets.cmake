@@ -407,13 +407,13 @@ set(LIBWEBSOCKETS_ARGS
   if(WIN32 AND NOT MSYS)
     # -l form: a bare websockets_static would name the ExternalProject target of the same name
     set(LIBWEBSOCKETS_LIBRARIES "-lwebsockets_static;${LIBWEBSOCKETS_LIBRARIES}")
-  else(WIN32)
+  else()
     set(LIBWEBSOCKETS_LIBRARIES "websockets;${LIBWEBSOCKETS_LIBRARIES}")
-  endif(WIN32)
+  endif()
 
   if(WIN32 AND NOT MSYS)
     set(LIBWEBSOCKETS_LIBRARIES "${LIBWEBSOCKETS_LIBRARIES};crypt32")
-  endif(WIN32)
+  endif()
   #    "${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib/libwebsockets.a;${LIBWEBSOCKETS_LIBRARIES}"
   #else(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/libwebsockets/lib/libwebsockets.a")
   #  set(LIBWEBSOCKETS_LIBRARIES "websockets;${LIBWEBSOCKETS_LIBRARIES}")

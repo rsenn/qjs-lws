@@ -100,6 +100,11 @@ assumption, a second bug found along the way, an install/build gotcha -
 a note in the relevant source comment) is where that history belongs
 instead.
 
+`examples/ollama-repl/` keeps its own `BUGS` file, in the same format: bugs
+found in the ollama-repl example (repl.js, its `lib/`) are appended there,
+with source locations relative to `examples/ollama-repl/`, not to this
+directory's `BUGS`. Everything else stays in this directory's `BUGS`.
+
 ## Running scripts with qjsm
 
 To run a script (e.g. a throwaway test file while debugging), invoke it

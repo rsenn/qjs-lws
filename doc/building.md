@@ -136,6 +136,12 @@ directly, e.g. for the "Loading the module" recipe below.
 
 ## Loading the module
 
+`cmake/BuildQuickJS.cmake` (`-DBUILD_QUICKJS=ON|AUTO|OFF`) builds QuickJS
+when none is installed. It forwards `CMAKE_SYSTEM_NAME` and `CMAKE_SYSROOT` to
+that nested build only when this project cross compiles: on Termux the system
+name is Android, and forwarding it made a native build a cross build that
+needed a host `qjsc`.
+
 QuickJS resolves `import 'lws'` to `lws.so` when the directory is on
 the module search path. The `qjs` binary supports `-I <path>` and
 falls back to the script's own directory.

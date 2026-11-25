@@ -1,5 +1,24 @@
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
+	* TODO.md, doc/building.md, doc/js/helpers.md: Websocket options
+	done, build-system items done, the fetch() keep-alive retry and the
+	BuildQuickJS.cmake system name rule described.
+
+	* cmake/BuildLibwebsockets.cmake: Close the else() and endif() of
+	the two if(WIN32 AND NOT MSYS) blocks without the mismatching
+	WIN32 argument, which made CMake 4.5 warn on every configure.
+
+	* tests/unittests/test-cmake-block-args.js,
+	tests/unittests/test-vhost-destroy-log.js,
+	tests/unittests/fixtures/vhost-destroy.js: New.
+
+	* BUGS (vhost-destroy-logs-spurious-not-on-no-listener-list-error,
+	lws-endif-arguments-mismatch): Removed, fixed (the vendored lws no
+	longer logs the vhost message).
+	(compact-single-turn): Moved to examples/ollama-repl/BUGS.
+
+	* CLAUDE.md: ollama-repl has its own BUGS file.
+
 	* lib/serve.js (serve): Implement websocket.backpressureLimit (a
 	ws.send() past the limit is dropped and returns 0),
 	closeOnBackpressureLimit (closes with 1009 instead) and sendPings
