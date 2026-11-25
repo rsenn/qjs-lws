@@ -4483,11 +4483,18 @@ async function main() {
         if(queued) console.log(dim(`probe: ${queued} ready models are being explored in the background, /model health again shows the results`));
         const { rows, header } = modelStatusTable(av, exploration, modelInfo, rateOf);
         const width = repl.tui ? repl.tui.cols : (ttyGetWinSize(1)?.[0] ?? 100);
-        /* fits the terminal: Says, Quota/Reset, Providers, Probe and Model give up width, widest first; on a narrow
-           terminal Says, Probe, Tokens/month and Context drop out one by one */
+        /* fits the terminal: Model never truncates; Says/Probe give up width first;
+           on a narrow terminal Tokens/month, Context and Probe drop out before Model */
         const hasProbe = header.length > 7;
-        const flex = hasProbe ? [8, 5, 6, 7, 0] : [5, 6, 0];
-        const drop = hasProbe ? [8, 7, 4, 3] : [4, 3];
+        /* flex: column index -> willingness to shrink (higher = give up width more easily).
+           Model(0) has flex 0 so it resists truncation entirely.
+           Rate(1)=5, Status(2)=6 moderate. Context(3)=8, Tokens/month(4)=7 drop before Model.
+           Providers(6)=8, Probe(7)=8, Says(8)=8 give up width first. */
+        const flex = hasProbe ? [0, 5, 6, 8, 7, 8, 8, 8, 8] : [0, 5, 6, 8, 8];
+        /* drop: columns removed entirely when width is insufficient (lower priority first).
+           Tokens/month(4), Context(3) drop before Probe(7) and Says(8).
+           Model(0) is never dropped. */
+        const drop = hasProbe ? [4, 3, 8, 7] : [4, 3];
         /* in the TUI the rows can be marked (a cursor and a box take 5 cells in front) */
         /* the header cells show the focused column (inverse) and the filters (amber) of the full-screen list */
         const headCell = (h, i, focus, filters) => {

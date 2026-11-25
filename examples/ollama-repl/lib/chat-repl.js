@@ -26,7 +26,7 @@ import { Pager } from './pager.js';
 import { STOPS, remoteMark, remoteText, note } from './look.js';
 import { red, yellow } from './ansi.js';
 
-export const PrintError = e => console.log(red(`error: ${e.detail ?? e.message}${e.stack ? '\nstack: ' + e.stack : ''}`));
+export const PrintError = e => console.log(red(`error: ${e.detail ?? e.message}${e.stack && e.message != 'interrupted' ? '\nstack: ' + e.stack : ''}`));
 
 /* Bright white (not bold-as-in-JS-syntax-colors - just the one plain,
    readable color) instead of the base REPL's live JS-syntax highlighting
