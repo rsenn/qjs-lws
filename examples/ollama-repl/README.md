@@ -498,7 +498,8 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
 - Every session keeps its files under
   `~/.cache/ollama-repl/sessions/KEY/` (`$XDG_CACHE_HOME` honoured), none
   in the current directory: `session.json`, `session.log`, `diffs/`,
-  `history` (input lines) and `state.json` (the last `/model PATTERN`).
+  `history` (input lines) and `state.json` (the last `/model PATTERN` and the model the last
+  `/model` command picked: the next start of the session goes on with it unless `--model` is given).
   KEY is the `--name`, else the model plus a hash of the project root.
   Output files `<model>-output-N.ext` stay in the project.
 - **Network pane (`/split net`).** A column on the right, no line art: every

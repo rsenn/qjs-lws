@@ -3786,6 +3786,8 @@ async function main() {
   const saveSession = () => store.save(messages, baseMessageCount, repl?.queue ?? []);
 
   /* context window of the model, for the status line */
+  /* the model a /model command picked outlives the process: the next start of this session goes on with it unless --model is given */
+  const rememberModel = () => saveSessionState(cacheKey, { model: opts.model });
   const updateCtxWindow = async () => (ctxWindowNow = ctxWindow = gateway?.enabled ? await gateway.contextWindow(opts.model) : opts.provider === 'ollama' ? opts.numCtx : undefined);
   await updateCtxWindow();
 
@@ -4540,6 +4542,7 @@ async function main() {
         if(standbyReady() && standby.id === to) standbyHook.switchTo(to);
         opts.model = to;
         client.model = to;
+        rememberModel();
         repl.setPromptName(to);
         control?.update({ model: to });
         tui?.drawStatus();
@@ -4614,6 +4617,7 @@ async function main() {
           if(standbyReady() && standby.id === next.name) standbyHook.switchTo(next.name);
           opts.model = next.name;
           client.model = next.name;
+          rememberModel();
           repl.setPromptName(next.name);
           control?.update({ model: next.name });
           const rating = rateOf(next.name);
@@ -4660,6 +4664,7 @@ async function main() {
 
       opts.model = arg;
       client.model = arg;
+      rememberModel();
       repl.setPromptName(arg);
       control?.update({ model: arg });
       await updateCtxWindow();
@@ -5295,6 +5300,16 @@ async function main() {
   };
 
   repl = new ChatREPL(opts.model, reportLine, opts.root, () => abortRef.current?.() ?? false, sessionFile(cacheKey, 'history'));
+
+  /* the model of the last /model command of this session, unless --model names one now (an uninstalled ollama model is dropped) */
+  const lastModel = loadSessionState(cacheKey).model;
+  if(lastModel && !opts.modelGiven && lastModel !== opts.model && (opts.provider !== 'ollama' || (ollamaModels() ?? []).some(m => m === lastModel || `${m}:latest` === lastModel))) {
+    opts.model = client.model = lastModel;
+    repl.setPromptName(lastModel);
+    control?.update({ model: lastModel });
+    await updateCtxWindow();
+    console.log(note(`model: ${opts.provider}/${lastModel} - the last /model of this session`));
+  }
 
   /* the /model pattern of the last run of this session */
   const lastPattern = loadSessionState(cacheKey).modelPattern;

@@ -650,7 +650,7 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
 | `~/.config/ollama-repl/system.md` | user | replaces the built-in system prompt |
 | `~/.config/ollama-repl/delegates.json` | `delegates.js` | sub-agent model track record |
 | `~/.cache/ollama-repl/sessions/<key>/session.json` | `SessionStore` | messages, baseline, queue |
-| `.../session.log`, `history`, `state.json`, `diffs/` | `SessionLog`, `ChatREPL`, `session-cache.js`, `FileExchange` | transcript, input history, `/model` pattern, file diffs |
+| `.../session.log`, `history`, `state.json`, `diffs/` | `SessionLog`, `ChatREPL`, `session-cache.js`, `FileExchange` | transcript, input history, `/model` pattern and picked model, file diffs |
 | `~/.cache/ollama-repl/exploration.json` | `Exploration` | per-model probe results (`ORIGIN\|MODEL`) |
 | `~/.cache/ollama-repl/ratings.json` | `Ratings` | per-model rating state |
 | `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per request (trimmed to 90 days) |
