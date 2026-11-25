@@ -30,10 +30,10 @@ const PING = { name: 'ping', description: 'Reports that the model can call tools
  *
  * @param {import('./freellm.js').Gateway} gateway
  * @param {{byModel: Map<string, object>}|null} av  loadAvailability() result, null without a dashboard session
- * @param {{exclude?: string[], allowed?: (id: string) => boolean}} opts  model ids, or platform/modelId of a row, not to pick; allowed limits the choice (a key selection)
+ * @param {{exclude?: string[], allowed?: (id: string) => boolean, rate?: (id: string) => number|null}} opts  model ids, or platform/modelId of a row, not to pick; allowed limits the choice (a key selection); rate: the best rating wins, else the gateway's routing order
  * @returns {Promise<{id: string, platform?: string, name: string, score?: number}|null>}
  */
-export async function pickNext(gateway, av, { exclude = [], allowed = () => true } = {}) {
+export async function pickNext(gateway, av, { exclude = [], allowed = () => true, rate = () => null } = {}) {
   const skip = new Set(exclude);
   const usable = id => allowed(id) && !skip.has(id) && id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && (av ? av.byModel.get(id)?.blocked === false : true);
 
@@ -42,16 +42,21 @@ export async function pickNext(gateway, av, { exclude = [], allowed = () => true
     const idOf = new Map((Array.isArray(chain) ? chain : []).map(r => [r.modelDbId, r.canonicalId ?? r.modelId]));
     const scores = (routing?.scores ?? []).filter(s => s.enabled).sort((a, b) => b.score - a.score);
 
+    const found = [];
     for(const s of scores) {
       const id = idOf.get(s.modelDbId) ?? s.modelId;
       const e = av.byModel.get(id);
       if(skip.has(`${s.platform}/${s.modelId}`)) continue;
-      if(usable(id) && e?.status === 'ready' && e.platforms.length) return { id, platform: s.platform, name: s.displayName, score: s.score };
+      if(usable(id) && e?.status === 'ready' && e.platforms.length) found.push({ id, platform: s.platform, name: s.displayName, score: s.score, rating: rate(id) });
     }
+
+    /* the best rating wins, the gateway's own order (its routing score) breaks ties and decides without ratings */
+    if(found.length) return found.reduce((best, c) => ((c.rating ?? -1) > (best.rating ?? -1) ? c : best));
   }
 
   /* /v1/models lists the models that can serve a request first, the smartest first */
-  for(const m of await gateway.models()) if(m.execution_status === 'ready' && m.capabilities?.tools !== false && usable(m.id)) return { id: m.id, name: m.name ?? m.id };
+  const listed = (await gateway.models()).filter(m => m.execution_status === 'ready' && m.capabilities?.tools !== false && usable(m.id));
+  if(listed.length) return listed.map(m => ({ id: m.id, name: m.name ?? m.id, rating: rate(m.id) })).reduce((best, c) => ((c.rating ?? -1) > (best.rating ?? -1) ? c : best));
 
   return null;
 }

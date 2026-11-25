@@ -296,9 +296,8 @@ green that day.
    directly against this box's own `quickjs.h`.
 2. **Done.** `lib/binding-context.js` (new file) does the auto-attach:
    `looksLikeBindingPrompt()` (§4's keyword heuristic, resolved as "both"
-   per the open question below - it also backs the explicit `/binding
-   <prompt>` REPL command in `repl.js`, which forces the same attach
-   regardless of what the heuristic thinks) and `bindingContext()`
+   per the open question below - the explicit `/binding <prompt>` command
+   that once forced the attach was removed) and `bindingContext()`
    (reads `fib.c`/`point.c`/the cheat sheet, formatted the same way
    `attachFiles()` formats a user file reference).
 3. **Done.** `/context`'s summary line (`repl.js`) now reports
@@ -327,9 +326,8 @@ green that day.
 
 ## Open questions for a human to weigh in on
 
-Resolved: **both** - the heuristic auto-detects (§4), and `/binding
-<prompt>` (a REPL command, `repl.js`) forces the same attach explicitly
-regardless of what the heuristic decides, so neither has to be "the one"
+Resolved: the heuristic auto-detects (§4); the explicit `/binding
+<prompt>` command that once forced the attach has been removed
 mechanism. The cheat sheet (§3) is markdown (`reference/
 quickjs-binding-api.md`) - the recommended option, prose + snippets
 read naturally in a chat transcript; a compilable `.h` excerpt wasn't

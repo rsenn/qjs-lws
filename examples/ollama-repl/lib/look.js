@@ -92,10 +92,29 @@ function labelled(text, color) {
 }
 
 /** icon and colour of each kind of note() */
-const NOTES = { info: ['ⓘ', ACCENT], ok: ['✓', '#4ade80'], warn: ['⚠', WARN], skip: ['⤼', STOPS[1]], attach: ['📎', ACCENT], link: ['⇄', ACCENT], wait: ['◌', ACCENT], resume: ['↻', STOPS[1]], quit: ['⏻', WARN] };
+const NOTES = { info: ['ⓘ', ACCENT], ok: ['✓', '#4ade80'], warn: ['⚠', WARN], skip: ['⤼', STOPS[1]], attach: ['📎', ACCENT], link: ['⇄', ACCENT], wait: ['◌', ACCENT], resume: ['↻', STOPS[1]], quit: ['⏻', WARN], explore: ['⌕', ACCENT] };
 
 /** a one-line message: an icon in the accent colour, then the text dimmed; piped, the old `(text)` */
-export const note = (text, kind = 'info') => (piped ? `(${text})` : `${style(NOTES[kind][0], { fg: NOTES[kind][1] })} ${labelled(text, NOTES[kind][1])}`);
+export const note = (text, kind = 'info') => {
+  const [icon, colour] = NOTES[kind] ?? NOTES.info;
+  return piped ? `(${text})` : `${style(icon, { fg: colour })} ${labelled(text, colour)}`;
+};
+
+/**
+ * a note with a list under it: an emoji and a bold coloured title, then one indented bullet per item
+ *
+ *   🚀 takeover: claude-sonnet-4-5 replaces auto
+ *      • why  stronger (tier 1, running tier 4)
+ *      • auto pauses at its next step
+ *
+ * an item may carry its own colours; piped, plain `title` and `  - item` lines
+ */
+export function card(emoji, title, items = [], colour = ACCENT) {
+  if(piped) return [`${title}`, ...items.map(i => `  - ${String(i).replace(/\x1b\[[0-9;]*m/g, '')}`)].join('\n');
+  const m = /^([A-Za-z][\w ]{1,24}):( [^]*)?$/.exec(title);
+  const head = m ? `${style(m[1] + ':', { fg: colour, bold: true })}${m[2] ?? ''}` : style(title, { fg: colour, bold: true });
+  return [`${emoji} ${head}`, ...items.map(i => `   ${style('•', { fg: colour })} ${i}`)].join('\n');
+}
 
 /** a status note: a wave in the accent colour, then the text dimmed */
 export const waveNote = text => `${style('≋', { fg: ACCENT })} ${labelled(text, ACCENT)}`;

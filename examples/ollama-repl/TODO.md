@@ -845,8 +845,8 @@ what changed where):
   ever needs ~60 lines of it). The full header is still one `READ:` away.
 - `lib/binding-context.js` (new): auto-attaches
   `examples/fib.c`/`examples/point.c`/the cheat sheet whenever a prompt
-  looks like a binding request (keyword heuristic) *or* the new
-  `/binding <prompt>` REPL command is used (explicit override) -
+  looks like a binding request (keyword heuristic); the `/binding
+  <prompt>` override that was added with it has been removed -
   `DEMO.md`'s two detection options resolved as "support both" rather
   than picking one.
 - System prompt's binding paragraph (`repl.js`) now asks for a one/two
@@ -1253,3 +1253,239 @@ Open:
 - no automatic trigger: when a keyless provider runs dry nothing starts the round, it is a command (a log hint would be the next step)
 - the request per provider tests the strongest limited model only; a provider whose other models stay limited is reported as working
 - Tor keeps one circuit per 10 s at least: a round that sees the same address twice waits 10 s and tries once more
+
+## /split net as coloured rectangles (2026-11-25)
+
+Done:
+- [x] lib/net-pane.js: block() renders a connection as a background-coloured rectangle (TYPES, kindOf by label and port) with half-block edges and rounded corners; every line cut by fitLine() so nothing wraps; test-net-pane.js
+
+Open:
+- the compaction type needs the /brief, /handoff and /compact traffic to be watched with a label (they go through localTrace, not watchNet): until then only a request labelled brief/compact/handoff gets it
+- colours checked only as escape sequences, not looked at in a terminal
+
+## /model health columns (2026-11-25)
+
+Done:
+- [x] Context (catalog context_window) and Tokens/month (the gateway's budget rows of the model: used/budget with percent) columns; READY models first, the strongest (gateway intelligence score) first, then cooldown, rate limited, out of quota, needs key, offline (lib/model-status.js)
+
+Open:
+- the token budget rows are matched to a model by model id or the group id of the row's display name; a model without a budget row (the gateway budgets only some platforms) shows -
+- not run against the live gateway
+
+## Model rating (2026-11-25)
+
+Done:
+- [x] lib/rating.js (score, Ratings, rateOf/setRater, provider rating, ratingCell; test-rating.js); ratings.json in the cache dir; real requests (onMeta) and exploration probes feed it; pickNext picks the best rating; /model list, /model health (Rate column), /gateway models, limited, providers sorted by it
+
+Open:
+- the weights (55 for the intelligence score, +-25 learned, latency, probe, state) are a first guess, to tune on real use
+- /gateway limits, quota and keys keep their own orders (limited-then-soonest, heaviest used, heaviest used); keys could sort by their provider's rating
+- the rating of a route that was not a catalog id (a provider row the catalog does not know) goes to a record of its own name
+- not run against the live gateway
+
+## Persisted statistics (2026-11-25)
+
+Done:
+- [x] lib/persist.js: usage.jsonl (appendUsage on every request, trimmed at start), quota.json + quota.jsonl (saveQuota from Gateway.refresh, preloaded as the stand-in until the gateway answers), cooldowns.json (learned cooldowns, unexpired shadow blocks; lib/availability.js); /usage history [DAYS]; flushed at /exit; test-persist.js
+
+Open:
+- quota.jsonl is written but nothing reads it back yet (a trend: /gateway forecast could use it)
+- usage.jsonl rows of one request can repeat when the gateway retries inside a chain: they are the harness's view, one per answered request
+- the status bar shows the preloaded quota as if fresh until the first refresh answers (a second or so)
+- a killed process loses at most 20 s of quota snapshot and 5 s of cooldowns; usage rows are appended at once
+
+## Live panels, failover choice, exploration panes (2026-11-25)
+
+Done:
+- [x] lib/tui.js openPanel/updatePanel (owner tag per history line, throttled repaint, test-tui-panels.js); livePanel() in repl.js; live reasoning panel (tail), live response panel (progress, then the metadata), one live tool panel (arguments, then result and time)
+- [x] one next-model order: /model skip and the auto skip take the warm standby, else the best rated; /model next and a typed /model skip let the user choose among likelyModels()
+- [x] verbose: one live panel per exploration worker lane (Exploration.run onEvent, probeUsable onStep)
+
+Open:
+- live panels were checked by unit test and the smoke run, not looked at in a terminal; a repaint every 120 ms redraws the whole window (changed rows only would be cheaper)
+- the exploration panels scroll away as the chat goes on; they are updated in place above, visible when scrolled back or with /verbose toggled
+- a tool that throws leaves its panel on the failure line only when the exception is caught in runToolLoop
+- the provider fallback (providerFallback) and /handoff-model are not part of the one next-model order yet
+
+## /gateway views in the background (2026-11-25)
+
+Done:
+- [x] /gateway usage|providers|keys|forecast|quota|limits|limited|models run in the background in the TUI (backgroundReport): a live panel says "loading ..." at once and fills when the text is ready; typed while the model works they run at once, too; no stdout capture, so a streamed reply is not swallowed
+
+Open:
+- /gateway status and login still run in the foreground; the other report commands (/proxy probe, /model health) still capture stdout while they wait
+- not looked at in a terminal
+
+## /model health fits the terminal (2026-11-25)
+
+Done:
+- [x] /model health uses fitTable (lib/usage-stats.js) with several flexible columns (Says, Quota/Reset, Providers, Probe, Model: the widest gives up width first, down to its header) and drop-out columns (Says, Probe, Tokens/month, Context) on a narrow terminal; the cut keeps colour codes (test-fit-table.js). The old compactTable had one flexible column whose index went stale when the Rate, Context and Tokens/month columns were added
+Open:
+- the other tables built with compactTable (/model list, limits) still have one flexible column
+
+- 2026-11-25: the /binding command was removed from the harness (repl.js, README, DEMO.md); the automatic attach of the binding reference for prompts that look like a binding request stays (lib/binding-context.js).
+
+## Background events (2026-11-25)
+
+Done:
+- [x] lib/events.js (emit, ring buffer of 1000, sink, /events); sources: availability diff (lib/availability.js), quota thresholds, reachability and key status (lib/freellm.js), exploration batches and results, skips, switches, provider fallback, standby, takeover, failing models, proxy (repl.js); test-events.js
+
+Open:
+- candidates not reported yet: learned cooldown changes (recordCooldownEvent), a model whose rating moved by 10 or more, exploration cache hits skipped, key quota (monthly request cap) of a single key, the persisted-quota stand-in being replaced, the keyless IP fix steps, /gateway providers status changes (a provider turning down), the standby being used as a sub-agent
+- the key status is compared only when /gateway keys is looked at (no extra requests per refresh)
+- events are not persisted (the ring buffer is per process); usage.jsonl and quota.jsonl keep the numbers
+
+## Startup list of likely routes (2026-11-25)
+
+Done:
+- [x] showLikelyRoutes() in repl.js replaces the provider report after the banner: top 8 rated usable models, cached probe verdicts, a live panel that fills in while up to 6 never-probed ones are probed in the background (a chat-bridge keeps its old report)
+
+Open:
+- not run against the live gateway; the probes cost a few small requests per unprobed model, once (a verified model is never probed again, a failed one after an hour)
+- a --quiet / piped start prints the list once without the background update
+
+## Automatic proxy, pace/IP events, probe classes (2026-11-25)
+
+Done:
+- [x] autoProxy() in repl.js + ipProxyTargets/ipLimitedPlatforms/routedAll (lib/ip-fix.js): keyless keys and keys of IP-limited providers get the socks proxy by themselves (startup, a provider turning IP-limited, every 5 min; proxy must answer; /proxy auto on|off, --no-auto-proxy, off after /proxy keyless clear)
+- [x] events: the pace time of a limited model ran out (watchPace, every 10 s), usable again and why (pace over / accessible again after the IP change / other), exit address changes re-check the gateway (lib/availability.js noteIpChange, reportChanges; test-availability-events.js)
+- [x] probe failures are classified: transient (busy provider: "⚠ busy", no rating penalty, retried after 10 min) vs real ("✗", an hour, not a likely route)
+
+Open:
+- the automatic routing is not run against the live gateway; a keyed provider limited per IP gets a proxy for its key too, which adds the proxy's latency to every request of that key
+- it never rotates the exit address by itself when a keyless provider runs dry again
+- the transient/real split is a regex over the error text
+
+## Probe diagnosis, coloured model choice (2026-11-25)
+
+Done:
+- [x] lib/diagnose.js (parseTrail, causeOfError, diagnose; test-diagnose.js); Exploration.run option diagnose runs it in the worker after a failed probe, retries a hiccup with the full probe, stores diagnosis/retryAt; diagnoseModel() in repl.js gathers keys, providers, availability; probeBrief/probeCells show the cause; the startup list leaves failed models out and drops them when a probe fails
+- [x] the model choice of /model next and /model skip is coloured: name by strength (the /model list rainbow), verified green, not verified orange, warm standby teal
+
+Open:
+- the diagnosis is not run against the live gateway; its retry costs one small request per failed model, only when the failure looks transient
+- the retry cannot pin a provider route (the gateway picks it), so a model that fails through one provider and works through another reads as flaky
+
+## Probe false negatives for reasoning models (2026-11-25)
+
+Done:
+- [x] followsSystem() in lib/exploration.js: the system-prompt test gets 700 tokens (was 96) and accepts a reasoning model that thinks aloud and ends in, or discusses, the word; results written by the old test (no v field) with a system-prompt failure are asked again; 16 of 276 cached models were affected (nemotron-3.5-lightning, -30b, -30b-a3b, gemini-3.5-flash, command-a-reasoning, qwen-sea-lion-v4.5-27b, ling-3.2-flash, ...)
+
+Open:
+- the gateway's own usage is evidence the harness does not use: kilo served 76M tokens of nemotron-3.5-lightning:free this month; a rating term for models that the gateway has served a lot without errors would have caught this
+- a reasoning model that never gets to its answer within 700 tokens still fails the test
+
+## Two-tier exploration, coloured explore events (2026-11-25)
+
+Done:
+- [x] lib/probe-context.js (buildProbe, grade, deepBudget; test-probe-context.js); probeUsable = tier 0 (ping tool) + tier 1 (deep, top 30 by rating, repl.js deepFor); Exploration.needsDeep, run option deep; rating deepScore; identity and system-prompt questions removed (followsSystem gone)
+- [x] explore events with emoji and per-part colour (lib/events.js decorateExplore)
+
+Open:
+- not run against the live gateway; tier 1 costs about 3-12k tokens per top-30 model once
+- no time-to-first-token (the probe is not streamed); tps comes from the usage block when the gateway sends one
+- the needles are fixed, so a provider that caches prompts may answer from cache; vary them if that shows up
+
+## Net pane hops, /gateway limits layout (2026-11-25)
+
+Done:
+- [x] net pane request boxes show the gateway's hops (provider/model, key ordinal, outcome, ms) parsed from X-Fallback-Detail / X-Fallback-Trail (lib/net-pane.js hopsOf, hopLines); the served route was already shown from X-Routed-Via
+- [x] /gateway limits: empty columns left out, provider prefix dim, limited-by amber, back as '67m · 08:59' (green under 10 min), flex on provider/model and back, narrow terminals drop tok/min, req/min, probe, req/day
+
+Open:
+- the gateway sends the key only as an ordinal (key1 = the platform's first key), never its id or label, so the pane cannot name the key; a header with the key label would need a gateway change
+- a successful request shows no key at all (X-Routed-Via has platform/model only)
+- lib/diagnose.js parseTrail reads "key1: reason" (error text), not the header form "key1=reason"
+
+## /model explore (2026-11-25)
+
+Done:
+- [x] /model explore PATTERN.. (repl.js; Exploration.run option force): glob or substring, READY models only, both tiers re-run, ratings updated, ranking shown as a background report
+
+Open:
+- limited models are skipped rather than queued until they are back; a sweep of a provider that is rate limited reports them as failed-busy
+- no argument to limit the tier (tier 0 only) or the concurrency
+
+## Cards for takeover and sweep messages, status bar error (2026-11-25)
+
+Done:
+- [x] lib/look.js card(emoji, title, items, colour): a title and an indented bulleted list; used by the takeover messages (start, picked up, could not, declined, continues) and the /model explore sweep list (models in strength colours with ratings)
+- [x] the status bar shows the last error for 90 s, then a dim count of failed requests
+
+Open:
+- the colour path of card() is not covered by a test (tests run piped); the other note() messages of the exploration are still one-liners
+
+## /model a,b,c, sweep suggestion (2026-11-25)
+
+Done:
+- [x] /model a,b,c (modelScope in repl.js, folded into inKeyScope), /model scope [off]; the sweep report ends with the /model line of its usable models (tier 0 and 1 passed)
+
+Open:
+- the list is not saved with the session, and not shown in /status; the gateway's own routing (auto) still picks any model, the list only limits what the harness picks and fails over to
+
+## /model next picker: what is left, scrolling (2026-11-25)
+
+Done:
+- [x] the /model next and /model skip choosers list every candidate (up to 60, best rated first) with what is left of it: the limit that is on (kinds, back in) or cooling, else the share of the monthly token budget (leftCell in repl.js); repl.choose scrolls a long list (window, "N more above/below", PgUp PgDn Home End)
+
+Open:
+- no test for the scrolling dialog (it needs a terminal); the request-rate window left (req/min used/limit) is not in the line, only limits that are on and the token budget
+
+## /model sweep (2026-11-25)
+
+Done:
+- [x] the sweep report lists the usable models one per line and `/model sweep` applies them (lastSweep in repl.js); no more long /model a,b,c line to copy
+
+Open:
+- lastSweep is not saved with the session; /model a,b,c does not accept the names split over several pasted lines
+
+## Picker columns (2026-11-25)
+
+Done:
+- [x] repl.choose takes options that are arrays of cells: aligned columns (widest cell per column, ANSI-aware), the selected row with a background across the width; the /model next and /model skip choosers pass likelyModels().cells (name, rating, state, left, ctx)
+
+Open:
+- no test for the dialog drawing (needs a terminal); string options are unchanged
+
+## /gateway usage: keys and spread (2026-11-25)
+
+Done:
+- [x] /gateway usage: per platform the number of keys that carried the month (of the enabled ones, from /api/keys when there is a dashboard session) and each key's share of the tokens, heaviest first; amber when one key carries over 90% or when all usage sits on one of several keys (lib/freellm.js keyCells, test-key-cells.js); the columns drop first on a narrow terminal
+
+Open:
+- the ledger lists only keys with usage this month, so without a dashboard session the key count is the used keys; shares are of tokens (requests for keys that logged none); not run against the live gateway
+
+## /gateway limited layout (2026-11-25)
+
+Done:
+- [x] /gateway limited: one line per model at any width (lib/availability.js limitedTable): detail, model, providers and back are cut with an ellipsis, then detail, probe and providers drop; back as '67m · 08:59'; test in test-availability-events.js at widths 0..40
+
+Open:
+- a narrow terminal loses the detail and the providers, so the reason is only the "limited by" word
+
+## Selection in /model health (2026-11-25)
+
+Done:
+- [x] lib/pager.js select mode (cursor, marks, shift range, space, a, c, action keys; the rows are cut, not wrapped), openPager(title, text, { select }), /model health uses it: Enter = /model a,b,c, e = /model explore ids; test-pager-select.js (needs a tty: run it under script, it is skipped otherwise)
+
+Open:
+- only /model health is selectable; /gateway limited, /gateway models and the other pagers could take the same select option
+- the terminal must send shift+arrows as ESC [ 1;2 A/B (J and K work everywhere); no mouse selection
+- smoke.sh does not run test-pager-select.js under a pty
+
+## Column filters in the selectable list (2026-11-25)
+
+Done:
+- [x] lib/pager.js: select.columns/cell/build give the header focus (left/right), per-column filters (typing, Backspace, Ctrl-U), rows re-fitted by build(); /model health passes them; test-pager-select.js covers it under a pty
+- [x] the /model next picker shows the age and the share of tokens left in amber like the other values
+
+Open:
+- filters are plain substring matches (no regex, no numeric comparison such as rate>50); a column hidden by a narrow terminal can still be filtered, but its header is not visible
+
+## Providers in the picker (2026-11-25)
+
+Done:
+- [x] /model next and /model skip pickers: a providers column (last), dropped first, then the ctx column, when the terminal is too narrow (repl.choose option drop: column indexes in the order they go; keepColumns in lib/chat-repl.js; recomputed on a resize)
+
+Open:
+- no test for the dialog layout (needs a terminal)

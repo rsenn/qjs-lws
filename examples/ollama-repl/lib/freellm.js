@@ -29,6 +29,9 @@ import { fmtNum, formatTable, fitTable } from './usage-stats.js';
 import { piped } from './ansi.js';
 import { quotaCell, pctCell, paint, statusWord, shareBar } from './look.js';
 import { probeBrief } from './exploration.js';
+import { rateOf, rateProvider, ratingCell } from './rating.js';
+import { saveQuota, loadQuota } from './persist.js';
+import { emit } from './events.js';
 import { dashboardTokenFromBrowser } from './cdp-token.js';
 
 /* refresh() reads the gateway at most this often */
@@ -52,6 +55,34 @@ export function inText(ms) {
 
 /** default endpoint of a local freellmapi */
 export const FREELLM_URL = 'http://localhost:3001/v1';
+
+/**
+ * the keys and spread cells of a platform row: how many keys carried the month's usage (of how many are enabled,
+ * when the dashboard says), and each key's share of the tokens, heaviest first - one key carrying nearly everything
+ * is amber, the rest of the keys idle
+ *
+ * @param {string} platform
+ * @param {{keyId: number, platform: string, tokens: number, requests: number}[]} byKey  /usage byKey (keys with usage only)
+ * @param {Map<string, number>} configured  enabled keys per platform, empty without a dashboard session
+ * @returns {[string, string]}
+ */
+export function keyCells(platform, byKey, configured = new Map()) {
+  const mine = byKey.filter(k => k.platform === platform);
+  if(!mine.length) return [configured.has(platform) ? `0 of ${configured.get(platform)}` : '-', ''];
+
+  const weight = k => (k.tokens > 0 ? k.tokens : k.requests);
+  const all = mine.reduce((n, k) => n + weight(k), 0);
+  const shares = mine.map(k => (all ? weight(k) / all : 0)).sort((a, b) => b - a);
+  const have = configured.get(platform);
+  const count = have != null ? `${mine.length} of ${Math.max(have, mine.length)}` : String(mine.length);
+
+  if(mine.length === 1) return [count, have > 1 ? `\x1b[33m100% on one key, ${have - 1} idle\x1b[0m` : '100%'];
+
+  const shown = shares.slice(0, 5).map(s => `${Math.round(s * 100)}`).join(' · ');
+  const uneven = shares[0] > 0.9;
+  const text = `${shown}${shares.length > 5 ? ` +${shares.length - 5}` : ''} %`;
+  return [count, uneven ? `\x1b[33m${text}\x1b[0m` : text];
+}
 
 export class Gateway {
   #client;
@@ -146,6 +177,19 @@ export class Gateway {
     this.#refreshedAt = Date.now();
 
     const st = this.state;
+
+    /* the first time: the last snapshot of an earlier run stands in until the gateway has answered */
+    if(this.#preloaded !== true) {
+      this.#preloaded = true;
+      const snap = loadQuota(this.#origin);
+      if(snap) {
+        st.usage ??= snap.usage ?? null;
+        st.budget ??= snap.budget ?? null;
+        st.rate ??= snap.rate ?? null;
+        st.snapshotAt = snap.at;
+      }
+    }
+
     const jobs = [this.usage().then(u => (st.usage = u))];
 
     if(this.dashboard) {
@@ -154,7 +198,65 @@ export class Gateway {
       if(!st.dashModels || force) jobs.push(this.#api('/api/models').then(r => (st.dashModels = r)));
     }
 
-    await Promise.allSettled(jobs);
+    const done = await Promise.allSettled(jobs);
+
+    /* reachability: said once when it changes */
+    const down = done.every(j => j.status === 'rejected');
+    if(down && !this.#down) emit('gateway', `the gateway at ${this.#origin} does not answer: ${String(done[0].reason?.message ?? done[0].reason).split('\n')[0].slice(0, 100)}`, 'bad');
+    else if(!down && this.#down) emit('gateway', `the gateway at ${this.#origin} answers again`, 'good');
+    this.#down = down;
+
+    if(!down) this.#reportQuota();
+
+    /* an answered refresh replaces the snapshot of the earlier run and is kept for the next one */
+    if(done.every(j => j.status === 'fulfilled')) {
+      st.snapshotAt = null;
+      saveQuota(this.#origin, { usage: st.usage, budget: st.budget, rate: st.rate });
+    }
+  }
+
+  #preloaded = false;
+  #down = false;
+  #keyStatus = null;
+
+  /** a provider key that went unhealthy, or healthy again, since the keys were last looked at */
+  #reportKeys(keys, names) {
+    const now = new Map(keys.map(k => [k.id, k.status ?? 'unknown']));
+    const before = this.#keyStatus;
+    this.#keyStatus = now;
+    if(!before) return;
+
+    for(const k of keys) {
+      const was = before.get(k.id);
+      const is = now.get(k.id);
+      if(was === undefined || was === is) continue;
+      const label = `${names.get(k.platform) ?? k.platform}${k.label ? ` (${k.label})` : ''} key ${k.id}`;
+      if(is === 'healthy') emit('key', `${label} is healthy again`, 'good');
+      else emit('key', `${label}: ${was} -> ${is}${k.lastHealthError ? ` (${String(k.lastHealthError).slice(0, 80)})` : ''}`, is === 'error' ? 'bad' : 'warn');
+    }
+  }
+  #quotaLevel = new Map();
+
+  /** a platform's monthly token budget crossing 80%, 95% and 100%: said once per step (and again after a month rollover) */
+  #reportQuota() {
+    const per = new Map();
+    for(const m of this.state.budget?.models ?? []) {
+      const p = per.get(m.platform) ?? per.set(m.platform, { used: 0, budget: 0 }).get(m.platform);
+      p.used += m.used ?? 0;
+      p.budget += m.budget ?? 0;
+    }
+
+    for(const [platform, p] of per) {
+      if(!(p.budget > 0)) continue;
+      const f = p.used / p.budget;
+      const level = f >= 1 ? 3 : f >= 0.95 ? 2 : f >= 0.8 ? 1 : 0;
+      const was = this.#quotaLevel.get(platform);
+      this.#quotaLevel.set(platform, level);
+      if(was === undefined || level === was) continue;
+
+      if(level > was) emit('quota', `${platform}: ${Math.round(f * 100)}% of the monthly token budget used (${fmtNum(p.used)}/${fmtNum(p.budget)})`, level === 3 ? 'bad' : 'warn');
+      else emit('quota', `${platform}: monthly token budget back below ${was === 3 ? 100 : was === 2 ? 95 : 80}% (${fmtNum(p.used)}/${fmtNum(p.budget)})`, 'good');
+    }
   }
 
   /**
@@ -199,6 +301,7 @@ export class Gateway {
 
     await this.refresh(true);
     const { rate = [], budget } = this.state;
+    const stale = this.state.snapshotAt ? `${paint(`(last known quota, from ${new Date(this.state.snapshotAt).toISOString().slice(0, 16).replace('T', ' ')}: the gateway did not answer)`, '#fbbf24')}\n` : '';
     const byId = new Map((budget?.models ?? []).map(m => [`${m.platform}/${m.modelId}`, m]));
     const f = filter.toLowerCase();
 
@@ -210,7 +313,7 @@ export class Gateway {
     const total = budget ? `month: ${quotaCell(budget.totalUsed, budget.totalBudget, 24)} budgeted tokens used` : '';
 
     return [
-      total,
+      stale + total,
       '',
       rows.length
         ? fitTable(width, bar => [['model', 'req/min', 'req/day', 'tok/min', 'month tok', ...(ex?.any ? ['probe'] : [])], ...rows.map(({ id, r, b }) => [id, ofLimit(r.rpm, bar) || '-', ofLimit(r.rpd, bar) || '-', ofLimit(r.tpm, bar) || '-', b ? quotaCell(b.used, b.budget, bar) : '-', ...(ex?.any ? [probeBrief(ex, id)] : [])])])
@@ -291,12 +394,18 @@ export class Gateway {
     const keys = u.byKey ?? [];
     const plats = u.byPlatform ?? [];
     const total = u.tokens || plats.reduce((n, p) => n + p.tokens, 0);
+    /* the keys the gateway has per platform (the usage ledger lists only keys that were used): from the dashboard when there is a session */
+    const configured = new Map();
+    if(this.dashboard && !this.isBridge) {
+      const all = await this.api('/api/keys').catch(() => null);
+      for(const k of Array.isArray(all) ? all : []) if(k.enabled) configured.set(k.platform, (configured.get(k.platform) ?? 0) + 1);
+    }
     const left = u.resetsAt ? Math.max(0, Date.parse(u.resetsAt) - Date.now()) : 0;
 
     return [
       `${paint('gateway month', '#2dd4bf', true)} ${u.month}: ${paint(u.requests, '#fbbf24')} requests, ${paint(fmtNum(u.tokens), '#fbbf24')} tokens (resets ${u.resetsAt}${left ? `, in ${Math.floor(left / 864e5)}d ${Math.floor((left % 864e5) / 36e5)}h` : ''})`,
       '',
-      fitTable(width, bar => [['platform', 'req', 'tokens', 'share'], ...plats.map(p => [p.platform, p.requests, fmtNum(p.tokens), total ? pctCell(p.tokens / total, bar) : '-'])]),
+      fitTable(width, bar => [['platform', 'req', 'tokens', 'share', 'keys', 'spread over the keys'], ...plats.map(p => [p.platform, p.requests, fmtNum(p.tokens), total ? pctCell(p.tokens / total, bar) : '-', ...keyCells(p.platform, keys, configured)])], 0, [5, 4]),
       ...(keys.some(k => k.requestCap || k.tokenCap || k.label)
         ? ['', paint('by key:', '#2dd4bf', true), fitTable(width, bar => [['key', 'platform', 'label', 'req', 'tokens'], ...keys.map(k => [k.keyId, k.platform, k.label || '', k.requestCap ? quotaCell(k.requests, k.requestCap, bar) : k.requests, k.tokenCap ? quotaCell(k.tokens, k.tokenCap, bar) : fmtNum(k.tokens)])], 2)]
         : []),
@@ -308,7 +417,7 @@ export class Gateway {
    * page lists them (GET /api/keys, /api/keys/providers; needs a dashboard session). Only the masked key is
    * shown, never a real one: the reveal and export endpoints are not used. `all` adds the providers without a key.
    */
-  async keysText(filter = '', width = 0) {
+  async keysText(filter = '', width = 0, sort = 'use') {
     if(this.isBridge) return '(a chat-bridge has no provider keys, see /gateway providers)';
     if(!this.dashboard) return `(the keys need a dashboard session: ${this.dashboardNote})`;
 
@@ -316,8 +425,32 @@ export class Gateway {
     const all = filter === 'all';
     const f = all ? '' : filter.toLowerCase();
     const names = new Map(providers.map(p => [p.platform, p.name]));
+    this.#reportKeys(Array.isArray(keys) ? keys : [], names);
     const nameOf = k => k.platform === 'custom' ? (k.groupLabel ?? 'custom') : (names.get(k.platform) ?? k.platform);
-    const rows = (Array.isArray(keys) ? keys : []).filter(k => !f || `${nameOf(k)} ${k.platform} ${k.label ?? ''}`.toLowerCase().includes(f)).sort((a, b) => nameOf(a).localeCompare(nameOf(b)) || a.id - b.id);
+    const rows = (Array.isArray(keys) ? keys : []).filter(k => !f || `${nameOf(k)} ${k.platform} ${k.label ?? ''}`.toLowerCase().includes(f));
+
+    /* sort orders: use = tokens then requests this month, heaviest first; quota = share of the platform quota used;
+       ok = longest without a healthy answer first (never first); status = unhealthy and cooling first */
+    const pool0 = new Map();
+    for(const m of this.state.budget?.models ?? []) {
+      const p = pool0.get(m.platform) ?? pool0.set(m.platform, { used: 0, budget: 0 }).get(m.platform);
+      p.used += m.used ?? 0;
+      p.budget += m.budget ?? 0;
+    }
+    const share = k => { const p = pool0.get(k.platform); return p?.budget ? p.used / p.budget : -1; };
+    const bad = k => (k.status === 'healthy' || k.status === 'unknown' ? 0 : 2) + (k.cooldowns?.length ? 1 : 0);
+    const byName = (a, b) => nameOf(a).localeCompare(nameOf(b)) || a.id - b.id;
+    const order = {
+      use: (a, b) => (b.monthlyUsage?.tokens ?? 0) - (a.monthlyUsage?.tokens ?? 0) || (b.monthlyUsage?.requests ?? 0) - (a.monthlyUsage?.requests ?? 0) || byName(a, b),
+      requests: (a, b) => (b.monthlyUsage?.requests ?? 0) - (a.monthlyUsage?.requests ?? 0) || byName(a, b),
+      quota: (a, b) => share(b) - share(a) || byName(a, b),
+      ok: (a, b) => (a.lastHealthyAt ? Date.parse(a.lastHealthyAt) : 0) - (b.lastHealthyAt ? Date.parse(b.lastHealthyAt) : 0) || byName(a, b),
+      status: (a, b) => bad(b) - bad(a) || byName(a, b),
+      provider: byName,
+      id: (a, b) => a.id - b.id,
+    };
+    if(!order[sort]) return `unknown sort "${sort}": ${Object.keys(order).join(', ')}`;
+    rows.sort(order[sort]);
 
     const ago = t => {
       if(!t) return '-';
@@ -325,7 +458,7 @@ export class Gateway {
       return ms < 90e3 ? `${Math.round(ms / 1e3)}s` : ms < 5400e3 ? `${Math.round(ms / 60e3)}m` : ms < 129600e3 ? `${Math.round(ms / 3600e3)}h` : `${Math.round(ms / 86400e3)}d`;
     };
 
-    const head = `${paint(summary?.configured ?? rows.length, '#4ade80', true)} of ${summary?.total ?? '?'} providers configured, ${keys.length} keys (${keys.filter(k => k.enabled).length} enabled)${f ? `, ${rows.length} matching "${filter}"` : ''}\n${paint('meters: tokens/month = the cap of the key where it has one, else its share of the heaviest key; platform quota = what the gateway budgets the platform per month, used by all its keys; last ok: green within 2 h, amber within 2 days, red older', '#787878')}`;
+    const head = `${paint(summary?.configured ?? rows.length, '#4ade80', true)} of ${summary?.total ?? '?'} providers configured, ${keys.length} keys (${keys.filter(k => k.enabled).length} enabled), sorted by ${sort}${f ? `, ${rows.length} matching "${filter}"` : ''}\n${paint('meters: tokens/month = the cap of the key where it has one, else its share of the heaviest key; platform quota = what the gateway budgets the platform per month, used by all its keys; last ok: green within 2 h, amber within 2 days, red older', '#787878')}`;
     if(!rows.length) return `${head}\n\n(no key matches "${filter}")`;
 
     /* the monthly token quota of a platform as the gateway budgets it (the sum over its models), shared by the platform's keys */
@@ -366,7 +499,7 @@ export class Gateway {
           [k.cooldowns?.length ? `${k.cooldowns.length} cooling` : '', k.lastHealthError ?? ''].filter(Boolean).join(' '),
         ]),
       ],
-      10,
+      [10, 2, 1],
     );
 
     const missing = all ? providers.filter(p => !p.configured).map(p => p.name) : [];
@@ -377,27 +510,30 @@ export class Gateway {
    * /gateway providers: health of every upstream platform, the heaviest used first. Usage is what the gateway
    * recorded this month (/v1/usage): tokens with their share of all tokens, and requests.
    */
-  async providersText(width = 0, ex = null) {
+  async providersText(width = 0, ex = null, sort = 'rating') {
     const [{ providers = [], counts = {} }, usage] = await Promise.all([this.providers(), this.usage().catch(() => null)]);
     const used = new Map((usage?.byPlatform ?? []).map(p => [p.platform, p]));
     const total = usage?.tokens || [...used.values()].reduce((n, p) => n + p.tokens, 0);
-    const heavy = [...providers].sort((a, b) => (used.get(b.platform)?.tokens ?? 0) - (used.get(a.platform)?.tokens ?? 0) || (used.get(b.platform)?.requests ?? 0) - (used.get(a.platform)?.requests ?? 0) || String(a.name).localeCompare(String(b.name)));
+    const byUse = (a, b) => (used.get(b.platform)?.tokens ?? 0) - (used.get(a.platform)?.tokens ?? 0) || (used.get(b.platform)?.requests ?? 0) - (used.get(a.platform)?.requests ?? 0) || String(a.name).localeCompare(String(b.name));
+    /* sort:rating (default) puts the providers with the best models first, sort:use the heaviest used */
+    const heavy = [...providers].sort(sort === 'use' ? byUse : (a, b) => (rateProvider(b.platform) ?? -1) - (rateProvider(a.platform) ?? -1) || byUse(a, b));
 
     return [
       Object.entries(counts)
         .map(([k, v]) => `${statusWord(k)} ${v}`)
-        .join(', ') + (usage ? ` ${paint(`· month ${usage.month}: ${fmtNum(usage.tokens)} tokens, ${usage.requests} requests, heaviest first`, '#787878')}` : ''),
+        .join(', ') + (usage ? ` ${paint(`· month ${usage.month}: ${fmtNum(usage.tokens)} tokens, ${usage.requests} requests, ${sort === 'use' ? 'heaviest used first' : 'best rated first'}`, '#787878')}` : ''),
       '',
       fitTable(
         width,
         bar => [
-          ['platform', 'name', 'status', 'keys', 'tokens/month', 'requests', 'requests used', ...(ex?.any ? ['explored'] : []), 'note'],
+          ['platform', 'name', 'rate', 'status', 'keys', 'tokens/month', 'requests', 'requests used', ...(ex?.any ? ['explored'] : []), 'note'],
           ...heavy.map(p => {
             const x = ex?.any ? ex.byPlatform(p.platform) : null;
             const u = used.get(p.platform);
             return [
               p.platform,
               p.name,
+              ratingCell(rateProvider(p.platform)),
               statusWord(p.status),
               p.keys,
               u ? `${pctCell(total ? u.tokens / total : 0, bar)} ${fmtNum(u.tokens)}` : '-',
@@ -408,7 +544,7 @@ export class Gateway {
             ];
           }),
         ],
-        ex?.any ? 8 : 7,
+        ex?.any ? 9 : 8,
       ),
     ].join('\n');
   }
@@ -431,8 +567,8 @@ export class Gateway {
   async modelsText(filter = '', width = 0, ex = null) {
     const all = await this.models(true);
     const f = filter.toLowerCase();
-    const rows = all.filter(m => (m.execution_status ?? 'ready') === 'ready' && (!f || m.id.toLowerCase().includes(f) || (m.name ?? '').toLowerCase().includes(f)));
+    const rows = all.filter(m => (m.execution_status ?? 'ready') === 'ready' && (!f || m.id.toLowerCase().includes(f) || (m.name ?? '').toLowerCase().includes(f))).sort((a, b) => (rateOf(b.id) ?? -1) - (rateOf(a.id) ?? -1));
 
-    return `${paint(rows.length, '#4ade80', true)} of ${all.length} models ready${f ? ` matching "${filter}"` : ''}\n\n` + fitTable(width, () => [['id', 'ctx', ...(ex?.any ? ['probe'] : []), 'name'], ...rows.map(m => [m.id, fmtNum(m.context_window ?? m.context_length), ...(ex?.any ? [probeBrief(ex, m.id)] : []), m.name ?? ''])], ex?.any ? 3 : 2);
+    return `${paint(rows.length, '#4ade80', true)} of ${all.length} models ready${f ? ` matching "${filter}"` : ''}, best rated first\n\n` + fitTable(width, () => [['id', 'rate', 'ctx', ...(ex?.any ? ['probe'] : []), 'name'], ...rows.map(m => [m.id, ratingCell(rateOf(m.id)), fmtNum(m.context_window ?? m.context_length), ...(ex?.any ? [probeBrief(ex, m.id)] : []), m.name ?? ''])], ex?.any ? 4 : 3);
   }
 }

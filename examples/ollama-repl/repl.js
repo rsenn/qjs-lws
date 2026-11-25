@@ -77,14 +77,19 @@ import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAl
 import { expandHome, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/standby.js';
-import { Exploration, probeBrief } from './lib/exploration.js';
+import { diagnose } from './lib/diagnose.js';
+import { deepBudget } from './lib/probe-context.js';
+import { Exploration, isTransientProbe, probeBrief, probeCells } from './lib/exploration.js';
 import { funnyName } from './lib/session-name.js';
 import { NetActivity } from './lib/net-activity.js';
 import { traceChat } from './lib/trace-chat.js';
 import { betterReason, stepText } from './lib/takeover.js';
 import { loadKeyData, parseKeyScope, modelsOfKeys } from './lib/key-models.js';
 import { externalIp } from './lib/ip-check.js';
-import { ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns } from './lib/ip-fix.js';
+import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
+import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
+import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
+import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns } from './lib/ip-fix.js';
 import { netPaneLines, annotateRates } from './lib/net-pane.js';
 import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting, loadEnvFile, userSystemPrompt } from './lib/config.js';
 import { sessionKey, sessionFile, sessionDir, loadSessionState, saveSessionState, setLogName } from './lib/session-cache.js';
@@ -96,7 +101,7 @@ import { releaseRecovered } from './lib/skips.js';
 import { routingHealth } from './lib/routing-health.js';
 import { repairTurn } from './lib/turn-repair.js';
 import { spentModels, TRAIL_SKIP_MS } from './lib/fallback-trail.js';
-import { loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure } from './lib/availability.js';
+import { noteIpChange, saveCooldowns, loadCooldowns, loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure, groupId } from './lib/availability.js';
 import { modelStatusTable } from './lib/model-status.js';
 import { recordLatency } from './lib/latency.js';
 import { Tui } from './lib/tui.js';
@@ -105,7 +110,7 @@ import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
-import { file, highlight, note, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
+import { file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
@@ -140,6 +145,7 @@ const USAGE = [
   '',
   '@Conversation',
   ['--no-takeover', 'the async exploration never offers a better model to take over the running task (it only logs it).'],
+  ['--no-auto-proxy', 'do not send the keys of keyless providers and of IP-limited providers through the socks proxy by itself (also /proxy auto off).'],
   ['--no-stream', 'wait for the whole reply instead of printing it as it arrives (streaming is the default; also /stream off).'],
   ['--temperature T', 'sampling temperature (default 0.2).'],
   ['--num-ctx N', 'context window requested from Ollama (default 16384; Ollama itself defaults to 4096).'],
@@ -230,6 +236,7 @@ function parseArgs(argv) {
     else if(arg === '--stream') opts.stream = true;
     else if(arg === '--no-stream') opts.stream = false;
     else if(arg === '--no-takeover') opts.noTakeover = true;
+    else if(arg === '--no-auto-proxy') opts.noAutoProxy = true;
     else if(arg === '-x' || arg === '--debug') opts.debug = true;
     else if(arg === '--failsafe') opts.failsafe = true;
     else if(arg === '--no-system') opts.noSystem = true;
@@ -664,6 +671,13 @@ let tui = null;
    every request/response */
 const ui = { verbose: false };
 
+/* background events (lib/events.js) in the verbose view: one line each, kept in the transcript tagged verbose-only, so Ctrl+O shows the past ones too */
+setNamer(id => (id && !/\s/.test(id) ? strengthColor(tierOf(id)) : null));
+  setSink(ev => {
+  if(tui?.active) tui.write(`${eventLine(ev)}\n`, 1);
+  else if(ui.verbose) console.log(eventLine(ev));
+});
+
 /* set by main(): asks the user to allow a file change (manual mode) */
 let approveWrite = null;
 
@@ -831,6 +845,91 @@ function showPanel(title, text, { kind = 0, ...opts } = {}) {
   inKind(kind, () => console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts })));
 }
 
+/**
+ * the models most likely to work now, best first: the warm standby, then the ones with a high rating that passed the
+ * exploration lately (or answered in this session). `list` are getFilteredModels() entries that are usable now.
+ *
+ * @returns {{name: string, label: string}[]}
+ */
+/** what is left of a model: a limit that is on now (with its end), or the share of its monthly token budget */
+function leftCell(id, now = Date.now()) {
+  const e = availability?.byModel.get(id);
+  if(e?.blocked) return fgHex('#f87171', `⏸ ${kindsText(e)}${e.until != null ? `, back in ${fmtAgo(Math.max(0, e.until - now))}` : ''}`);
+  if(e?.until != null) return fgHex('#fbbf24', `◔ cooling, ${fmtAgo(Math.max(0, e.until - now))}`);
+
+  const i = modelInfo(id);
+  if(i.budget > 0) {
+    const left = Math.max(0, 1 - i.used / i.budget);
+    return fgHex(left > 0.3 ? '#4ade80' : left > 0.1 ? '#fbbf24' : '#f87171', `${fgHex('#fbbf24', `${Math.round(left * 100)}%`)}${'\x1b[38;2;' + (left > 0.3 ? '74;222;128' : left > 0.1 ? '251;191;36' : '248;113;113') + 'm'} tokens left (${fmtNum(Math.max(0, i.budget - i.used))})`);
+  }
+  return dim('no token cap known');
+}
+
+/**
+ * the picks of /model next and /model skip: warm standby first, then by rating; the short list (default) holds the
+ * models rated well or verified lately, `all` every candidate (the chooser scrolls)
+ */
+function likelyModels(list, limit = 8, now = Date.now(), all = false) {
+  return list
+    .map(m => {
+      const e = exploration?.get(m.name);
+      const warm = standbyReady() && standby.id === m.name && !standby.bad.has(m.name);
+      const seenAt = e?.ok ? (e.live?.servedAt ?? e.at) : 0;
+      return { m, e, warm, rating: rateOf(m.name), seenAt, recent: !!seenAt && now - seenAt < 24 * 3600e3 };
+    })
+    .filter(x => all || x.warm || x.recent || (x.rating ?? 0) >= 55)
+    .sort((a, b) => b.warm - a.warm || (b.rating ?? -1) - (a.rating ?? -1) || a.m.name.localeCompare(b.m.name))
+    .slice(0, limit)
+    .map(x => ({
+      name: x.m.name,
+      /* the same as columns, for the chooser to align */
+      cells: [
+        `\x1b[1m${fgHex(strengthColor(x.m.strength), x.m.name)}\x1b[0m`,
+        x.rating != null ? ratingCell(x.rating) : '',
+        x.warm ? fgHex('#2dd4bf', 'warm standby') : x.seenAt ? fgHex('#4ade80', `verified ${fgHex('#fbbf24', fmtAgo(now - x.seenAt))}\x1b[38;2;74;222;128m ago${x.e.toolOk ? ', tools' : ''}`) : fgHex('#fb923c', 'not verified'),
+        leftCell(x.m.name, now),
+        x.m.inputTokens ? dim(`ctx ${fmtNum(x.m.inputTokens)}`) : '',
+        /* the providers that serve it, the first column to go when the terminal is narrow */
+        dim((availability?.byModel.get(x.m.name)?.platforms ?? []).join(',') || '-'),
+      ],
+      /* the name in its strength colour (the rainbow of /model list), the rating by its level, verified green, not verified orange */
+      label: [
+        `\x1b[1m${fgHex(strengthColor(x.m.strength), x.m.name)}\x1b[0m`,
+        x.rating != null ? `rating ${ratingCell(x.rating).trim()}` : '',
+        x.warm ? fgHex('#2dd4bf', 'warm standby') : '',
+        x.seenAt ? fgHex('#4ade80', `verified ${fgHex('#fbbf24', fmtAgo(now - x.seenAt))}\x1b[38;2;74;222;128m ago${x.e.toolOk ? ', tools' : ''}`) : fgHex('#fb923c', 'not verified'),
+        leftCell(x.m.name, now),
+        x.m.inputTokens ? dim(`ctx ${fmtNum(x.m.inputTokens)}`) : '',
+      ].filter(Boolean).join(dim(' · ')),
+    }));
+}
+
+const fmtAgo = ms => (ms < 90e3 ? `${Math.round(ms / 1e3)}s` : ms < 5400e3 ? `${Math.round(ms / 60e3)}m` : `${Math.round(ms / 3600e3)}h`);
+
+/**
+ * a panel that changes after it is shown (TUI only): update(title, text) replaces its lines in the transcript, where
+ * it was written, and the text `/view N` shows. `tail`: a text longer than the panel shows its last lines (a growing
+ * reasoning is read at its end), else the first ones.
+ */
+function livePanel(title, text, { kind = 0, tail = false, ...opts } = {}) {
+  const n = keepPanel(title, text);
+  const max = () => Math.max(6, Math.floor(tui.rows / 2) - 4);
+  const render = (t, x, o = {}) => {
+    const lines = String(x).replace(/\n+$/, '').split('\n');
+    const body = tail && lines.length > max() ? [dim(`… ${lines.length - max()} earlier lines · /view ${n} shows all`), ...lines.slice(-max())].join('\n') : x;
+    return panel(t, body, tui.width, { max: tail ? Infinity : max(), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts, ...o });
+  };
+  const id = tui.openPanel(render(title, text), kind);
+
+  return {
+    n,
+    update(t, x, o) {
+      panels[n - 1] = { title: stripAnsi(t), text: x };
+      tui.updatePanel(id, render(t, x, o));
+    },
+  };
+}
+
 /** runs `fn` with what it writes to the TUI transcript tagged: 1 shown in the verbose view only, 2 outside it only (Tui.kind) */
 function inKind(kind, fn) {
   if(!tui?.active || !kind) return fn();
@@ -890,6 +989,7 @@ async function providerFallback(e, active, tried, attempts, opts) {
   tried.add(route);
 
   const to = await providerHook.next(tried);
+  emit('failover', to ? `${from} failed (${fail.reason}): provider fallback to ${providerHook.label(to)}` : `${from} failed (${fail.reason}): no other provider to fall back to`, to ? 'warn' : 'bad');
   if(!to) return null;
 
   providerHook.announce(from, fail.reason, to, opts);
@@ -976,6 +1076,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
         const to = standby.id;
         tried.add(to);
         if(!opts.quiet) console.log(waveNote(`${client.model} failed (${String(e.detail ?? e.message).split('\n')[0].slice(0, 80)}), the standby ${to} takes over`));
+        emit('failover', `${client.model} failed, the standby ${to} takes the turn`, 'warn');
         standbyHook.switchTo(to);
         continue;
       }
@@ -1050,18 +1151,26 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   let thinking = false;
   let reasoning = '';
 
-  /* TUI: the reasoning as one panel, before the reply (kind 0: not verbose only) */
+  /* TUI: the reasoning as one panel, before the reply (kind 0: not verbose only); it grows while the model thinks */
+  let liveReasoning = null;
   const showReasoning = () => {
-    if(reasoning) showPanel('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`, { border: '#f472b6' }); /* pink frame (pink-400, the 400 tones of the rest of the palette), sky blue italic text (a Balearic sunset): stands out from the dim tool lines - shown in the compact view, too */
+    if(reasoning && liveReasoning) liveReasoning.update('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`);
+    else if(reasoning) showPanel('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`, { border: '#f472b6' }); /* pink frame (pink-400, the 400 tones of the rest of the palette), sky blue italic text (a Balearic sunset): stands out from the dim tool lines - shown in the compact view, too */
     reasoning = '';
+    liveReasoning = null;
   };
 
+  let reasonAt = 0;
   if(panes && opts.stream)
     chatOptions = {
       ...chatOptions,
       onReasoning: text => {
         reasoning += text;
         control?.activity('reasoning', { text });
+        const body = `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`;
+        if(!liveReasoning) liveReasoning = livePanel('◌ reasoning', body, { border: '#f472b6', tail: true });
+        else if(Date.now() - reasonAt >= 100) liveReasoning.update('◌ reasoning', body);
+        reasonAt = Date.now();
       },
     };
   else if(!piped && opts.stream)
@@ -1080,11 +1189,25 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
       },
     };
 
-  /* verbose: what came back, with every gateway header */
+  /* verbose: what came back, with every gateway header; the panel is there from the start and shows the progress until the answer is complete */
+  let liveResponse = panes ? livePanel('← waiting for the first token', dim('request sent'), { border: '#c084fc', kind: 1 }) : null;
+  let responseAt = 0;
+  const progress = (chars, chunks) => {
+    if(!liveResponse || Date.now() - responseAt < 150) return;
+    responseAt = Date.now();
+    liveResponse.update(`← streaming · ${fmtMs(Date.now() - t0)}`, dim(`${fmtNum(chars)} chars in ${chunks} chunks${reasoning ? `, ${fmtNum(reasoning.length)} chars of reasoning` : ''}`));
+  };
   const response = result => {
     const m = result?.meta;
     if(!m) return;
-    if(panes) return showPanel(`← ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` via ${m.provider}` : ''} · ${fmtMs(m.ms)}`, colorMeta(formatMeta({ ...m, reasoning: result.reasoning })), { border: '#c084fc', kind: 1 });
+    if(panes) {
+      const title = `← ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` via ${m.provider}` : ''} · ${fmtMs(m.ms)}`;
+      const body = colorMeta(formatMeta({ ...m, reasoning: result.reasoning }));
+      if(liveResponse) liveResponse.update(title, body);
+      else showPanel(title, body, { border: '#c084fc', kind: 1 });
+      liveResponse = null;
+      return;
+    }
     if(verbose) console.log(dim([`<- ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` (${m.provider})` : ''} ${fmtMs(m.ms)}, finish ${m.finish ?? '-'}${m.usage ? `, ${m.usage.prompt}+${m.usage.completion} tok` : ''}`, ...Object.entries(m.headers ?? {}).map(([k, v]) => `   ${k}: ${v}`)].join('\n')));
   };
 
@@ -1121,10 +1244,14 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   try {
     if(opts.stream) {
       let first = true;
+      let chars = 0;
+      let chunks = 0;
       const md = piped ? null : new MarkdownStream();
 
       const result = await client.chatStream(messages, chatOptions, token => {
         disarm();
+        chars += token.length;
+        progress(chars, ++chunks);
         control?.activity('answer', { text: token });
         if(first) {
           if(panes) showReasoning();
@@ -1168,9 +1295,13 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     recordLatency(client.model, Date.now() - t0);
     return result;
   } catch(e) {
+    liveResponse?.update(`← failed · ${fmtMs(Date.now() - t0)}`, `\x1b[31m${String(e.detail ?? e.message ?? e).split('\n')[0]}\x1b[0m`, { border: '#f87171' });
+    liveResponse = null;
     if(stalled) throw Object.assign(new Error(`no response after ${waitSecs}s (no first token)`), { code: 'timeout' });
     throw e;
   } finally {
+    liveResponse?.update(`← ${fmtMs(Date.now() - t0)} · no metadata`, dim('the endpoint reported none'));
+    liveResponse = null;
     disarm();
     abortRef.current = null;
     stopSpinner();
@@ -1670,14 +1801,26 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       control?.activity('toolcall', { name: tc.name, args: tc.args });
 
+      /* the ⚙ panel shows the arguments, then the result and the time in the same place (TUI verbose view) */
+      let toolPanel = null;
+      const toolT0 = Date.now();
+      const finishTool = out => {
+        if(!toolPanel) return;
+        const text = String(out ?? '');
+        const bad = /^(error|\(declined)/.test(text);
+        toolPanel.update(`⚙ ${tc.name} · ${bad ? '✗' : '✔'} ${text.split('\n').length} lines, ${text.length} chars · ${fmtMs(Date.now() - toolT0)}`, `${colorArgs(tc.args)}\n${dim('─'.repeat(20))}\n${text ? colorContent(text, { code: tc.name === 'read_file' }) : '(empty)'}`, { border: bad ? '#f87171' : '#c084fc' });
+        toolPanel = null;
+      };
+
       if(!opts.quiet) {
-        if(tui?.active) showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
+        if(tui?.active) toolPanel = livePanel(`⚙ ${tc.name} · running`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
         else if(ui.verbose) console.log(toolLine(tc.name, tc.args ?? {}));
       }
 
       /* Handle special tools that need access to repl.js context */
       if(tc.name === 'restart_harness') {
         output = (await restartHook?.()) ?? 'error: restart is not available here';
+        finishTool(output);
         toolCache.set(sig, { output, round });
         // a successful restart exits the process, only an error gets here
         messages.push({ role: 'tool', name: tc.name, toolCallId: tc.id, content: output });
@@ -1689,6 +1832,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         const stop = tui?.active && !opts.quiet ? tuiSpinner(`spawning agent for: ${tc.args.task.slice(0, 60)}`) : () => {};
         try {
           output = await spawnAgent(client, messages, opts, log, confirmRun, askUser, abortRef, forEach, tc.args);
+          finishTool(output);
           toolCache.set(sig, { output, round });
         } finally {
           stop();
@@ -1712,6 +1856,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         } finally {
           stop();
           setPhase('idle');
+          if(output === undefined) finishTool('error: the tool failed');
         }
       }
 
@@ -1737,7 +1882,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         else inKind(1, () => console.log(toolResult(output)));
       }
 
-      if(!opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
+      if(toolPanel) finishTool(output);
+      else if(!opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
       else if(ui.verbose && !opts.quiet) {
         const lines = output.split('\n');
         const shown = lines.slice(0, 200).join('\n');
@@ -1878,7 +2024,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /exit, /quit    - quit
 /help           - this text
 /split [diff|git|status|net|off] - a pane right of the transcript: this session's file changes as diffs (default), git diff of the project, the live status (what happens now, the request, sockets with their traffic, memory), or net: a box per TCP connection (also to local models) with state, traffic rates, the request on it, its progress and a peek at what flows. /split alone toggles
-/proxy [on|off|probe|exit|keyless [apply|clear|fix]] - the socks proxy the gateway sends upstream requests through: settings, latency it adds (probe measures direct vs proxied, 3 runs each), time to first byte per platform; on/off switches it for the gateway's upstream requests (the URL stays saved); exit asks for a new exit (tor-change-exitnode.sh) and measures again; keyless lists the keyless providers (quotas counted per IP address) that are limited now and could work again through another address, keyless apply sends their keys through the anonymizing socks proxy (127.0.0.1:9050, asks first, can clear their cooldowns), keyless fix does the whole round (proxy their keys, NEWNYM on the control port 127.0.0.1:9051, probe that the exit address really changed, clear cooldowns, one request per provider to see it answers again, a second address if not), keyless clear takes them off the proxy
+/proxy [on|off|auto [on|off]|probe|exit|keyless [apply|clear|fix]] - the socks proxy the gateway sends upstream requests through: settings, latency it adds (probe measures direct vs proxied, 3 runs each), time to first byte per platform; on/off switches it for the gateway's upstream requests (the URL stays saved); exit asks for a new exit (tor-change-exitnode.sh) and measures again; keyless lists the keyless providers (quotas counted per IP address) that are limited now and could work again through another address, keyless apply sends their keys through the anonymizing socks proxy (127.0.0.1:9050, asks first, can clear their cooldowns), keyless fix does the whole round (proxy their keys, NEWNYM on the control port 127.0.0.1:9051, probe that the exit address really changed, clear cooldowns, one request per provider to see it answers again, a second address if not), keyless clear takes them off the proxy
 /view [N]       - panel N (the last one) full-screen in a pager: arrows, PgUp/PgDn, Home/End, mouse wheel, q back
 /mouse [on|off] - the mouse wheel scrolls the transcript (on, the default: select text with Shift-drag) or the terminal handles the mouse (off)
 /about          - the session panel shown at startup: version, model, endpoint, gateway, mode, root, log
@@ -1886,13 +2032,15 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /undo           - restore every file the model changed during the last prompt
 /diff           - git diff of the project (what has been changed so far)
 /each <cmd> :: <task> - run <task> once per output line of <cmd> ({} = the item), each in a fresh conversation
-/binding <text> - force-attach the native-binding reference (fib.c/point.c/cheat sheet) for this prompt, even if it doesn't sound like a binding request
 /mode [NAME]    - show or set the mode: ${MODES.map(m => `${m} (${MODE_INFO[m]})`).join(', ')}. Shift-Tab or Alt-Tab cycles it
 /verbose [on|off] - show full tool results, every request and response with all gateway headers (Ctrl-O toggles)
 /remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it. /listen is the same command
 /queue [list|clear|drop N] - the prompts waiting behind the running request (Enter queues one while the model works, Ctrl-X Ctrl-S sends the typed one now and cancels the running request); the queue is saved with the session and runs again after a restart
 /rename [NAME]  - rename the session (ollama-repl-ctl -s NAME picks it); without NAME a funny one is made up
-/model [NAME|key:ID[,key:ID..]|key:off|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip; key:ID,key:ID lists the models reachable through those gateway keys (/gateway keys shows the ids) and restricts the model selection to them (list, /model NAME and patterns, skip, standby, takeover, exploration; the model in use moves to the strongest usable one of them), key:off lifts it - the gateway still picks the key of a request itself
+/model [NAME|next|key:ID[,key:ID..]|key:off|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip; key:ID,key:ID lists the models reachable through those gateway keys (/gateway keys shows the ids) and restricts the model selection to them (list, /model NAME and patterns, skip, standby, takeover, exploration; the model in use moves to the strongest usable one of them), key:off lifts it - the gateway still picks the key of a request itself; next lists the models most likely to work now (the warm standby, then the best rated ones verified lately) and switches to the one you choose; skip (typed by you) asks the same way after skipping, a round that skips by itself takes the warm standby, else the best rated
+/model sweep - /model a,b,c with the usable models of the last /model explore sweep
+/model a,b,c - restrict /model next, /model skip, the standby and the failover to these models (the best rated of them becomes the model); /model scope shows the list, /model scope off lifts it
+/model explore PATTERN.. - sweep the READY models matching a glob (nemotron*) or part of a name through both exploration tiers again, update their ratings and show the ranking, so they appear in /model next
 /model health - display real-time health, quota and rate-limit status of all available models; the first call starts the async exploration of the READY ones in the background (what is it, obeys a system prompt, calls tools), cached in ~/.cache/ollama-repl/exploration.json and shown in the Probe and Says columns
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
 /fallback [NAME|off] - show or set fallback model for auto-failover
@@ -1906,10 +2054,11 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /skill [NAME [request]|off [NAME]|loaded] - load a skill (SKILL.md from ~/.config/ollama-repl/skills/ or ~/.claude/skills/) into the conversation, then answer the request if one follows; without arguments lists the skills; off unloads one (or all)
 /delegate [on|off|add MODEL [KIND..]|remove MODEL|pin KIND [MODEL]|ban MODEL|unban MODEL|good|bad|forget] - sub-agent delegation: the model is told it may hand docs, build wiring, summaries and repetitive jobs to weaker models; the harness discovers candidates (gateway or Ollama), picks per kind by what worked before and remembers it; good/bad rates the last delegated run
 /restart        - restart the harness with current session state (serializes to temp file and re-execs)
-/usage          - tokens and requests of this session, per routed model and platform
+/events [KIND|WORD] [N] - the recent background events: exploration results, what the gateway inspection saw change (limited, back, quota thresholds, unreachable), skips and switches, standby, takeover, failing models, proxy; in verbose mode (Ctrl+O) they also appear as one line each as they happen
+/usage [history [DAYS]] - tokens and requests of this session, per routed model and platform; history DAYS (default 7) sums up the earlier sessions from usage.jsonl in ~/.cache/ollama-repl
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
 /requests [N]   - the last N (10) requests of this session, one line each
-/gateway [usage|status|providers|keys [all|FILTER]|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login] - ask the freellmapi gateway: month usage of all clients, upstream health, provider quotas, per-model quotas (dashboard session), models ready now; limits shows tokens and requests used per minute/day/month and when each limit ends, limited lists the models that cannot serve a request now and when they are back (/model list shows them too, not selectable). login fetches the dashboard token from the browser (CDP, --cdp-port), opening a dashboard tab if needed
+/gateway [usage|status|providers [sort:rating|use]|keys [all|FILTER] [sort:use|requests|quota|ok|status|provider|id]|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login] - ask the freellmapi gateway: month usage of all clients, upstream health, provider quotas, per-model quotas (dashboard session), models ready now; limits shows tokens and requests used per minute/day/month and when each limit ends, limited lists the models that cannot serve a request now and when they are back (/model list shows them too, not selectable). login fetches the dashboard token from the browser (CDP, --cdp-port), opening a dashboard tab if needed
 /tools          - list the tools the model can call
 /system         - print the system prompt
 /system default [N[-M]] - (re)set it to the default prompt, or only its lines N..M
@@ -1925,13 +2074,13 @@ Anything else is sent to the model as a prompt.`;
 
 /** /help sections in the TUI: title, the commands under it (the rest go under "more") */
 const HELP_SECTIONS = [
-  ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
+  ['conversation', ['/reset', '/clear', '/undo', '/each', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status', '/model health']],
+  ['model and gateway', ['/model', '/events', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status', '/model health']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
-/** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
+/** commands whose output the TUI shows as a panel (/js writes past std.out, /each talks to the model) */
 const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/listen', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run', '/model health']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
@@ -1989,6 +2138,9 @@ function modelStrength(modelName, intelligence = null) {
   return { tier: 9, label: 'unknown' };
 }
 
+/** the strength tier of a model id as /model list has it: the gateway's intelligence score when it has one, else the name */
+const tierOf = id => modelStrength(id, availability?.byModel.get(id)?.intelligence).tier;
+
 /** Rainbow gradient colors for model strength: purple (strongest) through red (weakest). */
 const STRENGTH_COLORS = [
   '#8b5cf6', // violet (tier 0)
@@ -2004,6 +2156,9 @@ const STRENGTH_COLORS = [
 ];
 
 /** ANSI color for a model's strength tier. */
+const bold = s => `\x1b[1m${s}\x1b[22m`;
+const oneLine = (s, n = 90) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+
 function strengthColor(tier) {
   const clamped = Math.max(0, Math.min(9, tier));
   return STRENGTH_COLORS[clamped];
@@ -2038,6 +2193,7 @@ function modelsForGlob(pattern, known) {
 
 /* what the gateway limits right now (lib/availability.js), loaded by /model and /gateway; null without a dashboard session */
 let availability = null;
+let keysSort = 'use'; /* order of /gateway keys, changed by sort:NAME */
 let unavailableModels = new Set(); /* names the endpoint lists as unavailable (no key, disabled): hidden, not selectable */
 let gatewayRef = null;
 
@@ -2048,10 +2204,119 @@ const STANDBY_TTL_MS = 10 * 60_000;
 /* the gateway keys the model selection is restricted to (/model key:ID,key:ID): their ids and the catalog ids they reach, null models = no restriction */
 const keyScope = { ids: [], models: null };
 let keyIdsCache = [];
-const inKeyScope = id => !keyScope.models || keyScope.models.has(id);
+/* the models /model a,b,c restricts the choice to (what /model next, /model skip, the standby and the failover pick from), null = no restriction */
+const modelScope = { names: [], set: null };
+/* the usable models of the last /model explore sweep, best rated first: /model sweep restricts the choice to them */
+let lastSweep = [];
+/* the key selection alone: a sweep of /model explore ignores the model list, it is how the list is found */
+const inKeysOnly = id => !keyScope.models || keyScope.models.has(id);
+const inKeyScope = id => (!keyScope.models || keyScope.models.has(id)) && (!modelScope.set || modelScope.set.has(id));
 
 /* the async exploration of the gateway's READY models (lib/exploration.js), started by /model health */
 let exploration = null;
+
+/* the rating of every gateway model (lib/rating.js): what the model is, how it did in real requests and in the
+   exploration, and its state now; the lists and the pick of the next model sort by it, best first */
+let ratings = null;
+
+/** the catalog id a model name from a route belongs to (a route names the provider row: kilo/nvidia/x:free) */
+function catalogId(name) {
+  const ids = (gatewayRef?.modelsCached() ?? []).map(m => m.id);
+  if(!name || ids.includes(name)) return name;
+  return ids.find(n => name.includes(`/${n}`)) ?? ids.find(n => String(name).split('/').pop().startsWith(n)) ?? name;
+}
+
+/**
+ * context window and monthly token budget of a model id (the catalog; the gateway's budget rows, matched by model id or
+ * by the group id of the display name). Both are indexed once per snapshot of the gateway's lists: a rating asks for
+ * this hundreds of times in a sort, and the group id is a regex.
+ */
+const infoIndex = new WeakMap();
+
+function modelInfo(id) {
+  const catalog = gatewayRef?.modelsCached() ?? [];
+  const budgetRows = gatewayRef?.state?.budget?.models ?? [];
+  let ix = infoIndex.get(budgetRows);
+
+  if(!ix || ix.catalog !== catalog) {
+    const byId = new Map(catalog.map(m => [m.id, m]));
+    const used = new Map();
+    const add = (key, b) => {
+      const e = used.get(key) ?? used.set(key, { used: 0, budget: 0, rows: new Set() }).get(key);
+      if(e.rows.has(b)) return;
+      e.rows.add(b);
+      e.used += b.used ?? 0;
+      e.budget += b.budget ?? 0;
+    };
+
+    for(const b of budgetRows) {
+      add(b.modelId, b);
+      add(groupId(b.displayName ?? ''), b);
+    }
+
+    ix = { catalog, byId, used };
+    infoIndex.set(budgetRows, ix);
+  }
+
+  const m = ix.byId.get(id);
+  const u = ix.used.get(id);
+  return { ctx: m?.context_window ?? m?.context_length, tools: m?.capabilities?.tools, used: u?.used ?? 0, budget: u?.budget ?? 0 };
+}
+
+function ratingInputs(id) {
+  const e = availability?.byModel.get(id);
+  const i = modelInfo(id);
+  return {
+    intelligence: e?.intelligence ?? null,
+    tier: modelStrength(id).tier,
+    ctx: i.ctx,
+    blocked: !!e?.blocked,
+    permanent: !!e?.permanent,
+    cooling: !e?.blocked && e?.until != null,
+    quotaLeft: i.budget > 0 ? 1 - i.used / i.budget : null,
+    toolsNeeded: true,
+  };
+}
+
+/* ratings are cached until the gateway's picture or a rating event changes (or 5 s pass): lists ask for them in sorts */
+const rateCache = { key: null, at: 0, ids: new Map(), providers: null };
+
+function rateCacheFresh() {
+  const key = `${availability?.at}|${ratings?.version}|${gatewayRef?.state?.budget ? 1 : 0}`;
+  if(rateCache.key !== key || Date.now() - rateCache.at > 5000) Object.assign(rateCache, { key, at: Date.now(), ids: new Map(), providers: null });
+  return rateCache;
+}
+
+/** the rating of a model id, null without a gateway */
+function ratingOf(id) {
+  if(!ratings || !gatewayRef?.enabled) return null;
+
+  const c = rateCacheFresh();
+  if(!c.ids.has(id)) c.ids.set(id, ratings.rating(id, ratingInputs(id)));
+  return c.ids.get(id);
+}
+
+setRater(ratingOf);
+
+/* a provider rates as the mean of its best three models; worked out for all providers in one pass */
+setProviderRater(platform => {
+  const c = rateCacheFresh();
+
+  if(!c.providers) {
+    const by = new Map();
+    for(const [id, e] of availability?.byModel ?? []) {
+      const r = ratingOf(id);
+      if(r == null) continue;
+      for(const p of e.platforms ?? []) (by.get(p) ?? by.set(p, []).get(p)).push(r);
+    }
+    c.providers = new Map([...by].map(([p, rs]) => {
+      const top = rs.sort((a, b) => b - a).slice(0, 3);
+      return [p, Math.round(top.reduce((a, b) => a + b, 0) / top.length)];
+    }));
+  }
+
+  return c.providers.get(platform) ?? null;
+});
 let takeoverHook = null; /* set by main(): { hold(messages) } */
 let standbyHook = null; /* set by main(): { switchTo(id) } */
 const standbyReady = () => standby.on && standby.state === 'ready' && standby.id; /* main()'s gateway, for the helpers outside it */
@@ -2117,8 +2382,8 @@ function getFilteredModels(known, remote, avail = availability) {
     }
   }
   
-  // Sort by strength (strongest first), then by name
-  return models.sort((a, b) => a.strength - b.strength || a.name.localeCompare(b.name));
+  /* best rating first (gateway models), else strongest first; then by name */
+  return models.sort((a, b) => (rateOf(b.name) ?? -1) - (rateOf(a.name) ?? -1) || a.strength - b.strength || a.name.localeCompare(b.name));
 }
 
 /** Resolves a model pattern (exact, glob, or number) to a model name. */
@@ -2145,6 +2410,7 @@ function skipModel(name, reason = 'manual', ms = SKIP_COOLDOWN_MS) {
   const until = Date.now() + ms;
   if(skippedModels.get(name)?.until >= until) return;
   skippedModels.set(name, { until, reason, since: Date.now() });
+  emit('failover', `${name} skipped for ${Math.round(ms / 60000)} min: ${reason}`, 'warn');
 }
 
 /** how long a gateway error says to stay away, in ms (Retry-After header or the body's retryAtMs, plus a
@@ -2217,6 +2483,9 @@ function cleanupSkips() {
 
 /** window width in columns minus the panel border, 80 when it cannot be asked */
 function listWidth() {
+  /* in the TUI: the room inside a panel of the transcript (a split pane takes the rest of the window) */
+  if(tui?.active) return Math.max(30, tui.width - 5);
+
   try {
     return Math.max(30, (ttyGetWinSize(1)?.[0] ?? 80) - 4);
   } catch(e) {
@@ -2277,9 +2546,11 @@ function completeArgs(cmd, args, word) {
     case '/stream':
     case '/mouse':
       return n === 0 ? onoff : [];
+    case '/usage':
+      return n === 0 ? ['history'] : [];
     case '/proxy':
-      if(n === 0) return ['on', 'off', 'probe', 'exit', 'keyless'];
-      return n === 1 && args[0] === 'keyless' ? ['apply', 'clear', 'fix'] : [];
+      if(n === 0) return ['on', 'off', 'auto', 'probe', 'exit', 'keyless'];
+      return n === 1 && args[0] === 'keyless' ? ['apply', 'clear', 'fix'] : n === 1 && args[0] === 'auto' ? ['on', 'off'] : [];
     case '/split':
       return n === 0 ? ['diff', 'git', 'status', 'net', 'off'] : [];
     case '/provider':
@@ -2289,7 +2560,7 @@ function completeArgs(cmd, args, word) {
     case '/model':
       if(n === 0) {
         if(gatewayRef?.dashboard && !keyIdsCache.length) loadKeyData(gatewayRef).then(d => (keyIdsCache = d.keys.map(k => k.id))).catch(() => {});
-        return ['list', 'health', 'skip', 'unskip', 'key:off', ...keyIdsCache.map(id => `key:${id}`), ...completionModels()];
+        return ['list', 'health', 'next', 'skip', 'unskip', 'key:off', ...keyIdsCache.map(id => `key:${id}`), ...completionModels()];
       }
       if(n === 1 && args[0] === 'list') return ['all'];
       if(n === 1 && (args[0] === 'skip' || args[0] === 'unskip')) return completionModels();
@@ -2322,7 +2593,8 @@ function completeArgs(cmd, args, word) {
       return [];
     case '/gateway':
       if(n === 0) return ['usage', 'status', 'providers', 'keys', 'forecast', 'quota', 'limits', 'limited', 'models', 'login'];
-      if(n === 1 && args[0] === 'keys') return ['all'];
+      if(n >= 1 && args[0] === 'providers') return ['sort:rating', 'sort:use'];
+      if(n >= 1 && args[0] === 'keys') return ['all', 'sort:use', 'sort:requests', 'sort:quota', 'sort:ok', 'sort:status', 'sort:provider', 'sort:id'];
       if(n === 1 && ['quota', 'limits', 'limited', 'models'].includes(args[0])) return completionModels();
       return [];
     case '/system':
@@ -2364,7 +2636,7 @@ function completeArgs(cmd, args, word) {
     case '/export':
       return [];
     default:
-      return null; /* /cd, /run, /each, /js, /binding, an unknown command: file names */
+      return null; /* /cd, /run, /each, /js, an unknown command: file names */
   }
 }
 
@@ -2396,6 +2668,7 @@ async function showModelList(remote, known, provider, showAll = false) {
     ['#', m => 0, 4, true],
     ['name', m => m.name, 0, true],
     ['provider', m => m.provider, 14, width >= 56],
+    ['rate', m => (rateOf(m.name) != null ? String(rateOf(m.name)) : '-'), 5, width >= 64 && !!gatewayRef?.enabled],
     ['strength', m => m.strengthLabel, 14, width >= 72],
     ['probe', m => probeBrief(exploration, m.name), 12, !!exploration?.any && width >= 84],
     ['limits', caps, 16, hasCaps],
@@ -2481,7 +2754,9 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
 
   const two = [];
   if(last?.usage) two.push(`${tc('↯')} ${fmtNum(last.usage.prompt)}+${fmtNum(last.usage.completion)}${last.usage.reasoning ? ` (${fmtNum(last.usage.reasoning)} reasoning)` : ''}${last.usage.cached ? ` ${fmtNum(last.usage.cached)} cached` : ''}`);
-  if(last?.error) two.push(`\x1b[31m✗ last failed: ${last.error.slice(0, 60)}\x1b[39m`);
+  /* the last error shows for a minute and a half, then only a count of the failures stays */
+  if(last?.error && Date.now() - (last.at ?? 0) < 90e3) two.push(`\x1b[31m✗ last failed: ${last.error.slice(0, 60)}\x1b[39m`);
+  else if(t.failed) two.push(dimmed(`✗ ${t.failed} failed`));
   two.push(`${tc('Σ')} ${t.requests} req ${fmtNum(t.total)} tok`);
 
   /* a quota as a small meter, used/limit */
@@ -2501,6 +2776,7 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   const health = gateway?.enabled ? routingHealth({ skips: skippedModels.values(), av: availability }) : null;
   if(health) two.push(`\x1b[${health.level === 'bad' ? 31 : 33}m⚠ ${health.text}\x1b[39m`);
   if(keyScope.models) two.push(`${tc('⚿')} keys ${keyScope.ids.join(',')}`);
+  if(modelScope.set) two.push(`${tc('📋')} ${modelScope.names.length} models`);
   if(exploration?.pending.size) two.push(`\x1b[36m⌕ ${exploration.done}/${exploration.total}\x1b[39m`);
   if(last?.fallbacks) two.push(`\x1b[33m⚑ ${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
   if(queued) two.push(`\x1b[33m⏳ ${queued} queued\x1b[39m`);
@@ -2559,6 +2835,12 @@ async function main() {
       /* the hops that ran out before this answer: the client's own picks (standby, /model skip) leave them alone for a while */
       for(const m of spentModels(meta.trail, meta.routedVia)) skipModel(m, 'ran out in the gateway chain', TRAIL_SKIP_MS);
       stats.add(meta);
+      if(gatewayRef?.enabled) appendUsage(gatewayRef.origin, cacheKey, stats.last());
+      if(ratings && gatewayRef?.enabled) {
+        const rid = catalogId(meta.routedVia ?? meta.requested ?? opts.model);
+        ratings.recordResult(rid, { ok: !meta.error, ms: meta.ms, error: meta.error });
+        if(meta.error && !/rate.?limit|429|quota|cooldown|exhaust|too many|credit|limited/i.test(String(meta.error?.message ?? meta.error))) emit('rating', `${rid} failed a request (${String(meta.error?.message ?? meta.error).split('\n')[0].slice(0, 80)}): its rating goes down, now ${rateOf(rid) ?? '-'}`, 'warn');
+      }
       if(standby.on && standbyHook) standbyHook.refresh().catch(() => {});
       tui?.drawStatus();
 
@@ -2633,14 +2915,15 @@ async function main() {
 
         /* nothing routed yet on auto: the gateway's first choice is what the first request will use, the standby is the one after it */
         if(!standby.pinned && !stats.last()?.routedVia && /^auto(:|$)/.test(opts.model)) {
-          const first = await pickNext(gateway, av, { exclude, allowed: inKeyScope });
+          const first = await pickNext(gateway, av, { exclude, allowed: inKeyScope, rate: rateOf });
           if(first) exclude.push(first.id);
         }
 
-        const pick = standby.pinned ? { id: standby.pinned, name: standby.pinned } : await pickNext(gateway, av, { exclude, allowed: inKeyScope });
+        const pick = standby.pinned ? { id: standby.pinned, name: standby.pinned } : await pickNext(gateway, av, { exclude, allowed: inKeyScope, rate: rateOf });
 
         if(!pick) {
           Object.assign(standby, { id: null, name: '', state: 'none', error: 'no other usable model', at: Date.now() });
+          emit('standby', 'no other usable model for the standby slot', 'warn');
           return;
         }
 
@@ -2650,11 +2933,13 @@ async function main() {
 
         if(r.ok) {
           Object.assign(standby, { id: pick.id, name: pick.name ?? pick.id, state: 'ready', ms: r.ms, toolOk: r.toolOk, servedBy: r.servedBy ?? '', error: '', at: Date.now() });
+          emit('standby', `${pick.id} is warm in the standby slot (${r.ms} ms${r.toolOk ? ', calls tools' : ', no tool calls'}${rateOf(pick.id) != null ? `, rating ${rateOf(pick.id)}` : ''})`, 'good');
           return;
         }
 
         standby.bad.set(pick.id, Date.now() + STANDBY_TTL_MS);
         Object.assign(standby, { id: pick.id, name: pick.name ?? pick.id, state: 'failed', error: r.error ?? 'no answer', at: Date.now() });
+        emit('standby', `${pick.id} failed its probe for the standby slot: ${r.error ?? 'no answer'}`, 'warn');
         if(standby.pinned) return;
       }
     } catch(e) {
@@ -2679,17 +2964,56 @@ async function main() {
   };
 
   /**
+   * the verbose view of the async exploration: one live panel per worker lane showing the model it is asking, each
+   * request and answer, and the verdict; the panel goes on with the lane's next model and says when the lane is done
+   */
+  let exploreLanes = [];
+  const oneLine = (s, n = 90) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+  function exploreEvent(n, id, ev) {
+    if(ev.type === 'start') emit('explore', `worker ${n + 1} asks ${id} (${ev.queued} more queued)`);
+    else if(ev.type === 'done') {
+      const r = ev.result;
+      emit('explore', r.ok ? `${id} is usable: ${fmtMs(r.latencyMs ?? r.ms)}, ${r.toolOk ? 'calls tools' : 'no tool calls'}${r.deep ? `, ${Math.round(r.deep.tokens / 1000)}k context ${r.deep.ok ? 'ok' : 'failed'}` : ''}` : r.diagnosis ? `${id} failed, diagnosed: ${r.diagnosis.cause} - ${r.diagnosis.detail}` : `${id} failed: ${String(r.error ?? 'no answer').slice(0, 100)}`, r.ok ? 'good' : 'warn');
+    }
+
+    if(!tui?.active) return;
+
+    const L = (exploreLanes[n] ??= { pane: null, lines: [], history: [], count: 0 });
+    const title = id ? `⌕ exploration · worker ${n + 1} · ${id}` : `⌕ exploration · worker ${n + 1} · idle after ${ev.count} model${ev.count === 1 ? '' : 's'}`;
+
+    if(ev.type === 'start') L.lines = [dim(`${ev.queued} more queued`)];
+    else if(ev.type === 'step') {
+      if(ev.kind === 'ask') L.lines.push(`\x1b[33m↑ ${ev.step}:\x1b[0m ${dim(oneLine(ev.text))}`);
+      else if(ev.kind === 'known') L.lines.push(`${dim(`⌁ ${ev.step}:`)} ${oneLine(ev.text)}`);
+      else L.lines.push(`\x1b[${ev.ok === false ? 31 : 32}m↓\x1b[0m ${oneLine(ev.text) || dim('(empty)')} ${dim(fmtMs(ev.ms))}`);
+    } else if(ev.type === 'done') {
+      const r = ev.result;
+      L.lines.push(r.ok ? `\x1b[32m✔ usable\x1b[0m ${fmtMs(r.latencyMs ?? r.ms)}${r.toolOk ? ', calls tools' : ', no tool calls'}${r.deep ? ` · ${Math.round(r.deep.tokens / 1000)}k context: ${r.deep.ok ? `3/3 facts${r.deep.tps ? `, ${r.deep.tps} tok/s` : ''}` : oneLine(r.deep.error ?? `${r.deep.recall}/3 facts`, 50)}` : ''}` : `\x1b[31m✗ ${oneLine(r.error, 100)}\x1b[0m`);
+      L.history.push(`${r.ok ? '✔' : '✗'} ${id}`);
+      L.count++;
+    }
+
+    const body = [...(L.history.length > (ev.type === 'done' ? 1 : 0) ? [dim(L.history.slice(ev.type === 'done' ? -5 : -4, ev.type === 'done' ? -1 : undefined).join('  '))] : []), ...L.lines.slice(-14)].join('\n') || dim('starting');
+    if(!L.pane) L.pane = livePanel(title, body, { border: '#2dd4bf', kind: 1 });
+    else L.pane.update(title, body);
+  }
+
+  /**
    * the async exploration found out about a model: say so in the log when it answers, and put it in the
    * standby slot when that is empty (the probe has warmed it up already)
    */
   function explored(id, r, quiet = false) {
+    if(!quiet) ratings?.recordProbe(id, { ok: r.ok, toolOk: r.toolOk, systemOk: r.systemOk, latencyMs: r.latencyMs ?? r.ms, deep: r.deep, transient: isTransientProbe(r) });
     tui?.drawStatus();
     if(!r.ok) return;
 
     const takeStandby = inKeyScope(id) && standby.on && !standby.busy && !standbyReady() && r.toolOk && !currentIds().includes(id) && !standby.bad.has(id);
     if(takeStandby) Object.assign(standby, { id, name: id, state: 'ready', ms: r.ms, toolOk: r.toolOk, servedBy: r.servedBy ?? '', error: '', at: Date.now() });
 
-    if(!quiet || takeStandby) console.log(note(`async exploration: ${id} ${quiet ? 'is usable' : 'responds'} in ${fmtMs(r.latencyMs ?? r.ms)}, ${r.toolOk ? 'calls tools' : 'no tool calls'}${r.identity ? `, says "${r.identity.slice(0, 60)}"` : ''}${quiet ? '' : ' - warm'}${takeStandby ? ', now the standby' : ''}`, 'explore'));
+    /* a model that answered but failed the deep context test is a failure: it shows in the verbose view only (the explore event says so) */
+    const ctxLost = r.deep && !r.deep.ok;
+    if((!quiet || takeStandby) && !ctxLost) console.log(card('🔎', `probe: ${bold(fgHex(strengthColor(tierOf(id)), id))} ${quiet ? 'is usable' : 'responds'} in ${fgHex('#fbbf24', fmtMs(r.latencyMs ?? r.ms))}, ${r.toolOk ? fgHex('#86efac', '✔ calls tools') : fgHex('#f87171', '✘ no tool calls')}${r.deep ? `, ${r.deep.ok ? fgHex('#22d3ee', `🧬 ${Math.round(r.deep.tokens / 1000)}k context holds`) : fgHex('#e879f9', `💥 ${Math.round(r.deep.tokens / 1000)}k context lost`)}` : ''}${quiet ? '' : dim(' - warm')}${takeStandby ? `, ${fgHex('#2dd4bf', 'now the standby')}` : ''}`, [], '#2dd4bf'));
     if(takeStandby) tui?.drawStatus();
 
     considerTakeover(id, { ...r, ms: r.latencyMs ?? r.ms }).catch(e => console.log(note(`takeover: ${String(e.message).split('\n')[0]}`, 'warn')));
@@ -2724,6 +3048,201 @@ async function main() {
   }
 
   /* a client of its own per explored model, on the REPL's thread */
+  /**
+   * every key that profits from another exit address goes through the socks proxy by itself: the keys of keyless
+   * providers (their quotas are counted per IP address) and the keys of providers with a model limited as an IP
+   * matter. Needs a dashboard session and a proxy that answers; a key that has a proxy already is left alone. Switched
+   * off by --no-auto-proxy, /proxy auto off and /proxy keyless clear. It does not change the exit address: /proxy exit
+   * or /proxy keyless fix does.
+   */
+  let autoProxyBusy = false;
+  let autoProxyUnreachable = null;
+  const ipSeen = new Set();
+
+  async function autoProxy(why = '') {
+    if(opts.noAutoProxy || autoProxyBusy || !gateway?.enabled || !gateway.hasLimits || gateway.isBridge) return;
+    autoProxyBusy = true;
+
+    try {
+      const socks = /^socks/.test(proxyInfo.settings?.url ?? '') ? proxyInfo.settings.url : ANON_PROXY;
+      const keys = await gateway.api('/api/keys');
+      const targets = ipProxyTargets(keys, availability, socks, platform => proxied(proxyInfo.settings, platform) === true);
+      if(!targets.length) return;
+
+      const m = /\/\/(?:[^@/]*@)?([^/:]+):(\d+)/.exec(socks);
+      const up = m && (await runCommand(`timeout 2 bash -c 'exec 3<>/dev/tcp/${m[1]}/${m[2]}'`, { timeoutMs: 4000 }).catch(() => ({ status: 1 }))).status === 0;
+      if(!up) {
+        const sig = targets.map(t => t.id).join(',');
+        if(autoProxyUnreachable !== sig) emit('proxy', `${targets.length} key${targets.length > 1 ? 's' : ''} would profit from the socks proxy (${[...new Set(targets.map(t => t.platform))].slice(0, 4).join(', ')}) but nothing answers at ${m?.[1]}:${m?.[2]}`, 'warn');
+        autoProxyUnreachable = sig;
+        return;
+      }
+      autoProxyUnreachable = null;
+
+      const done = await setKeyProxy(gateway, targets.map(t => t.id), socks);
+      const ok = done.filter(r => r.ok);
+      const names = [...new Set(targets.filter(t => ok.some(r => r.id === t.id)).map(t => `${t.platform}${t.why === 'ip-limited' ? ' (IP-limited)' : ''}`))];
+      if(ok.length) emit('proxy', `${ok.length} key${ok.length > 1 ? 's' : ''} now go through ${socks} to profit from an exit change: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}${why ? ` (${why})` : ''}`, 'good');
+      if(done.some(r => !r.ok)) emit('proxy', `the proxy could not be set on key ${done.filter(r => !r.ok).map(r => `${r.id} (${r.error})`).join(', ')}`, 'bad');
+      await loadProxy(false);
+    } catch(e) {
+      emit('proxy', `automatic proxy routing failed: ${String(e.detail ?? e.message).split('\n')[0].slice(0, 100)}`, 'bad');
+    } finally {
+      autoProxyBusy = false;
+    }
+  }
+
+  /** after the exit address changed: look at the gateway again soon, so the models that are accessible again are reported */
+  function recheckAfterIpChange() {
+    if(!gateway?.enabled || !gateway.hasLimits) return;
+    for(const ms of [6000, 30000])
+      setTimeout(() => {
+        loadAvailability(gateway).then(av => ((availability = av), tui?.drawStatus())).catch(() => {});
+      }, ms);
+  }
+
+  /**
+   * the pace time of a limited model runs out: say so when it does (not only when something looks at the gateway
+   * again), then look at the gateway, which reports the models that are usable again or still limited
+   */
+  const paceSeen = new Set();
+  let paceTicks = 0;
+  function watchPace() {
+    setTimeout(async () => {
+      try {
+        /* a provider that just turned out to be limited per IP address: its keys go through the proxy at once; otherwise every 5 minutes */
+        const ipNow = [...ipLimitedPlatforms(availability)].filter(p => !ipSeen.has(p));
+        paceTicks++;
+        if(ipNow.length) {
+          for(const p of ipNow) ipSeen.add(p);
+          autoProxy(`${ipNow.join(', ')} limited per IP address`);
+        } else if(paceTicks % 30 === 0) autoProxy();
+
+        const now = Date.now();
+        const due = [...(availability?.byModel ?? [])].filter(([id, e]) => e.blocked && e.until != null && e.until <= now && !paceSeen.has(`${id}|${e.until}`));
+
+        if(due.length) {
+          for(const [id, e] of due) paceSeen.add(`${id}|${e.until}`);
+          emit('gateway', `the pace time of ${due.length} model${due.length > 1 ? 's' : ''} has run out: ${due.slice(0, 3).map(([id, e]) => `${id} (was ${kindsText(e)})`).join(', ')}${due.length > 3 ? ` and ${due.length - 3} more` : ''} - checking the gateway`, 'info');
+          availability = await loadAvailability(gateway).catch(() => availability);
+
+          const still = due.filter(([id]) => availability?.byModel.get(id)?.blocked);
+          if(still.length) emit('gateway', `${still.length} of them still limited: ${still.slice(0, 3).map(([id]) => `${id} (${kindsText(availability.byModel.get(id))}, back ${untilText(availability.byModel.get(id).until)})`).join(', ')}`, 'warn');
+          tui?.drawStatus();
+        }
+      } finally {
+        watchPace();
+      }
+    }, 10000);
+  }
+
+  /**
+   * the startup list: the routes the harness is likely to use, best rating first, with what is known about each (the
+   * cached verdict of the exploration, its latency, tools, context, the monthly token budget). The best ones that were
+   * never probed are probed in the background and the list is filled in as the answers come.
+   */
+  async function showLikelyRoutes(limit = 8) {
+    if(gateway.hasLimits && !availability) availability = await loadAvailability(gateway).catch(() => availability);
+    await gateway.models().catch(() => null);
+
+    const pool = availability
+      ? [...availability.byModel].filter(([id, e]) => !e.blocked && !e.permanent && e.status !== 'needsKey').map(([id]) => id)
+      : gateway.modelsCached().filter(m => (m.execution_status ?? 'ready') === 'ready').map(m => m.id);
+    /* the best rated usable ones; a model whose probe failed (busy, gone, no key, ...) is not a likely route, and drops out of the list when its probe fails */
+    const picks = () =>
+      pool
+        .filter(id => id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && inKeyScope(id))
+        .filter(id => { const e = exploration.get(id); return !(e && e.ok === false && exploration.fresh(id)); })
+        .sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1) || a.localeCompare(b))
+        .slice(0, limit);
+    let ids = picks();
+
+    if(!ids.length) return void console.log(note('no usable model route yet - /gateway providers shows what the gateway has', 'warn'));
+
+    const text = () => {
+      ids = picks();
+      return fitTable(
+        panelInner(),
+        bar => [
+          ['rate', 'model', 'route', 'probe', 'context', 'month tokens'].map(h => `\x1b[1m${h}\x1b[0m`),
+          ...ids.map(id => {
+            const i = modelInfo(id);
+            const e = availability?.byModel.get(id);
+            return [ratingCell(rateOf(id)), id, (e?.platforms ?? []).join(',') || '-', probeBrief(exploration, id), i.ctx ? fmtNum(i.ctx) : '-', i.budget > 0 ? pctCell(i.used / i.budget, bar) : '-'];
+          }),
+        ],
+        [2, 3, 1],
+        [5, 4],
+      );
+    };
+
+    const todo = ids.filter(id => !exploration.fresh(id) || exploration.needsDeep(id)).slice(0, 6);
+    const title = () => `likely routes · ${ids.length} best rated${todo.length && exploration.pending.size ? ` · probing ${exploration.pending.size}` : ''}`;
+    const foot = dim('✔ verified · ◌ probing · · not probed yet · a model whose probe failed is left out, /model health tells why · /model next chooses');
+
+    const pane = tui?.active ? livePanel(title(), `${text()}\n${foot}`, { border: '#2dd4bf' }) : null;
+    if(!pane) console.log(`${waveNote(title())}\n${text()}\n${foot}`);
+    const refresh = () => pane?.update(title(), `${text()}\n${foot}`);
+
+    if(todo.length) {
+      const tools = {};
+      for(const m of gateway.modelsCached()) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
+      exploration.run(todo, makeExploreClient, {
+        tools,
+        deep: deepFor(ids),
+        diagnose: diagnoseModel,
+        onEvent: exploreEvent,
+        onResult: (id, r) => {
+          ratings?.recordProbe(id, { ok: r.ok, toolOk: r.toolOk, systemOk: r.systemOk, latencyMs: r.latencyMs ?? r.ms, deep: r.deep, transient: isTransientProbe(r) });
+          explored(id, r, true);
+          refresh();
+        },
+        onDone: ({ explored: n, usable }) => {
+          exploreLanes = [];
+          emit('explore', `startup exploration finished: ${usable} of ${n} models usable`, usable ? 'good' : 'warn');
+          refresh();
+        },
+      });
+      emit('explore', `${todo.length} likely routes are probed in the background`);
+      refresh();
+    }
+  }
+
+  /** why a probe failed (lib/diagnose.js): the error, the gateway's picture of the model, its provider and keys, one more try; run by the exploration worker */
+  async function diagnoseModel(id, result) {
+    const [keys, provs] = await Promise.all([gateway.api('/api/keys').catch(() => []), gateway.providers().then(p => p.providers ?? []).catch(() => [])]);
+
+    return diagnose({
+      id,
+      error: result.error,
+      entry: availability?.byModel.get(id),
+      keys: Array.isArray(keys) ? keys : [],
+      providers: provs,
+      retry: async () => {
+        const c = makeExploreClient(id);
+        const timer = setTimeout(() => c.abort(), 30000);
+        try {
+          const r = await c.chat([{ role: 'user', content: 'Reply with the word OK.' }], { max_tokens: 16 });
+          return { ok: String(r.content ?? '').trim().length > 0 || !!r.toolCalls?.length };
+        } catch(e) {
+          return { ok: false, error: String(e.detail ?? e.message ?? e).split('\n')[0] };
+        } finally {
+          clearTimeout(timer);
+          c.destroy();
+        }
+      },
+    });
+  }
+
+  /**
+   * tier 1 of the exploration (a synthetic compacted context sized to the model's window, lib/probe-context.js) runs for
+   * the 30 best rated of `ids` only: it costs several thousand tokens per model, and verified results are kept
+   */
+  const deepFor = ids => {
+    const top = new Set([...ids].sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1)).slice(0, 30));
+    return id => (top.has(id) ? deepBudget(modelInfo(id).ctx) : 0);
+  };
+
   const makeExploreClient = id => {
     const c = new OpenAIClient({ ...opts, model: id });
     c.extraHeaders = gatewayHeaders(`${opts.sessionId ?? 'ollama-repl'}-explore`);
@@ -2771,6 +3290,10 @@ async function main() {
       }
 
       const changed = !!after && after !== before;
+      if(changed) {
+        noteIpChange();
+        emit('proxy', `exit address ${before} -> ${after}`, 'good');
+      }
       console.log(note(`exit address: ${before} -> ${after ?? '?'} ${changed ? '(changed)' : '(UNCHANGED - Tor keeps the circuit, or the probe hosts answer from a cache)'}${direct && after === direct ? ' - it is our own address, the proxy is not used' : ''}`, changed ? 'explore' : 'warn'));
       if(!changed) {
         if(round < 2) await new Promise(res => setTimeout(res, 10000));
@@ -2827,10 +3350,12 @@ async function main() {
     availability = await loadAvailability(gateway).catch(() => availability);
 
     if(sub === 'clear') {
-      const mine = routedKeys(keys, socks);
-      if(!mine.length) return void console.log(note(`no keyless key is routed through ${socks}`));
+      const mine = routedAll(keys, socks);
+      opts.noAutoProxy = true; /* taking them off the proxy is a choice: the automatic routing does not put them back */
+      if(!mine.length) return void console.log(note(`no key is routed through ${socks} (automatic proxy routing is off)`));
       const done = await setKeyProxy(gateway, mine.map(k => k.id), '');
-      return void console.log(note(`${done.filter(r => r.ok).length} of ${mine.length} keyless keys go direct again${done.some(r => !r.ok) ? ` (failed: ${done.filter(r => !r.ok).map(r => `${r.id}: ${r.error}`).join('; ')})` : ''}`));
+      emit('proxy', `${done.filter(r => r.ok).length} keys taken off ${socks}; automatic proxy routing is off (/proxy auto on)`, 'warn');
+      return void console.log(note(`${done.filter(r => r.ok).length} of ${mine.length} keys go direct again; automatic proxy routing is off (/proxy auto on turns it back on)${done.some(r => !r.ok) ? ` (failed: ${done.filter(r => !r.ok).map(r => `${r.id}: ${r.error}`).join('; ')})` : ''}`));
     }
 
     const rows = ipCandidates(keys, availability, socks);
@@ -2930,7 +3455,7 @@ async function main() {
     const why = betterReason({ strength: { cand: strengthOf(id), cur: strengthOf(current) }, probeMs: r.latencyMs ?? Math.round(r.ms / 3), currentMs: last?.ms ?? 0 });
     if(!why) return;
 
-    if(!repl.busy) return void console.log(note(`async exploration: ${id} looks better than ${current} (${why}) - /model ${id} switches`, 'explore'));
+    if(!repl.busy) return void console.log(card('🔎', `probe: ${bold(fgHex(strengthColor(tierOf(id)), id))} looks better than ${current} ${dim(`(${why})`)} - ${fgHex('#a3e635', `/model ${id}`)} switches`, [], '#2dd4bf'));
 
     takeover.busy = true;
     let release;
@@ -2938,7 +3463,7 @@ async function main() {
     const cand = makeClient(id);
 
     try {
-      console.log(note(`takeover: ${id} looks better than ${current} (${why}); ${current} pauses at its next step while ${id} gets a handoff of the task`, 'explore'));
+      console.log(card('🚀', `takeover: ${bold(id)} looks better than ${current}`, [`${dim('why')}  ${fgHex('#fbbf24', why)}`, `${fgHex(strengthColor(tierOf(current)), current)} pauses at its next step`, `${fgHex(strengthColor(tierOf(id)), id)} gets a handoff of the task and does its next step`], '#2dd4bf'));
 
       const h = await buildHandoff(messages.slice(), baseMessageCount, { keepTurns: opts.handoffTurns ?? 3, model: opts.handoffModel ?? HANDOFF_MODEL, host: opts.host, port: opts.port, reason: 'handoff' }).catch(() => null);
       const ctx = h?.messages ?? messages.slice();
@@ -2959,15 +3484,18 @@ async function main() {
 
       if(!step) {
         takeover.declined.set(id, Date.now() + 30 * 60_000);
-        return void console.log(note(`takeover: ${id} could not pick the task up (${failure}); ${current} goes on`, 'warn'));
+        emit('takeover', `${id} could not pick the task up (${failure}); ${current} goes on`, 'warn');
+        return void console.log(card('❌', `takeover: ${bold(id)} could not pick the task up`, [`${dim('why')}  ${fgHex('#f87171', failure)}`, `${current} goes on, ${id} is not proposed again for 30 min`], '#fb923c'));
       }
 
-      console.log(note(`takeover: ${id} picked the task up: ${step}`, 'explore'));
+      emit('takeover', `${id} picked the task up (${why}): ${step.slice(0, 80)}`, 'good');
+      console.log(card('✅', `takeover: ${bold(id)} picked the task up`, [`${dim('first step')}  ${fgHex('#a3e635', oneLine(step, 100))}`, `${dim('reason')}      ${fgHex('#fbbf24', why)}`], '#4ade80'));
       const k = await repl.choose(`Switch to ${id}? ${why}; it picked the task up with ${step.slice(0, 60)}`, [`Yes, ${id} takes over`, `No, ${current} goes on`]);
 
       if(k !== 0) {
         takeover.declined.set(id, Date.now() + 30 * 60_000);
-        return void console.log(note(`takeover: ${current} goes on`, 'explore'));
+        emit('takeover', `declined: ${current} goes on, ${id} is not proposed again for 30 min`);
+        return void console.log(card('↩️', `takeover declined: ${bold(current)} goes on`, [`${id} is not proposed again for 30 min`], '#94a3b8'));
       }
 
       opts.model = id;
@@ -2976,7 +3504,7 @@ async function main() {
       control?.update({ model: id });
       await updateCtxWindow?.();
       tui?.drawStatus();
-      console.log(note(`takeover: ${id} continues the task, the conversation is kept`, 'explore'));
+      console.log(card('🎉', `takeover: ${bold(id)} continues the task`, ['the conversation is kept', `${dim('model')}  ${fgHex(strengthColor(tierOf(id)), id)}`], '#4ade80'));
     } finally {
       cand.destroy();
       takeover.busy = false;
@@ -3028,6 +3556,9 @@ async function main() {
 
   if(opts.provider === 'openai') {
     gateway = gatewayRef = new Gateway(client);
+    ratings ??= new Ratings(gateway.origin);
+    trimLogs();
+    loadCooldowns();
     exploration ??= new Exploration(gateway.origin); /* its cached results of earlier runs show in the lists at once */
 
     if((await gateway.detect()) && gateway.isBridge) {
@@ -3250,8 +3781,14 @@ async function main() {
 
   console.log(piped ? 'ready!' : `\x1b[1;32m✔ ready\x1b[0m`);
 
-  /* after the banner: output printed while the gateway connects is gone once the TUI draws */
-  if(gateway?.enabled && !gateway.isBridge) console.log(await probeGateway(!availability).catch(e => note(`gateway probe failed: ${e.detail ?? e.message}`, 'warn')));
+  /* after the banner: output printed while the gateway connects is gone once the TUI draws. A chat-bridge says what it reports; a
+     freellmapi gateway shows the routes it is likely to use (rated, probed), which fill in as the background probes answer */
+  if(gateway?.enabled && gateway.isBridge) console.log(await probeGateway(!availability).catch(e => note(`gateway probe failed: ${e.detail ?? e.message}`, 'warn')));
+  else if(gateway?.enabled) showLikelyRoutes().catch(e => console.log(note(`gateway probe failed: ${e.detail ?? e.message}`, 'warn')));
+  if(gateway?.enabled && gateway.hasLimits) {
+    watchPace();
+    setTimeout(() => autoProxy('startup'), 4000);
+  }
 
   // /reset clears conversation history, not the auto-loaded project scan.
   baseMessageCount = saved ? saved.baseMessageCount : messages.length;
@@ -3377,11 +3914,37 @@ async function main() {
   };
 
   /* one input line: a /command or a prompt for the model */
+  /** the /gateway views as functions that return their text (the caller shows it, in the foreground or in the background) */
+  const gatewayView = (what, rest) => ({ usage: () => gateway.usageText(panelInner()), status: () => probeGateway(true), providers: () => gateway.providersText(panelInner(), exploration, rest.find(w => /^sort:/.test(w))?.slice(5) || 'rating'), keys: () => {
+      const words = rest.filter(w => !/^sort:/.test(w));
+      const s = rest.find(w => /^sort:/.test(w));
+      if(s) keysSort = s.slice(5) || 'use';
+      return gateway.keysText(words.join(' '), panelInner(), keysSort);
+    }, forecast: () => gateway.forecastText(panelInner()), quota: () => gateway.quotaText(rest.join(' '), panelInner(), exploration), models: () => gateway.modelsText(rest.join(' '), panelInner(), exploration), limits: () => withAvailability(av => limitsText(av, rest.join(' '), panelInner(), exploration)), limited: () => withAvailability(av => limitedText(av, rest.join(' '), panelInner(), exploration)) })[what];
+
+  /**
+   * a report that takes a while (a /gateway view asks the gateway several things) runs in the background: its panel is
+   * there at once saying it is loading, the prompt stays free, and the panel fills when the text is ready
+   */
+  function backgroundReport(prompt, make) {
+    const title = prompt.length > 40 ? prompt.slice(0, 39) + '…' : prompt;
+    const pane = livePanel(title, dim('loading …'), { border: '#2dd4bf' });
+    const t0 = Date.now();
+
+    make()
+      .then(text => {
+        const out = String(text ?? '');
+        control?.output(stripAnsi(out));
+        pane.update(`${title} · ${fmtMs(Date.now() - t0)}`, out || '(nothing)');
+      })
+      .catch(e => pane.update(`${title} · failed`, `\x1b[31m${e.detail ?? e.message}\x1b[0m`, { border: '#f87171' }));
+  }
+
   const runLine = async line => {
     const prompt = line.trim();
     if(!prompt) return;
 
-    if(!prompt.startsWith('/') || prompt.startsWith('/each ') || prompt.startsWith('/binding ')) resetJournal();
+    if(!prompt.startsWith('/') || prompt.startsWith('/each ')) resetJournal();
 
     /* /each <shell command listing the items, one per line> :: <task, {} = the item> */
     if(prompt.startsWith('/each ')) {
@@ -3400,7 +3963,12 @@ async function main() {
 
     //console.log('ChatREPL', prompt);
 
-    if(prompt === '/exit' || prompt === '/quit') return repl.exit(0);
+    if(prompt === '/exit' || prompt === '/quit') {
+      ratings?.flush();
+      flushPersist();
+      saveCooldowns();
+      return repl.exit(0);
+    }
 
     if(prompt === '/undo') {
       const undone = undoJournal();
@@ -3476,6 +4044,15 @@ async function main() {
       await loadProxy(false);
       const url = proxyInfo.settings?.url;
 
+      if(arg === 'auto' || arg.startsWith('auto ')) {
+        const v = arg.slice(4).trim();
+        if(v === 'on') opts.noAutoProxy = false;
+        else if(v === 'off') opts.noAutoProxy = true;
+        else if(v) return void console.log('usage: /proxy auto [on|off]');
+        if(!opts.noAutoProxy && v === 'on') autoProxy('switched on');
+        return void console.log(note(`automatic proxy routing is ${opts.noAutoProxy ? 'off' : 'on'}: the keys of keyless providers and of IP-limited providers go through the socks proxy by themselves${opts.noAutoProxy ? ' (/proxy auto on)' : ''}`));
+      }
+
       if(arg === 'keyless' || arg.startsWith('keyless ')) return void (await keylessProxy(arg.slice('keyless'.length).trim()));
 
       if(arg === 'on' || arg === 'off') {
@@ -3484,6 +4061,9 @@ async function main() {
 
         try {
           proxyInfo.settings = await setProxyEnabled(gateway, arg === 'on');
+          emit('proxy', `the gateway's upstream proxy is switched ${arg}`, 'warn');
+          noteIpChange();
+          recheckAfterIpChange();
         } catch(e) {
           return void console.log(red(`error: ${e.detail ?? e.message.split('\n')[0]}`));
         }
@@ -3503,6 +4083,11 @@ async function main() {
         }
         const after = await exitIp(url);
         proxyInfo.exits = [before ?? '?', after ?? '?'];
+        emit('proxy', `exit address ${before ?? '?'} -> ${after ?? '?'}`, before !== after ? 'good' : 'warn');
+        if(before !== after) {
+          noteIpChange();
+          recheckAfterIpChange();
+        }
       }
 
       if(arg === 'probe' || arg === 'exit') {
@@ -3514,7 +4099,7 @@ async function main() {
           proxyInfo.measuring = false;
         }
         tui?.drawStatus();
-      } else if(arg) return void console.log('usage: /proxy [on|off|probe|exit|keyless [apply|clear|fix]]');
+      } else if(arg) return void console.log('usage: /proxy [on|off|auto [on|off]|probe|exit|keyless [apply|clear|fix]]');
 
       return void console.log(proxyText(stats));
     }
@@ -3634,6 +4219,21 @@ async function main() {
 
     if(prompt === '/usage') return void console.log(stats.summary());
 
+    /* /events [KIND|WORD] [N]: the recent background events (exploration, gateway inspection, failover) */
+    if(prompt === '/events' || prompt.startsWith('/events ')) {
+      const words = prompt.slice('/events'.length).trim().split(/\s+/).filter(Boolean);
+      const n = +words.find(w => /^\d+$/.test(w)) || 40;
+      return void console.log(eventsText({ n, filter: words.filter(w => !/^\d+$/.test(w)).join(' ') }));
+    }
+
+    /* /usage history [DAYS]: the requests of earlier sessions, from usage.jsonl in the cache directory */
+    if(prompt === '/usage history' || prompt.startsWith('/usage history ')) {
+      const days = Math.max(1, +prompt.slice('/usage history'.length).trim() || 7);
+      const past = new UsageStats();
+      past.records = readUsage({ origin: gatewayRef?.enabled ? gatewayRef.origin : undefined, sinceMs: Date.now() - days * 86400e3 });
+      return void console.log(past.summary(`last ${days} day${days > 1 ? 's' : ''}`));
+    }
+
     if(prompt === '/last' || prompt.startsWith('/last ')) {
       const n = +prompt.slice(5).trim() || 0;
       return void console.log(formatMeta(stats.get(n)));
@@ -3655,8 +4255,8 @@ async function main() {
         return void console.log(ok ? `(dashboard session from ${gateway.tokenSource}: per-model quotas on)` : `(${gateway.dashboardNote})`);
       }
 
-      const show = { usage: () => gateway.usageText(panelInner()), status: () => probeGateway(true), providers: () => gateway.providersText(panelInner(), exploration), keys: () => gateway.keysText(rest.join(' '), panelInner()), forecast: () => gateway.forecastText(panelInner()), quota: () => gateway.quotaText(rest.join(' '), panelInner(), exploration), models: () => gateway.modelsText(rest.join(' '), panelInner(), exploration), limits: () => withAvailability(av => limitsText(av, rest.join(' '), panelInner(), exploration)), limited: () => withAvailability(av => limitedText(av, rest.join(' '), panelInner(), exploration)) }[what];
-      if(!show) return void console.log('usage: /gateway [usage|status|providers|keys [all|FILTER]|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login]');
+      const show = gatewayView(what, rest);
+      if(!show) return void console.log('usage: /gateway [usage|status|providers [sort:rating|use]|keys [all|FILTER] [sort:use|requests|quota|ok|status|provider|id]|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login]');
 
       try {
         console.log(await show());
@@ -3687,6 +4287,94 @@ async function main() {
 
       if(arg === 'key' || arg.startsWith('key:')) return void (await keyScopeCommand(arg));
 
+      /* /model scope [off]: show or lift the list set by /model a,b,c */
+      if(arg === 'scope' || arg === 'scope off') {
+        if(arg === 'scope off') {
+          modelScope.names = [];
+          modelScope.set = null;
+          emit('failover', 'the model list restriction is lifted');
+          tui?.drawStatus();
+          return void console.log(note('the model list restriction is lifted: /model next and the failover pick from every model again'));
+        }
+        return void console.log(modelScope.set ? card('📋', `model list: ${modelScope.names.length} models`, [...modelScope.names.map(n => `${fgHex(strengthColor(tierOf(n)), n)} ${ratingCell(rateOf(n))}`), dim('/model scope off lifts it')], '#2dd4bf') : note('no model list is set: /model a,b,c restricts /model next, /model skip and the failover to those models'));
+      }
+
+      /* /model sweep: /model a,b,c with the usable models of the last /model explore sweep */
+      if(arg === 'sweep') {
+        if(!lastSweep.length) return void console.log(note('no sweep has found usable models yet: /model explore PATTERN sweeps some'));
+        if(lastSweep.length === 1) arg = lastSweep[0];
+        else {
+          arg = lastSweep.join(',');
+          console.log(dim(`/model ${arg}`));
+        }
+      }
+
+      /* /model a,b,c: the first becomes the model, /model next, /model skip, the standby and the failover pick from these only */
+      if(/^[^\s,:*]+(,[^\s,:*]+)+$/.test(arg)) {
+        const names = [...new Set(arg.split(','))];
+        const av = await loadAvailability(gatewayRef).catch(() => null);
+        const unknown = names.filter(n => (av ? !av.byModel.has(n) : known ? !known.includes(n) : false));
+        if(unknown.length) return void console.log(red(`error: not a model of the endpoint: ${unknown.join(', ')} (/model list)`));
+        modelScope.names = names;
+        modelScope.set = new Set(names);
+        emit('failover', `the model choice is restricted to ${names.length} models: ${names.join(', ')}`);
+        console.log(card('📋', `model list: ${bold(String(names.length))} models`, [...names.map(n => `${fgHex(strengthColor(tierOf(n)), n)} ${ratingCell(rateOf(n))}`), dim('/model next, /model skip and the failover pick from these; /model scope off lifts it')], '#2dd4bf'));
+        tui?.drawStatus();
+        arg = names.includes(opts.model) ? opts.model : [...names].sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1))[0];
+        if(arg === opts.model) return;
+      }
+
+      /* /model explore PATTERN.. : a sweep of the READY models that match (a glob with *, else a part of the name), probed again
+         through both tiers whatever is cached, ratings updated, then the ranking */
+      if(arg === 'explore' || arg.startsWith('explore ')) {
+        const words = arg.slice(7).trim().split(/\s+/).filter(Boolean);
+        const exact = new Set(availability?.byModel.keys() ?? []);
+        /* a word that is exactly a model id (from the /model health selection) matches that model only */
+        const pats = words.map(p => exact.has(p) ? new RegExp(`^${p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')}$`) : new RegExp(p.includes('*') ? `^${p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$` : p.replace(/[.+?^${}()|[\]\\*]/g, '\\$&'), 'i'));
+        if(!pats.length) return void console.log(note('usage: /model explore PATTERN [PATTERN..] - e.g. /model explore nemotron* (a glob with *, else a part of the name); probes the READY models that match again, updates their ratings'));
+        const av = await loadAvailability(gatewayRef);
+        if(!av) return void console.log('No dashboard session. Cannot explore.');
+        exploration ??= new Exploration(gatewayRef.origin);
+        ratings ??= new Ratings(gatewayRef.origin);
+
+        const hits = [...av.byModel].filter(([id]) => id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && inKeysOnly(id) && pats.some(r => r.test(id)));
+        const ready = hits.filter(([, e]) => !e.blocked && !e.permanent && e.until == null && e.status !== 'needsKey').map(([id]) => id);
+        const skipped = hits.length - ready.length;
+        if(!hits.length) return void console.log(note(`no model matches ${arg.slice(7).trim()}`));
+        if(!ready.length) return void console.log(note(`${hits.length} models match, none is ready now (limited or without a key): /gateway limited ${arg.slice(7).trim().split(/\s+/)[0].replace(/\*/g, '')}`));
+
+        await refreshExplored(av);
+        const tools = {};
+        for(const m of gateway?.modelsCached() ?? []) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
+        const all = new Set(ready);
+        const deep = id => (all.has(id) ? deepBudget(modelInfo(id).ctx) : 0);
+        console.log(card('🧹', `sweep: ${bold(String(ready.length))} model${ready.length === 1 ? '' : 's'} matching ${arg.slice(7).trim()}`, [...ready.slice(0, 12).map(id => `${fgHex(strengthColor(tierOf(id)), id)} ${ratingCell(rateOf(id))}`), ...(ready.length > 12 ? [dim(`… ${ready.length - 12} more`)] : []), ...(skipped ? [`${fgHex('#fb923c', `${skipped} skipped`)} ${dim('limited or without a key')}`] : []), dim('both tiers, ratings updated, 2 at a time')], '#2dd4bf'));
+        emit('explore', `sweep of ${ready.length} models matching ${arg.slice(7).trim()}`);
+
+        exploration.run(ready, makeExploreClient, {
+          tools,
+          deep,
+          force: true,
+          diagnose: diagnoseModel,
+          onEvent: exploreEvent,
+          onResult: explored,
+          onDone: ({ explored: n, usable }) => {
+            exploreLanes = [];
+            tui?.drawStatus();
+            emit('explore', `sweep finished: ${usable} of ${n} models usable`, usable ? 'good' : 'warn');
+            const rows = ready.slice().sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1) || a.localeCompare(b));
+            const table = fitTable(panelInner(), () => [['rate', 'model', 'probe', 'says'].map(h => `\x1b[1m${h}\x1b[0m`), ...rows.map(id => { const [pr, says] = probeCells(exploration, id); return [ratingCell(rateOf(id)), `\x1b[1m${fgHex(strengthColor(tierOf(id)), id)}\x1b[0m`, pr, says]; })], [1, 3], [3]);
+            backgroundReport('/model explore', async () => `${note(`sweep finished: ${usable} of ${n} usable, best rated first - /model next chooses among them`)}\n${table}${(() => {
+              /* the usable ones: tier 0 passed, tier 1 (when run) passed too, best rated first */
+              const good = rows.filter(id => { const e = exploration.get(id); return e?.ok && (!e.deep || e.deep.ok); });
+              lastSweep = good;
+              return good.length ? `\n${card('🧭', `use them: ${good.length} usable model${good.length === 1 ? '' : 's'}`, [...good.map(id => `${fgHex(strengthColor(tierOf(id)), id)} ${ratingCell(rateOf(id))}`), `${dim('type')} ${fgHex('#a3e635', '/model sweep')} ${dim('to restrict /model next, /model skip and the failover to them; /model scope off lifts it')}`], '#a3e635')}` : '';
+            })()}`);
+          },
+        });
+        return;
+      }
+
       if(arg === 'health') {
         const av = await loadAvailability(gatewayRef);
         if (!av) {
@@ -3695,20 +4383,41 @@ async function main() {
         }
         /* async exploration: every READY model is explored in the background (what is it, does it obey a system prompt, does it call tools), the results cached */
         exploration ??= new Exploration(gatewayRef.origin);
+        ratings ??= new Ratings(gatewayRef.origin);
         const ready = [...av.byModel].filter(([id, e]) => !e.blocked && !e.permanent && e.until == null && e.status !== 'needsKey' && id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && inKeyScope(id)).map(([id]) => id);
         await refreshExplored(av);
         const tools = {};
         for(const m of gateway?.modelsCached() ?? []) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
-        const queued = exploration.run(ready, makeExploreClient, { tools, onResult: explored, onDone: ({ explored: n, usable }) => { tui?.drawStatus(); console.log(note(`async exploration: ${usable} of ${n} models usable (/model health shows them)`)); } });
-        if(queued) console.log(dim(`async exploration: ${queued} ready models are being explored in the background, /model health again shows the results`));
-        const { rows, header } = modelStatusTable(av, exploration);
+        const queued = exploration.run(ready, makeExploreClient, { tools, deep: deepFor(ready), diagnose: diagnoseModel, onEvent: exploreEvent, onResult: explored, onDone: ({ explored: n, usable }) => { exploreLanes = []; emit('explore', `exploration finished: ${usable} of ${n} models usable`, usable ? 'good' : 'warn'); tui?.drawStatus(); console.log(note(`async exploration: ${usable} of ${n} models usable (/model health shows them)`)); } });
+        if(queued) emit('explore', `${queued} ready models are explored in the background`);
+        if(queued) console.log(dim(`probe: ${queued} ready models are being explored in the background, /model health again shows the results`));
+        const { rows, header } = modelStatusTable(av, exploration, modelInfo, rateOf);
         const width = repl.tui ? repl.tui.cols : (ttyGetWinSize(1)?.[0] ?? 100);
-        /* caps: Model 28, Status 15, Quota/Reset (flex), Providers 20 */
-        const caps = [28, 15, 0, 20, 22, 30];
-        const paint = (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : text);
-        const table = [header, ...rows].length ? compactTable([header, ...rows], width - 2, 2, caps, paint).join('\n') : '(no models with health data)';
+        /* fits the terminal: Says, Quota/Reset, Providers, Probe and Model give up width, widest first; on a narrow
+           terminal Says, Probe, Tokens/month and Context drop out one by one */
+        const hasProbe = header.length > 7;
+        const flex = hasProbe ? [8, 5, 6, 7, 0] : [5, 6, 0];
+        const drop = hasProbe ? [8, 7, 4, 3] : [4, 3];
+        /* in the TUI the rows can be marked (a cursor and a box take 5 cells in front) */
+        /* the header cells show the focused column (inverse) and the filters (amber) of the full-screen list */
+        const headCell = (h, i, focus, filters) => {
+          const f = filters?.get(i);
+          const text = `${h}${f ? `⌕${f}` : ''}`;
+          return focus === i ? `\x1b[7m ${text}▏\x1b[0m` : f ? `\x1b[1;33m${text}\x1b[0m` : `\x1b[1m${h}\x1b[0m`;
+        };
+        const build = ({ rows: vis = rows.map((_, i) => i), focus = null, filters = null } = {}) => fitTable(repl.tui ? width - 7 : width - 2, () => [header.map((h, i) => headCell(h, i, focus, filters)), ...vis.map(r => rows[r])], flex, drop);
+        const table = rows.length ? build() : '(no models with health data)';
         if (repl.tui) {
-          repl.openPager('model health', table);
+          repl.openPager('model health', table, rows.length ? {
+            select: {
+              ids: rows.map(r => r[0]),
+              columns: header,
+              cell: (r, c) => String(rows[r][c] ?? '').replace(/\x1b\[[0-9;]*m/g, ''),
+              build,
+              actions: { '\r': ['use', 'use as model list'], e: ['explore', 'explore'] },
+              onAction: (name, ids) => repl.restoreQueue([name === 'explore' ? `/model explore ${ids.join(' ')}` : `/model ${ids.join(',')}`]),
+            },
+          } : {});
         } else {
           console.log(table);
         }
@@ -3718,6 +4427,27 @@ async function main() {
       /* /model skip [pattern] and /model unskip [pattern]: skip the active or
          last-routed model (no args) or every model matching a pattern, with a
          10m cooldown, and move on to the next non-skipped one. */
+      /* /model next: choose among the models that are more or less sure to work, without skipping the current one */
+      if(arg === 'next') {
+        if(gateway?.hasLimits && (!availability || Date.now() - availability.at > 5000)) availability = await loadAvailability(gateway).catch(() => availability);
+        const fresh = gateway?.enabled ? await client.listModels().catch(() => remote) : remote;
+        const usable = getFilteredModels(known, fresh).filter(m => m.name !== opts.model && m.available && !m.limited?.blocked && m.status !== 'exhausted' && (m.tools !== false || opts.noTools));
+        const cands = likelyModels(usable, 60, Date.now(), true);
+        if(!cands.length) return void console.log(note('no model is rated well and verified enough to suggest: /model list shows them all', 'warn'));
+
+        const i = piped ? 0 : await repl.choose('Switch to which model?', [...cands.map(c => c.cells), `none: stay on ${opts.model}`], { drop: [5, 4] });
+        if(i === cands.length) return void console.log(note(`staying on ${opts.model}`));
+
+        const to = cands[i].name;
+        if(standbyReady() && standby.id === to) standbyHook.switchTo(to);
+        opts.model = to;
+        client.model = to;
+        repl.setPromptName(to);
+        control?.update({ model: to });
+        tui?.drawStatus();
+        return void console.log(note(`switching to ${to}`));
+      }
+
       if(arg === 'skip' || arg.startsWith('skip ') || arg === 'unskip' || arg.startsWith('unskip ')) {
         const [verb, pattern] = arg.split(/\s+/);
         const wasAuto = /^auto(:|$)/.test(opts.model);
@@ -3766,13 +4496,31 @@ async function main() {
         if(gateway?.hasLimits && (!availability || Date.now() - availability.at > 5000)) availability = await loadAvailability(gateway).catch(() => availability);
         cleanupSkips();
         const fresh = gateway?.enabled ? await client.listModels().catch(() => remote) : remote;
-        const next = getFilteredModels(known, fresh).find(m => m.name !== opts.model && m.available && !m.limited?.blocked && m.status !== 'exhausted' && (m.tools !== false || opts.noTools));
+        /* the next model: the warm standby while it is still usable, else the best rated one (getFilteredModels sorts by rating) */
+        const usableNext = getFilteredModels(known, fresh).filter(m => m.name !== opts.model && m.available && !m.limited?.blocked && m.status !== 'exhausted' && (m.tools !== false || opts.noTools));
+        const warm = standbyReady() && !standby.bad.has(standby.id) ? usableNext.find(m => m.name === standby.id) : null;
+        let next = warm ?? usableNext[0];
+
+        /* typed by the user (not a round skipping by itself): choose among the models that are more or less sure to work */
+        const manual = verb === 'skip' && !skipError && !pattern;
+        if(manual && usableNext.length > 1 && !piped) {
+          const cands = likelyModels(usableNext, 60, Date.now(), true);
+          if(cands.length > 1) {
+            const i = await repl.choose(`${opts.model} is skipped - which model next?`, [...cands.map(c => c.cells), `none: stay on ${opts.model}`], { drop: [5, 4] });
+            if(i === cands.length) return void console.log(note(`staying on ${opts.model} (it stays marked as skipped for 10 minutes)`));
+            next = usableNext.find(m => m.name === cands[i].name) ?? next;
+          }
+        }
+
         if(next) {
+          if(standbyReady() && standby.id === next.name) standbyHook.switchTo(next.name);
           opts.model = next.name;
           client.model = next.name;
           repl.setPromptName(next.name);
           control?.update({ model: next.name });
-          console.log(note(`switching to ${next.name}`));
+          const rating = rateOf(next.name);
+          emit('failover', `switching to ${next.name} (${standby.state === 'used' && standby.id === next.name ? 'the warm standby' : 'best rated'}${rating != null ? `, rating ${rating}` : ''})`, 'good');
+          console.log(note(`switching to ${next.name} (${standby.state === 'used' && standby.id === next.name ? 'the warm standby' : 'best rated'}${rating != null ? `, rating ${rating}` : ''})`));
         } else {
           console.log(note('no other model available to switch to', 'warn'));
         }
@@ -4313,19 +5061,13 @@ async function main() {
       return;
     }
 
-    let forceBinding = false;
-    let effectivePrompt = prompt;
-    if(prompt.startsWith('/binding ')) {
-      forceBinding = true;
-      effectivePrompt = prompt.slice('/binding '.length).trim();
-      if(!effectivePrompt) return;
-    }
+    const effectivePrompt = prompt;
 
     const { text: withFiles, attached } = attachFiles(effectivePrompt, opts.root, fileExchange);
     log.prompt(effectivePrompt, attached);
 
     let finalText = withFiles;
-    if(forceBinding || looksLikeBindingPrompt(effectivePrompt)) {
+    if(looksLikeBindingPrompt(effectivePrompt)) {
       const { text: bindingText, attached: bindingAttached } = bindingContext(opts.root);
       if(bindingText) {
         console.log(note(`attached binding reference: ${bindingAttached.join(', ')}`, 'attach'));
@@ -4376,6 +5118,13 @@ async function main() {
     const name = /^\/[a-z-]+/.exec(prompt)?.[0];
     if(!tui?.active || !REPORT_COMMANDS.has(name)) return runLine(line);
 
+    /* /gateway views run in the background: no waiting for the gateway, no captured stdout (a streamed reply would be swallowed) */
+    if(name === '/gateway' && gateway?.enabled) {
+      const [what = 'usage', ...rest] = prompt.slice('/gateway'.length).trim().split(/\s+/).filter(Boolean);
+      const make = what !== 'login' && what !== 'status' && gatewayView(what, rest);
+      if(make) return void backgroundReport(prompt, async () => make());
+    }
+
     const puts = stdout.puts;
     let text = '';
 
@@ -4402,9 +5151,11 @@ async function main() {
      model works they act at once (output goes straight to the transcript, not into a panel, because a panel
      captures stdout and would swallow the streamed reply). Piped input keeps its order. */
   if(!piped) {
-    const INSTANT = [/^\/verbose(\s|$)/, /^\/split(\s|$)/, /^\/(mouse|stream|diff|log|view|export)(\s|$)/, /^\/(remote-control|listen)(\s|$)/, /^\/run\s/, /^\/(model|provider)$/, /^\/(fallback|handoff-model)(\s|$)/, /^\/route(\s+list)?$/, /^\/brief\s+show$/, /^\/proxy(\s+(on|off|keyless))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|keys|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+(on|off))?$/, /^\/delegate(\s+(on|off|add|remove|pin)\b.*)?$/, /^\/config(\s+(set|unset)\b.*)?$/, /^\/skill(\s+loaded)?$/, /^\/rename(\s|$)/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/, /^\/model\s+health\b/];
+    const GATEWAY_VIEW = /^\/gateway(\s+(usage|providers|keys|forecast|quota|limits|limited|models))?(\s|$)/;
+    const INSTANT = [GATEWAY_VIEW, /^\/usage\s+history(\s|$)/, /^\/events(\s|$)/, /^\/verbose(\s|$)/, /^\/split(\s|$)/, /^\/(mouse|stream|diff|log|view|export)(\s|$)/, /^\/(remote-control|listen)(\s|$)/, /^\/run\s/, /^\/(model|provider)$/, /^\/(fallback|handoff-model)(\s|$)/, /^\/route(\s+list)?$/, /^\/brief\s+show$/, /^\/proxy(\s+(on|off|keyless))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|keys|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+(on|off))?$/, /^\/delegate(\s+(on|off|add|remove|pin)\b.*)?$/, /^\/config(\s+(set|unset)\b.*)?$/, /^\/skill(\s+loaded)?$/, /^\/rename(\s|$)/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/, /^\/model\s+health\b/];
     repl.immediate = line => INSTANT.some(re => re.test(line.trim()));
-    repl.onImmediate = runLine;
+    /* a /gateway view typed while the model works goes to the background report, the rest runs as it is */
+    repl.onImmediate = line => (GATEWAY_VIEW.test(line.trim()) ? reportLine(line) : runLine(line));
     repl.getModel = () => opts.model;
   }
 
@@ -4767,6 +5518,9 @@ async function main() {
     }, 0);
 
   await repl.run();
+  ratings?.flush();
+  flushPersist();
+  saveCooldowns();
 }
 
 await main();

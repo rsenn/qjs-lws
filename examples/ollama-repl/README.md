@@ -498,8 +498,13 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   `history` (input lines) and `state.json` (the last `/model PATTERN`).
   KEY is the `--name`, else the model plus a hash of the project root.
   Output files `<model>-output-N.ext` stay in the project.
-- **Network pane (`/split net`).** A box on the right for every TCP
-  connection of the process, local models included: state, bytes up and
+- **Network pane (`/split net`).** A column on the right, no line art: every
+  TCP connection of the process is a rectangle on a background colour by its
+  type (model, sub-agent, standby, exploration, compaction, CDP, http, tcp;
+  a legend line names the ones shown), separated by half-block edges on the
+  black ground. Content is cut off with `…`, never wrapped, so a
+  rectangle's height does not change with the width of what flows. Each shows
+  local models included: state, bytes up and
   down with rates, round trip, and for the request on it the phase, a
   progress bar, the route and a peek at what was sent and what flows back.
   Finished requests stay a minute. `lib/net-pane.js`, `lib/net-activity.js`.
@@ -513,6 +518,141 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   lifts it. The gateway has no way to name a key per request and picks it
   itself, so the restriction holds for a key only where it is the only
   enabled key of its platform; the others are named in a warning.
+- **What is kept (`~/.cache/ollama-repl/`).** Beside the session
+  directories: `exploration.json` (what the exploration found per model),
+  `ratings.json` (the rating state), `usage.jsonl` (a line per request:
+  model, route, tokens, time, error; 90 days), `quota.json` (the last quota
+  snapshot per gateway: usage, limits, token budgets - it stands in for
+  the live numbers until the gateway answers, `/gateway quota` says so),
+  `quota.jsonl` (the month's use per platform every 15 minutes; 180 days) and
+  `cooldowns.json` (learned cooldowns and the unexpired local blocks).
+  `/usage history [DAYS]` sums up the earlier sessions from `usage.jsonl`.
+  `lib/persist.js`.
+- **Failover and choice (`/model next`, `/model skip`).** A model that
+  failed or ran dry hands over in one order everywhere: the warm standby
+  while it is usable, else the best rated usable model. `/model next` lists
+  the models most likely to work now (the warm standby, then the best rated
+  ones that passed the exploration lately or answered in this session, with
+  rating, verification age, tools and context) and switches to the one you
+  choose. `/model skip` typed by you offers the same choice after skipping;
+  a round that skips by itself does not ask. With `/verbose` on, each
+  exploration worker has a live panel showing the model it asks, every
+  request and answer, and the verdict.
+- **Background reports.** In the TUI the `/gateway` views (`usage`,
+  `providers`, `keys`, `forecast`, `quota`, `limits`, `limited`, `models`)
+  do not block: a panel saying `loading …` appears at once, the prompt stays
+  free (also while the model works), and the panel fills with the table
+  and the time it took.
+- **Startup list.** After the banner, a freellmapi gateway is not
+  described by its providers; the harness shows the routes it is likely to
+  use: the eight best rated usable models with rating, route (provider),
+  the exploration's cached verdict (latency, tools), context and monthly
+  token budget. The best ones never probed are probed in the background
+  (at most six, two at a time) and the panel fills in as the answers come.
+  `/gateway providers` is still the way to see the providers.
+- **Automatic proxy routing (`/proxy auto [on|off]`, `--no-auto-proxy`).**
+  The keys that profit from another exit address go through the socks proxy
+  (`socks5h://127.0.0.1:9050`, or the gateway's own socks URL) by
+  themselves: every enabled keyless key (its quotas count per IP address) and
+  every enabled key of a provider with a model limited as an IP matter. A key
+  with a proxy already, or whose provider the gateway proxies globally, is left
+  alone. It runs a few seconds after startup, at once when a provider turns out
+  to be limited per IP address, and every 5 minutes, only when something
+  answers on the proxy address. It never changes the exit address (`/proxy
+  exit`, `/proxy keyless fix`); `/proxy keyless clear` takes the keys off the
+  proxy again and turns the routing off. Each step is a `proxy` event.
+- **Probe column.** `✔` verified (latency, `T` = calls tools), `⚠ busy` the
+  provider was rate limited or down when the model was asked (says nothing
+  about the model: no rating penalty, asked again after 10 minutes), `✗` it
+  really failed its prompts (`✗ sys` ignores the system prompt; asked again
+  after an hour and left out of the startup list), `◌` being probed, `⏸`
+  limited now, `·` not probed. `/model health` shows the reason.
+- **The `/model next` picker** lists every candidate, best rated first, not only
+  the well rated ones; each line says what is left of the model (a limit that is on
+  and when it ends, cooling, or the share of its monthly token budget left in
+  green / amber / red). A long list scrolls: arrows, PgUp/PgDn, Home/End, with the
+  number of hidden options above and below.
+- **Selecting in full-screen lists.** `/model health` is a list whose rows can be
+  marked: up/down move the cursor, shift+up/down (or `J`/`K`) mark a range from where
+  it started (moving back shrinks it), space toggles the row, `a` marks all, `c`
+  clears, PgUp/PgDn/Home/End move. Enter uses the marked models (or the row under the
+  cursor) as the model list (`/model a,b,c`), `e` explores them again (`/model explore`
+  with their exact ids). Left/right focus a column header (shown inverse): typing
+  filters the rows on that column (a case-insensitive part of the cell; filters on
+  several columns must all match, the table is laid out again for the rows left),
+  Backspace deletes, Ctrl-U clears, down/Enter/Tab go back to the rows, Esc Esc
+  clears all filters and then closes. Marks stay on rows that are filtered out.
+  Other full-screen views scroll as before.
+- **`/model a,b,c`** (two or more model names) restricts `/model next`, the
+  `/model skip` chooser, the standby, the takeover and the failover to those
+  models and switches to the best rated of them (or stays on the current one if
+  it is in the list). `/model scope` shows the list, `/model scope off` lifts it;
+  the status bar shows `📋 N models` while it is set. The finished `/model explore`
+  sweep lists its usable models (tier 0 and tier 1 passed), best rated first, one
+  per line, and `/model sweep` applies them as the list: a long `/model a,b,c`
+  line does not survive wrapping and copying from the terminal.
+- **`/model explore PATTERN..`** sweeps the READY models that match (a glob
+  anchored at both ends, `nemotron*`, `*nemotron*`, or a part of the name,
+  `nemotron`) through both exploration tiers again, whatever is cached, two at a
+  time in the background, then shows the ranking best rated first. The ratings are
+  updated as each result comes in, so the models show up in `/model next` and the
+  `/model skip` chooser by their new rating. Models that are limited or without a
+  key are skipped and counted; `/events explore` follows the sweep.
+- **Two-tier exploration.** Tier 0 is one tiny request with a `ping` tool on
+  offer (answers? calls tools? how fast): no identity question, no system-prompt
+  word. Tier 1 runs for the 30 best rated models only: a fixed synthetic compacted
+  conversation (`lib/probe-context.js`: system prompt, a summary with tool-result
+  filler, the harness's tool schemas, three facts at about 10/50/90% depth) sized
+  to a quarter of the model's context window, 1.5k to 12k tokens, and the model
+  must report the facts with one tool call. Nothing of your project is sent. The
+  result (`deep`: tokens, facts recalled, tool call, time, tok/s, finish) shows in
+  the Says column of `/model health` and as `12k` / `12k✗` in the Probe cell, and
+  moves the rating (+4..+6 for a clean pass, -3..-6 for lost facts or a refused
+  prompt). A tier 1 failure by a provider hiccup is asked again after 10 minutes,
+  a real one after 6 hours; passed tiers are never repeated.
+- **Diagnosis of failed probes.** When the exploration's probe of a model
+  fails, the worker looks into it right there (`lib/diagnose.js`): what the
+  error says (rate limited, upstream error, timeout, model gone, key
+  refused, ignores the system prompt, empty answer), the gateway's own
+  picture of the model (limited by which window, back when), its providers
+  (status, usable keys, cooling keys) and, when it looks like a hiccup, one
+  more try after the short wait the error asks for. A model that answers on
+  the second try is probed again at once and counts as usable. The cause
+  goes to the Says column of `/model health` (`✗ gone`, `✗ no key`, `⚠ busy`
+  ...), to the `explore` events and to the live worker panel; a model that is
+  gone is asked again after a day, a busy one when the gateway says it is back.
+  A model whose probe failed is not listed in the startup picks.
+- **Events (`/events [KIND|WORD] [N]`).** What happens in the background is
+  reported as short typed events (`lib/events.js`): `explore` (a batch
+  started, each model's verdict, the batch finished), `gateway` (models that
+  became limited with the reason and when they are back, models usable
+  again, models that left or joined the catalog, the gateway not answering
+  or answering again), `quota` (a platform's monthly token budget crossing
+  80%, 95%, 100%), `key` (a provider key that turned unhealthy or healthy,
+  seen when `/gateway keys` is looked at), `failover` (skips with the reason,
+  switches to the standby or the best rated model, provider fallback),
+  `standby` (warm, probe failed, none left), `takeover`, `rating` (a model
+  whose requests fail) and `proxy`. In the verbose view (Ctrl+O) each one
+  is a single line, also the ones that happened before it was switched on;
+  `/events` lists the last ones with a count per kind.
+- **Model rating.** Every gateway model has a score 0-100 for how good a
+  pick it is to use next, kept in `~/.cache/ollama-repl/ratings.json` and
+  adjusted as the harness learns: what the model is (the gateway's
+  intelligence score, else a tier guessed from the name), its context
+  window, real requests (answered, failed, how fast; limits such as 429
+  do not count against it), the async exploration (passed its prompts,
+  calls tools), and its state now (limited, cooling, quota nearly used up).
+  What was learned fades with a half-life of a week. The best rating
+  wins when the standby or the takeover picks a model, and the lists sort by
+  it, best first: `/model list`, `/model health` (`Rate` column),
+  `/gateway models`, `/gateway limited` and `/gateway providers` (a
+  provider rates as the mean of its best three models; `sort:use` brings
+  back the heaviest-used order). `lib/rating.js`.
+- **Key order (`/gateway keys sort:NAME`).** `use` (default: tokens, then
+  requests this month, heaviest first), `requests`, `quota` (share of the
+  platform quota used), `ok` (longest without a healthy answer first),
+  `status` (unhealthy and cooling first), `provider`, `id`. The choice is
+  kept for the session.
 - **Provider keys (`/gateway keys [all|FILTER]`).** The providers the
   gateway has keys for and their keys, as the dashboard's Keys page lists
   them: provider, label, the *masked* key, status, enabled, requests and
@@ -830,9 +970,6 @@ the raw events.
   `inspect()`-formatted and colored on a TTY) when run with `-x`
 - `/log` - same, but just the conversation so far (no system
   prompt/project scan)
-- `/binding <text>` - force-attach the native-binding reference material
-  (see below) for this prompt, even if it doesn't happen to contain a
-  word the auto-detect heuristic looks for
 
 ## Compaction
 
@@ -1009,9 +1146,8 @@ binding), and `examples/ollama-repl/reference/quickjs-binding-api.md` (a
 ~150-line cheat sheet excerpted from `quickjs.h`'s 1041 - the signatures
 that actually recur across bindings, each with the ownership rule that
 matters, grouped by concern: values/conversion, exceptions, classes &
-opaque data, memory, ArrayBuffer in/out, module registration). Use
-`/binding <prompt>` to force this even for a prompt that doesn't happen
-to contain a trigger word.
+opaque data, memory, ArrayBuffer in/out, module registration). The
+attach is automatic only; there is no command to force it.
 
 ```
 you> write a small native QuickJS module that binds compress2()/

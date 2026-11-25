@@ -24,7 +24,7 @@
  * input.
  */
 import { out as stdout } from 'std';
-import { signal } from 'os';
+import { signal, setTimeout } from 'os';
 import { SIGWINCH } from 'util';
 import { Region, charWidth, layoutInput, stringWidth, ttyWrite, windowSize } from 'terminal';
 
@@ -42,6 +42,8 @@ const goto = (row, col = 1) => `${CSI}${row};${col}H`;
 const MOUSE_ON = `${CSI}?1000h${CSI}?1006h`;
 const MOUSE_OFF = `${CSI}?1000l${CSI}?1006l`;
 const HISTORY_MAX = 10000;
+/** a live panel repaints the view at most this often (ms) */
+const REPAINT_MS = 120;
 const SGR = /^\x1b\[[\d;]*m$/;
 
 /** str cut to `width` cells, escape sequences kept, attributes reset at the end */
@@ -80,10 +82,17 @@ export class Tui {
   #hist = [];
   /* per history line: 0 always shown, 1 only in the verbose view, 2 only outside it */
   #kinds = [];
+  /* per history line: the id of the live panel it belongs to (openPanel), 0 for none */
+  #owner = [];
+  #panelSeq = 0;
+  #repaintTimer = null;
+  #repaintAt = 0;
   #cur = '';
   #sgr = '';
   /** what the lines written now are: 0 always shown, 1 verbose view only, 2 compact view only (see setVerbose) */
   kind = 0;
+  /** the live panel the lines written now belong to, 0 none (openPanel) */
+  owner = 0;
   /** the verbose view is on: lines of kind 1 show, lines of kind 2 are hidden */
   verbose = false;
   /** lines the view is scrolled up from the end of the transcript, 0: following it */
@@ -290,9 +299,11 @@ write(text, kind) {
 
       this.#hist.push(this.#cur + (this.#sgr ? CSI + '0m' : ''));
       this.#kinds.push(this.kind);
+      this.#owner.push(this.owner);
       if(this.#hist.length > HISTORY_MAX) {
         this.#hist.splice(0, this.#hist.length - HISTORY_MAX);
         this.#kinds.splice(0, this.#kinds.length - HISTORY_MAX);
+        this.#owner.splice(0, this.#owner.length - HISTORY_MAX);
       }
       this.#cur = this.#sgr;
       added++;
@@ -378,6 +389,70 @@ write(text, kind) {
     /* scrolling moved the pane up with the transcript, an erase in the text may have cut into it */
     if(this.pane && (scrolled || /\x1b\[[0-2]?K/.test(text))) this.drawPane();
     return true;
+  }
+
+  /**
+   * writes a panel (its lines, a box) into the transcript like write() and returns its id: updatePanel() replaces
+   * its lines later, wherever the transcript has got to meanwhile
+   */
+  openPanel(text, kind = 0) {
+    const id = ++this.#panelSeq;
+    this.owner = id;
+    try {
+      this.write(`${String(text).replace(/\n+$/, '')}\n`, kind);
+    } finally {
+      this.owner = 0;
+    }
+    return id;
+  }
+
+  /**
+   * replaces the lines of the panel `id` (they may be more or fewer than before, the lines after them move). The
+   * view is repainted at most every REPAINT_MS and only when the panel is in the current view (its kind is shown).
+   *
+   * @returns {boolean} false when the panel is gone (cut off the history, or never existed)
+   */
+  updatePanel(id, text) {
+    const a = this.#owner.indexOf(id);
+    if(a < 0) return false;
+
+    let b = a;
+    while(b < this.#owner.length && this.#owner[b] === id) b++;
+
+    const kind = this.#kinds[a];
+    const lines = String(text).replace(/\n+$/, '').split('\n').map(l => l + CSI + '0m');
+    this.#hist.splice(a, b - a, ...lines);
+    this.#kinds.splice(a, b - a, ...lines.map(() => kind));
+    this.#owner.splice(a, b - a, ...lines.map(() => id));
+
+    if(this.#shows(kind) && !this.#closed && !this.#held) this.#repaintSoon();
+    return true;
+  }
+
+  /** the lines of the transcript the current view shows (for tests and the pager) */
+  get transcript() {
+    return this.#shownLines();
+  }
+
+  /** whether the history still holds the panel `id` */
+  hasPanel(id) {
+    return this.#owner.includes(id);
+  }
+
+  #repaintSoon() {
+    if(this.#repaintTimer) return;
+
+    const wait = Math.max(0, this.#repaintAt + REPAINT_MS - Date.now());
+    const run = () => {
+      this.#repaintTimer = null;
+      this.#repaintAt = Date.now();
+      if(this.#closed || this.#held) return;
+      this.#drawHistory();
+      if(this.scrollOff > 0) this.drawRule();
+    };
+
+    if(wait === 0) run();
+    else this.#repaintTimer = setTimeout(run, wait);
   }
 
   /** activity text in the rule above the input (spinner), '' or null clears it */

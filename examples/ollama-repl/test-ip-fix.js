@@ -39,3 +39,25 @@ check('another proxy is shown, not counted as ours', by(6).routed === false && b
 check('most limited first', rows[0].blocked / rows[0].total >= rows[rows.length - 1].blocked / rows[rows.length - 1].total);
 check('routedKeys finds those on the proxy', routedKeys(keys, ANON_PROXY).map(k => k.id).join() === '2');
 check('routedKeys by host and port, not scheme', routedKeys([{ keyless: true, maskedProxyUrl: 'socks5://127.0.0.1:9050' }], ANON_PROXY).length === 1);
+
+/* automatic routing: keyless keys and keys of IP-limited providers that have no proxy yet */
+import { ipProxyTargets, ipLimitedPlatforms, routedAll } from './lib/ip-fix.js';
+{
+  const keys2 = [
+    { id: 1, platform: 'kilo', keyless: true, enabled: true },
+    { id: 2, platform: 'ovh', keyless: true, enabled: true, maskedProxyUrl: 'socks5h://127.0.0.1:9050' },
+    { id: 3, platform: 'groq', keyless: false, enabled: true },
+    { id: 4, platform: 'google', keyless: false, enabled: true },
+    { id: 5, platform: 'horde', keyless: true, enabled: false },
+    { id: 6, platform: 'groq', keyless: false, enabled: true, maskedProxyUrl: 'http://other:3128' },
+    { id: 7, platform: 'free', keyless: true, enabled: true },
+  ];
+  const av2 = { byModel: new Map([['g', { blocked: true, kinds: ['ip'], platforms: ['groq'] }], ['k', { blocked: true, kinds: ['rpd'], platforms: ['google'] }]]) };
+  const t = ipProxyTargets(keys2, av2, ANON_PROXY, p => p === 'free');
+  check('auto: a keyless key without a proxy', t.some(x => x.id === 1 && x.why === 'keyless'));
+  check('auto: a key of an IP-limited provider', t.some(x => x.id === 3 && x.why === 'ip-limited'));
+  check('auto: a provider limited by a window only is left alone', !t.some(x => x.id === 4));
+  check('auto: routed, disabled, other-proxy and globally proxied keys are left alone', !t.some(x => [2, 5, 6, 7].includes(x.id)));
+  check('auto: platforms limited per IP', [...ipLimitedPlatforms(av2)].join() === 'groq');
+  check('auto: routedAll finds keyed ones too', routedAll([...keys2, { id: 8, platform: 'groq', maskedProxyUrl: 'socks5://127.0.0.1:9050' }]).map(k => k.id).join() === '2,8');
+}

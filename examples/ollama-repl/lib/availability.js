@@ -25,6 +25,12 @@
 import { formatTable, fitTable, fmtNum } from './usage-stats.js';
 import { quotaCell, paint } from './look.js';
 import { probeBrief } from './exploration.js';
+import { rateOf, ratingCell } from './rating.js';
+import { loadFile } from 'std';
+import { setTimeout, clearTimeout } from 'os';
+import { writeConfigFile } from './config.js';
+import { cooldownsPath } from './persist.js';
+import { emit } from './events.js';
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -35,6 +41,30 @@ const DAY = 24 * 60 * MINUTE;
  * Uses exponential moving average: 70% old, 30% new.
  */
 const learnedCooldowns = new Map();
+
+let dirty = null;
+
+/** the learned cooldowns and the unexpired shadow blocks are kept in cooldowns.json (lib/persist.js), written a few seconds after a change */
+const markDirty = () => {
+  if(dirty) return;
+  dirty = setTimeout(saveCooldowns, 5000);
+};
+
+export function saveCooldowns() {
+  if(dirty) clearTimeout(dirty);
+  dirty = null;
+  const now = Date.now();
+  writeConfigFile(cooldownsPath(), JSON.stringify({ learned: Object.fromEntries(learnedCooldowns), shadow: Object.fromEntries([...shadowBlocks].filter(([, b]) => b.until > now)) }));
+}
+
+/** reads cooldowns.json back, once at startup; shadow blocks that ran out meanwhile are dropped */
+export function loadCooldowns() {
+  try {
+    const d = JSON.parse(loadFile(cooldownsPath())) ?? {};
+    for(const [k, v] of Object.entries(d.learned ?? {})) if(!learnedCooldowns.has(k)) learnedCooldowns.set(k, v);
+    for(const [k, v] of Object.entries(d.shadow ?? {})) if(v.until > Date.now() && !shadowBlocks.has(k)) shadowBlocks.set(k, v);
+  } catch(e) {}
+}
 
 /**
  * Record a cooldown event for a model.
@@ -52,6 +82,7 @@ export function recordCooldownEvent(modelKey, event, now = Date.now()) {
 
   if (event === 'failure') {
     entry.lastFailure = now;
+    markDirty();
   } else if (event === 'success') {
     if (entry.lastFailure !== null) {
       const actualDuration = now - entry.lastFailure;
@@ -62,6 +93,7 @@ export function recordCooldownEvent(modelKey, event, now = Date.now()) {
         entry.avgCooldown = Math.round(entry.avgCooldown * 0.7 + actualDuration * 0.3);
       }
       entry.lastFailure = null;
+      markDirty();
     }
   }
 }
@@ -81,7 +113,7 @@ export function getLearnedCooldown(modelKey) {
  * Updated immediately on a transient failure, before the dashboard API
  * reflects it. applyShadowBlocks() merges these into byModel so the
  * router refuses to pick a model we just saw fail. Entries are pruned
- * on read; nothing persists across process restarts.
+ * on read; the unexpired ones persist in cooldowns.json.
  */
 const shadowBlocks = new Map();
 
@@ -95,6 +127,7 @@ export function recordLocalFailure(modelId, error, now = Date.now()) {
   else if (status === 500 || status === 502 || status === 503) waitMs = 30_000;
   else if (/timeout|ECONNRESET|ECONNREFUSED|ETIMEDOUT|network/i.test(String(error?.message ?? ''))) waitMs = 15_000;
   shadowBlocks.set(modelId, { until: now + waitMs, reason: String(error?.message ?? `status ${status}`).slice(0, 120) });
+  markDirty();
 }
 
 /**
@@ -224,7 +257,66 @@ function rowBlocks(row, { rate, budget, keys, errors, now }, byRow) {
  *
  * @returns {Promise<{at: number, byModel: Map<string, {blocked: boolean, status: string, until: number|null, approx: boolean, kinds: string[], permanent: boolean, blocks: Block[], rows: number, platforms: string[]}>, byRow: Map<string, Block[]>}>}
  */
+let lastSeen = null;
+let lastIpChange = 0;
+
+/** the exit address of the proxy changed (or the proxy was switched): models that come back soon after are reported as such */
+export function noteIpChange(at = Date.now()) {
+  lastIpChange = at;
+}
+
+const IP_WINDOW_MS = 15 * 60e3;
+
+/**
+ * what changed since the previous look at the gateway: models that became limited (with why and until when), models
+ * that are usable again, models that vanished or appeared. Reported as events (lib/events.js), a few per look.
+ */
+export function reportChanges(av) {
+  const now = new Map([...av.byModel].map(([id, e]) => [id, { blocked: !!e.blocked, kinds: e.kinds ?? [], until: e.until, platforms: e.platforms ?? [] }]));
+  const before = lastSeen;
+  lastSeen = now;
+  if(!before) return;
+
+  const limited = [];
+  const back = [];
+  for(const [id, e] of now) {
+    const b = before.get(id);
+    if(!b) continue;
+    if(e.blocked && !b.blocked) limited.push([id, e]);
+    else if(!e.blocked && b.blocked) back.push([id, b]);
+  }
+
+  const why = e => (e.kinds.length ? e.kinds.map(k => KIND[k] ?? k).join(', ') : 'exhausted');
+  const names = (list, f) => (list.length > 3 ? `${list.slice(0, 3).map(f).join(', ')} and ${list.length - 3} more` : list.map(f).join(', '));
+  if(limited.length) emit('gateway', `${limited.length} model${limited.length > 1 ? 's' : ''} limited: ${names(limited, ([id, e]) => `${id} (${why(e)}${e.until ? `, back ${untilText(e.until)}` : ''})`)}`, 'warn');
+  /* why it is back: the exit address changed lately (or it was limited as an IP matter), its pace time ran out, or the gateway just says so */
+  const afterIp = Date.now() - lastIpChange < IP_WINDOW_MS;
+  const groups = { ip: [], pace: [], other: [] };
+  for(const [id, b] of back) {
+    if(b.kinds.includes('ip') || (afterIp && !b.kinds.some(k => ['credit', 'tier', 'scope', 'key'].includes(k)))) groups.ip.push([id, b]);
+    else if(b.until != null && b.until <= Date.now() + 5000) groups.pace.push([id, b]);
+    else groups.other.push([id, b]);
+  }
+  const lim = ([id, b]) => `${id}${b.kinds.length ? ` (was ${b.kinds.map(k => KIND[k] ?? k).join(', ')})` : ''}`;
+  if(groups.ip.length) emit('gateway', `${groups.ip.length} model${groups.ip.length > 1 ? 's' : ''} accessible again after the IP change: ${names(groups.ip, lim)}`, 'good');
+  if(groups.pace.length) emit('gateway', `${groups.pace.length} model${groups.pace.length > 1 ? 's' : ''} usable again, the pace time has run out: ${names(groups.pace, lim)}`, 'good');
+  if(groups.other.length) emit('gateway', `${groups.other.length} model${groups.other.length > 1 ? 's' : ''} usable again: ${names(groups.other, lim)}`, 'good');
+
+  const gone = [...before.keys()].filter(id => !now.has(id));
+  const fresh = [...now.keys()].filter(id => !before.has(id));
+  if(gone.length) emit('gateway', `${gone.length} model${gone.length > 1 ? 's' : ''} left the catalog: ${names(gone, id => id)}`, 'warn');
+  if(fresh.length) emit('gateway', `${fresh.length} new model${fresh.length > 1 ? 's' : ''} in the catalog: ${names(fresh, id => id)}`, 'info');
+}
+
 export async function loadAvailability(gateway) {
+  const av = await loadAvailabilityNow(gateway);
+  try {
+    reportChanges(av);
+  } catch(e) {}
+  return av;
+}
+
+async function loadAvailabilityNow(gateway) {
   if(gateway.isBridge) return loadBridgeAvailability(gateway);
 
   const now = Date.now();
@@ -374,6 +466,32 @@ export const kindsText = entry => (entry.kinds.length ? entry.kinds.map(k => KIN
 /** 'used/limit' of a window, '-' when the model has none */
 const windowText = (w, bar) => (w && w.limit > 0 ? quotaCell(w.used, w.limit, bar) : '-');
 
+/** '67m · 08:59', '17h 07m · 26.11. 01:00': how long, and the clock time it ends */
+export function backShort(until, now, approx) {
+  if(until == null) return '?';
+  const t = new Date(until);
+  const day = t.toDateString() === new Date(now).toDateString() ? '' : `${t.getDate()}.${t.getMonth() + 1}. `;
+  return `${approx ? '≤ ' : ''}${spanText(until - now)} · ${day}${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * the limits table: columns that are empty ('-') in every row are left out, and a narrow terminal drops tok/min, req/min,
+ * the probe and the meters, in that order, before the provider/model column is cut
+ */
+function limitsTable(width, rows, ex) {
+  const cols = ['provider/model', 'req/min', 'req/day', 'tok/min', 'month tok', 'limited by', 'back', ...(ex?.any ? ['probe'] : [])];
+  const sample = rows.map(r => r.cells(0));
+  const empty = i => i > 0 && i < 5 && sample.every(c => c[i] === '-');
+  const keep = cols.map((_, i) => i).filter(i => !empty(i));
+  const at = name => keep.indexOf(cols.indexOf(name));
+
+  return fitTable(width, bar => [keep.map(i => `\x1b[1m${cols[i]}\x1b[0m`), ...rows.map(r => {
+    const c = r.cells(bar);
+    if(ex?.any) c.push(probeBrief(ex, r.k));
+    return keep.map(i => c[i]);
+  })], [0, at('back')], ['tok/min', 'req/min', 'probe', 'req/day'].map(at).filter(i => i > 0));
+}
+
 /**
  * /gateway limits [FILTER]: for each provider row the requests and tokens
  * used of every period (minute, day, month), what is limited right now and
@@ -390,7 +508,11 @@ export function limitsText(av, filter = '', width = 0, ex = null) {
       const b = av.budget.get(k);
       const blocks = av.byRow.get(k) ?? [];
       const until = blocks.length && !blocks.some(x => x.until == null) ? Math.max(...blocks.map(x => x.until)) : null;
-      return { k, until, cells: bar => [k, windowText(r?.rpm, bar), windowText(r?.rpd, bar), windowText(r?.tpm, bar), b ? quotaCell(b.used, b.budget, bar) : '-', blocks.length ? [...new Set(blocks.map(x => KIND[x.kind] ?? x.kind))].join(', ') : '', blocks.length ? (blocks.every(x => x.until == null && (x.kind === 'scope' || x.kind === 'key')) ? 'not by waiting' : untilText(until, av.at, blocks.some(x => x.approx))) : ''] };
+      const when = blocks.length ? (blocks.every(x => x.until == null && (x.kind === 'scope' || x.kind === 'key')) ? 'not by waiting' : backShort(until, av.at, blocks.some(x => x.approx))) : '';
+      const slash = k.indexOf('/');
+      const name = slash > 0 ? `\x1b[2m${k.slice(0, slash + 1)}\x1b[0m${k.slice(slash + 1)}` : k;
+      const by = blocks.length ? `\x1b[33m${[...new Set(blocks.map(x => KIND[x.kind] ?? x.kind))].join(', ')}\x1b[0m` : '';
+      return { k, until, cells: bar => [name, windowText(r?.rpm, bar), windowText(r?.rpd, bar), windowText(r?.tpm, bar), b ? quotaCell(b.used, b.budget, bar) : '-', by, when && until != null && until - av.at < 10 * 60e3 ? `\x1b[32m${when}\x1b[0m` : when ? `\x1b[2m${when}\x1b[0m` : ''] };
     })
     .sort((a, b) => (b.cells(0)[5] ? 1 : 0) - (a.cells(0)[5] ? 1 : 0) || (a.until ?? Infinity) - (b.until ?? Infinity) || a.k.localeCompare(b.k));
 
@@ -399,8 +521,27 @@ export function limitsText(av, filter = '', width = 0, ex = null) {
   return [
     `limits per provider row, used/limit: minute and day windows slide, the month budget ends ${new Date(firstOfNextMonth(av.at)).toISOString().slice(0, 10)} (UTC)`,
     '',
-    fitTable(width, bar => [['provider/model', 'req/min', 'req/day', 'tok/min', 'month tok', 'limited by', 'back', ...(ex?.any ? ['probe'] : [])], ...rows.map(r => [...r.cells(bar), ...(ex?.any ? [probeBrief(ex, r.k)] : [])])]),
+    limitsTable(width, rows, ex)
   ].join('\n');
+}
+
+/**
+ * the table of /gateway limited, one line per model at any width: the detail, the probe and the providers give up
+ * width first (cut with an ellipsis, then dropped), then the model name; the end of the limit is '67m · 08:59'
+ */
+function limitedTable(width, rows, av, ex) {
+  const cols = ['model', 'rate', 'providers', 'limited by', 'back', ...(ex?.any ? ['probe'] : []), 'detail'];
+  const at = n => cols.indexOf(n);
+
+  return fitTable(width, () => [cols.map(c => `\x1b[1m${c}\x1b[0m`), ...rows.map(([id, e]) => [
+    id,
+    ratingCell(rateOf(id)),
+    e.platforms.join(',') || '-',
+    paint(kindsText(e), '#f87171'),
+    paint(e.permanent ? 'not by waiting' : backShort(e.until, av.at, e.approx), '#fbbf24'),
+    ...(ex?.any ? [probeBrief(ex, id)] : []),
+    e.blocks[0]?.detail ?? 'the gateway does not say why',
+  ])], [at('detail'), at('model'), at('providers'), at('back')], [at('detail'), at('probe'), at('providers')].filter(i => i > 0));
 }
 
 /** /gateway limited [FILTER]: the model ids that cannot serve a request now, soonest back first */
@@ -408,15 +549,15 @@ export function limitedText(av, filter = '', width = 0, ex = null) {
   const f = filter.toLowerCase();
   const rows = [...av.byModel]
     .filter(([id, e]) => e.blocked && (!f || id.toLowerCase().includes(f)))
-    .sort((a, b) => (a[1].until ?? Infinity) - (b[1].until ?? Infinity) || a[0].localeCompare(b[0]));
+    .sort((a, b) => (rateOf(b[0]) ?? -1) - (rateOf(a[0]) ?? -1) || (a[1].until ?? Infinity) - (b[1].until ?? Infinity) || a[0].localeCompare(b[0]));
 
   if(!rows.length) return f ? `(no limited model matches "${filter}")` : '(no model is limited right now)';
 
   const ip = rows.filter(([, e]) => e.kinds.includes('ip')).length;
   return [
-    `${rows.length} models cannot serve a request right now`,
+    `${rows.length} models cannot serve a request right now, best rated first`,
     '',
-    fitTable(width, () => [['model', 'providers', 'limited by', 'back', ...(ex?.any ? ['probe'] : []), 'detail'], ...rows.map(([id, e]) => [id, e.platforms.join(',') || '-', paint(kindsText(e), '#f87171'), paint(backText(e, av.at), '#fbbf24'), ...(ex?.any ? [probeBrief(ex, id)] : []), e.blocks[0]?.detail ?? 'the gateway does not say why'])], ex?.any ? 5 : 4),
+    limitedTable(width, rows, av, ex),
     ...(ip ? ['', `${ip} look limited by IP or region: /proxy exit asks for another exit address, /proxy off sends requests directly`] : []),
   ].join('\n');
 }

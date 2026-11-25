@@ -31,6 +31,7 @@ export const SETTINGS = {
   noFailover: 'boolean',
   noHandoff: 'boolean',
   noTakeover: 'boolean',
+  noAutoProxy: 'boolean',
   fallbackModel: 'string',
   handoffTurns: 'number',
   handoffModel: 'string',

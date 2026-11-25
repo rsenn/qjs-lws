@@ -58,6 +58,11 @@ export function ipCandidates(keys, av, proxyUrl = ANON_PROXY) {
   return rows.sort((a, b) => b.blocked / b.total - a.blocked / a.total || a.platform.localeCompare(b.platform));
 }
 
+/** every key that is routed through `proxyUrl` now, keyless or not (to take them off it again) */
+export function routedAll(keys, proxyUrl = ANON_PROXY) {
+  return (keys ?? []).filter(k => k.maskedProxyUrl && hostPort(k.maskedProxyUrl) === hostPort(proxyUrl));
+}
+
 /** the keyless keys that are routed through `proxyUrl` now (to take them off it again) */
 export function routedKeys(keys, proxyUrl = ANON_PROXY) {
   return (keys ?? []).filter(k => k.keyless && k.maskedProxyUrl && hostPort(k.maskedProxyUrl) === hostPort(proxyUrl));
@@ -96,5 +101,33 @@ export async function clearCooldowns(gateway, ids) {
     }
   }
 
+  return out;
+}
+
+/**
+ * the keys that profit from another exit address and have no proxy yet: every enabled keyless key (its quotas are
+ * counted per IP address) and every enabled key of a provider that has a model limited as an IP matter. A key that
+ * is sent through some proxy already is left alone.
+ *
+ * @returns {{id: number, platform: string, label: string, why: 'keyless'|'ip-limited'}[]}
+ */
+export function ipProxyTargets(keys, av, proxyUrl = ANON_PROXY, isProxied = () => false) {
+  const ipPlatforms = new Set();
+  for(const [, e] of av?.byModel ?? []) if(e.blocked && e.kinds?.includes('ip')) for(const p of e.platforms ?? []) ipPlatforms.add(p);
+
+  const out = [];
+  for(const k of keys ?? []) {
+    if(!k.enabled || k.maskedProxyUrl || isProxied(k.platform)) continue;
+    if(k.keyless) out.push({ id: k.id, platform: k.platform, label: k.label ?? '', why: 'keyless' });
+    else if(ipPlatforms.has(k.platform)) out.push({ id: k.id, platform: k.platform, label: k.label ?? '', why: 'ip-limited' });
+  }
+
+  return out;
+}
+
+/** the platforms that have a model limited as an IP matter now */
+export function ipLimitedPlatforms(av) {
+  const out = new Set();
+  for(const [, e] of av?.byModel ?? []) if(e.blocked && e.kinds?.includes('ip')) for(const p of e.platforms ?? []) out.add(p);
   return out;
 }

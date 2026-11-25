@@ -125,24 +125,74 @@ export function formatTable(rows) {
  * cut with an ellipsis (column `flex`, text without colors). Without a width
  * (or piped) the first try is used.
  */
-export function fitTable(width, make, flex = 0) {
-  const shown = c => String(c).replace(/\x1b\[[0-9;]*m/g, '');
-  const wide = rows => rows[0].reduce((n, _, i) => n + Math.max(...rows.map(r => shown(r[i]).length)), 2 * (rows[0].length - 1));
-  const flexWide = rows => Math.max(...rows.map(r => shown(r[flex]).length));
-  let rows;
+export function fitTable(width, make, flex = 0, drop = []) {
+  const gone = new Set();
 
-  /* the flexible column (default the first) gives up what is missing, down to 24 characters; below that the meters shrink first */
-  for(const bar of [6, 3, 0]) {
-    rows = make(bar);
-    const over = width > 0 ? wide(rows) - width : 0;
-    if(over <= 0) return formatTable(rows);
-
-    const room = flexWide(rows) - over;
-    if(room >= 24 || bar === 0) return formatTable(rows.map((r, n) => r.map((c, i) => (i === flex && n ? cut(c, Math.max(12, room)) : c))));
+  for(;;) {
+    const r = fitOnce(width, bar => make(bar).map(row => row.filter((_, i) => !gone.has(i))), [].concat(flex).filter(i => !gone.has(i)).map(i => i - [...gone].filter(g => g < i).length));
+    const next = drop.find(d => !gone.has(d));
+    if(r.fits || next === undefined) return r.text;
+    gone.add(next);
   }
 }
 
-const cut = (c, room) => (String(c).length > room ? `${String(c).slice(0, room - 1)}…` : c);
+/** the visible width of a cell: escape sequences do not count */
+const shown = c => String(c).replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+
+/** a cell cut to n visible cells with an ellipsis; escape sequences are kept and a reset closes a coloured cut */
+function cut(c, n) {
+  const s = String(c);
+  if([...shown(s)].length <= n) return s;
+
+  const SGR = /\x1b\[[0-9;]*[A-Za-z]/y;
+  let out = '';
+  let seen = 0;
+  for(let i = 0; i < s.length; ) {
+    SGR.lastIndex = i;
+    const m = SGR.exec(s);
+    if(m) {
+      out += m[0];
+      i += m[0].length;
+      continue;
+    }
+    if(seen >= n - 1) break;
+    const ch = String.fromCodePoint(s.codePointAt(i));
+    out += ch;
+    seen++;
+    i += ch.length;
+  }
+
+  return `${out}…${s.includes('\x1b') ? '\x1b[0m' : ''}`;
+}
+
+function fitOnce(width, make, cols) {
+  const colWide = (rows, i) => Math.max(...rows.map(r => [...shown(r[i])].length));
+  const wide = rows => rows[0].reduce((n, _, i) => n + colWide(rows, i), 2 * (rows[0].length - 1));
+  let rows;
+
+  /* the flexible columns give up what is missing, the widest first, each down to its header (at least 6); the meters shrink before that */
+  for(const bar of [6, 3, 0]) {
+    rows = make(bar);
+    let over = width > 0 ? wide(rows) - width : 0;
+    if(over <= 0) return { text: formatTable(rows), fits: true };
+
+    if(bar !== 0 && cols.length && colWide(rows, cols[0]) - over < 24) continue;
+    if(bar !== 0 && !cols.length) continue;
+
+    const target = new Map(cols.map(i => [i, colWide(rows, i)]));
+    const min = i => Math.max(6, [...shown(rows[0][i])].length);
+
+    while(over > 0) {
+      const [i] = [...target].filter(([i, w]) => w > min(i)).sort((a, b) => b[1] - a[1])[0] ?? [];
+      if(i === undefined) break;
+      target.set(i, target.get(i) - 1);
+      over--;
+    }
+
+    const out = rows.map((r, n) => r.map((c, i) => (n && target.has(i) ? cut(c, target.get(i)) : c)));
+    return { text: formatTable(out), fits: over <= 0 };
+  }
+}
 
 export class UsageStats {
   records = [];
@@ -193,14 +243,14 @@ export class UsageStats {
   }
 
   /** the /usage text: session totals, then per routed model and per platform */
-  summary() {
-    if(!this.records.length) return '(no requests yet in this session)';
+  summary(title = 'session') {
+    if(!this.records.length) return title === 'session' ? '(no requests yet in this session)' : `(no requests recorded ${title})`;
 
     const t = this.totals();
     const head = ['', 'req', 'fail', 'prompt', 'compl', 'reason', 'total', 'time'];
     const row = g => [g.key, g.requests, g.failed || '-', fmtNum(g.prompt), fmtNum(g.completion), fmtNum(g.reasoning || undefined), fmtNum(g.total), fmtMs(g.ms)];
     const out = [
-      `session: ${t.requests} requests (${t.failed} failed), ${fmtNum(t.total)} tokens: ${fmtNum(t.prompt)} prompt, ${fmtNum(t.completion)} completion (${fmtNum(t.reasoning)} reasoning), ${fmtNum(t.cached)} cached, ${t.fallbacks} gateway fallbacks, ${fmtMs(t.ms)} waiting`,
+      `${title}: ${t.requests} requests (${t.failed} failed), ${fmtNum(t.total)} tokens: ${fmtNum(t.prompt)} prompt, ${fmtNum(t.completion)} completion (${fmtNum(t.reasoning)} reasoning), ${fmtNum(t.cached)} cached, ${t.fallbacks} gateway fallbacks, ${fmtMs(t.ms)} waiting`,
       '',
       'by model:',
       formatTable([head, ...this.groupBy(routeName).map(row)]),

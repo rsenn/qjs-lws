@@ -44,6 +44,35 @@ const RESET = '\x1b[0m';
 /* a steering line that only says stop */
 const STOP_WORD = /^(stop|cancel|abort|halt)[.!]?$/i;
 
+const shownLen = s => [...String(s).replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')].length;
+
+/** the widest cell of each column over the rows that have cells */
+const cellWidths = rows => {
+  const w = [];
+  for(const r of rows) if(r) r.forEach((c, i) => (w[i] = Math.max(w[i] ?? 0, shownLen(c))));
+  return w;
+};
+
+/**
+ * the columns to show in `room` cells: all, then the ones named in `drop` (in that order) are left out until the
+ * widest row fits
+ */
+function keepColumns(rows, drop, room) {
+  const w = cellWidths(rows);
+  const keep = w.map((_, i) => i);
+  const total = () => keep.reduce((n, i) => n + w[i], 0) + 2 * (keep.length - 1);
+
+  for(const d of drop) {
+    if(total() <= room) break;
+    keep.splice(keep.indexOf(d), 1);
+  }
+
+  return { keep, w };
+}
+
+/** row k as aligned columns of `keep`, separated by two spaces; the last column is not padded */
+const columns = (rows, k, { keep, w }) => keep.map((i, j) => (j === keep.length - 1 ? rows[k][i] ?? '' : (rows[k][i] ?? '') + ' '.repeat(Math.max(0, w[i] - shownLen(rows[k][i] ?? ''))))).join('  ');
+
 export class ChatREPL extends REPL {
   #busy = false;
   #queue = [];
@@ -595,7 +624,7 @@ export class ChatREPL extends REPL {
    * text full-screen in a scrollable pager (TUI), printed elsewhere. the
    * transcript waits behind it, keys go to it until q.
    */
-  openPager(title, text) {
+  openPager(title, text, { select } = {}) {
     if(!this.#tuiOn) return void console.log(`${title}\n${text}`);
     if(this.#pager) return;
 
@@ -605,6 +634,7 @@ export class ChatREPL extends REPL {
       text,
       out: stdout,
       header: this.pagerHeader,
+      select,
       onClose: () => {
         this.#pager = null;
         this.tui.resume();
@@ -622,7 +652,10 @@ export class ChatREPL extends REPL {
    *
    *   await repl.choose('Apply this change?', ['Yes', 'Yes, always', 'No'])   // 0, 1 or 2
    */
-  async choose(question, options, { view } = {}) {
+  async choose(question, rawOptions, { view, drop = [] } = {}) {
+    /* an option is a string, or an array of cells that are aligned in columns with the others' (the selected row gets a background) */
+    const cells = rawOptions.some(Array.isArray) ? rawOptions.map(o => (Array.isArray(o) ? o : null)) : null;
+    const options = rawOptions.map(o => (Array.isArray(o) ? o.filter(Boolean).join(' · ') : o));
     const last = options.length - 1;
     const pick = s => {
       s = String(s ?? '').trim();
@@ -631,12 +664,14 @@ export class ChatREPL extends REPL {
 
     if(!this.#tuiOn) return pick(await this.ask(`${question}\n${options.map((o, k) => `  ${k + 1}. ${o}`).join('\n')}\n(1-${options.length}, y = 1, n = ${options.length})`));
 
-    this.onPrompt?.('choose', `${question} ${options.map((o, k) => `${k + 1}. ${o}`).join(' ')}`);
+    this.onPrompt?.('choose', `${question} ${options.map((o, k) => `${k + 1}. ${o}`).join(' ')}`.replace(/\x1b\[[0-9;]*m/g, ''));
 
     return new Promise(resolve => {
       this.#dialog = {
         question,
         options,
+        cells,
+        drop,
         sel: 0,
         pick,
         view,
@@ -654,10 +689,32 @@ export class ChatREPL extends REPL {
 
   #drawDialog() {
     const d = this.#dialog;
+    /* a long list scrolls: a window that keeps the selection in view, with how many options are hidden above and below */
+    const room = Math.max(5, (this.tui.rows ?? 30) - 9);
+    const n = d.options.length;
+    const rows = Math.min(n, room);
+    d.top = Math.max(0, Math.min(d.top ?? 0, n - rows));
+    if(d.sel < d.top) d.top = d.sel;
+    if(d.sel >= d.top + rows) d.top = d.sel - rows + 1;
+
     const lines = [
       `\x1b[1;33m? ${d.question}\x1b[0m`,
-      ...d.options.map((o, k) => (k === d.sel ? `  \x1b[1;32m● ${o}\x1b[0m` : `  \x1b[2m○\x1b[0m ${o}`)),
-      `\x1b[2m  ↑↓ choose · Enter · 1-${d.options.length} · y · n/Esc Esc${d.view ? ' · v view all' : ''}\x1b[0m`,
+      ...(d.top > 0 ? [`\x1b[2m  ↑ ${d.top} more above\x1b[0m`] : []),
+      ...d.options.slice(d.top, d.top + rows).map((o, j) => {
+        const k = d.top + j;
+        if(d.layoutCols !== this.tui.cols) {
+          d.layoutCols = this.tui.cols;
+          d.layout = d.cells ? keepColumns(d.cells.filter(Boolean), d.drop, (this.tui.cols ?? 80) - 6) : null;
+        }
+        const text = d.cells?.[k] ? columns(d.cells, k, d.layout) : o;
+        if(k !== d.sel) return `  \x1b[2m○\x1b[0m ${text}`;
+        /* the selected row: a background across the width, kept through the resets inside the cells */
+        const bg = '\x1b[48;2;30;64;60m';
+        const row = `  \x1b[1;32m●\x1b[0m${bg} ${text}`.replace(/\x1b\[0m/g, `\x1b[0m${bg}`);
+        return `${row}${' '.repeat(Math.max(0, (this.tui.cols ?? 80) - shownLen(row) - 1))}\x1b[0m`;
+      }),
+      ...(d.top + rows < n ? [`\x1b[2m  ↓ ${n - d.top - rows} more below · PgDn End\x1b[0m`] : []),
+      `\x1b[2m  ↑↓ PgUp PgDn choose · Enter · 1-9 · y · n/Esc Esc${d.view ? ' · v view all' : ''}\x1b[0m`,
     ];
 
     this.tui.drawInput(lines);
@@ -678,6 +735,10 @@ export class ChatREPL extends REPL {
 
     if(keys === '\x1b[A' || keys === 'k' || keys === '\x10') d.sel = (d.sel + n - 1) % n;
     else if(keys === '\x1b[B' || keys === 'j' || keys === '\x0e' || keys === '\t') d.sel = (d.sel + 1) % n;
+    else if(keys === '\x1b[6~') d.sel = Math.min(n - 1, d.sel + Math.max(3, (this.tui.rows ?? 30) - 12));
+    else if(keys === '\x1b[5~') d.sel = Math.max(0, d.sel - Math.max(3, (this.tui.rows ?? 30) - 12));
+    else if(keys === '\x1b[H' || keys === '\x1b[1~') d.sel = 0;
+    else if(keys === '\x1b[F' || keys === '\x1b[4~') d.sel = n - 1;
     else if(keys === '\r' || keys === '\n') return d.finish(d.sel);
     else if(/^[1-9yYnN]$/.test(keys)) return d.finish(d.pick(keys));
     else if(keys === '\x1b\x1b' || keys === '\x03') return d.finish(n - 1);
