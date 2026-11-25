@@ -75,6 +75,7 @@ export function usageRow(origin, session, r) {
     ttfbMs: r.ttfbMs,
     fallbacks: r.fallbacks,
     status: r.status,
+    attempt: r.attempt || undefined, /* 0 (the first try) is the default, not written */
     error: r.error ? String(r.error.message ?? r.error).split('\n')[0].slice(0, 160) : undefined,
   };
 }

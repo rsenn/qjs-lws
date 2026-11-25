@@ -19,10 +19,14 @@ that one day and one gateway (freellmapi at localhost:3001, 699 models, 83 keys)
   requests over 35 minutes. Median time from the first failure to the next
   success 13 s, p90 148 s.
 - Of the 104 real failures, 73 are `All models exhausted/rate-limited` and 21
-  `upstream provider errors`. Many of the 73 look like exploration probes of
-  models the gateway already had on cooldown (one burst at 07:56 asks 6
-  different unpinned models within 5 s); this is inferred from the requested
-  names and the timing, usage.jsonl cannot tell probes from user requests.
+  `upstream provider errors`. CORRECTED 2026-11-25: they are not exploration
+  probes. Only the main client has an `onMeta` (repl.js, `client.onMeta`), the
+  explore, standby and sub-agent clients do not, so usage.jsonl holds the main
+  client's requests only. The bursts of different models within seconds are the
+  harness's own retry chain: `chatRound` skips the spent model and asks again, up to
+  `AUTO_SKIPS` (8) times per round, so a run is at most 9 requests (the longest run
+  seen has 9). Each skip is a real request that fails in about 0.3 s, so the
+  failure count mixes "the turn failed" with "one hop of the chain failed".
 
 ## Exploration
 
@@ -92,15 +96,26 @@ installed qjsm has no `terminal/*` yet); examples/ needs no ChangeLog entry.
 
 ### Phase 1: instrumentation (everything below depends on it)
 
-- **1.1 Label usage records.** `lib/persist.js: appendUsage`, `repl.js: onMeta`
-  (about line 2936): add `label` (main, explore, standby, sub, handoff) from the
-  client's net label; `readUsage` and `/usage` take it as a filter. Test: extend
-  the persist test, a record keeps its label through a round trip. Success: the
-  failure rate of label main is computable; the baseline (104 real failures, 73
-  exhausted/rate-limited) is recomputed without probes and written into this file. H
-- **1.2 Baseline script.** `tools/` or the scratchpad script that produced the
-  numbers above, kept in the repo (qjsm, no python), so every later phase can rerun
-  it. Success: one command prints the table of this document. H
+- **1.1 `attempt` on usage records.** Decision (2026-11-25, replaces "label"): a
+  usage row says how many automatic skips came before it in its round: `attempt` 0
+  is the first try of a request, n is the n-th retry after `/model skip` by
+  `chatRound` (`skips`, max `AUTO_SKIPS`). Reason: the rows are all main-client
+  requests; what they cannot tell is a turn that failed from a hop of the retry
+  chain that failed, which is what health and failover statistics need. Where:
+  module variable set in `chatRound` before each `chatRoundOnce`, read by
+  `repl.js: onMeta` into the record, kept by `lib/persist.js: usageRow`. Attempt 0 is not
+  written; rows written before this have none; readers treat a missing one as 0. Other
+  clients (explore, standby, sub-agent) stay unlogged (open: whether they should be,
+  with a `label`; not needed for the plan). Test: `usageRow` keeps `attempt`; the
+  baseline test counts a turn as failed only when its last attempt failed. H
+- **1.2 Baseline script.** Decision: `usage-baseline.js` next to `ctl.js` (qjsm, no
+  python) over the pure `lib/usage-baseline.js`: `baseline(rows)` returns the
+  numbers of this document (records, span, status, error classes, fallbacks vs
+  latency, per platform, failure runs, time to the next success, by hour);
+  options `--days N`, `--origin URL`. A "turn" is a run of rows ending with the
+  first success or the last failure of a chain: rows with `attempt` n+1 follow
+  rows with attempt n within the same session; without the field every row is
+  its own turn. Success: one command prints the tables of this document. H
 
 ### Phase 2: correctness (each with a test, each closes a BUGS entry)
 

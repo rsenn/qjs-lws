@@ -177,6 +177,7 @@ place that knows about all subsystems.
 | `lib/proxy-probe.js` | `proxySettings`, `setProxyEnabled`, `proxied`, `measure`, `exitIp`, `newExit` (Tor `NEWNYM`), `PROBE_URL`, `EXIT_IP_URL`. |
 | `lib/ip-check.js` | `externalIp`, `parseIp`, `isPublicIp`, `IP_HOSTS`. |
 | `lib/ip-fix.js` | `ipCandidates`, `routedKeys`, `routedAll`, `setKeyProxy`, `clearCooldowns`, `ipProxyTargets`, `ipLimitedPlatforms`, `ANON_PROXY`. §14. |
+| `lib/usage-baseline.js` | `baseline`, `baselineText`, `errorClass`: the numbers of usage.jsonl (turns, failure runs, per platform); run by `usage-baseline.js`. |
 | `lib/cdp-token.js` | `dashboardTokenFromBrowser`: reads the dashboard session token over Chrome DevTools Protocol. |
 | `lib/bridge-process.js` | `startBridge`, `pickModel`: `--provider bridge`. |
 | `lib/net-activity.js` | `NetActivity`: in-flight HTTP requests with phases (feeds the net pane). |

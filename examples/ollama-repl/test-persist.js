@@ -15,6 +15,7 @@ const now = Date.now();
 const rec = (o = {}) => ({ at: now, model: 'kimi', routedVia: 'kilo/kimi', platform: 'kilo', usage: { prompt: 10, completion: 5, total: 15 }, ms: 1200, messages: ['SECRET'], ...o });
 
 check('row keeps no messages', !('messages' in usageRow('o', 's', rec())) && usageRow('o', 's', rec()).usage.total === 15);
+check('attempt: the first try is not written, a retry is', !('attempt' in JSON.parse(JSON.stringify(usageRow('o', 's', rec({ attempt: 0 }))))) && usageRow('o', 's', rec({ attempt: 2 })).attempt === 2);
 check('error is one short line', usageRow('o', 's', rec({ error: new Error('boom\nsecond line') })).error === 'boom');
 
 appendUsage('http://a', 'sess', rec());

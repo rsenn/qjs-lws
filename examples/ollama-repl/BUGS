@@ -10,9 +10,9 @@
 
     note: see ratings.json and usage.jsonl in the cache directory
 
-- usage-records-not-labelled (lib/persist.js:appendUsage, repl.js:2936): usage.jsonl has no label (main, explore, standby, sub), so exploration probes and real requests are mixed in every statistic. 73 of the 104 failures that are not interrupted are All models exhausted/rate-limited, and many of them look like probes of blocked models (inferred from the requested names and bursts of different models within seconds), so the failure rate of the user path cannot be told from the probes.
+- usage-rows-lack-attempt (lib/persist.js:usageRow, repl.js:chatRound): a usage row does not say whether it is the first try of a request or one hop of the automatic retry chain (chatRound skips the spent model and asks again, up to AUTO_SKIPS 8 times), so the 104 failures that are not interrupted mix failed turns with failed hops; the 73 All models exhausted/rate-limited rows are mostly such hops (runs of up to 9 requests, 0.3 s each).
 
-    note: compare requested and platform in usage.jsonl, probes come in bursts of different models within seconds
+    note: see usage.jsonl, bursts of different requested models within seconds in one session
 
 - rating-adj-saturates (lib/rating.js:30): the adjustment is capped at 25, so laguna-xs-2.1 (428 ok, 0 failed) and nemotron-3.5-lightning (2314 ok, 53 failed) and nemotron-3-ultra-550b-a55b both reach the cap and can no longer be told apart.
 

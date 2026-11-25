@@ -89,7 +89,7 @@ import { externalIp } from './lib/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
 import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
 import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
-import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms } from './lib/ip-fix.js';
+import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms as exhaustedByAddress } from './lib/ip-fix.js';
 import { ipGroups, ipChangePanel, ipChangeParts } from './lib/ip-pane.js';
 import { netPaneLines, annotateRates } from './lib/net-pane.js';
 import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting, loadEnvFile, userSystemPrompt } from './lib/config.js';
@@ -676,6 +676,9 @@ let skipError = null;
 let skipRetryMs = null; /* how long the gateway says it stays dry, from skipError's Retry-After / retryAtMs */
 const AUTO_SKIPS = 8;
 
+/* which try of its round the request now being made is (chatRound), written into the usage row by the main client's onMeta */
+let usageAttempt = 0;
+
 /* the control socket (--listen, /remote-control), set by startControl(); module level because chatRound() and runToolLoop() publish activity on it */
 let control = null;
 
@@ -1091,6 +1094,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   const attempts = []; /* [route, reason] of every route that failed this round */
   let skips = 0;
   let backoffs = 0;
+  let pass = 0;
 
   for(;;) {
     /* a route that is cooling down is not asked again: go straight to the next one */
@@ -1101,6 +1105,8 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
         client = to.client;
       }
     }
+
+    usageAttempt = pass++; /* 0 = the first try of the round, n = the n-th retry (a skip, a wait, a standby or failover switch) */
 
     try {
       return await chatRoundOnce(client, messages, opts, abortRef, chatOptions);
@@ -2930,6 +2936,7 @@ async function main() {
   if('onMeta' in client)
     client.onMeta = meta => {
       meta.proxied = proxied(proxyInfo.settings, meta.platform);
+      meta.attempt = usageAttempt;
       /* the hops that ran out before this answer: the client's own picks (standby, /model skip) leave them alone for a while */
       for(const m of spentModels(meta.trail, meta.routedVia)) skipModel(m, 'ran out in the gateway chain', TRAIL_SKIP_MS);
       stats.add(meta);
@@ -3333,7 +3340,7 @@ async function main() {
         const ipNow = [...ipLimitedPlatforms(availability)].filter(p => !ipSeen.has(p));
 
         /* a provider that is exhausted (all its models limited per address): its keys go through the proxy now if they do not yet, not at the next 5 minute round */
-        const exhausted = exhaustedPlatforms(availability);
+        const exhausted = exhaustedByAddress(availability);
         for(const p of [...exhaustSeen]) if(!exhausted.has(p)) exhaustSeen.delete(p);
         const exhNow = autoProxyBusy ? [] : [...exhausted].filter(p => !exhaustSeen.has(p));
 

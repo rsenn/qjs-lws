@@ -1,3 +1,16 @@
+## Open threads (2026-11-25)
+
+Phase 1 of the health plan (instrumentation) is done and waits for a commit; next is Phase 2 (decisions first, see below).
+
+Detours taken on the way, done:
+- exhaustedPlatforms name clash: repl.js has its own exhaustedPlatforms(error) (line 2531) which silently overrode my import from
+  lib/ip-fix.js (QuickJS accepts it), so the "provider exhausted: proxy now" trigger in watchPace never fired since fb9b8df;
+  the import is now `exhaustedPlatforms as exhaustedByAddress`. Open: a check that finds such shadowed imports
+- the finding "failures are exploration probes" was wrong (only the main client logs usage, the bursts are the retry chain of
+  chatRound, AUTO_SKIPS 8): corrected in doc/HEALTH-EXPERIMENTS.md and BUGS (usage-rows-lack-attempt)
+
+Postponed: Phase 2 to 4 of the health plan, the decisions listed there (live probes, kilo behind Tor, gateway proposals).
+
 ## Health, exploration, switchover: fixes and improvements (2026-11-25), plan done, nothing implemented
 
 Background, numbers and the full plan (file:function, change, test, success metric, owner H = harness / G = gateway):
@@ -11,9 +24,13 @@ Waiting for the user (decisions):
 - who takes the gateway proposals 3.6 to 3.9
 - commit and push: fb9b8df is committed locally, not pushed
 
-Phase 1, instrumentation (everything else depends on it):
-- 1.1 label usage records (main, explore, standby, sub, handoff) in lib/persist.js appendUsage and repl.js onMeta; /usage filters by it
-- 1.2 keep the baseline script in the repo (qjsm), print the table of the doc; recompute the baseline without probes
+Phase 1, instrumentation, DONE 2026-11-25 (not committed), design in doc/HEALTH-EXPERIMENTS.md:
+- 1.1 `attempt` on usage rows (0 = first try, n = n-th automatic /model skip retry of the round): chatRound, repl.js onMeta,
+  lib/persist.js usageRow. Changed from "label": only the main client logs usage, the failure bursts are the retry chain, not probes
+- 1.2 usage-baseline.js (qjsm) over lib/usage-baseline.js: the numbers of the doc, a turn failed only when its last attempt failed;
+  `qjsm usage-baseline.js [--days N] [--origin URL] [--json]`; tests: test-usage-baseline.js, test-persist.js
+  Baseline of 2026-11-25 (4206 requests, rows without attempt, so every row is a turn): 114 failed hops = 2.8 %, run time to the next
+  success median 16 s, p90 381 s. Rerun it after Phase 2 and 3 and compare (attempt rows exist from now on)
 
 Phase 2, correctness (each with a test, each closes its BUGS entry):
 - 2.1 exit-change-uses-wrong-tor-host: autoExit and /proxy exit take the host from the socks URL (helper in lib/proxy-probe.js)
