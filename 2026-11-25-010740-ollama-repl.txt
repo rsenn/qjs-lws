@@ -1,3 +1,0 @@
-You: test
-
-Assistant: Hello! I'm here to help you with your project. I can see you've sent a test message. How can I assist you today? Whether you need help with code, documentation, builds, or anything else related to your project, I'm ready to help!

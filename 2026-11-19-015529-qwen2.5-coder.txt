@@ -1,9 +1,0 @@
-System: You are a helpful assistant.
-
-You: hello
-
-Assistant: Hi there!
-
-You: blah
-
-Assistant: Blah to you too!
