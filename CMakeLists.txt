@@ -235,6 +235,13 @@ if(BUILD_LIBWEBSOCKETS)
   # out false (no pthread.h, so lws_mutex_t is unknown) and the build dies
   string(REGEX REPLACE "-std=[a-z]+[0-9]+" "" LWS_PARENT_C_FLAGS "${CMAKE_C_FLAGS}")
   set(LIBWEBSOCKETS_C_FLAGS "${LWS_PARENT_C_FLAGS} -D_GNU_SOURCE")
+  if(DIET OR HAVE_DIETLIBC OR CMAKE_C_COMPILER MATCHES "diet")
+    # dietlibc's <linux/types.h> is a stub (no __aligned_u64)
+    string(APPEND LIBWEBSOCKETS_C_FLAGS " -include ${CMAKE_CURRENT_SOURCE_DIR}/cmake/diet-lws-compat.h")
+    # the module's own sources need it too: lws headers use sockaddr_in6 etc. without
+    # including <netinet/in.h> (glibc pulls it in indirectly)
+    add_compile_options("SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/cmake/diet-lws-compat.h")
+  endif()
 
   if(WITH_MBEDTLS)
     set(WITH_SSL ON)

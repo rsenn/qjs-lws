@@ -16,8 +16,16 @@ macro(build_brotli BINARY SUFFIX PIC)
          "${BROTLI_PREFIX_${SUFFIX}}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}${_brotli_lib}${CMAKE_STATIC_LIBRARY_SUFFIX}")
   endforeach(_brotli_lib)
 
+  # dietlibc's <sys/cdefs.h> defines __noinline__ as a whole attribute, so brotli's
+  # __attribute__((__noinline__)) does not parse: spell it without underscores
+  set(BROTLI_PATCH_${SUFFIX})
+  if(DIET OR HAVE_DIETLIBC OR CMAKE_C_COMPILER MATCHES "diet")
+    set(BROTLI_PATCH_${SUFFIX} PATCH_COMMAND sed -i "s/__attribute__((__noinline__))/__attribute__((noinline))/" <SOURCE_DIR>/c/common/platform.h)
+  endif()
+
   ExternalProject_Add(
     brotli_${SUFFIX}
+    ${BROTLI_PATCH_${SUFFIX}}
     URL https://github.com/google/brotli/archive/refs/tags/v1.2.0.tar.gz
     DOWNLOAD_DIR ${BINARY}/downloads-${SUFFIX}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE

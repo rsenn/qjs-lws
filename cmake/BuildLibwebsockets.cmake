@@ -7,6 +7,7 @@ include(cmake/BuildLibCap.cmake)
 include(cmake/FindBrotli.cmake)
 include(cmake/BuildBrotli.cmake)
 include(cmake/BuildLibreSSL.cmake)
+include(cmake/BuildOpenSSL.cmake)
 
 # ON: always build libcap from source; AUTO: use the system libcap if there is
 # a usable one, else build lws without it; OFF: build lws without libcap.
@@ -19,6 +20,14 @@ endif()
 # libcap is Linux-only (uid_t, linux/capability.h): never build it elsewhere.
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT BUILD_LIBCAP STREQUAL "OFF")
   message(STATUS "libcap: not available on ${CMAKE_SYSTEM_NAME}, BUILD_LIBCAP=OFF")
+  set(BUILD_LIBCAP OFF)
+endif()
+
+# no libcap for dietlibc: building it needs the Linux syscall headers (SYS_capset,
+# prctl(), ...) that dietlibc lacks, and /opt/diet/lib/libcap.a is a glibc build
+# (TLS errno) that does not link
+if(NOT BUILD_LIBCAP STREQUAL "OFF" AND (DIET OR HAVE_DIETLIBC OR CMAKE_C_COMPILER MATCHES "diet"))
+  message(STATUS "libcap: not available for dietlibc, BUILD_LIBCAP=OFF")
   set(BUILD_LIBCAP OFF)
 endif()
 
@@ -231,13 +240,24 @@ macro(build_libwebsockets)
 
     if(NOT LWS_OPENSSL_WORKS)
       # One build per libwebsockets target, since PIC may differ between them.
-      build_libressl(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
-      set(SSL_DEPS libressl_${TARGET})
-      set(OPENSSL_LIBRARIES "${LIBRESSL_LIBRARIES_${TARGET}}")
-      set(OPENSSL_INCLUDE_DIR "${LIBRESSL_INCLUDE_DIR_${TARGET}}")
-      set(OPENSSL_INCLUDE_DIRS "${LIBRESSL_INCLUDE_DIR_${TARGET}}")
-      set(OPENSSL_LIBRARY_DIR "${LIBRESSL_LIBRARY_DIR_${TARGET}}")
-      set(OPENSSL_ROOT_DIR "${LIBRESSL_PREFIX_${TARGET}}")
+      if(BUILD_LIBRESSL)
+        build_libressl(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
+        set(SSL_DEPS libressl_${TARGET})
+        set(OPENSSL_LIBRARIES "${LIBRESSL_LIBRARIES_${TARGET}}")
+        set(OPENSSL_INCLUDE_DIR "${LIBRESSL_INCLUDE_DIR_${TARGET}}")
+        set(OPENSSL_INCLUDE_DIRS "${LIBRESSL_INCLUDE_DIR_${TARGET}}")
+        set(OPENSSL_LIBRARY_DIR "${LIBRESSL_LIBRARY_DIR_${TARGET}}")
+        set(OPENSSL_ROOT_DIR "${LIBRESSL_PREFIX_${TARGET}}")
+      else(BUILD_LIBRESSL)
+        # the newest OpenSSL release, never an old version
+        build_openssl(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
+        set(SSL_DEPS openssl_${TARGET})
+        set(OPENSSL_LIBRARIES "${OPENSSL_LIBRARIES_${TARGET}}")
+        set(OPENSSL_INCLUDE_DIR "${OPENSSL_INCLUDE_DIR_${TARGET}}")
+        set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR_${TARGET}}")
+        set(OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARY_DIR_${TARGET}}")
+        set(OPENSSL_ROOT_DIR "${OPENSSL_PREFIX_${TARGET}}")
+      endif(BUILD_LIBRESSL)
       set(OPENSSL_LIBRARY "")
     endif(NOT LWS_OPENSSL_WORKS)
   endif(WITH_SSL AND NOT WITH_MBEDTLS AND NOT WITH_WOLFSSL)
@@ -434,6 +454,12 @@ set(LIBWEBSOCKETS_ARGS
   # instead of fixing its CMAKE_REQUIRED_LIBRARIES ordering inside the
   # vendored submodule.
   list(APPEND LIBWEBSOCKETS_ARGS -DLWS_HAVE_X509_VERIFY_PARAM_set1_host:INTERNAL=1)
+
+  # dietlibc: the host's <linux/ipv6.h> redefines struct in6_addr & co from
+  # dietlibc's <netinet/in.h>; the probe only compiles it alone, so pre-seed it
+  if(DIET OR HAVE_DIETLIBC OR CMAKE_C_COMPILER MATCHES "diet")
+    list(APPEND LIBWEBSOCKETS_ARGS -DLWS_HAVE_LINUX_IPV6_H:INTERNAL=0 -DLWS_HAVE_ACCEPT4:INTERNAL=0) # no accept4() either
+  endif()
 
   list(APPEND LIBWEBSOCKETS_ARGS -DLWS_HAVE_HMAC_CTX_new:INTERNAL=1
        -DLWS_HAVE_RSA_SET0_KEY:INTERNAL=1 -DLWS_HAVE_ECDSA_SIG_set0:INTERNAL=1
