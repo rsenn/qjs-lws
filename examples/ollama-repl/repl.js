@@ -4077,8 +4077,11 @@ async function main() {
     }
 
     if(prompt === '/clear') {
+      // Keep the system prompt (first message if it has role 'system')
+      const systemPrompt = messages[0]?.role === 'system' ? messages[0] : null;
       messages.length = 0;
-      baseMessageCount = 0;
+      if(systemPrompt) messages.push(systemPrompt);
+      baseMessageCount = systemPrompt ? 1 : 0;
       saveSession();
       console.log(note('context cleared', 'ok'));
       return;
