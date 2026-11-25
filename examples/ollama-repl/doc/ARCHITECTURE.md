@@ -452,7 +452,7 @@ events; `noteIpChange()` marks an exit-address change for 15 min.
 
 `score(rec, inputs)` → 0..100: intelligence (gateway score or name tier, up to
 55), context window (+4..−4), learned adjustment (decays, half-life 7 days,
-capped ±25) and request success share, latency, probe result (tier 0/1), state
+capped ±25) and request reliability (`reliability(ok, fail)`: −10..+10, steep near 100 %, weighted by the request count, 0 without data), latency, probe result (tier 0/1), state
 now (limited −40, cooling −10, quota nearly used −8). Limit-type failures
 (429, quota, cooldown) do not count against the model. `Ratings` persists to
 `ratings.json`; `recordResult` (real requests, from `onMeta`), `recordProbe`
@@ -465,7 +465,10 @@ never scan the budget rows per call (that cost 27 s once).
 ### Exploration (`lib/exploration.js`)
 
 `Exploration.run(ids, makeClient, {concurrency=2, tools, deep, force, diagnose,
-onEvent, onResult, onDone})`: background worker lanes on the main loop.
+platformsOf, priority, onEvent, onResult, onDone})`: background worker lanes on the main loop.
+The queue goes by `priority(id)` (`exploreOrder` in `repl.js`: served in the last 24 h,
+then rating); a model whose platforms are all busy (a transient diagnosis with `retryAt`
+in this run) is skipped, not cached (`skipped` event and count).
 
 - **Tier 0** (`probeUsable`): one tiny request with a `ping` tool (does it answer,
   call tools, how fast). **Tier 1** (`probeDeep`, only for `deep(id) > 0`, i.e. the
@@ -473,7 +476,8 @@ onEvent, onResult, onDone})`: background worker lanes on the main loop.
   (`lib/probe-context.js` `buildProbe`: system prompt, summary with filler, harness
   tool schemas, three "needles" at 10/50/90 % depth) sized to a quarter of the
   model's window (`deepBudget`, 1.5k–12k tokens); it must report the facts in
-  one `report_findings` call (`grade`). Result in `entry.deep`.
+  one `report_findings` call (`grade`). Budget 1500 reply tokens, one retry with 3000 when
+  the reply was cut off at the limit after all facts were recalled. Result in `entry.deep`.
 - **Failures are diagnosed in the worker** (`opts.diagnose` = `diagnoseModel`,
   `lib/diagnose.js`): error text + the gateway's state for the model, provider
   and keys; a "flaky" verdict (second try answers) re-runs the probe. Stored:

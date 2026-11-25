@@ -73,9 +73,9 @@ Kilo findings (2026-11-25), to remember when touching the key spread:
   588M and 81M, and show whether the keys of one user share one limit (then spreading over them gains nothing)
 
 Phase 4, verification:
-- 4.1 rerun the tier 1 probe of nemotron-3.5-lightning (-30b, -30b-a3b) at max_tokens 400 and 1500, 3 runs each (needs the key above)
-- 4.2 a day after 2.x and 3.x: rerun the baseline and fill a before/after table in the doc
-- 4.3 move the done items to Done, remove the closed BUGS entries, update README and ARCHITECTURE (label, exploration order)
+- 4.1 DONE 2026-11-25 (1500 passes 6/6, 400 fails 2/6; base model not testable, see doc) rerun the tier 1 probe of nemotron-3.5-lightning (-30b, -30b-a3b) at max_tokens 400 and 1500, 3 runs each (needs the key above)
+- 4.2 (before snapshot recorded in doc/HEALTH-EXPERIMENTS.md; WAITING for a day of traffic on the new code) rerun the baseline and fill a before/after table in the doc
+- 4.3 DONE 2026-11-25: BUGS entries removed, ARCHITECTURE updated (reliability, exploration order, tier 1 budget); README unchanged, it does not describe these
 
 ## Exit address change pane, automatic exit change (2026-11-25)
 

@@ -234,7 +234,31 @@ Designed, not built (reason):
   are in and fill a before/after table here: real failure rate (label main), median
   time to recovery, transient verdict share, used share of verified models, kilo
   share, rating ties.
-- **4.3 Doc and TODO.** Move done items to Done in `TODO.md`, remove closed BUGS
+- **4.1 result (2026-11-25, 12k-token tier 1 probe, with tools, 3 runs each, through the
+  gateway at localhost:3001 with the user's gateway key from accounts.txt):**
+
+  | model | max_tokens 400 | max_tokens 1500 |
+  |---|---|---|
+  | nemotron-3.5-lightning-30b | 3/3 recall, 1 of 3 cut off at the limit without a tool call | 3/3 pass |
+  | nemotron-3.5-lightning-30b-a3b | 3/3 recall, 1 of 3 cut off at the limit without a tool call | 3/3 pass |
+  | nemotron-3.5-lightning | not measurable: 5 routes, 3 rate-limited, 2 without tool calling; one provider key rejected as invalid ("look invalid") | same |
+
+  Confirmed: the old budget of 400 fails a third of the runs by cutting reasoning off, 1500
+  never did. The base model could not be tested; the gateway names an invalid upstream key
+  for one provider, which is for the gateway's owner to fix.
+- **Status:** the "after" half of 4.2 waits for a day of traffic on the new code (restart
+  the sessions to pick up Phases 1 to 3). 4.1 and 4.3 are done.
+- **4.2 before snapshot** (`qjsm usage-baseline.js --days 1`, 4264 requests, all with the old code):
+
+  | measure | before | after (fill in) |
+  |---|---|---|
+  | failed turns | 131 of 4255 = 3.2 % | |
+  | failed hops | 140 (94 all exhausted, 25 upstream, 12 harness exceptions) | |
+  | time to next success | median 17 s, p90 396 s, longest run 9 turns | |
+  | kilo share of requests | 2865 of 4264 = 67 % | |
+  | gateway retries 1+ | 61 requests | |
+
+- **4.3 Doc and TODO.** DONE. Move done items to Done in `TODO.md`, remove closed BUGS
   entries, update README and ARCHITECTURE for the label and the exploration order.
 
 ### Decisions needed from the user
