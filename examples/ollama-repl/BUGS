@@ -1,3 +1,0 @@
-- compact-single-turn (repl.js:5363, compactHook; lib/handoff.js:126, buildHandoff): with one long user turn (a job with ~11 tool calls) nothing is older than the kept tail, so nothing is summarized, but buildHandoff() still clips every tool result of the running turn to 600 chars, so the running job loses what its tools returned (reported after a model switch to a smaller context window; checked 2026-11-25: 11 tool results of 5000 chars come back as 631 chars each, 23 messages kept)
-
-    ollama-repl --compact-at 1 and send one prompt that makes the model call ~10 tools

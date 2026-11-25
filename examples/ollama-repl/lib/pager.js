@@ -120,8 +120,20 @@ export class Pager {
       return this.draw();
     }
 
-    const lines = this.#text.split('\n').flatMap(l => wrap(l, this.cols - 2));
-    this.#view = new ScrollView(Math.max(1, this.rows - 2), lines);
+    const height = Math.max(1, this.rows - 2);
+    const width = this.cols - 2;
+
+    if(typeof ScrollView.prototype.setWidth !== 'function') {
+      /* an older terminal.js: wrap every line again on each layout */
+      this.#view = new ScrollView(height, this.#text.split('\n').flatMap(l => wrap(l, width)));
+    } else if(this.#view?.width !== undefined) {
+      /* a resize: the view keeps its wrapped lines per width, so a new height alone wraps nothing */
+      this.#view.resize(height).setWidth(width);
+    } else {
+      this.#view = new ScrollView(height);
+      this.#view.setWidth(width).setText(this.#text.split('\n'));
+    }
+
     this.#view.follow = false;
     this.#view.scrollTo(offset);
     this.draw();

@@ -121,11 +121,14 @@ export async function summarize(head, { model = HANDOFF_MODEL, host = 'localhost
  * @param {'failover'|'compact'|'handoff'} [o.reason]  what the note tells the model about why older turns are gone
  * @param {string} [o.focus]  what the user wants kept in the summary (/handoff TEXT)
  * @param {string} [o.instructions]  the user's words for the next model, appended to the note verbatim (/handoff TEXT)
+ * @param {boolean} [o.clipAlone=true]  when no older turn exists to summarize, still clip the kept turns' tool results; false returns null then
  * @returns {Promise<{messages: object[], cut: number, kept: number, by: string}|null>} null if there is nothing to compact
  */
-export async function buildHandoff(messages, base, { keepTurns = 3, toolChars = 600, model = HANDOFF_MODEL, host, port, reason = 'failover', focus, instructions } = {}) {
+export async function buildHandoff(messages, base, { keepTurns = 3, toolChars = 600, model = HANDOFF_MODEL, host, port, reason = 'failover', focus, instructions, clipAlone = true } = {}) {
   const rest = messages.slice(base);
   const { head, tail } = splitTurns(rest, keepTurns);
+  if(!head.length && !clipAlone) return null;
+
   const clipped = clipToolResults(tail, toolChars);
 
   if(!head.length && clipped.every((m, i) => m === tail[i])) return null;

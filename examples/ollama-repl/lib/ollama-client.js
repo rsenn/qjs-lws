@@ -58,7 +58,17 @@ const DEFAULT_NUM_CTX = 16384;
 const DEFAULT_TEMPERATURE = 0.2;
 /* the debug log: lib/session-cache.js debugLogPath() */
 
+/** the token counts of Ollama's final (done) object -> this project's usage record, undefined when it carries none */
+export function ollamaUsage(data) {
+  const prompt = data?.prompt_eval_count;
+  const completion = data?.eval_count;
+  if(prompt == null && completion == null) return undefined;
+  return { prompt, completion, total: (prompt ?? 0) + (completion ?? 0) };
+}
+
 export class OllamaClient {
+  /** called with the request's metadata (requested, model, ms, usage) once it is answered, like OpenAIClient#onMeta */
+  onMeta = null;
   #ctx;
   #adapter;
   /** req (the Request from #adapter.connect()) -> the {resolve, reject} of
@@ -338,6 +348,7 @@ export class OllamaClient {
     think = await this.resolveThink(think);
     const payload = { ...options, options: { num_ctx: this.numCtx, temperature: this.temperature }, model: this.model, messages: this.#toMessages(messages), stream: false, ...(think === 'auto' ? {} : { think }), ...(tools ? { tools: this.#toTools(tools) } : {}) };
 
+    const t0 = Date.now();
     const resp = await this.#post(payload);
     const data = await resp.json();
     this.#logger.body(data);
@@ -349,6 +360,7 @@ export class OllamaClient {
     const result = this.#toResult(data.message);
     if(!result.content && !result.toolCalls) throw new Error(`unexpected Ollama response: ${JSON.stringify(data)}`);
 
+    this.onMeta?.({ requested: this.model, model: data.model ?? this.model, ms: Date.now() - t0, usage: ollamaUsage(data), finish: data.done_reason });
     return result;
   }
 
@@ -379,6 +391,7 @@ export class OllamaClient {
     const abbreviated = this._abbreviatePayload(payload);
     this.#tui?.writeVerbose(`[POST /api/chat] ${abbreviated}`);
 
+    const t0 = Date.now();
     const resp = await this.#post(payload);
     const reader = resp.body.getReader();
 
@@ -427,6 +440,7 @@ export class OllamaClient {
           // lib/lws/streams.js). Same cleanup #readWithTimeout's timeout
           // path already does below.
           await reader.cancel().catch(() => {});
+          this.onMeta?.({ requested: this.model, model: chunk.model ?? this.model, ms: Date.now() - t0, usage: ollamaUsage(chunk), finish: chunk.done_reason });
           return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
         }
       }

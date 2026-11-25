@@ -183,6 +183,10 @@ export class ChatREPL extends REPL {
     this.#root = root;
     this.#onAbort = onAbort;
     this.showColors = false;
+    /* the base REPL's JavaScript aids (red prompt while the input does not parse, live result preview of a typed
+       property chain) are for code: chat text and slash commands are neither */
+    this.syntaxCheck = false;
+    this.preview = false;
     /* line editing only when input is a terminal: the base REPL decides
        from stdout alone, but a script feeding stdin needs piped mode too */
     this.piped ||= !isatty(stdin.fileno());

@@ -5376,7 +5376,7 @@ async function main() {
       const model = opts.handoffModel ?? HANDOFF_MODEL;
       if(!opts.quiet) console.log(waveNote(`compacting: ~${fmtNum(used)} tokens${ctxWindowNow ? ` of ${fmtNum(ctxWindowNow)}` : ''}, summarizing older turns with ${model} ...`));
 
-      const hopts = { model, host: opts.host, port: opts.port, reason: 'compact' };
+      const hopts = { model, host: opts.host, port: opts.port, reason: 'compact', clipAlone: false };
       let keep = keepTurns ?? opts.handoffTurns ?? 3;
       let h = await buildHandoff(msgs, base, { ...hopts, keepTurns: keep });
 

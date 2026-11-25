@@ -50,7 +50,18 @@ const DEFAULT_TIMEOUT_SECS = 15 * 60;
    See lib/logger.js's own doc comment. */
 /* the debug log: lib/session-cache.js debugLogPath() */
 
+/** a response's (or last stream event's) usageMetadata -> this project's usage record, undefined when it carries none */
+export function geminiUsage(data) {
+  const u = data?.usageMetadata;
+  if(!u) return undefined;
+  const prompt = u.promptTokenCount;
+  const completion = (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0) || undefined;
+  return { prompt, completion, total: u.totalTokenCount ?? (prompt ?? 0) + (completion ?? 0), reasoning: u.thoughtsTokenCount || undefined, cached: u.cachedContentTokenCount || undefined };
+}
+
 export class GeminiClient {
+  /** called with the request's metadata (requested, model, ms, usage) once it is answered, like OpenAIClient#onMeta */
+  onMeta = null;
   #apiKey;
   #ctx;
   #adapter;
@@ -334,6 +345,7 @@ export class GeminiClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chat(messages, options = {}) {
+    const t0 = Date.now();
     const resp = await this.#post('generateContent', messages, options);
     const data = await resp.json();
     this.#logger.body(data);
@@ -344,6 +356,7 @@ export class GeminiClient {
     const result = this.#toResult(parts);
     if(!result.content && !result.toolCalls) throw new Error(`unexpected Gemini response: ${JSON.stringify(data)}`);
 
+    this.onMeta?.({ requested: this.model, model: this.model, ms: Date.now() - t0, usage: geminiUsage(data), finish: data.candidates[0].finishReason });
     return result;
   }
 
@@ -360,6 +373,7 @@ export class GeminiClient {
    * @returns {Promise<{content: string, toolCalls?: object[]}>}
    */
   async chatStream(messages, options = {}, onToken) {
+    const t0 = Date.now();
     const resp = await this.#post('streamGenerateContent?alt=sse', messages, options);
     const reader = resp.body.getReader();
 
@@ -370,6 +384,7 @@ export class GeminiClient {
     // (e.g. "STOP") - per the API, that only appears on the last event of
     // a candidate's stream.
     let sawFinish = false;
+    let usageData;
 
     for(;;) {
       const { done, value } = await this.#readWithTimeout(reader);
@@ -394,6 +409,7 @@ export class GeminiClient {
 
         const candidate = chunk?.candidates?.[0];
         if(candidate?.finishReason) sawFinish = true;
+        if(chunk?.usageMetadata) usageData = chunk;
 
         const parts = candidate?.content?.parts ?? [];
         const { content: token, toolCalls: chunkCalls } = this.#toResult(parts);
@@ -413,6 +429,7 @@ export class GeminiClient {
         // finished - surface that instead of returning a silently-
         // truncated reply.
         if(!sawFinish) throw new Error('Gemini: connection closed before the response finished');
+        this.onMeta?.({ requested: this.model, model: this.model, ms: Date.now() - t0, usage: geminiUsage(usageData) });
         return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
       }
     }

@@ -14,6 +14,7 @@
  * only requested, model and ms are expected.
  */
 
+import * as terminal from 'terminal';
 import { trailText } from './fallback-trail.js';
 
 /** 1234 -> '1.2k', 3400000 -> '3.4M', undefined -> '-' */
@@ -125,7 +126,7 @@ export function formatTable(rows) {
  * cut with an ellipsis (column `flex`, text without colors). Without a width
  * (or piped) the first try is used.
  */
-export function fitTable(width, make, flex = 0, drop = []) {
+function fitTableLocal(width, make, flex = 0, drop = []) {
   const gone = new Set();
 
   for(;;) {
@@ -135,6 +136,9 @@ export function fitTable(width, make, flex = 0, drop = []) {
     gone.add(next);
   }
 }
+
+/** terminal.js's fitTable (native in textcode on qjsm) when the installed qjs-modules has it, else the copy above */
+export const fitTable = terminal.fitTable ?? fitTableLocal;
 
 /** the visible width of a cell: escape sequences do not count */
 const shown = c => String(c).replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');

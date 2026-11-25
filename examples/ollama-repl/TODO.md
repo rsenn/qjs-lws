@@ -32,11 +32,13 @@
 
 ## Terminal capabilities from qjs-modules terminal.js (2026-11-25)
 
-- Open: the parent `/usr/local/lib/quickjs/repl.js:2241` sends ESC[?2004h
-  unconditionally, so paste is not gated on `caps.bracketedPaste` (outside
-  this repo).
-- Open: kitty keyboard stays off; ChatREPL matches legacy byte strings. A
-  proposal for translating `decodeKeys()` keys to them needs the user's ok.
+- Open: kitty keyboard and focus events stay off. ChatREPL (and the base REPL under it) match legacy byte strings,
+  so turning kitty on needs a layer in ChatREPL#termReadHandler that runs decodeKeys() and hands handleKey() the
+  legacy string of each key (press events only); nothing uses focusin/focusout yet. Needs a kitty terminal to check.
+- Open: the line editor is the base REPL of qjs-modules (lib/repl.js), not a private one, so terminal.LineEditor
+  would replace ChatREPL's whole base class (history, ^R, completion, queue, dialogs); not done. The base REPL
+  already steps by grapheme cluster and has the history suggestion, but ChatREPL has showColors off, so the grey
+  suggestion and preview do not show in chat.
 - Not checked in a real terminal: sync frames, the undo at exit.
 
 ## Verbose panels leaked into the compact view (2026-11-25)
@@ -89,8 +91,7 @@ Open:
   only in the TUI; a compaction may summarize a loaded skill away; the primary is not told which delegate candidates
   exist; N restarts leave N waiting qjsm processes.
 - housekeeping: restart the running sessions (`auto`, `worker-freellm` in tmux `worker1`) to pick up Esc, argument
-  completion, retroactive verbose and the strength column; five untracked scratch files in the repo root stay on
-  purpose (the two 2026-11-19-*-qwen2.5-coder.txt, auto.json, out.c, qwen2.5-coder.json);
+  completion, retroactive verbose and the strength column;
   `~/Sources/rsenn/skills/quickjs-scripting` has uncommitted edits for the user to commit.
 - delegation lesson: two agents edited chat-bridge.js at once and the weaker worker left a half-done edit; give each
   delegated task its own file or a lock, and review the diff before the next dispatch.
@@ -142,8 +143,6 @@ After every change under lib/ run `cmake .` before `cmake --install`.
   models get tier 9.
 - Unclear what REPORT_COMMANDS and /remote-control changed; not read in detail.
 - Commit 2fcdcc1 is on origin/main with its "..." message, not rewritten.
-- Untracked leftovers in the repo root: two 2026-11-19-*-qwen2.5-coder.txt exports, auto.json (an earlier commit,
-  ec08869, deleted a tracked one), out.c, qwen2.5-coder.json.
 
 ## /cd fixes, modes, verbose, full gateway status (2026-11-19), open
 
@@ -217,8 +216,8 @@ After every change under lib/ run `cmake .` before `cmake --install`.
 
 ## freellmapi gateway + TUI, open (2026-11-19)
 
-- Ollama and Gemini clients report no token metadata yet (prompt_eval_count/eval_count and usageMetadata exist).
-  /usage and the status line stay empty for them.
+- Ollama and Gemini clients now call onMeta with token counts (test-client-usage.js); not run against a live Ollama
+  or Gemini server, and a failed request emits no record for them yet.
 - Ctrl-C while a stream is already flowing does not cancel it: abort() only knows requests still waiting for headers
   (#settled).
 - The dashboard's per-request detail (/api/analytics/requests/:id: attempt ladder, ttfb, served-model drift) needs a
@@ -325,19 +324,6 @@ is correct. Specific gaps to watch for once live:
   current contents rather than the model's assumption of what's there -
   the system prompt says this now, but it's unverified whether the model
   actually follows it.
-- `MAX_TOOL_ROUNDS` is still 4 (now enforced by dropping `tools`/forcing
-  `toolChoice: 'none'` on the capping round instead of just discarding a
-  still-pending request, see the top of this file) - worth revisiting now
-  that `ask_user` is real, heavier tool use, since a real "explore, then
-  ask, then read, then answer" sequence can burn through that quickly on a
-  non-trivial question, and sibling-project exploration adds more rounds a
-  session might need. The "write a native binding" demo (README.md) is a
-  concrete case that can plausibly need more than 4: list a sibling
-  project, read a template file, read quickjs.h, run the build, run a
-  smoke test - that's 5-6 tool calls before a final answer even on a clean
-  run, before counting a build failure or a wrong-signature retry. The two
-  PoC coding tasks above are a good live test of whether 4 is actually too
-  tight in practice.
 
 ## Follow-ups from the message-format/tool-use rewrite, open (2026-08-06)
 
