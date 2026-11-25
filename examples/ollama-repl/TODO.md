@@ -1,9 +1,58 @@
-## Health, exploration, switchover improvements from the data (2026-11-25)
+## Health, exploration, switchover: fixes and improvements (2026-11-25), plan done, nothing implemented
 
-The plan, by dependency, with tests and success metrics: doc/HEALTH-EXPERIMENTS.md, section Plan. The defects are in BUGS
-(7 entries). Waiting for the user: commit the pending work (0.1), how to run live probes (0.2), kilo behind Tor (0.3),
-who takes the gateway proposals (3.6 to 3.9). Nothing implemented yet.
-Order: 1.1 label usage records, 1.2 baseline script, 2.1 to 2.6 correctness, 3.1 to 3.5 harness policy, 4.1 to 4.3 verification.
+Background, numbers and the full plan (file:function, change, test, success metric, owner H = harness / G = gateway):
+doc/HEALTH-EXPERIMENTS.md, section Plan. The defects with their evidence are the 7 entries of BUGS. Order is by dependency.
+Test with ~/Sources/quickjs/qjs-modules/build/x86_64-linux-gnu/qjsm (the installed qjsm has no terminal/* yet).
+
+Waiting for the user (decisions):
+- how to run live probes: a gateway key from the user, or driving the live session's /model explore (script rule: FREELLMAPI_URL
+  and FREELLMAPI_KEY, never OPENAI_API_URL, which points to another service here; an attempt with it was rejected, nothing served)
+- whether kilo (77 % of the tokens) stays behind Tor (22 keys were routed through socks5://192.168.178.52:9050 by the new policy)
+- who takes the gateway proposals 3.6 to 3.9
+- commit and push: fb9b8df is committed locally, not pushed
+
+Phase 1, instrumentation (everything else depends on it):
+- 1.1 label usage records (main, explore, standby, sub, handoff) in lib/persist.js appendUsage and repl.js onMeta; /usage filters by it
+- 1.2 keep the baseline script in the repo (qjsm), print the table of the doc; recompute the baseline without probes
+
+Phase 2, correctness (each with a test, each closes its BUGS entry):
+- 2.1 exit-change-uses-wrong-tor-host: autoExit and /proxy exit take the host from the socks URL (helper in lib/proxy-probe.js)
+- 2.2 deep-probe-max-tokens-too-small: lib/exploration.js probeDeep max_tokens 1500, one retry with 3000 on finish length
+- 2.3 deep-probe-transient-error-shown-as-context-lost: repl.js explored, probeBrief, deepText: a transient deep error is busy;
+  also seen in the /gateway quota table (12k with a cross on a rate-limited model)
+- 2.4 failed-request-rated-against-requested-name: repl.js onMeta, no rating without routedVia, none for harness exceptions
+- 2.5 rawcolor-test-expects-old-colors: test-rawcolor.js imports the colors from lib/palette.js
+- 2.6 find what throws in the request path (is not defined, not a function, unknown color) so no exception is logged as a request error
+
+Phase 3, policy (measure against the baseline), harness:
+- 3.1 do not probe a limited provider; re-probe at the known reset time (Exploration.fresh retryAt)
+- 3.2 explore what traffic will need next (rating and recent use), not the ready list
+- 3.3 rating without the +25 cap (lib/rating.js ADJ_CAP): lower confidence bound plus latency
+- 3.4 failover prefers a provider with headroom over the biggest one (/gateway quota)
+- 3.5 switch at once on All models exhausted for a pinned model (runs of up to 9 cheap failures today)
+- 3.10 the quota panel's month bar counts budgeted tokens only (584M of 2.3G) while /gateway usage says 876M for the month;
+  check which platforms have no budget (kilo?) and say so in the bar, or count all (lib/freellm.js, /gateway quota)
+- 3.11 /gateway quota: the req/day meter (openrouter nemotron-3.5-lightning:free 34/50) could feed the failover and the auto
+  exit decision before the model runs out
+
+Phase 3, gateway (proposals for freellmapi, not harness code):
+- 3.6 spread the load over kilo's keys (87/12/1 %)
+- 3.7 blocked false negatives: a model listed usable while its provider is rate_limited
+- 3.8 daily resets reported as cooldown: expose the reset kind and the exact end
+- 3.9 filter routes without tool support before counting routes
+
+Kilo findings (2026-11-25), to remember when touching the key spread:
+- Kilo reports no usage per API key: its docs and OpenAPI spec (app.kilo.ai/api/openapi.json, five usageAnalytics tRPC
+  endpoints) break usage down by user, organization, model, provider, project, feature, mode; its tokens are JWTs that carry only a
+  kiloUserId, two of the three in ~/Documents/accounts.txt belong to the same user; per-key numbers can only come from freellmapi
+- the three Kilo tokens in that file are rejected (INVALID_TOKEN), so the fields of a response usage object and the analytics
+  endpoints are not tried; with a valid token: usageAnalytics.getBreakdown/getSummary (dimension user) would cross-check the gateway's
+  588M and 81M, and show whether the keys of one user share one limit (then spreading over them gains nothing)
+
+Phase 4, verification:
+- 4.1 rerun the tier 1 probe of nemotron-3.5-lightning (-30b, -30b-a3b) at max_tokens 400 and 1500, 3 runs each (needs the key above)
+- 4.2 a day after 2.x and 3.x: rerun the baseline and fill a before/after table in the doc
+- 4.3 move the done items to Done, remove the closed BUGS entries, update README and ARCHITECTURE (label, exploration order)
 
 ## Exit address change pane, automatic exit change (2026-11-25)
 
