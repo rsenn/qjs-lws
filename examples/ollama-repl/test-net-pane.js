@@ -26,7 +26,7 @@ check('kinds by port and label', kindOf('9222') === 'cdp' && kindOf('3001', 'exp
 const b = block('model', ['ab', '\x1b[1mcd\x1b[0m ef'], 20);
 check('rectangle: edge, one row per line, edge', b.length === 4 && b.every(l => [...plain(l)].length === 20));
 check('background survives the resets inside a line', b[2].split('\x1b[0m').slice(0, -1).filter(x => x).length > 0 && b[2].includes('\x1b[0m\x1b[48;2;'));
-check('half-block edges with corners', plain(b[0]).startsWith('▗') && plain(b[0]).endsWith('▖') && plain(b[3]).startsWith('▝') && plain(b[3]).endsWith('▘'));
+check('half-block edges, square corners', /^▄+$/.test(plain(b[0])) && /^▀+$/.test(plain(b[3])));
 
 /* the hops the gateway tried, from its fallback headers */
 {

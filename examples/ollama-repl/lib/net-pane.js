@@ -176,7 +176,7 @@ const strip = s => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
 
 /**
  * a rectangle: the lines on the background of the type, padded to the width (the resets inside coloured text would
- * end the background, so each one starts it again), a half-block edge above and below with rounded corners
+ * end the background, so each one starts it again), a half-block edge above and below, square corners
  */
 export function block(kind, lines, width) {
   const bg = `\x1b[48;2;${rgb(TYPES[kind][0])}m`;
@@ -184,12 +184,12 @@ export function block(kind, lines, width) {
   const edge = (l, mid, r) => `${fg}${l}${mid.repeat(Math.max(0, width - 2))}${r}\x1b[0m`;
 
   return [
-    edge('▗', '▄', '▖'),
+    edge('▄', '▄', '▄'),
     ...lines.map(l => {
       const t = fitLine(l, width - 2);
       return `${bg} ${t.replaceAll('\x1b[0m', `\x1b[0m${bg}`)}${bg}${' '.repeat(Math.max(0, width - 2 - [...strip(t)].length))} \x1b[0m`;
     }),
-    edge('▝', '▀', '▘'),
+    edge('▀', '▀', '▀'),
   ];
 }
 
