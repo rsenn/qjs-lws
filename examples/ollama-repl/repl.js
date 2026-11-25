@@ -87,6 +87,7 @@ import { routingHealth } from './lib/routing-health.js';
 import { repairTurn } from './lib/turn-repair.js';
 import { spentModels, TRAIL_SKIP_MS } from './lib/fallback-trail.js';
 import { loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure } from './lib/availability.js';
+import { modelStatusTable } from './lib/model-status.js';
 import { recordLatency } from './lib/latency.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } from './lib/proxy-probe.js';
@@ -760,7 +761,11 @@ const keepPanel = (title, text) => panels.push({ title: stripAnsi(title), text }
 /** a panel at most half the screen high into the transcript, the full text kept */
 function showPanel(title, text, { kind = 0, ...opts } = {}) {
   const n = keepPanel(title, text);
-  inKind(kind, () => console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts })));
+  if(ui.verbose) {
+    inKind(kind, () => console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts })));
+  } else {
+    console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts }));
+  }
 }
 
 /** runs `fn` with what it writes to the TUI transcript tagged: 1 shown in the verbose view only, 2 outside it only (Tui.kind) */
@@ -983,7 +988,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
   /* TUI verbose: the reasoning as one panel, before the reply */
   const showReasoning = () => {
-    if(reasoning) showPanel('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`, { border: '#f472b6' }); /* pink frame (pink-400, the 400 tones of the rest of the palette), sky blue italic text (a Balearic sunset): stands out from the dim tool lines */
+    if(reasoning) showPanel('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`, { border: '#f472b6', kind: 1 }); /* pink frame (pink-400, the 400 tones of the rest of the palette), sky blue italic text (a Balearic sunset): stands out from the dim tool lines - verbose only */
     reasoning = '';
   };
 
@@ -1571,7 +1576,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       return result.content;
     }
 
-    if(!opts.quiet && !tui?.active) console.log(dim(result.toolCalls.map(tc => `(${tc.name} ${JSON.stringify(tc.args).slice(0, 160)})`).join('\n')));
+    if(ui.verbose && !opts.quiet && !tui?.active) console.log(dim(result.toolCalls.map(tc => `(${tc.name} ${JSON.stringify(tc.args).slice(0, 160)})`).join('\n')));
 
     let repeats = 0;
 
@@ -1598,9 +1603,9 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       control?.activity('toolcall', { name: tc.name, args: tc.args });
 
-      if(tui?.active && !opts.quiet) {
+      if(ui.verbose && !opts.quiet && !tui?.active) {
         showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
-        inKind(2, () => console.log(toolLine(tc.name, tc.args ?? {})));
+        inKind(1, () => console.log(toolLine(tc.name, tc.args ?? {})));
       }
 
       /* Handle special tools that need access to repl.js context */
@@ -1661,8 +1666,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       /* TUI: a file change as a numbered diff, anything else as one summary line */
       if(tui?.active && !opts.quiet) {
-        if(WRITE_TOOLS.has(tc.name) && !asked && !/^(error|\(declined)/.test(output)) showPanel(`✔ ${tc.name} ${tc.args?.path ?? ''}`, numberedDiff(tc.name, tc.args ?? {}, loadFile(underRoot(opts.root, tc.args?.path)), true), { border: '#4ade80', kind: 2 });
-        else inKind(2, () => console.log(toolResult(output)));
+        if(WRITE_TOOLS.has(tc.name) && !asked && !/^(error|\(declined)/.test(output)) showPanel(`✔ ${tc.name} ${tc.args?.path ?? ''}`, numberedDiff(tc.name, tc.args ?? {}, loadFile(underRoot(opts.root, tc.args?.path)), true), { border: '#4ade80', kind: 1 });
+        else inKind(1, () => console.log(toolResult(output)));
       }
 
       if(!opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
@@ -3268,28 +3273,23 @@ async function main() {
       if(arg === 'list' || arg === 'list all') {
         if(remote) return void (await showModelList(remote, null, opts.provider, arg === 'list all'));
         if(known) return void (await showModelList(null, known, opts.provider, arg === 'list all'));
-
-      if(arg === 'health') {
-        if(!availability) return void console.log(note('availability data not loaded; /gateway login to get limits'));
-        const { rows, header } = modelStatusTable(availability);
-        const tableRows = rows.map(row => [
-          row[0],  // model id
-          row[1],  // status with color
-          row[2],  // quota/reset
-        ]);
-        // Format as a simple table
-        const widths = [header[0].length, header[1].length, header[2].length].map((h, i) => Math.max(...[header[i], ...tableRows.map(r => r[i].length)]));
-        const line = widths.map((w, i) => h => `${h.padEnd(w)}`).join('  ');
-        console.log(line);
-        console.log('\x1b[32m─\x1b[0m'.repeat(line.length));
-        for(const r of tableRows) {
-          const formatted = widths.map((w, i) => `${r[i].padEnd(w)}`).join('  ');
-          console.log(formatted);
-        }
-        console.log(`\n${rows.length} models shown. Status colors: READY=green, RATE_LIMITED=yellow, OUT_OF_QUOTA=red, OFFLINE=dim`);
-        return;
-      }
         return void console.log(note('model list is only available for --provider ollama and openai endpoints that serve /models'));
+      }
+
+      if (arg === 'health') {
+        const av = await loadAvailability(gateway);
+        if (!av) {
+          console.log('No dashboard session. Cannot load health.');
+          return;
+        }
+        const { rows, header } = modelStatusTable(av);
+        const table = formatTable([header, ...rows]);
+        if (repl.tui) {
+          repl.openPager('model health', table);
+        } else {
+          console.log(table);
+        }
+        return;
       }
 
       /* /model skip [pattern] and /model unskip [pattern]: skip the active or
