@@ -12,7 +12,7 @@
     black-holed connection (no FIN or RST ever arrives). Left open until someone confirms it
     against the real Ollama server (qjsm examples/ollama-repl/repl.js --provider ollama, with the
     PIPELINE-less workaround in examples/ollama-repl/lib/*-client.js reverted); remove the entry if
-    that works. lib/fetch.js:139 still enables LCCSCF_PIPELINE by default, so ordinary fetch()
+    that works. tests/unittests/test-fetch-idle-gap.js covers the idle-gap case. lib/fetch.js:139 still enables LCCSCF_PIPELINE by default, so ordinary fetch()
     users would be exposed if the bug were real.
 
 - vhost-destroy-logs-spurious-not-on-no-listener-list-error
@@ -40,16 +40,9 @@
     // any LWSContext without an `iface` option on its vhost(s) logs this
     // on destroy; e.g. just running tests/test-jsonrpc-ws.js reproduces it.
 
-- serve-websocket-options-silently-ignored (lib/serve.js:~640): backpressureLimit, closeOnBackpressureLimit and sendPings are read and never used (perMessageDeflate, maxPayloadLength and publishToSelf work now); they need the write queue size / ping control from lws.
-
 - lws-endif-arguments-mismatch (cmake/BuildLibwebsockets.cmake:387-392 and 394-396): `if(WIN32 AND
   NOT MSYS)` is closed by `endif(WIN32)`; CMake 4.5 warns "A logical block opening on the line ...
   closes on the line ... with mis-matching arguments" on every configure. Harmless, noisy.
-
-- lws-externalproject-cmp0225 (cmake/BuildLibwebsockets.cmake:568): ExternalProject_Add(websockets_shared
-  / websockets_static) uses the default configure command without CMAKE_INSTALL_PREFIX; CMake 4.5
-  warns (policy CMP0225) and the NEW behaviour would change the install prefix of the nested build.
-  Set the policy or pass CMAKE_INSTALL_PREFIX explicitly.
 
 - compact-single-turn (examples/ollama-repl/repl.js:3760): compactHook with one long user turn (a job with ~11 tool calls) summarizes the whole turn down to 2 messages, so the running job loses its context (reported after a model switch to a smaller context window)
 

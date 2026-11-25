@@ -598,6 +598,10 @@ set(LIBWEBSOCKETS_ARGS
     PREFIX ${TARGET}
     DEPENDS ${ZLIB_DEPS} ${LIBCAP_DEPS} ${SSL_DEPS} ${BROTLI_DEPS}
     CMAKE_ARGS
+      # given explicitly (it is nothing that gets installed: INSTALL_COMMAND is
+      # empty): without it CMake 4.5 warns about policy CMP0225, whose new
+      # behaviour would change the prefix of this nested build
+      "-DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/${TARGET}"
       -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
       "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
       "-DCMAKE_C_FLAGS:STRING=${LWS_C_FLAGS_FULL}"

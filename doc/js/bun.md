@@ -226,10 +226,13 @@ a `ServerWebSocket` feature.
   `doc/native/LWSSocket.md`). `ServerRequest` doesn't get its own copies -
   use `request.wsi.peerCertificate` via the existing `.wsi` escape hatch.
 
-**Not yet implemented:** `websocket.perMessageDeflate`, `.maxPayloadLength`,
-`.backpressureLimit`, `.closeOnBackpressureLimit`, `.sendPings`, and
-`.publishToSelf` are all accepted (read, not rejected) but currently have no
-effect - see `BUGS: serve-websocket-options-silently-ignored`.
+`websocket.perMessageDeflate`, `.maxPayloadLength`, `.publishToSelf`,
+`.backpressureLimit`, `.closeOnBackpressureLimit` and `.sendPings` are
+implemented. Differences from Bun: `backpressureLimit` has no default (unset
+means no limit, Bun uses 16 MiB), a `ws.send()` that would take the queued
+bytes past it is dropped (returns 0) or, with `closeOnBackpressureLimit`,
+closes the connection with 1009; `sendPings` pings only when set to `true`
+(Bun's default is true), every half of `idleTimeout` (120 s when unset).
 
 ## TLS
 

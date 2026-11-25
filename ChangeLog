@@ -1,5 +1,32 @@
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/serve.js (serve): Implement websocket.backpressureLimit (a
+	ws.send() past the limit is dropped and returns 0),
+	closeOnBackpressureLimit (closes with 1009 instead) and sendPings
+	(a ping frame every half of idleTimeout).  New.
+
+	* lws.c (lwsjs_log_user, lwsjs_log_user_line): Build the log line
+	on the heap.  The stack arrays, four bytes per payload byte,
+	overflowed the stack when a megabyte-sized WebSocket message was
+	logged.
+
+	* cmake/BuildLibwebsockets.cmake: Pass CMAKE_INSTALL_PREFIX to the
+	nested libwebsockets build, as CMake 4.5 warns about policy CMP0225
+	otherwise.
+
+	* doc/js/bun.md, doc/api-compatibility.md: The three websocket
+	options are implemented.
+
+	* tests/unittests/test-serve-ws-backpressure.js,
+	tests/unittests/test-build-libwebsockets-args.js,
+	tests/unittests/test-fetch-idle-gap.js,
+	tests/unittests/fixtures/keepalive-server.py: New.
+
+	* BUGS (serve-websocket-options-silently-ignored,
+	lws-externalproject-cmp0225): Removed, fixed.
+	(h1-late-queued-pipeline-never-promoted): Points at the new
+	regression test, still unreproduced.
+
 	* cmake/Checks.cmake (check_cflag): Probe each flag under its own
 	result variable.  The shared cache variable made every probe after
 	the first return the first answer, so a rejected flag made -O0 and

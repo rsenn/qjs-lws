@@ -318,9 +318,9 @@ The Bun.js API compatibility is **partial**, with significant gaps in:
 4. `perMessageDeflate` - compression configuration
 5. `maxPayloadLength` - message size limit (Bun default 16MB)
 6. `idleTimeout` - WebSocket idle timeout (Bun default 120s)
-7. `backpressureLimit` - backpressure threshold (Bun default 16MB)
-8. `closeOnBackpressureLimit` - auto-close on backpressure
-9. `sendPings` - automatic ping frames (Bun default true)
+7. `backpressureLimit` - implemented, but with no default (Bun default 16MB)
+8. `closeOnBackpressureLimit` - implemented
+9. `sendPings` - implemented, off unless `true` (Bun default true)
 10. `publishToSelf` - include sender in `ws.publish()`
 
 **Impact**: Can't implement backpressure handling, compression, or WebSocket lifecycle management.

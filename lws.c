@@ -1146,13 +1146,18 @@ lwsjs_log_user(struct lws* wsi, const char* buf, size_t len) {
   (void)wsi;
 
   static const char throwaway[] = "USER: ";
-  char line[sizeof(throwaway) - 1 + len + 1];
+  /* on the heap: a line for a megabyte-sized message overflowed the stack */
+  char* line = malloc(sizeof(throwaway) - 1 + len + 1);
+
+  if(!line)
+    return;
 
   memcpy(line, throwaway, sizeof(throwaway) - 1);
   memcpy(line + sizeof(throwaway) - 1, buf, len);
   line[sizeof(throwaway) - 1 + len] = '\0';
 
   lwsjs_callback_log(LLL_USER, line);
+  free(line);
 }
 
 /* Shared tail for every lwsjs_log_user() call site (lws-protocol.c's RX
@@ -1172,8 +1177,12 @@ lwsjs_log_user_line(struct lws* wsi, const char* prefix, size_t plen, const void
   static const char named_to[] = "abefnrtv";
   static const char hex[] = "0123456789abcdef";
   const uint8_t* in = data;
-  char line[plen + 4 * len + 1];
+  /* on the heap: 4 bytes per byte of a megabyte-sized message overflowed the stack */
+  char* line = malloc(plen + 4 * len + 1);
   size_t i, j = plen;
+
+  if(!line)
+    return;
 
   str_append(line, line + plen + 1, prefix);
 
@@ -1211,6 +1220,7 @@ lwsjs_log_user_line(struct lws* wsi, const char* prefix, size_t plen, const void
   line[j] = '\0';
 
   lwsjs_log_user(wsi, line, j);
+  free(line);
 }
 
 int
