@@ -1821,6 +1821,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /queue [list|clear|drop N] - the prompts waiting behind the running request (Enter queues one while the model works, Ctrl-X Ctrl-S sends the typed one now and cancels the running request); the queue is saved with the session and runs again after a restart
 /rename NAME    - rename the session (ollama-repl-ctl -s NAME picks it)
 /model [NAME|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip
+/model health - display real-time health, quota and rate-limit status of all available models
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
 /fallback [NAME|off] - show or set fallback model for auto-failover
 /route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new] - freellmapi routing: show what the gateway does with this session, pick a sort axis, a named chain or one pinned model; new restarts sticky routing
@@ -1854,12 +1855,12 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/binding', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status']],
+  ['model and gateway', ['/model', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status', '/model health']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/rename', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run']);
+const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run', '/model health']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -2204,6 +2205,7 @@ function completeArgs(cmd, args, word) {
       if(n === 0) return ['list', 'skip', 'unskip', ...completionModels()];
       if(n === 1 && args[0] === 'list') return ['all'];
       if(n === 1 && (args[0] === 'skip' || args[0] === 'unskip')) return completionModels();
+      if(n === 1 && args[0] === 'health') return ['health'];
       return [];
     case '/route':
       if(n === 0) return ['list', ...ROUTE_AXES.map(a => a[0]), 'auto', 'profile', 'new', ...completionModels()];
@@ -3266,6 +3268,27 @@ async function main() {
       if(arg === 'list' || arg === 'list all') {
         if(remote) return void (await showModelList(remote, null, opts.provider, arg === 'list all'));
         if(known) return void (await showModelList(null, known, opts.provider, arg === 'list all'));
+
+      if(arg === 'health') {
+        if(!availability) return void console.log(note('availability data not loaded; /gateway login to get limits'));
+        const { rows, header } = modelStatusTable(availability);
+        const tableRows = rows.map(row => [
+          row[0],  // model id
+          row[1],  // status with color
+          row[2],  // quota/reset
+        ];
+        // Format as a simple table
+        const widths = [header[0].length, header[1].length, header[2].length].map((h, i) => Math.max(...[header[i], ...tableRows.map(r => r[i].length)]));
+        const line = widths.map((w, i) => h => `${h.padEnd(w)}`).join('  ');
+        console.log(line);
+        console.log('\x1b[32m─\x1b[0m'.repeat(line.length));
+        for(const r of tableRows) {
+          const formatted = widths.map((w, i) => `${r[i].padEnd(w)}`).join('  ');
+          console.log(formatted);
+        }
+        console.log(`\n${rows.length} models shown. Status colors: READY=green, RATE_LIMITED=yellow, OUT_OF_QUOTA=red, OFFLINE=dim`);
+        return;
+      }
         return void console.log(note('model list is only available for --provider ollama and openai endpoints that serve /models'));
       }
 
@@ -3949,7 +3972,7 @@ async function main() {
      model works they act at once (output goes straight to the transcript, not into a panel, because a panel
      captures stdout and would swallow the streamed reply). Piped input keeps its order. */
   if(!piped) {
-    const INSTANT = [/^\/verbose(\s|$)/, /^\/proxy(\s+(on|off))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+off)?$/, /^\/delegate(\s+(on|off))?$/, /^\/config$/, /^\/skill(\s+loaded)?$/, /^\/rename\s/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/];
+    const INSTANT = [/^\/verbose(\s|$)/, /^\/proxy(\s+(on|off))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+off)?$/, /^\/delegate(\s+(on|off))?$/, /^\/config$/, /^\/skill(\s+loaded)?$/, /^\/rename\s/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/, /^\/model\s+health\b/];
     repl.immediate = line => INSTANT.some(re => re.test(line.trim()));
     repl.onImmediate = runLine;
     repl.getModel = () => opts.model;
