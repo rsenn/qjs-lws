@@ -2023,7 +2023,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /cd DIR         - change the project directory (~, ~user, - for the previous one) the model works in (file refs, writes, run_command all follow it)
 /exit, /quit    - quit
 /help           - this text
-/split [diff|git|status|net|off] - a pane right of the transcript: this session's file changes as diffs (default), git diff of the project, the live status (what happens now, the request, sockets with their traffic, memory), or net: a box per TCP connection (also to local models) with state, traffic rates, the request on it, its progress and a peek at what flows. /split alone toggles
+/split [diff|git|status|net|off|next|prev] - (keys: F2 next view, Shift-F2 previous, Alt-1..4 diff/git/status/net, Alt-0 off, Alt-\\ on/off; Ctrl-X then d g s n o or Tab) a pane right of the transcript: this session's file changes as diffs (default), git diff of the project, the live status (what happens now, the request, sockets with their traffic, memory), or net: a box per TCP connection (also to local models) with state, traffic rates, the request on it, its progress and a peek at what flows. /split alone toggles
 /proxy [on|off|auto [on|off]|probe|exit|keyless [apply|clear|fix]] - the socks proxy the gateway sends upstream requests through: settings, latency it adds (probe measures direct vs proxied, 3 runs each), time to first byte per platform; on/off switches it for the gateway's upstream requests (the URL stays saved); exit asks for a new exit (tor-change-exitnode.sh) and measures again; keyless lists the keyless providers (quotas counted per IP address) that are limited now and could work again through another address, keyless apply sends their keys through the anonymizing socks proxy (127.0.0.1:9050, asks first, can clear their cooldowns), keyless fix does the whole round (proxy their keys, NEWNYM on the control port 127.0.0.1:9051, probe that the exit address really changed, clear cooldowns, one request per provider to see it answers again, a second address if not), keyless clear takes them off the proxy
 /view [N]       - panel N (the last one) full-screen in a pager: arrows, PgUp/PgDn, Home/End, mouse wheel, q back
 /mouse [on|off] - the mouse wheel scrolls the transcript (on, the default: select text with Shift-drag) or the terminal handles the mouse (off)
@@ -4011,8 +4011,12 @@ async function main() {
     if(prompt === '/split' || prompt.startsWith('/split ')) {
       if(!tui?.active) return void console.log(note('the split needs the TUI'));
 
-      const arg = prompt.slice('/split'.length).trim() || (split.mode ? 'off' : 'diff');
-      if(!['diff', 'git', 'status', 'net', 'off'].includes(arg)) return void console.log('usage: /split [diff|git|status|net|off]');
+      let arg = prompt.slice('/split'.length).trim() || (split.mode ? 'off' : 'diff');
+      if(arg === 'next' || arg === 'prev') {
+        const views = ['off', 'diff', 'git', 'status', 'net'];
+        arg = views[(views.indexOf(split.mode ?? 'off') + (arg === 'next' ? 1 : views.length - 1)) % views.length];
+      }
+      if(!['diff', 'git', 'status', 'net', 'off'].includes(arg)) return void console.log('usage: /split [diff|git|status|net|off|next|prev]');
 
       clearTimeout(split.timer);
       split.timer = null;

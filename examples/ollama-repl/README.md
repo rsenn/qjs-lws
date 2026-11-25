@@ -156,6 +156,9 @@ model asks to call one. Feed the result back as a `{ role: 'tool', name,
 content }` message to continue the exchange - same message shapes work
 against any of the three clients. `API.md` has a full round-trip example.
 
+For how the program is built (module map, turn lifecycle, failover, model
+choice, TUI, persistence), see `doc/ARCHITECTURE.md`.
+
 ## Requirements
 
 - `--provider freellm` (the default): a freellmapi gateway at
@@ -572,6 +575,12 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   and when it ends, cooling, or the share of its monthly token budget left in
   green / amber / red). A long list scrolls: arrows, PgUp/PgDn, Home/End, with the
   number of hidden options above and below.
+- **Keys for the split pane.** `F2` shows the next view (off, diff, git, status, net,
+  off ...), `Shift-F2` the one before, `Alt-1`..`Alt-4` pick diff, git, status or net,
+  `Alt-0` turns it off, `Alt-\` toggles it. Where the terminal does not pass those,
+  `Ctrl-X` followed by `d`, `g`, `s`, `n`, `o` (off) or `Tab` (next) does the same.
+  They run at once, also while a request is running, and leave the typed line alone;
+  `/split next` and `/split prev` are the same as commands.
 - **Selecting in full-screen lists.** `/model health` is a list whose rows can be
   marked: up/down move the cursor, shift+up/down (or `J`/`K`) mark a range from where
   it started (moving back shrinks it), space toggles the row, `a` marks all, `c`

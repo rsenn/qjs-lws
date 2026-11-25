@@ -1,4 +1,34 @@
+## Verbose panels leaked into the compact view (2026-11-25, done)
+
+- Done: `Tui.write(text)` without a kind reset `Tui.kind` to 0, so `inKind`
+  (and held writes replayed by `resume`) never tagged anything; every
+  verbose-only panel (assistant request, read_file tool panel and result,
+  /brief traces) showed with Ctrl-O off. Fixed in `lib/tui.js`; covered by
+  `test-verbose.js`.
+- Open: `repl.js` cannot be imported by a test (it runs `main()`), so
+  `inKind` itself is only mirrored in `test-verbose.js`; check by eye in a
+  real terminal that the panels are gone with Ctrl-O off.
+
+## Architecture document (2026-11-25)
+
+- Done: `doc/ARCHITECTURE.md` written (module map, turn lifecycle, failover,
+  exploration, TUI, persistence, restart, gotchas). Keep it in step when a
+  subsystem changes; line numbers in it are hints only.
+- Fixed on the way: `ChatREPL` had two `handleKey` methods, the Ctrl-X chord
+  (split views, Ctrl-X Ctrl-S) lived in the shadowed one; merged into one.
+
 # TODO
+
+## Verbose panels leaked into the compact view (2026-11-25, done)
+
+- Done: `Tui.write(text)` without a kind reset `Tui.kind` to 0, so `inKind`
+  (and held writes replayed by `resume`) never tagged anything; every
+  verbose-only panel (assistant request, read_file tool panel and result,
+  /brief traces) showed with Ctrl-O off. Fixed in `lib/tui.js`; covered by
+  `test-verbose.js`.
+- Open: `repl.js` cannot be imported by a test (it runs `main()`), so
+  `inKind` itself is only mirrored in `test-verbose.js`; check by eye in a
+  real terminal that the panels are gone with Ctrl-O off.
 
 ## Gateway failover follow-ups (2026-11-24, commit 8c815e1)
 
@@ -1489,3 +1519,12 @@ Done:
 
 Open:
 - no test for the dialog layout (needs a terminal)
+
+## Split pane keys (2026-11-25)
+
+Done:
+- [x] F2 / Shift-F2 (next / previous view), Alt-1..4, Alt-0, Alt-\, Ctrl-X d g s n o Tab (lib/chat-repl.js commands, SPLIT_CHORD, runNow); /split next|prev in repl.js
+
+Open:
+- not tested with a real keyboard: F2 may be taken by the terminal or the tmux/window manager, Alt may be sent as Meta by some terminals; no unit test (needs a tty)
+- the full-screen list's terminal.js speed-up lives in the qjs-modules repo, not installed yet (see tool-registry PROPOSALS.md)

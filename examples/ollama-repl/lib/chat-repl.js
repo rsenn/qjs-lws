@@ -73,6 +73,9 @@ function keepColumns(rows, drop, room) {
 /** row k as aligned columns of `keep`, separated by two spaces; the last column is not padded */
 const columns = (rows, k, { keep, w }) => keep.map((i, j) => (j === keep.length - 1 ? rows[k][i] ?? '' : (rows[k][i] ?? '') + ' '.repeat(Math.max(0, w[i] - shownLen(rows[k][i] ?? ''))))).join('  ');
 
+/** Ctrl-X and then this key: a view of the split pane */
+const SPLIT_CHORD = { d: '/split diff', g: '/split git', s: '/split status', n: '/split net', o: '/split off', '0': '/split off', '\t': '/split next' };
+
 export class ChatREPL extends REPL {
   #busy = false;
   #queue = [];
@@ -100,6 +103,33 @@ export class ChatREPL extends REPL {
   onCycleMode;
   onToggleVerbose;
   #historyPath;
+
+  /**
+   * Down on the newest history entry with text in the input starts one new empty entry (only one: on an empty
+   * newest entry it does nothing); the empty entry is dropped again when a line is added
+   */
+  historyNext() {
+    const { history } = this;
+
+    const atNewest = this.cmd !== '' && this.historyIndex === history.length - 1;
+
+    if(atNewest) {
+      if(this.lineMove(1)) return;
+      history.push('');
+      this.historyIndex = history.length - 1;
+      this.cmd = '';
+      this.cursorPos = 0;
+      return;
+    }
+
+    return super.historyNext();
+  }
+
+  historyAdd(str) {
+    const { history } = this;
+    if(history.length && history[history.length - 1] === '') history.pop();
+    return super.historyAdd(str);
+  }
 
   /** a named session keeps its own history file */
   historyFile() {
@@ -173,6 +203,13 @@ export class ChatREPL extends REPL {
       this.#chordX = false;
       this.#sendNow();
     };
+    /* the split pane: F2 next view, Shift-F2 the one before, Alt-1..4 diff/git/status/net, Alt-0 off, Alt-\\ on or off;
+       Ctrl-X then d, g, s, n, o (off) or Tab does the same where the terminal does not pass the others */
+    for(const k of ['\x1bOQ', '\x1b[12~']) this.commands[k] = () => void this.runNow('/split next');
+    for(const k of ['\x1b[1;2Q', '\x1b[24~']) this.commands[k] = () => void this.runNow('/split prev');
+    ['diff', 'git', 'status', 'net'].forEach((m, i) => (this.commands[`\x1b${i + 1}`] = () => void this.runNow(`/split ${m}`)));
+    this.commands['\x1b0'] = () => void this.runNow('/split off');
+    this.commands['\x1b\\'] = () => void this.runNow('/split');
     /* PgUp/PgDn scroll the transcript back and forth (the TUI keeps its own history) */
     this.commands['\x1b[5~'] = () => void this.tui?.scrollBy(-Math.max(1, this.tui.top - 2));
     this.commands['\x1b[6~'] = () => void this.tui?.scrollBy(Math.max(1, this.tui.top - 2));
@@ -236,9 +273,10 @@ export class ChatREPL extends REPL {
     this.#frontQueued = false;
   }
 
-  handleKey(keys) {
-    if(keys !== '\x18' && keys !== '\x13') this.#chordX = false;
-    return super.handleKey(keys);
+  /** a command line from a shortcut key: runs at once, beside a running request, without touching the line being typed */
+  runNow(line) {
+    if(this.onImmediate) Promise.resolve(this.onImmediate(line)).catch(err => console.log(red(`error: ${err.message}`)));
+    else this.restoreQueue([line]);
   }
 
   /** New prompt text (the model name) after a /model switch. */
@@ -727,7 +765,15 @@ export class ChatREPL extends REPL {
     if(this.tui?.scrollOff && keys !== '\x1b[5~' && keys !== '\x1b[6~') this.tui.scrollEnd();
 
     const d = this.#dialog;
-    if(!d) return super.handleKey(keys);
+    if(!d) {
+      /* Ctrl-X and then a letter: a view of the split pane; any other key ends the chord (Ctrl-X Ctrl-S sends now) */
+      if(this.#chordX && SPLIT_CHORD[keys]) {
+        this.#chordX = false;
+        return void this.runNow(SPLIT_CHORD[keys]);
+      }
+      if(keys !== '\x18' && keys !== '\x13') this.#chordX = false;
+      return super.handleKey(keys);
+    }
 
     if(keys === 'v' && d.view) return void d.view();
 

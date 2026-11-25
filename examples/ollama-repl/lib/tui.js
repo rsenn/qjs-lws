@@ -268,10 +268,15 @@ export class Tui {
    * where this one ended.
    */
 write(text, kind) {
+    /* an explicit kind is for this write only; without one the current Tui.kind (inKind) applies */
     if(kind !== undefined) {
+      const prev = this.kind;
       this.kind = kind;
-    } else {
-      this.kind = 0;
+      try {
+        return this.write(text);
+      } finally {
+        this.kind = prev;
+      }
     }
 
     if(this.#held) return void this.#held.push({ text, kind: this.kind });
