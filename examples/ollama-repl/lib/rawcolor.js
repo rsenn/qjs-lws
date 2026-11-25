@@ -19,38 +19,16 @@ const fg = hex => `${CSI}38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2),
 
 const TEAL = fg('#2dd4bf');
 const LIME = fg('#a3e635');
+const GREEN = fg('#4ade80');
+const SKYBLUE = fg('#4080ff');
 const AMBER = fg('#fbbf24');
 const VIOLET = fg('#c084fc');
-const GREEN = fg('#4ade80');
 const RED = fg('#f87171');
 const DIM = `${CSI}2m`;
 const BOLD = `${CSI}1m`;
 const RESET = `${CSI}0m`;
 
 const paint = (color, s) => (s === '' ? s : `${color}${s}${RESET}`);
-
-/**
- * Color reasoning text with structure highlights while keeping the
- * sky-blue italic base (\x1b[3;38;2;125;211;252m) and panel border #f472b6.
- *
- * Highlights inside the base prose tone:
- *   - Fenced code blocks (``` ... ```): reuse highlight()
- *   - Inline backtick spans (`...`): lime accent
- *   - List markers at line starts (1., 2., - , * ): teal marker
- *   - Bold emphasis (**text**): restore base SGR after
- *   - Markdown headings (# ##): teal heading marker
- *   - Numbers: amber
- *   - Quoted strings: lime
- *   - File paths / line references: teal bold
- *
- * Rules:
- *   - After every inner highlight span the base SGR is restored
- *     (\x1b[3;38;2;125;211;252m) so the rest of the line keeps the
- *     reasoning italic tone, not plain white.
- *   - Each line ends with \x1b[0m so the #f472b6 panel frame and
- *     trailing lines do not inherit italic or foreground colors.
- *   - stripAnsi(colorReasoning(s)) === s  (only ANSI added, chars intact).
- */
 
 /**
  * JSON text, one line at a time: keys teal, strings lime, numbers amber,
@@ -132,7 +110,11 @@ export function colorArgs(args) {
   return entries
     .map(([key, value]) => {
       const head = `${paint(TEAL, key)}${paint(DIM, ':')}`;
-      if(typeof value === 'string' && value.includes('\n')) return `${head}\n${value.split('\n').map(l => `${paint(DIM, '│')} ${highlight(l)}`).join('\n')}`;
+      if(typeof value === 'string' && value.includes('\n'))
+        return `${head}\n${value
+          .split('\n')
+          .map(l => `${paint(DIM, '│')} ${highlight(l)}`)
+          .join('\n')}`;
       return `${head} ${colorJson(JSON.stringify(value))}`;
     })
     .join('\n');
@@ -178,7 +160,7 @@ export function colorMeta(text) {
 
 /**
  * Color reasoning text with structure highlights while keeping the
- * sky-blue italic base (\x1b[3;38;5;125;211;252m) and panel border #f472b6.
+ * sky-blue italic base (\x1b[3;38;2;64;128;255m) and panel border #f472b6.
  *
  * Highlights inside the base prose tone:
  *   - Fenced code blocks (``` ... ```): reuse highlight()
@@ -192,101 +174,48 @@ export function colorMeta(text) {
  *
  * Rules:
  *   - After every inner highlight span the base SGR is restored
- *     (\x1b[3;38;5;125;211;252m) so the rest of the line keeps the
+ *     (\x1b[3;38;2;64;128;255m) so the rest of the line keeps the
  *     reasoning italic tone, not plain white.
  *   - Each line ends with \x1b[0m so the #f472b6 panel frame and
  *     trailing lines do not inherit italic or foreground colors.
  *   - stripAnsi(colorReasoning(s)) === s  (only ANSI added, chars intact).
  */
 export function colorReasoning(text) {
-  const s = String(text ?? '');
-  const BASE = '\x1b[3;38;5;125;211;252m';
-  const RESET = '\x1b[0m';
-  const TEAL = '\x1b[38;5;45;212;191m';
-  const LIME = '\x1b[38;5;163;230;53m';
-  const AMBER = '\x1b[38;5;251;191;36m';
-  const BOLD = '\x1b[1m';
+  const BASE = SKYBLUE.replace('[', '[3;');
+  const TOKEN = /`[^`\n]*`?|"[^"\n]*"|\*\*[^*\n]+\*\*|(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g;
+  let fenced = false;
 
-  /** one line, apply highlights keeping base SGR restored after each span */
+  /* one line: spans are cut from the plain text, so an escape sequence
+     is never scanned again; the base tone is restored after each span */
   const colorLine = line => {
-    // fenced code blocks ``` ... ```
     if(/^\s*```/.test(line)) {
-      // unclosed fence while streaming: just dim the fence line
+      fenced = !fenced;
       return `${BASE}${DIM}${line}${RESET}`;
     }
+    if(fenced) return `${BASE}${line}${RESET}`;
 
-    // inline backtick spans (`...`) - find and color them
-    // we process the line left-to-right, keeping base SGR restored
-    let result = '';
-    let i = 0;
-    while(i < line.length) {
-      // find next backtick pair
-      const startBt = line.indexOf('`', i);
-      if(startBt === -1) {
-        // no more backticks, append rest with base
-        result += BASE + line.slice(i) + RESET;
-        break;
-      }
-      // text before the backtick
-      if(startBt > i) {
-        result += BASE + line.slice(i, startBt) + RESET;
-      }
-      // find closing backtick
-      const endBt = line.indexOf('`', startBt + 1);
-      if(endBt === -1) {
-        // unclosed backtick mid-stream: color the open part lime and stop
-        result += LIME + line.slice(startBt) + RESET;
-        break;
-      }
-      // inline code span
-      const codeContent = line.slice(startBt + 1, endBt);
-      result += LIME + '`' + codeContent + '`' + RESET;
-      i = endBt + 1;
+    const marker = /^(\s*)([-*+]|\d+\.)(\s)/.exec(line);
+    const head = /^(#{1,6})(\s)/.exec(line);
+    let out = BASE;
+    let rest = line;
+
+    if(marker) {
+      out += marker[1] + (/^\d/.test(marker[2]) ? TEAL : LIME) + marker[2] + BASE + marker[3];
+      rest = line.slice(marker[0].length);
+    } else if(head) {
+      out += TEAL + head[1] + BASE + head[2];
+      rest = line.slice(head[0].length);
     }
 
-    // list markers at line starts (1., 2., - , * ) - color the marker
-    const listMarker = /^(\s*[1-9]\d*\.|\s*[-*+]\s)/.exec(line);
-    if(listMarker) {
-      const before = line.slice(0, listMarker.index);
-      const marker = listMarker[1];
-      const after = line.slice(listMarker.index + marker.length);
-      // color just the marker characters
-      const markerColored = /^[-*]/.test(marker) ? LIME + marker : TEAL + marker;
-      result += BASE + before + markerColored + RESET + after;
-    } else {
-      result += BASE + line + RESET;
-    }
-
-    // bold emphasis (**text**) - only if not already inside a backtick we handled
-    // we'll do a simple pass: find **text** and wrap with BOLD, restore base after
-    result = result.replace(/\*\*([^*]+)\*\*/g, (m, inner) => {
-      return BOLD + inner + RESET;
+    out += rest.replace(TOKEN, m => {
+      const color = m[0] === '`' || m[0] === '"' ? LIME : m[0] === '*' ? BOLD : AMBER;
+      return color + m + BASE;
     });
-
-    // headings (# ## etc) - color the # markers at line start
-    const heading = /^(#{1,6})\s/.exec(line);
-    if(heading) {
-      const hashes = heading[1];
-      const hashStr = '#'.repeat(hashes.length);
-      // replace the hash part at the start
-      if(result.startsWith(BASE + hashStr)) {
-        result = TEAL + hashStr + RESET + result.slice(hashStr.length);
-      }
-    }
-
-    // numbers: amber (simple heuristic for standalone numbers)
-    // replace standalone numbers (not part of code we already handled)
-    result = result.replace(/(?<!\w)\b\d+(?:\.\d+)?(?!\/)/g, n => {
-      // but not if already colored by our backtick pass - quick check
-      return AMBER + n + RESET;
-    });
-
-    // quoted strings (simple ") - lime, but only outside code fences we aren't tracking
-    // placeholder: do nothing complex for streaming
-
-    return result + RESET;
+    return out + RESET;
   };
 
-  // process line by line, ensuring each line ends with reset
-  return s.split('\n').map(colorLine).join('\n');
-};
+  return String(text ?? '')
+    .split('\n')
+    .map(colorLine)
+    .join('\n');
+}

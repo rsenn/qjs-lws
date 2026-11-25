@@ -50,7 +50,10 @@ export function parseSkill(text) {
   return { meta, body: m[2] };
 }
 
-const oneLine = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+const oneLine = s =>
+  String(s ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 /**
  * Every skill found, sorted by name; a name in an earlier directory hides
@@ -105,7 +108,8 @@ export function findSkill(name) {
 }
 
 /** the user message that puts a skill into the conversation */
-export const skillMessage = skill => `(skill "${skill.name}" loaded from ${skill.path}: follow these instructions for the rest of this task; files the skill mentions are relative to ${skill.dir})\n\n${skill.body.trim()}${skill.cut ? `\n\n[... the skill is longer than ${MAX_SKILL_CHARS} characters, the rest: read_file ${skill.path}]` : ''}`;
+export const skillMessage = skill =>
+  `(skill "${skill.name}" loaded from ${skill.path}: follow these instructions for the rest of this task; files the skill mentions are relative to ${skill.dir})\n\n${skill.body.trim()}${skill.cut ? `\n\n[... the skill is longer than ${MAX_SKILL_CHARS} characters, the rest: read_file ${skill.path}]` : ''}`;
 
 /** the marker every loaded skill message starts with, to find (and unload) it again */
 export const skillMarker = name => `(skill "${name}" loaded from `;

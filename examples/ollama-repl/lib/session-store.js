@@ -33,7 +33,11 @@ export class SessionStore {
 
     if(!Array.isArray(data?.messages)) return null;
 
-    return { messages: data.messages, baseMessageCount: Number.isInteger(data.baseMessageCount) ? data.baseMessageCount : 0, queue: Array.isArray(data.queue) ? data.queue.filter(q => typeof q === 'string') : [] };
+    return {
+      messages: data.messages,
+      baseMessageCount: Number.isInteger(data.baseMessageCount) ? data.baseMessageCount : 0,
+      queue: Array.isArray(data.queue) ? data.queue.filter(q => typeof q === 'string') : [],
+    };
   }
 
   save(messages, baseMessageCount, queue = []) {

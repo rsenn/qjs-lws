@@ -23,7 +23,11 @@
 import { setTimeout, clearTimeout } from 'os';
 
 /** the tool the probe offers */
-const PING = { name: 'ping', description: 'Reports that the model can call tools.', parameters: { type: 'object', properties: { value: { type: 'integer', description: 'the number to report' } }, required: ['value'] } };
+const PING = {
+  name: 'ping',
+  description: 'Reports that the model can call tools.',
+  parameters: { type: 'object', properties: { value: { type: 'integer', description: 'the number to report' } }, required: ['value'] },
+};
 
 /**
  * The model the gateway would use after the excluded ones.

@@ -1,5 +1,11 @@
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
+	* examples/ollama-repl/lib/rawcolor.js (colorReasoning): Rewritten
+	to cut spans from the plain text in one pass instead of rewriting
+	finished output, so the number rule no longer matched digits inside
+	escape sequences and left stray "3;38;5;..." text in the reasoning
+	panel; the base color is the truecolor 38;2;R;G;B form again.
+
 	* TODO.md, doc/building.md, doc/js/helpers.md: Websocket options
 	done, build-system items done, the fetch() keep-alive retry and the
 	BuildQuickJS.cmake system name rule described.

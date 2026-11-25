@@ -15,7 +15,8 @@
 /** @returns {string|null} why the candidate is better, null when it is not */
 export function betterReason({ strength: { cand, cur }, probeMs, currentMs }) {
   if(cand < cur) return `stronger (tier ${cand}, running tier ${cur})`;
-  if(cand === cur && probeMs > 0 && currentMs >= 4000 && probeMs * 2 <= currentMs) return `${(currentMs / probeMs).toFixed(1)}x faster (${(probeMs / 1000).toFixed(1)}s against ${(currentMs / 1000).toFixed(1)}s)`;
+  if(cand === cur && probeMs > 0 && currentMs >= 4000 && probeMs * 2 <= currentMs)
+    return `${(currentMs / probeMs).toFixed(1)}x faster (${(probeMs / 1000).toFixed(1)}s against ${(currentMs / 1000).toFixed(1)}s)`;
   return null;
 }
 
@@ -24,6 +25,8 @@ export function stepText(r) {
   const call = r?.toolCalls?.[0];
   if(call) return `${call.name}(${JSON.stringify(call.args ?? {}).slice(0, 80)})`;
 
-  const text = String(r?.content ?? '').replace(/\s+/g, ' ').trim();
+  const text = String(r?.content ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return text.length >= 20 ? text.slice(0, 100) : null;
 }
