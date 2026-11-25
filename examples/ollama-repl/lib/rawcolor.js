@@ -13,6 +13,7 @@
  */
 import { highlight } from './markdown.js';
 
+/* keep the existing exports */
 const CSI = '\x1b[';
 const fg = hex => `${CSI}38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
 
@@ -50,21 +51,6 @@ const paint = (color, s) => (s === '' ? s : `${color}${s}${RESET}`);
  *     trailing lines do not inherit italic or foreground colors.
  *   - stripAnsi(colorReasoning(s)) === s  (only ANSI added, chars intact).
  */
-/* keep the existing exports */
-const CSI = '\x1b[';
-const fg = hex => `${CSI}38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
-
-const TEAL = fg('#2dd4bf');
-const LIME = fg('#a3e635');
-const AMBER = fg('#fbbf24');
-const VIOLET = fg('#c084fc');
-const GREEN = fg('#4ade80');
-const RED = fg('#f87171');
-const DIM = `${CSI}2m`;
-const BOLD = `${CSI}1m`;
-const RESET = `${CSI}0m`;
-
-const paint = (color, s) => (s === '' ? s : `${color}${s}${RESET}`);
 
 /**
  * JSON text, one line at a time: keys teal, strings lime, numbers amber,
@@ -192,7 +178,7 @@ export function colorMeta(text) {
 
 /**
  * Color reasoning text with structure highlights while keeping the
- * sky-blue italic base (\x1b[3;38;2;125;211;252m) and panel border #f472b6.
+ * sky-blue italic base (\x1b[3;38;5;125;211;252m) and panel border #f472b6.
  *
  * Highlights inside the base prose tone:
  *   - Fenced code blocks (``` ... ```): reuse highlight()
@@ -206,7 +192,7 @@ export function colorMeta(text) {
  *
  * Rules:
  *   - After every inner highlight span the base SGR is restored
- *     (\x1b[3;38;2;125;211;252m) so the rest of the line keeps the
+ *     (\x1b[3;38;5;125;211;252m) so the rest of the line keeps the
  *     reasoning italic tone, not plain white.
  *   - Each line ends with \x1b[0m so the #f472b6 panel frame and
  *     trailing lines do not inherit italic or foreground colors.
@@ -214,11 +200,11 @@ export function colorMeta(text) {
  */
 export function colorReasoning(text) {
   const s = String(text ?? '');
-  const BASE = '\x1b[3;38;2;125;211;252m';
+  const BASE = '\x1b[3;38;5;125;211;252m';
   const RESET = '\x1b[0m';
-  const TEAL = '\x1b[38;2;45;212;191m';
-  const LIME = '\x1b[38;2;163;230;53m';
-  const AMBER = '\x1b[38;2;251;191;36m';
+  const TEAL = '\x1b[38;5;45;212;191m';
+  const LIME = '\x1b[38;5;163;230;53m';
+  const AMBER = '\x1b[38;5;251;191;36m';
   const BOLD = '\x1b[1m';
 
   /** one line, apply highlights keeping base SGR restored after each span */

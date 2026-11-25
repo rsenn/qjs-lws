@@ -109,7 +109,7 @@ import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled } fro
 import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
-import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
+import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning } from './lib/rawcolor.js';
 import { file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import * as terminal from 'terminal';
