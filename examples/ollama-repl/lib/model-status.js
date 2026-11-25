@@ -9,8 +9,9 @@ export function modelStatusTable(av) {
   const rows = [];
 
   for (const [modelId, entry] of av.byModel) {
-    // Hide models that are fully READY with no rate-limit window.
+    // Hide models that are fully READY with no rate-limit window, and OFFLINE models (just key scope issues).
     if (!entry.blocked && entry.until == null) continue;
+    if (entry.permanent || (entry.kinds?.length === 1 && entry.kinds[0] === 'scope')) continue;
 
     let statusLabel = 'READY';
     let statusColor = '\x1b[32m'; // green
@@ -27,8 +28,11 @@ export function modelStatusTable(av) {
         statusLabel = 'RATE_LIMITED';
         statusColor = '\x1b[33m'; // yellow
       }
-      quotaCell = entry.blocks?.[0]?.detail ?? 'limited';
-      if (entry.until != null) quotaCell += ` (until ${untilText(entry.until, now)})`;
+      const detail = entry.blocks?.[0]?.detail ?? 'limited';
+      /* keep short details ("rate limited", "out of credits"), abbreviate long ones to just the reset time */
+      quotaCell = detail.length > 20 && entry.until != null
+        ? `until ${untilText(entry.until, now)}`
+        : `${detail}${entry.until != null ? ` (until ${untilText(entry.until, now)})` : ''}`;
     } else if (entry.until != null) {
       statusLabel = 'COOLDOWN';
       statusColor = '\x1b[33m';

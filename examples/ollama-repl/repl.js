@@ -761,11 +761,7 @@ const keepPanel = (title, text) => panels.push({ title: stripAnsi(title), text }
 /** a panel at most half the screen high into the transcript, the full text kept */
 function showPanel(title, text, { kind = 0, ...opts } = {}) {
   const n = keepPanel(title, text);
-  if(ui.verbose) {
-    inKind(kind, () => console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts })));
-  } else {
-    console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts }));
-  }
+  inKind(kind, () => console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts })));
 }
 
 /** runs `fn` with what it writes to the TUI transcript tagged: 1 shown in the verbose view only, 2 outside it only (Tui.kind) */
@@ -976,9 +972,10 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   control?.activity('request', { model: client.model, messages: messages.length });
 
   /* TUI verbose: what goes out, the messages new since the last request */
+  const from = shownMessages.get(messages) ?? 0;
+  shownMessages.set(messages, messages.length);
+
   if(panes) {
-    const from = shownMessages.get(messages) ?? 0;
-    shownMessages.set(messages, messages.length);
     showPanel(`→ ${client.model} · ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${from ? `, ${messages.length - from} new` : ''}`, messagesText(messages.slice(from)) || '(nothing new)', { border: '#c084fc', kind: 1 });
   } else if(verbose) console.log(dim(`-> ${client.model}: ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${opts.stream ? ', streamed' : ''}${chatOptions.toolChoice ? `, tool_choice ${chatOptions.toolChoice}` : ''}`));
 
@@ -1603,10 +1600,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       control?.activity('toolcall', { name: tc.name, args: tc.args });
 
-      if(ui.verbose && !opts.quiet && !tui?.active) {
-        showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
-        inKind(1, () => console.log(toolLine(tc.name, tc.args ?? {})));
-      }
+      showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
+      if(!tui?.active && verbose) inKind(1, () => console.log(toolLine(tc.name, tc.args ?? {})));
 
       /* Handle special tools that need access to repl.js context */
       if(tc.name === 'restart_harness') {
@@ -1671,12 +1666,15 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       }
 
       if(!opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
-      else if(ui.verbose && !opts.quiet) {
-        const lines = output.split('\n');
-        const shown = lines.slice(0, 200).join('\n');
-        console.log(dim(`[${tc.name} result, ${output.length} chars]`));
-        console.log(piped ? shown : colorContent(shown, { code: tc.name === 'read_file' }));
-        if(lines.length > 200) console.log(dim(`... (${lines.length - 200} more lines)`));
+      else if(!opts.quiet) {
+        showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
+        if(!tui?.active && ui.verbose) {
+          const lines = output.split('\n');
+          const shown = lines.slice(0, 200).join('\n');
+          console.log(dim(`[${tc.name} result, ${output.length} chars]`));
+          console.log(piped ? shown : colorContent(shown, { code: tc.name === 'read_file' }));
+          if(lines.length > 200) console.log(dim(`... (${lines.length - 200} more lines)`));
+        }
       }
       control?.activity('toolresult', { name: tc.name, text: String(output).slice(0, 2000) });
       log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
@@ -2157,14 +2155,16 @@ const fgHex = (hex, text) => `\x1b[38;2;${hex.slice(1).match(/.{2}/g).map(h => p
  */
 function compactTable(rows, width, flex, caps, paint) {
   const n = rows[0].length;
-  const w = rows[0].map((_, c) => Math.min(...[caps[c] || Infinity, Math.max(...rows.map(r => r[c].length))]));
+  const visibleLen = s => s.replace(/\x1b\[[0-9;]*m/g, '').length;
+  const w = rows[0].map((_, c) => Math.min(...[caps[c] || Infinity, Math.max(...rows.map(r => visibleLen(r[c])))]));
   const fixed = w.reduce((a, x, c) => a + (c === flex ? 0 : x), 0) + (n - 1);
   w[flex] = Math.max(10, Math.min(w[flex], width - fixed));
 
   return rows.map((row, r) =>
     row
       .map((cell, c) => {
-        const t = cell.length > w[c] ? `${cell.slice(0, w[c] - 1)}…` : cell;
+        const vis = cell.replace(/\x1b\[[0-9;]*m/g, '');
+        const t = vis.length > w[c] ? `${vis.slice(0, w[c] - 1)}…` : cell;
         return c === n - 1 ? paint(r, c, t) : paint(r, c, t.padEnd(w[c]));
       })
       .join(' ')
@@ -3276,14 +3276,18 @@ async function main() {
         return void console.log(note('model list is only available for --provider ollama and openai endpoints that serve /models'));
       }
 
-      if (arg === 'health') {
-        const av = await loadAvailability(gateway);
+      if(arg === 'health') {
+        const av = await loadAvailability(gatewayRef);
         if (!av) {
           console.log('No dashboard session. Cannot load health.');
           return;
         }
         const { rows, header } = modelStatusTable(av);
-        const table = formatTable([header, ...rows]);
+        const width = repl.tui ? repl.tui.cols : (ttyGetWinSize(1)?.[0] ?? 100);
+        /* caps: Model 28, Status 15, Quota/Reset (flex), Providers 20 */
+        const caps = [28, 15, 0, 20];
+        const paint = (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : text);
+        const table = [header, ...rows].length ? compactTable([header, ...rows], width - 2, 2, caps, paint).join('\n') : '(no models with health data)';
         if (repl.tui) {
           repl.openPager('model health', table);
         } else {
