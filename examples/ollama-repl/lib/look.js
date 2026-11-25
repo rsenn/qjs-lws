@@ -13,21 +13,10 @@ import { getenv } from 'std';
 import { piped } from './ansi.js';
 import { fmtNum } from './usage-stats.js';
 import { bg, paint as paintColor } from './rawcolor.js';
+import { ACCENT, ARROWS, ERROR, FILE, NUMBERS, REMOTE, SHELL_OP, SHELL_PATH, SHELL_STRING, SHELL_VAR, SIZES, STOPS, TEXT, TIMES, TOKENS, TOOL_COLORS, WARN } from './palette.js';
 
-/** the colour of every file name: mustard yellow */
-export const FILE = '#ffcc00';
-
-/** colours of the generic highlighter: token counts, sizes, times, other numbers, arrows */
-export const TOKENS = '#38bdf8';
-export const SIZES = '#a78bfa';
-export const TIMES = '#fba000';
-export const NUMBERS = '#fdba74';
-export const ARROWS = '#a3e635';
-
-/** colors of the gradient, the accent is its first stop */
-export const STOPS = ['#2dd4bf', '#a3e635', '#fbbf24'];
-export const ACCENT = STOPS[0];
-export const WARN = STOPS[2];
+/* colors, defined in palette.js */
+export { FILE, TOKENS, SIZES, TIMES, NUMBERS, ARROWS, STOPS, ACCENT, WARN };
 
 /** the marker in front of a model reply: waves rising into the sun, in the gradient (single-width glyphs only) */
 export const replyMark = () => `${gradient('≋≈☼', STOPS)} `;
@@ -36,7 +25,7 @@ export const replyMark = () => `${gradient('≋≈☼', STOPS)} `;
 export const remoteMark = () => `${style('⇄', { fg: ACCENT })} ${style('remote', { fg: ACCENT, bold: true })} ${style('❯', { fg: STOPS[1] })}`;
 
 /** the text of a remote line: dark grey, so the marker stands out */
-export const remoteText = text => style(text, { fg: '#8a8a8a' });
+export const remoteText = text => style(text, { fg: REMOTE });
 
 /** the control socket line: where it listens and how to talk to it, in colour */
 export const controlNote = (path, name) =>
@@ -91,8 +80,8 @@ export const file = text => style(text, { fg: FILE });
 /** "label: rest": the label bold in `color`, the rest painted (file names, numbers) */
 function labelled(text, color) {
   const m = /^([A-Za-z][\w ]{1,24}):( [^]*)?$/.exec(text);
-  if(!m) return paintText(text, { fg: '#cbd5e1' }, true);
-  return `${style(m[1] + ':', { fg: color, bold: true })}${m[2] ? paintText(m[2], { fg: '#cbd5e1' }, true) : ''}`;
+  if(!m) return paintText(text, { fg: TEXT }, true);
+  return `${style(m[1] + ':', { fg: color, bold: true })}${m[2] ? paintText(m[2], { fg: TEXT }, true) : ''}`;
 }
 
 /** icon and colour of each kind of note() */
@@ -195,7 +184,7 @@ export function reportPanel(title, text, cols, opts = {}) {
   if(!plain.includes('\n') && /^\(.*\)$/.test(plain)) text = plain.slice(1, -1);
 
   text = text.replace(/^([a-z][a-z /-]{0,18}):( +|$)/gm, (m, k, sp) => style(k + ':', { fg: ACCENT }) + sp);
-  return panel(title, text, cols, { ...opts, border: error ? '#f87171' : ACCENT });
+  return panel(title, text, cols, { ...opts, border: error ? ERROR : ACCENT });
 }
 
 const HELP_KEY = 24;
@@ -257,7 +246,7 @@ export function numberedDiff(name, args, content, after) {
   const rows = (text, sign, from) =>
     String(text ?? '')
       .split('\n')
-      .map((l, k) => style(`${num(from == null ? null : from + k)} ${sign} ${l}`, { fg: sign === '+' ? ARROWS : '#f87171' }));
+      .map((l, k) => style(`${num(from == null ? null : from + k)} ${sign} ${l}`, { fg: sign === '+' ? ARROWS : ERROR }));
 
   if(name === 'edit_file') {
     const at = lineOf(after ? args.new_string : args.old_string);
@@ -279,20 +268,6 @@ export function toolTarget(name, args = {}) {
   return args.path ?? args.file ?? Object.values(args).filter(v => typeof v == 'string')[0] ?? '';
 }
 
-/* a colour per kind of tool: looking is sky blue, changing amber, running pink, talking violet */
-const TOOL_COLORS = {
-  read_file: '#3ed610',
-  list_directory: '#10a0ff',
-  grep: '#3e6efa',
-  write_file: '#b40035',
-  edit_file: '#ff8000',
-  insert_above: '#cec03f',
-  run_command: '#e52087',
-  ask_user: '#8d1fff',
-  for_each: '#96c507',
-  spawn_agent: '#6148ff',
-};
-
 /**
  * A shell command with a simple regex syntax colouring: the command word of every
  * pipeline stage green, flags sky blue, quoted strings light green, variables violet,
@@ -306,17 +281,17 @@ export function paintShell(cmd) {
     (m, str, op, variable, flag, word) => {
       if(str) {
         atCommand = false;
-        return style(m, { fg: '#86efac' });
+        return style(m, { fg: SHELL_STRING });
       }
 
       if(op) {
         if(/^(\|\||&&|\||;|&|\$\(|\()$/.test(m)) atCommand = true;
-        return style(m, { fg: '#f472b6' });
+        return style(m, { fg: SHELL_OP });
       }
 
       if(variable) {
         atCommand = false;
-        return style(m, { fg: '#c084fc' });
+        return style(m, { fg: SHELL_VAR });
       }
 
       if(flag) {
@@ -326,7 +301,7 @@ export function paintShell(cmd) {
 
       const first = atCommand;
       atCommand = false;
-      return first ? style(m, { bold: true, fg: ARROWS }) : /^[./~]|\//.test(m) ? style(m, { fg: '#fde68a' }) : m;
+      return first ? style(m, { bold: true, fg: ARROWS }) : /^[./~]|\//.test(m) ? style(m, { fg: SHELL_PATH }) : m;
     },
   );
 }
@@ -334,7 +309,7 @@ export function paintShell(cmd) {
 /** ● tool target, the line shown when the model calls a tool */
 export const toolLine = (name, args) => {
   const target =
-    name === 'run_command' ? `${style('$', { bold: true, fg: '#f472b6' })} ${paintShell(args?.command)}` : name === 'ask_user' ? toolTarget(name, args) : paintText(toolTarget(name, args));
+    name === 'run_command' ? `${style('$', { bold: true, fg: SHELL_OP })} ${paintShell(args?.command)}` : name === 'ask_user' ? toolTarget(name, args) : paintText(toolTarget(name, args));
   return `${style('●', { fg: ACCENT })} ${style(name, { bold: true, fg: TOOL_COLORS[name] ?? ACCENT })} ${target}`;
 };
 
@@ -345,13 +320,13 @@ export function toolResult(output) {
   const error = /^error\b/.test(text);
   const shown = lines.length === 1 && text.length <= 100 ? text : `${lines.length} lines, ${text.length} chars`;
 
-  return `  ${style('⎿', { dim: true })} ${error ? style(shown, { fg: '#f87171' }) : highlight(shown, { dim: true })}`;
+  return `  ${style('⎿', { dim: true })} ${error ? style(shown, { fg: ERROR }) : highlight(shown, { dim: true })}`;
 }
 
 /** fraction as a bar of width cells, green, amber from 60 %, red from 85 % */
 export function meter(fraction, width) {
   const f = Math.max(0, Math.min(1, fraction || 0));
-  const fg = f >= 0.85 ? '#f87171' : f >= 0.6 ? WARN : ARROWS;
+  const fg = f >= 0.85 ? ERROR : f >= 0.6 ? WARN : ARROWS;
 
   return progressBar(f, width, { style: { fg }, empty: '·', emptyStyle: { dim: true } });
 }
@@ -368,7 +343,7 @@ export const paint = (text, fg, bold = false) => (piped ? String(text) : style(S
 /** a status word colored by what it says: ok green, trouble red, anything else amber */
 export function statusWord(s) {
   const t = String(s);
-  return paint(t, /^(ok|ready|active|healthy|enabled|up)$/i.test(t) ? ARROWS : /^(down|error|failed|disabled|exhausted|invalid|dead|unavailable)/i.test(t) ? '#f87171' : STOPS[2]);
+  return paint(t, /^(ok|ready|active|healthy|enabled|up)$/i.test(t) ? ARROWS : /^(down|error|failed|disabled|exhausted|invalid|dead|unavailable)/i.test(t) ? ERROR : STOPS[2]);
 }
 
 /** a fraction (0..1) as a meter and percent: `███··· 40%`; no meter when piped or width 0 */

@@ -1,7 +1,7 @@
 /**
  * rawcolor: colors for the raw content Ctrl-O verbose mode shows - what
  * goes to the model, what it calls, what the tools and the gateway answer.
- * Pure string functions in the look.js palette (teal keys, lime strings,
+ * Pure string functions in the palette.js colors (teal keys, lime strings,
  * amber numbers, violet literals); nothing is written here.
  *
  * Except colorArgs() they never change the visible text: stripping the
@@ -12,6 +12,7 @@
  * ```
  */
 import { highlight } from './markdown.js';
+import * as P from './palette.js';
 
 /* keep the existing exports */
 const CSI = '\x1b[';
@@ -19,16 +20,19 @@ const CSI = '\x1b[';
 export const fg = hex => `${CSI}38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
 export const bg = hex => `${CSI}48;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
 
-const TEAL = fg('#1f8181');
-const LIME = fg('#67ff00');
-const AMBER = fg('#d9a51f');
-const VIOLET = fg('#651dff');
-const GREEN = fg('#07923a');
-const RED = fg('#f83171');
-const SKYBLUE = fg('#a9d8ea');
+const TEAL = fg(P.TEAL);
+const LIME = fg(P.LIME);
+const AMBER = fg(P.AMBER);
+const VIOLET = fg(P.VIOLET);
+const GREEN = fg(P.GREEN);
+const RED = fg(P.RED);
+const SKYBLUE = fg(P.SKYBLUE);
 const DIM = `${CSI}2m`;
 const BOLD = `${CSI}1m`;
 const RESET = `${CSI}0m`;
+
+/* theme colors, defined in palette.js */
+export { BORDER, HEADER, HINT, PROSE, INLINE_CODE, CODE_FENCE, CODE_STRING, CODE_BG, THEME } from './palette.js';
 
 export const paint = (color, s) => (s === '' || !color ? s : `${color}${s}${RESET}`);
 
@@ -183,7 +187,7 @@ export function colorMeta(text) {
  *   - stripAnsi(colorReasoning(s)) === s  (only ANSI added, chars intact).
  */
 export function colorReasoning(text) {
-  const BASE = SKYBLUE.replace('[', '[3;');
+  const BASE = fg(P.PROSE);
   const TOKEN = /`[^`\n]*`?|"[^"\n]*"|\*\*[^*\n]+\*\*|(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g;
   let fenced = false;
 
@@ -192,25 +196,25 @@ export function colorReasoning(text) {
   const colorLine = line => {
     if(/^\s*```/.test(line)) {
       fenced = !fenced;
-      return `${BASE}${DIM}${line}${RESET}`;
+      return `${fg(P.CODE_FENCE)}\x1b[3m${line}\x1b[23m${RESET}`;
     }
-    if(fenced) return `${BASE}${line}${RESET}`;
+    if(fenced) return `${fg(P.CODE_FENCE)}${bg(P.CODE_BG)}${line}\x1b[0m${RESET}`;
 
-    const marker = /^(\s*)([-*+]|\d+\.)(\s)/.exec(line);
-    const head = /^(#{1,6})(\s)/.exec(line);
+    const marker = /^(\s*)([-*+]|\d+\.)/.exec(line);
+    const head = /^(#{1,6})/.exec(line);
     let out = BASE;
     let rest = line;
 
     if(marker) {
-      out += marker[1] + (/^\d/.test(marker[2]) ? TEAL : LIME) + marker[2] + BASE + marker[3];
+      out += marker[1] + (/^\d/.test(marker[1]) ? fg(P.HEADER) : fg(P.INLINE_CODE)) + marker[1] + BASE;
       rest = line.slice(marker[0].length);
     } else if(head) {
-      out += TEAL + head[1] + BASE + head[2];
+      out += fg(P.HEADER) + head[1] + BASE + ' ';
       rest = line.slice(head[0].length);
     }
 
     out += rest.replace(TOKEN, m => {
-      const color = m[0] === '`' || m[0] === '"' ? LIME : m[0] === '*' ? BOLD : AMBER;
+      const color = m[0] === '`' || m[0] === '"' ? fg(P.INLINE_CODE) : m[0] === '*' ? BOLD : fg(P.CODE_STRING);
       return color + m + BASE;
     });
     return out + RESET;
