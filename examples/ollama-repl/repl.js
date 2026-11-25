@@ -966,7 +966,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
 
   /* in the TUI the verbose panels are always written, tagged: the verbose view shows the ones of the past, too */
   const panes = !!tui?.active && !opts.quiet;
-  const verbose = (ui.verbose || panes) && !opts.quiet;
+  const verbose = ui.verbose && !opts.quiet;
 
   control?.activity('request', { model: client.model, messages: messages.length });
 
