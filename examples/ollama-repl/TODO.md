@@ -1,29 +1,15 @@
-## Move generic widgets to qjs-modules terminal (2026-11-25), in progress
+## Move generic widgets to qjs-modules terminal (2026-11-25), done except the candidates below
 
-Waiting on the qjs-modules session: lib/terminal.js is being split into 'terminal' (low-level) plus
-'terminal/style', 'terminal/screen', 'terminal/widgets', 'terminal/scrollview', 'terminal/lineeditor',
-'terminal/keys', 'terminal/capabilities' (provisional names, no shim, not built yet). Do not touch look.js
-until that session says it landed and qjsm is rebuilt and installed.
+Done: ollama-repl imports the split 'terminal', 'terminal/style', 'terminal/screen', 'terminal/widgets',
+'terminal/scrollview', 'terminal/capabilities' modules; look.js takes panel, sideBySide, meter, gradientRule and shortPath
+from 'terminal/widgets' (thin wrappers pass our colors; card and paintShell stay in look.js); the net pane cards are
+panel({ kind: 'plain', background }). Everything needs a qjsm built from qjs-modules 59882b5e or later: the installed
+/usr/local/bin/qjsm does not have the terminal/* modules (use ~/Sources/quickjs/qjs-modules/build/x86_64-linux-gnu/qjsm
+until the user installs one).
 
-net-pane.js block() already uses panel({ kind: 'plain', background }) from 'terminal/widgets' (done 2026-11-25), so
-net-pane.js, and everything importing look.js, only loads with the new qjsm: test-net-pane.js passes with
-~/Sources/quickjs/qjs-modules/build/x86_64-linux-gnu/qjsm only after the look.js imports below are switched too.
-
-Then, in one pass:
-- look.js: import BOX_ROUNDED from 'terminal/screen'; bigText, boxLines, keyValue, progressBar, rule from
-  'terminal/widgets'; gradient, style from 'terminal/style'; pad, stringWidth, stripAnsi, wrap stay on 'terminal'
-- look.js: delete panel, sideBySide, meter/shareBar (meter with { color }), gradientRule, shortPath and take them from
-  'terminal/widgets' (card and paintShell stay in look.js, the qjs-modules user dropped them); wrappers pass our
-  colors from palette.js
-- tui.js: Region from 'terminal/screen', check every terminal.X use of the namespace import
-- pager.js, test-pager-rewrap.js: ScrollView from 'terminal/scrollview'
-- repl.js (line 114): keyValue, statusBar from 'terminal/widgets'; chat-repl.js: gradient from 'terminal/style'
-- namespace uses: enableCapabilities, queryCapabilities from 'terminal/capabilities'
-- usage-stats.js: check its terminal.X uses
-- run test-card.js, test-net-pane.js, test-pager-rewrap.js, test-rawcolor.js (4 failures predate this)
-
-Next candidates to ask for: piped, termWidth, wrapHanging (ansi.js), Pager, colorJson, MarkdownStream; probably as sibling
-modules, not in terminal.js. Not asked yet.
+Open, not asked of the qjs-modules session yet (probably as sibling modules, not in terminal.js): piped, termWidth,
+wrapHanging (ansi.js), Pager, colorJson, MarkdownStream; the rest of look.js (highlight, helpPanel, note, pctCell) needs
+a theme design first.
 
 ## Tool call panels (2026-11-25)
 

@@ -9,13 +9,11 @@
  * ```
  */
 import { pad, stringWidth, stripAnsi, wrap } from 'terminal';
-import { BOX_ROUNDED } from 'terminal/screen';
 import { gradient, style } from 'terminal/style';
-import { bigText, boxLines, keyValue, progressBar, rule } from 'terminal/widgets';
-import { getenv } from 'std';
+import * as widgets from 'terminal/widgets';
+import { bigText, keyValue } from 'terminal/widgets';
 import { piped } from './ansi.js';
 import { fmtNum } from './usage-stats.js';
-import { bg, paint as paintColor } from './rawcolor.js';
 import { ACCENT, ARROWS, ERROR, FILE, NUMBERS, REMOTE, SHELL_OP, SHELL_PATH, SHELL_STRING, SHELL_VAR, SIZES, STOPS, TEXT, TIMES, TOKENS, TOOL_COLORS, WARN } from './palette.js';
 
 /* colors, defined in palette.js */
@@ -127,31 +125,19 @@ export function card(emoji, title, items = [], colour = ACCENT) {
 export const waveNote = text => `${style('≋', { fg: ACCENT })} ${labelled(text, ACCENT)}`;
 
 /** a horizontal line in the gradient, with an optional label */
-export const gradientRule = (cols, label = '') => gradient(rule(cols, { label }), STOPS);
+export const gradientRule = (cols, label = '') => widgets.gradientRule(cols, label, STOPS);
 
-/**
- * text in a rounded box with a bold title, at most cols - 1 wide
- *
- *   ╭─ request #3 ──────╮
- *   │ model  qwen3-coder │
- *   ╰───────────────────╯
- */
-export function panel(title, text, cols, { border = ACCENT, max = Infinity, background, more } = {}) {
-  let lines = String(text).replace(/\n+$/, '').split('\n');
-  if(lines.length > max) lines = [...lines.slice(0, max), style(more?.(lines.length - max) ?? `… ${lines.length - max} more lines`, { dim: true })];
+/** text in a rounded box with a bold title, at most cols - 1 wide; the border defaults to the accent */
+export const panel = (title, text, cols, opts = {}) => widgets.panel(title, text, cols, { border: ACCENT, ...opts });
 
-  const width = Math.max(10, Math.min(cols - 1, Math.max(...lines.map(stringWidth), stringWidth(title) + 4) + 4));
+/** fraction as a bar of width cells, green, amber from 60 %, red from 85 % */
+export const meter = (fraction, width) => widgets.meter(fraction, width, { ok: ARROWS, warn: WARN, bad: ERROR });
 
-  const s = boxLines(lines, { title: style(title, { bold: true }), width, chars: BOX_ROUNDED, border: { fg: border } }).join('\n');
-  return background ? paintColor(bg(background), s) : s;
-}
+/** a share as a meter in one calm color (teal): how much of something, not how close to a limit */
+export const shareBar = (fraction, width) => widgets.meter(fraction, width, { color: STOPS[0] });
 
-/** lines of left and right next to each other, right starting gap cells after the widest left line */
-export function sideBySide(left, right, gap = 3) {
-  const w = Math.max(0, ...left.map(stringWidth));
-
-  return Array.from({ length: Math.max(left.length, right.length) }, (_, k) => pad(left[k] ?? '', w) + ' '.repeat(gap) + (right[k] ?? '')).map(l => l.replace(/ +$/, ''));
-}
+/** lines of left and right next to each other; path with the home directory as ~, cut at the left (terminal/widgets) */
+export const { sideBySide, shortPath } = widgets;
 
 /**
  * the startup screen and /about: the name in block letters, the facts
@@ -326,20 +312,6 @@ export function toolResult(output) {
   return `  ${style('⎿', { dim: true })} ${error ? style(shown, { fg: ERROR }) : highlight(shown, { dim: true })}`;
 }
 
-/** fraction as a bar of width cells, green, amber from 60 %, red from 85 % */
-export function meter(fraction, width) {
-  const f = Math.max(0, Math.min(1, fraction || 0));
-  const fg = f >= 0.85 ? ERROR : f >= 0.6 ? WARN : ARROWS;
-
-  return progressBar(f, width, { style: { fg }, empty: '·', emptyStyle: { dim: true } });
-}
-
-/** a share as a meter in one calm color (teal): how much of something, not how close to a limit */
-export function shareBar(fraction, width) {
-  const f = Math.max(0, Math.min(1, fraction || 0));
-  return progressBar(f, width, { style: { fg: STOPS[0] }, empty: '·', emptyStyle: { dim: true } });
-}
-
 /** text in a color, plain when piped */
 export const paint = (text, fg, bold = false) => (piped ? String(text) : style(String(text), { fg, bold }));
 
@@ -368,16 +340,3 @@ export function quotaCell(used, limit, width = 6) {
 
 /** the mode as a colored badge, code is an SGR color (MODE_COLOR) */
 export const modeBadge = (mode, code) => `\x1b[1;7;${code}m ${mode} \x1b[0m`;
-
-/**
- * path with the home directory as ~, cut at the left to max cells
- *
- *   shortPath('/home/u/src/a/b')      // '~/src/a/b' with HOME=/home/u
- *   shortPath('/home/u/src/a/b', 6)   // '…c/a/b'
- */
-export function shortPath(path, max = Infinity) {
-  const home = getenv('HOME');
-  const p = home && (path === home || path.startsWith(home + '/')) ? '~' + path.slice(home.length) : path;
-
-  return p.length > max ? '…' + p.slice(p.length - max + 1) : p;
-}
