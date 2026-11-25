@@ -1,5 +1,27 @@
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lws-socket.c (lwsjs_socket_wrap, lwsjs_socket_init),
+	lws-context.c (lwsjs_context_constructor, lwsjs_create_server,
+	lwsjs_context_init): Keep the socket and context prototypes as
+	runtime class protos (JS_SetClassProto) instead of statics, so a
+	second JSRuntime loading lws.so cannot replace them.
+	lwsjs_socket_init no longer resets the process-wide socket list.
+
+	* lws-context.c (client_connect_info_from_uri): The Host header of
+	a string-url connect carries ":port" when the port is not the
+	default of the scheme; the bare host goes to info->address.  A
+	server that builds urls from Host (chromium devtools) handed out
+	urls without the port.
+
+	* tests/unittests/test-multi-runtime.js,
+	tests/unittests/fixtures/lws-worker.js,
+	tests/unittests/test-client-host-header-port.js,
+	tests/unittests/test-client-close-in-established.js: New.
+
+	* BUGS (lws-statics-not-multi-runtime,
+	ws-connect-after-http-to-devtools-port-fails,
+	deferred-close-hangs-on-established-client-http): Removed, fixed.
+
 	* BUGS (lws-statics-not-multi-runtime): New. A second JSRuntime
 	(an os.Worker) loading lws.so overwrites the static class
 	prototypes of the first, the main thread's requests then fail.

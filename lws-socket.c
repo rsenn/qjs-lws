@@ -62,7 +62,6 @@ lwsjs_fix_reason_phrase(uint8_t* start, uint8_t** pp, uint8_t* end, unsigned cod
   *pp = p - old + plen;
 }
 
-static JSValue lwsjs_socket_proto, lwsjs_socket_ctor;
 
 static struct list_head socket_list;
 static uint32_t socket_id;
@@ -595,8 +594,10 @@ lwsjs_socket_wsi(JSValueConst value) {
 
 JSValue
 lwsjs_socket_wrap(JSContext* ctx, LWSSocket* sock) {
-  JSValue obj = JS_NewObjectProtoClass(ctx, lwsjs_socket_proto, lwsjs_socket_class_id);
+  JSValue proto = JS_GetClassProto(ctx, lwsjs_socket_class_id);
+  JSValue obj = JS_NewObjectProtoClass(ctx, proto, lwsjs_socket_class_id);
 
+  JS_FreeValue(ctx, proto);
   JS_SetOpaque(obj, socket_dup(sock));
 
   sock->obj = obj_ptr(ctx, obj);
@@ -2113,20 +2114,26 @@ static const JSCFunctionListEntry lws_socket_static_funcs[] = {
 
 int
 lwsjs_socket_init(JSContext* ctx, JSModuleDef* m) {
-  init_list_head(&socket_list);
+  /* the list is process-wide: a second runtime must not reset it */
+  if(!socket_list.next)
+    init_list_head(&socket_list);
 
   JS_NewClassID(&lwsjs_socket_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lwsjs_socket_class_id, &lws_socket_class);
-  lwsjs_socket_proto = JS_NewObjectProto(ctx, JS_NULL);
-  JS_SetPropertyFunctionList(ctx, lwsjs_socket_proto, lws_socket_proto_funcs, countof(lws_socket_proto_funcs));
+  /* the prototype lives in the runtime (class proto), not in a static, so
+     that a second JSRuntime (an os.Worker) loading lws.so cannot replace it */
+  JSValue proto = JS_NewObjectProto(ctx, JS_NULL);
+  JS_SetPropertyFunctionList(ctx, proto, lws_socket_proto_funcs, countof(lws_socket_proto_funcs));
 
-  lwsjs_socket_ctor = JS_NewObjectProto(ctx, JS_NULL);
-  JS_SetPropertyFunctionList(ctx, lwsjs_socket_ctor, lws_socket_static_funcs, countof(lws_socket_static_funcs));
-  JS_SetConstructor(ctx, lwsjs_socket_ctor, lwsjs_socket_proto);
+  JSValue ctor = JS_NewObjectProto(ctx, JS_NULL);
+  JS_SetPropertyFunctionList(ctx, ctor, lws_socket_static_funcs, countof(lws_socket_static_funcs));
+  JS_SetConstructor(ctx, ctor, proto);
+  JS_SetClassProto(ctx, lwsjs_socket_class_id, proto);
 
-  if(m) {
-    JS_SetModuleExport(ctx, m, "LWSSocket", lwsjs_socket_ctor);
-  }
+  if(m)
+    JS_SetModuleExport(ctx, m, "LWSSocket", ctor);
+  else
+    JS_FreeValue(ctx, ctor);
 
   return 0;
 }

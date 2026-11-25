@@ -407,8 +407,21 @@ client_connect_info_from_uri(JSContext* ctx, char* uri, struct lws_client_connec
       info->ssl_connection &= ~(LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_INSECURE);
   }
 
-  if(host)
-    str_replace(ctx, &info->host, js_strdup(ctx, host));
+  if(host) {
+    /* the connect address is the bare host, the Host: header (info->host)
+       carries ":port" unless it is the default one of the scheme - without
+       it a server that builds URLs from Host (chromium's devtools
+       webSocketDebuggerUrl) hands out urls with the wrong port */
+    str_replace(ctx, &info->address, js_strdup(ctx, host));
+
+    if(port && port != (scheme && (!strcmp(scheme, "https") || !strcmp(scheme, "wss")) ? 443 : 80)) {
+      char* hp = js_malloc(ctx, strlen(host) + 8);
+
+      sprintf(hp, "%s:%d", host, port);
+      str_replace(ctx, &info->host, hp);
+    } else
+      str_replace(ctx, &info->host, js_strdup(ctx, host));
+  }
 
   info->port = port;
 
@@ -800,7 +813,6 @@ lwsjs_client_connect(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 }
 
 JSClassID lwsjs_context_class_id;
-static JSValue lwsjs_context_proto, lwsjs_context_ctor;
 
 static JSValue
 lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSValueConst argv[]) {
@@ -813,7 +825,7 @@ lwsjs_context_constructor(JSContext* ctx, JSValueConst new_target, int argc, JSV
   JSValue proto = JS_GetPropertyStr(ctx, new_target, "prototype");
 
   if(JS_IsException(proto))
-    proto = JS_DupValue(ctx, lwsjs_context_proto);
+    proto = JS_GetClassProto(ctx, lwsjs_context_class_id);
 
   JSValue obj = JS_NewObjectProtoClass(ctx, proto, lwsjs_context_class_id);
   JS_FreeValue(ctx, proto);
@@ -1271,7 +1283,13 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
 
 static JSValue
 lwsjs_create_server(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
-  return JS_CallConstructor(ctx, lwsjs_context_ctor, argc, argv);
+  JSValue proto = JS_GetClassProto(ctx, lwsjs_context_class_id);
+  JSValue ctor = JS_GetPropertyStr(ctx, proto, "constructor");
+  JSValue ret = JS_CallConstructor(ctx, ctor, argc, argv);
+
+  JS_FreeValue(ctx, ctor);
+  JS_FreeValue(ctx, proto);
+  return ret;
 }
 
 static const JSCFunctionListEntry lws_context_funcs[] = {
@@ -1282,16 +1300,18 @@ int
 lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
   JS_NewClassID(&lwsjs_context_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lwsjs_context_class_id, &lws_context_class);
-  lwsjs_context_proto = JS_NewObjectProto(ctx, JS_NULL);
-  JS_SetPropertyFunctionList(ctx, lwsjs_context_proto, lws_context_proto_funcs, countof(lws_context_proto_funcs));
+  JSValue proto = JS_NewObjectProto(ctx, JS_NULL);
+  JS_SetPropertyFunctionList(ctx, proto, lws_context_proto_funcs, countof(lws_context_proto_funcs));
 
-  lwsjs_context_ctor = JS_NewCFunction2(ctx, lwsjs_context_constructor, "LWSContext", 1, JS_CFUNC_constructor, 0);
-  JS_SetConstructor(ctx, lwsjs_context_ctor, lwsjs_context_proto);
+  JSValue ctor = JS_NewCFunction2(ctx, lwsjs_context_constructor, "LWSContext", 1, JS_CFUNC_constructor, 0);
+  JS_SetConstructor(ctx, ctor, proto);
+  JS_SetClassProto(ctx, lwsjs_context_class_id, proto);
 
   if(m) {
-    JS_SetModuleExport(ctx, m, "LWSContext", lwsjs_context_ctor);
+    JS_SetModuleExport(ctx, m, "LWSContext", ctor);
     JS_SetModuleExportList(ctx, m, lws_context_funcs, countof(lws_context_funcs));
-  }
+  } else
+    JS_FreeValue(ctx, ctor);
 
   return 0;
 }
