@@ -1,115 +1,55 @@
-## Tool call panels (2026-11-25, done)
+## Tool call panels (2026-11-25)
 
-- Done: the request panel of a round with tool calls is titled `→ MODEL · tool call \`NAME\``; the assistant turn
-  shows its text (no "assistant" label), then each argument as `→ key: value` (`command` in ```, multi-line or long
-  text in a fenced block), then `tool NAME`, `(exit N)` and the output (`callText`/`messagesText` in repl.js). The
-  messages/chars/tools stats are only in the title of requests without tool calls.
 - Not checked in a real terminal; the live "⚙ NAME · running" panel and the result panel are unchanged.
 
-## Strict file attachment (2026-11-25, done)
+## Strict file attachment (2026-11-25)
 
-- Done: `extractFileRefs` attaches a file only when it is at most 10 KB (`ATTACH_MAX_BYTES`), 12 files and 40 KB in
-  all; bigger, generated (build/, node_modules, .git, *.min.js, lockfiles) and over-budget files come back in `large`
-  and are named in a "Not attached" block in backticks with lines and size, with the read_file hint (start/end for a
-  part); binary files (by extension or a NUL byte) are skipped. Before: 256 KB per file, 1 MB in all. Test:
-  test-file-refs.js.
 - Open: the limits are constants in lib/file-refs.js, no option or command to change them yet; a file the user
   names explicitly could be allowed up to 100 KB (decide).
 
-## /context subcommands (2026-11-25, done)
+## /context subcommands (2026-11-25)
 
-- Done: `/context N` (or `show N`, `#N`, `1-3`, `1,4`, `all`) opens those messages in full in the pager (printed outside
-  the TUI), `/context save [SEL] [FILE]` writes them (default all, `<YYYY-MM-DD-HHMMSS>-context.txt` in the working
-  directory), `/context copy [SEL]` to the clipboard. Before, `/context 1` was sent to the model as a prompt.
-  `messageText`/`messageSelection` in repl.js; Tab completes show/save/copy/all.
 - Open: /log has no such subcommands; the same selection could apply to the conversation part. No unit test (the
   helpers live in repl.js, which runs main() on import).
 
-## /brief save [FILE] (2026-11-25, done)
+## /brief save [FILE] (2026-11-25)
 
-- Done: `/brief save [FILE]` writes the last brief (`lastBrief()`, as /brief show prints it) to FILE, relative to the
-  working directory, or `<YYYY-MM-DD-HHMMSS>-brief.txt` there; Tab completes `save`.
 - Not run in a session (it needs a brief built by the local model first).
 
-## Split pane scrolls (2026-11-25, done)
+## Split pane scrolls (2026-11-25)
 
-- Done: the wheel over the split pane (mouse column right of the transcript) scrolls the pane, PgUp/PgDn still the
-  transcript, Alt-PgUp/PgDn (`ESC[5;3~`, `ESC[6;3~`) the pane (`Tui.scrollPane`, `paneOff`/`paneMax`, lib/tui.js).
-  A new pane view starts at the top, live updates keep the offset. Test: test-pane-scroll.js.
 - Not checked in a real terminal; a terminal that sends another sequence for Alt-PgUp/PgDn needs its own entry in
   chat-repl.js.
 
-## Net pane: what a request sends (2026-11-25, done)
+## Net pane: what a request sends (2026-11-25)
 
-- Done: each request card of the network pane shows `↑ <subject> · <bytes sent>`: the file of a /brief call ("file
-  README.md", from the "Condense this ... to at most" prompt), else the first line of the last user message
-  (`subjectOf()` in lib/net-activity.js; only for clients tracked by `NetActivity.wrap`, the OpenAI-style ones keep
-  the tail of the last user message). Done cards keep the line.
 - Open: handoff and /compact prompts have their own wording, so they show the first line of the user message; give
   them a short subject if that reads badly.
 
 ## Model chooser filter (2026-11-25)
 
-- Done: typing in `repl.choose()` lists made of cells (`/model next`, skip) filters the rows by words, the last
-  option ("none") always stays; Backspace, Ctrl-U and Esc Esc edit or clear it. j/k/y/n/digits are text there.
 - Not checked in a real terminal; no unit test (the dialog state is private to `ChatREPL`).
 
 ## Terminal capabilities from qjs-modules terminal.js (2026-11-25)
 
-- Done: repl.js asks `queryCapabilities(stdout)` once before the TUI starts
-  (feature-tested, older terminal modules skip it); `Tui` writes frames in
-  synchronized output when `caps.syncOutput`, the `Pager` too (`sync`);
-  bracketed paste and grapheme clusters are enabled and undone by
-  `Tui.close()`; `stringWidth` replaces `shownLen` (chat-repl.js) and
-  `stripLen` (pager.js).
 - Open: the parent `/usr/local/lib/quickjs/repl.js:2241` sends ESC[?2004h
   unconditionally, so paste is not gated on `caps.bracketedPaste` (outside
   this repo).
 - Open: kitty keyboard stays off; ChatREPL matches legacy byte strings. A
   proposal for translating `decodeKeys()` keys to them needs the user's ok.
-- Fixed 2026-11-25: the typeahead was fed with `repl.handleKey()` before the REPL ran, a key command in it crashed on the null readline callback (`null.call`); now plain printable text only goes in with `repl.insert()`.
 - Not checked in a real terminal: sync frames, the undo at exit.
 
-## Verbose panels leaked into the compact view (2026-11-25, done)
+## Verbose panels leaked into the compact view (2026-11-25)
 
-- Done: `Tui.write(text)` without a kind reset `Tui.kind` to 0, so `inKind`
-  (and held writes replayed by `resume`) never tagged anything; every
-  verbose-only panel (assistant request, read_file tool panel and result,
-  /brief traces) showed with Ctrl-O off. Fixed in `lib/tui.js`; covered by
-  `test-verbose.js`.
 - Open: `repl.js` cannot be imported by a test (it runs `main()`), so
   `inKind` itself is only mirrored in `test-verbose.js`; check by eye in a
   real terminal that the panels are gone with Ctrl-O off.
 
-## Architecture document (2026-11-25)
-
-- Done: `doc/ARCHITECTURE.md` written (module map, turn lifecycle, failover,
-  exploration, TUI, persistence, restart, gotchas). Keep it in step when a
-  subsystem changes; line numbers in it are hints only.
-- Fixed on the way: `ChatREPL` had two `handleKey` methods, the Ctrl-X chord
-  (split views, Ctrl-X Ctrl-S) lived in the shadowed one; merged into one.
-
 ## Gateway failover follow-ups (2026-11-24, commit 8c815e1)
 
-Source: the freellmapi handoff brief of 2026-11-24. It claimed parseExhaustionInfo, dynamic cooldowns, the
-task-type header and an X-Fallback-Trail soft-skip as done; none was in the tree. They were built on the gateway's
-real signals instead of parsed error text (freellmapi server/src/lib/fallback-loop.ts, task-type.ts).
-
-Done:
-- [x] the auto skip lasts as long as the gateway says: Retry-After header or the error body's retryAtMs
-  (OpenAIError.retryAtMs), +15s, clamped 30s..30min, never shorter than a skip already set (repl.js retryMs, skipModel)
-- [x] a real freellmapi (not the chat-bridge) gets X-FreeLLM-Task-Type: code beside x-session-id (repl.js gatewayHeaders)
-- [x] models that ran out in X-Fallback-Trail are soft-skipped for 90s (lib/fallback-trail.js, onMeta in repl.js)
-- [x] /last shows the trail in words and a retry row; the route line of a failed request names the wait
-- [x] a turn that failed after writing files or running commands keeps its finished rounds, an unanswered round is
-  trimmed, an assistant note closes it (lib/turn-repair.js); also used by the `!cmd` follow-up. /each needed nothing
-  (its items run in throw-away conversations), the failsafe chat site drops the whole turn on purpose (no side effects)
-- [x] status bar: routing-health segment with 2+ skipped models or half the models limited (lib/routing-health.js)
-- [x] a skip the session set by itself ends early when a fresh availability (5s younger than the skip) shows the model
-  usable again; /model list prints the live skips it used to hide (lib/skips.js)
-
 Open:
-- nothing of the above ran against a live gateway; smoke.sh only starts the REPL, so the status segment and the
+- nothing of the gateway failover work (Retry-After skips, task-type header, X-Fallback-Trail soft-skip, /last trail,
+  turn repair, routing-health segment, early skip release) ran against a live gateway; smoke.sh only starts the REPL, so the status segment and the
   /model list skip table are untested outside the unit tests (lib/*.js each has a test-*.js)
 - the provider-fallback 5 min cool-down (lib/provider-fallback.js) still ignores Retry-After; a plain
   "Soonest cooldown reset ~3m" text without the header is not read
@@ -125,8 +65,6 @@ Open:
 
 ## Provider failover follow-ups (2026-11-21)
 
-Done: lib/provider-fallback.js, one-line HTTP errors, local-model last resort,
-back-off, 404 model_not_found skipped (see README "Provider failover").
 Open:
 - the monthly-quota vs daily-limit split is taken from the dashboard availability (loadAvailability); without a
   dashboard session the old per-provider skip of the attempt trail applies
@@ -135,347 +73,92 @@ Open:
 - glob attach ("attached: sw.js") also fires on a `*.js` inside quoted prose: attach only a standalone path-like token, or a line prefix (/noattach, leading !) that disables it
 - read_file resolves relative to the harness root: allow an absolute path under an extra root or make /cd follow the job
 - single long turn: the auto compaction (`--compact-at`) keeps no older turn to summarize and cuts the tool rounds of
-  the running turn (see BUGS compact-single-turn)
+  the running turn (see BUGS compact-single-turn in this directory)
 
-## Next tasks (recorded 2026-11-19, in this order)
+## Next tasks (recorded 2026-11-19)
 
-State: harness steps 1 (24dabc0), 2 (af0f0d6), 3 (5377485), 4 (3911456) and 5 of the chat-bridge plan are done (step 5 2026-11-19: `site/model`, `max_tokens`/`stop`, check, cancel). Open:
-
-1. [x] (done 2026-11-19, see chat-bridge/TODO.md Done) chat-bridge harness step 2: counters, learned budgets, `/v1/usage`,
-   `/v1/providers`, `/v1/quota-forecast`, persisted cooldowns,
-   `x-ratelimit-*` (chat-bridge/doc/HARNESS.md section 4, chat-bridge/TODO.md).
-   Detail to settle first: the five open questions at the end of HARNESS.md
-   (identity, where routing lives, learned budgets at install, token
-   estimates, scope of `site/model`).
-2. [x] (done 2026-11-19) harness step 3: `Gateway` answers for both backends
-   (`kind`, `isBridge`, `hasLimits`), `loadAvailability()` has a bridge path,
-   `/gateway`, `/model list`, `/standby` and delegation discovery read it; a
-   separate `lib/gateway.js` was not needed. Open from it: bridge sites show
-   strength "unknown" (no scores; a guess by name would be invented), the
-   standby switch-over for a bridge is untested, `x-ratelimit-*` of a bridge
-   still says "/min" in the status line (`gw N/M/min`). Step 4 is done too (bridge routing, 2026-11-19, see chat-bridge/TODO.md). Next: steps 5 and 6 of HARNESS.md (routing in the bridge, a more capable
-   bridge, docs).
-3. [ ] `ollama-repl --provider bridge` live check: names and the context
-   meter in `/model list` (only the data was tested, not the screen).
-4. [ ] strength column: the gateway's intelligence scores are coarse (many
-   models sit at the 74% or 50% default, auto/kilo-auto/free-router at 50%);
-   find a better source (benchmarks table by model family, or the gateway's
-   own measured results) and use it as a tie-break inside a score group.
-5. [ ] verbose view: panels are kept for the whole session (HISTORY_MAX
-   lines); a very long session drops the oldest verbose panels first. Ctrl-O
-   in the non-TUI (plain) mode still shows only new traffic.
-6. [ ] untested live (from earlier work): a real model delegating with
-   `spawn_agent` `kind`; the peer read-only mode switch; a worker waiting for
-   approval; the standby automatic switch-over on a real 429/5xx; ghost
-   completion exists only in the TUI; a compaction may summarize a loaded
-   skill away; the primary is not told which delegate candidates exist; N
-   restarts leave N waiting qjsm processes.
-7. [ ] housekeeping: restart the running sessions (`auto`, `worker-freellm`
-   in tmux `worker1`) to pick up Esc, argument completion, retroactive
-   verbose and the strength column; five untracked scratch files in the repo
-   root stay on purpose (the two 2026-11-19-*-qwen2.5-coder.txt, auto.json,
-   out.c, qwen2.5-coder.json); `~/Sources/rsenn/skills/quickjs-scripting`
-   has uncommitted edits for the user to commit.
-8. [ ] delegation lesson: two agents edited chat-bridge.js at once and the
-   weaker worker left a half-done edit; give each delegated task its own file
-   or a lock, and review the diff before the next dispatch.
-
-## Advisor review, 2026-11-19 (Opus advisor): five asks, in this order (in progress)
-
-Asked: more colour for the raw content in Ctrl-O verbose mode, other UX
-improvements, better control of model routing through the freellmapi
-gateway, compaction and auto-compaction, and self-improvement (edit its own
-code and restart safely). The advisor's order and findings, one commit per
-step:
-
-0. [x] housekeeping: the skills quickjs-scripting and comment-style are
-   loaded for this code (the index makes them AUTO); this section is the
-   task list. Done 2026-11-19: --help lists --resume and --fallback-model,
-   /help lists /provider /fallback /restart. "Other UX improvements" beyond
-   that: none named yet, the UX items come with tasks 2 to 5 (/compact,
-   routing commands, colour).
-1. [x] smoke.sh (this directory): imports every lib/*.js on its own, then
-   starts the REPL in a pty in an empty directory, sends /help /mode /tools
-   /status /model /verbose /quit and fails on any error, exception or
-   unhandled rejection. `qjsm repl.js --help` is not enough: every bug of
-   2026-11-19 (skipNote not imported, opts out of scope, const arg) passed
-   it. prepareRestart() in repl.js still uses only --help.
-2. [x] (done 2026-11-19, tested with qwen3:4b-instruct) compaction and
-   auto-compaction: /compact [N], --compact-at PCT (default 80), chunked
-   summaries (lib/handoff.js summarize), note wording per reason, the turn
-   rollback finds its user message (rollbackTurn) so compaction mid-turn
-   cannot corrupt it, elideOldToolResults uses the real window (the
-   suspected --num-ctx bug was real). Open: the trigger is an estimate
-   (chars / 3.5), not the provider's token count; the summarizer is the
-   local ollama model also when the main provider is a gateway.
-3. [x] (done 2026-11-19; tests below were run in a pty on a scratch copy of
-   the tree) self-improvement and safe restart
-   - harness.script is a realpath, taken once (initHarness)
-   - from source, restart runs smoke.sh first and is refused on failure
-     (tested: an export removed while the session ran); installed it runs
-     --help; the installed copy still needs cmake . && cmake --install .
-   - startup snapshot .ollama-repl-snap-PID next to the harness dir (same
-     depth, so ../../../lib/lws imports resolve); the fallback runs it with
-     a backup of the state when the new process dies within 15 s (tested:
-     a throw injected on --resume while the session ran); stale snapshots
-     of dead processes are purged
-   - edits to the harness's own files ask, also in auto mode, never
-     remembered; --self-edit turns that off (touchesHarness is unit tested,
-     the dialog itself was not exercised live)
-   - the system prompt tells the model how to edit and restart when the
-     project contains the harness (SELF_NOTES, a model's real use of it is
-     untested)
-   - 2026-11-19 review fixes: the protections now also apply to the
-     installed copy run from a checkout (harness.target = the source tree
-     found at or above --root; restart runs smoke.sh on it and relaunches
-     its repl.js, tested from the installed command: refused on a broken
-     export, moved with a note on a good tree); the duplicate-call guard
-     no longer returns stale results after an edit or a command, and never
-     caches restart_harness or spawn_agent; --resume no longer lets the
-     working directory's <model>.json replace the resumed state (base
-     message count, project scan, a second "resumed" line); smoke.sh runs
-     with --listen, which found the AF_UNIX problem below
-   - --listen: a qjsm before 2026-11-19 bound only 26 bytes of a socket
-     path (qjs-modules fixed it: HAVE_AF_UNIX), so a second session failed
-     with EADDRINUSE and ctl reached whichever held the empty abstract
-     name. unixAddr() is now a thin wrapper of SockAddr(AF_UNIX, path), the
-     default path is
-     $XDG_RUNTIME_DIR/o<pid>.s, a too long path is an error and a failed
-     --listen ends the run. Two sessions plus ollama-repl-ctl tested. A
-     session started before this holds the abstract name: restart it
-   - /gateway limits|limited, /model list: lib/availability.js works out per
-     model id what the gateway limits and when it ends (key cooldowns, rate
-     windows, monthly budget and key caps, key scope, IP/region hints from
-     the errors); the provider column shows the real platforms. Open: the
-     day window's exact reset is unknown (shown <= 24 h), IP limits are only
-     a text heuristic (the gateway has no such state), the model list has no
-     /model list FILTER yet, auto routing itself is the gateway's business
-   - /standby (lib/standby.js): warm second model of the gateway, switch
-     over by hand or on a transient failure, sub-agent model. Untested live:
-     the automatic switch-over on a real 429/5xx and spawn_agent with
-     model "standby". Open: the standby is not kept across /restart, no
-     per-turn cost accounting for the probes, "next" follows the gateway's
-     scores, not its real chain walk (the gateway exposes no next-hop)
-   - lib/config.js, lib/delegates.js: ~/.config/ollama-repl/{settings,
-     delegates}.json, /config, /delegate. Untested live: a real model using
-     spawn_agent with kind and the harness-chosen model (ranking, recording
-     and discovery are unit tested / seen in /delegate). Open: "ok" means
-     the sub-agent finished and said something, quality comes only from the
-     user's votes (the primary model's own verdict is not collected); the
-     primary is not told which models are candidates; Gemini provider has no
-     delegation
-   - --worker and delegation to peers (lib/peer.js): found by root, /reset,
-     read-only via /mode plan. Seen live: findPeers + askPeer got PONG from a
-     worker. Untested: a primary model delegating by itself, the read-only
-     mode switch, a worker waiting for approval. Open: a worker's mode is
-     taken from its info (not updated on /mode), no way to cancel a running
-     peer task, the ghost completion exists only in the TUI (the plain
-     line editor shows none)
-   - /skill (lib/skills.js): list, load, unload, Tab completion. Open: the
-     model cannot load a skill itself (no tool), skills are not listed in
-     the system prompt, plugin skills (~/.claude/plugins) and a skill's
-     `allowed-tools` / `argument-hint` are ignored, a compaction may
-     summarize a loaded skill away
-   - bridge parity (plan: ../chat-bridge/doc/HARNESS.md): --provider bridge
-     has none of the gateway functions (limits, /route, /standby, usage
-     meters); needs chat-bridge to serve the metadata and a backend
-     interface here (lib/gateway.js with freellmapi and bridge backends)
-   - not solved: N restarts = N waiting qjsm processes (no execve in
-     QuickJS); a process started from the fallback is not a source tree
-     itself, it finds the target from the root like an installed one
-4. [x] (done 2026-11-19, tested against the local gateway) freellmapi
-   routing control. Read from the server: only the `model` field routes
-   (auto, auto:AXIS for smart/fast/cheap/reliable/balanced, auto:PROFILE,
-   a pinned model, fusion); no exclusion parameter exists; x-session-id
-   makes routing sticky. Done: /route (show, list, set, new), the
-   x-session-id header (OpenAIClient.extraHeaders, id kept over /restart),
-   /model skip on auto now says it pins. Open: fusion (a `fusion` config
-   object in the body) is only selectable, not configurable; x-freellm-cache
-   and x-freellm-compress are read by the gateway, not sent by us; profile
-   management (dashboard API) is not exposed.
-5. [x] (done 2026-11-19, tested in a pty with a real tool call)
-   Ctrl-O verbose colouring: lib/rawcolor.js (colorJson, colorContent,
-   colorArgs, colorMeta), wired into the request, tool call, tool result,
-   response and reasoning panes and the --no-tui verbose lines;
-   test-rawcolor.js (in smoke.sh) checks that stripping the colours gives
-   back the input. Open: no per-language highlighting (markdown.js
-   highlight() is one generic tokenizer); the /last panel and the plain
-   --verbose lines of a request are not coloured; the unified diff of an
-   edit tool call is not rendered as a diff in the call panel.
+- `ollama-repl --provider bridge` live check: names and the context meter in `/model list` (only the data was
+  tested, not the screen).
+- strength column: the gateway's intelligence scores are coarse (many models sit at the 74% or 50% default,
+  auto/kilo-auto/free-router at 50%); find a better source (benchmarks table by model family, or the gateway's own
+  measured results) and use it as a tie-break inside a score group.
+- verbose view: panels are kept for the whole session (HISTORY_MAX lines); a very long session drops the oldest
+  verbose panels first. Ctrl-O in the non-TUI (plain) mode still shows only new traffic.
+- untested live (from earlier work): a real model delegating with `spawn_agent` `kind`; the peer read-only mode
+  switch; a worker waiting for approval; the standby automatic switch-over on a real 429/5xx; ghost completion exists
+  only in the TUI; a compaction may summarize a loaded skill away; the primary is not told which delegate candidates
+  exist; N restarts leave N waiting qjsm processes.
+- housekeeping: restart the running sessions (`auto`, `worker-freellm` in tmux `worker1`) to pick up Esc, argument
+  completion, retroactive verbose and the strength column; five untracked scratch files in the repo root stay on
+  purpose (the two 2026-11-19-*-qwen2.5-coder.txt, auto.json, out.c, qwen2.5-coder.json);
+  `~/Sources/rsenn/skills/quickjs-scripting` has uncommitted edits for the user to commit.
+- delegation lesson: two agents edited chat-bridge.js at once and the weaker worker left a half-done edit; give each
+  delegated task its own file or a lock, and review the diff before the next dispatch.
+- bridge: bridge sites show strength "unknown" (no scores), the standby switch-over for a bridge is untested,
+  `x-ratelimit-*` of a bridge still says "/min" in the status line (`gw N/M/min`); next: chat-bridge steps 5 and 6
+  (docs).
 
 After every change under lib/ run `cmake .` before `cmake --install`.
 
-## Overnight agent session 2026-11-19, documented afterwards (in progress)
+## Open from the advisor review (2026-11-19)
 
-Commit 2fcdcc1 ("...", +523 lines in repl.js) was made from an unattended
-`/goal` loop without notes. 2026-11-19 12:50: read through the history and
-documented it in README.md ("Sub-agents, restarting and failover on
-upstream errors", REPL commands). Done by the same pass: the fs.rmSync
-regression (commit 44811d7) and a stale installed lib/ (cmake . before
-cmake --install, the lib/ copies are made at configure time).
+- compaction: the trigger is an estimate (chars / 3.5), not the provider's token count; the summarizer is the local
+  ollama model also when the main provider is a gateway.
+- self-edit: the approval dialog for edits to the harness's own files was not exercised live; a model's real use of
+  SELF_NOTES is untested; N restarts = N waiting qjsm processes (no execve in QuickJS); a process started from the
+  fallback is not a source tree itself, it finds the target from the root like an installed one; a session started
+  before the AF_UNIX fix holds the abstract socket name: restart it.
+- /gateway limits, /model list: the day window's exact reset is unknown (shown <= 24 h), IP limits are only a text
+  heuristic (the gateway has no such state), the model list has no /model list FILTER yet, auto routing itself is the
+  gateway's business.
+- /standby: untested live: the automatic switch-over on a real 429/5xx and spawn_agent with model "standby"; the
+  standby is not kept across /restart, no per-turn cost accounting for the probes, "next" follows the gateway's
+  scores, not its real chain walk (the gateway exposes no next-hop).
+- /delegate: untested live: a real model using spawn_agent with kind and the harness-chosen model; "ok" means the
+  sub-agent finished and said something, quality comes only from the user's votes; the primary is not told which
+  models are candidates; Gemini provider has no delegation.
+- --worker and peers (lib/peer.js): untested: a primary model delegating by itself, the read-only mode switch, a
+  worker waiting for approval; a worker's mode is taken from its info (not updated on /mode), no way to cancel a
+  running peer task, the ghost completion exists only in the TUI.
+- /skill: the model cannot load a skill itself (no tool), skills are not listed in the system prompt, plugin skills
+  (~/.claude/plugins) and a skill's `allowed-tools` / `argument-hint` are ignored, a compaction may summarize a
+  loaded skill away.
+- bridge parity (plan: ../chat-bridge/doc/HARNESS.md): --provider bridge has none of the gateway functions (limits,
+  /route, /standby, usage meters); needs chat-bridge to serve the metadata and a backend interface here
+  (lib/gateway.js with freellmapi and bridge backends).
+- freellmapi routing: fusion (a `fusion` config object in the body) is only selectable, not configurable;
+  x-freellm-cache and x-freellm-compress are read by the gateway, not sent by us; profile management (dashboard
+  API) is not exposed.
+- verbose colouring: no per-language highlighting (markdown.js highlight() is one generic tokenizer); the /last panel
+  and the plain --verbose lines of a request are not coloured; the unified diff of an edit tool call is not
+  rendered as a diff in the call panel.
 
-Fixed 2026-11-19 (live-tested in a pty): /model GLOB (const arg),
-/model list (printed a Promise; also read opts, a main() local, and
-/model skip used the unimported skipNote), restart_harness, /restart and
-/provider (one prepareRestart()/restartHook path: validate, state file,
-foreground child with the original arguments, exit with its status);
---resume now also restores the skip list.
+## Overnight agent session 2026-11-19, open
 
-Open, not run yet:
-- restart_harness as a model tool call (the slash commands share its path).
-- spawn_agent: untested; check that read_only really withholds every write
-  tool and that the sub-client is destroyed on failure. (2026-11-19: a
-  sub-agent no longer gets spawn_agent and restart_harness; before, it
-  could recurse and even a read_only one could restart the harness.)
-- --help text (USAGE in repl.js) does not list --resume and
-  --fallback-model; /help does not list /fallback, /provider, /restart.
-- The skip list and the model strength tiers (MODEL_STRENGTH_PATTERNS) are
-  hard-coded name patterns; unknown models get tier 9.
-- Unclear what REPORT_COMMANDS and /remote-control changed; not read in
-  detail.
+- restart_harness as a model tool call is not run yet (the slash commands share its path).
+- spawn_agent: untested; check that read_only really withholds every write tool and that the sub-client is
+  destroyed on failure.
+- The skip list and the model strength tiers (MODEL_STRENGTH_PATTERNS) are hard-coded name patterns; unknown
+  models get tier 9.
+- Unclear what REPORT_COMMANDS and /remote-control changed; not read in detail.
 - Commit 2fcdcc1 is on origin/main with its "..." message, not rewritten.
-- Untracked leftovers in the repo root: two 2026-11-19-*-qwen2.5-coder.txt
-  exports, auto.json (an earlier commit, ec08869, deleted a tracked one),
-  out.c, qwen2.5-coder.json.
+- Untracked leftovers in the repo root: two 2026-11-19-*-qwen2.5-coder.txt exports, auto.json (an earlier commit,
+  ec08869, deleted a tracked one), out.c, qwen2.5-coder.json.
 
-## /cd fixes, modes, verbose, full gateway status (2026-11-19)
+## /cd fixes, modes, verbose, full gateway status (2026-11-19), open
 
-Done: /cd with ~, ~user, quotes and -. Tab completion for ~/ and absolute
-paths, command names, only directories after /cd. Modes plan/auto/manual/
-edits (lib/modes.js, Shift-Tab, Alt-Tab, /mode, --mode, --yes = auto).
-Ctrl-O, /verbose, --verbose. Every x-* header, raw usage and extra body
-fields in /last. Dashboard session (FREELLMAPI_DASHBOARD_TOKEN or
-EMAIL/PASSWORD) for /gateway quota and the per-model quota in the status
-line. Two status lines with the effective model, its context window and
-quotas.
+- The dashboard success path is untested here (no credentials). Only the refused token and the wrong password were
+  tried.
+- Without a dashboard session the context window of the model that answered is mostly unknown: /v1/models ids are
+  catalog ids (gemini-3.1-pro), the route names provider ids (nvidia/nemotron-3.5-lightning:free). The status line
+  then says "window unknown".
+- Install to /usr/local/bin again and tell the js-engines session (ask the user first).
 
-Open:
-- The dashboard success path is untested here (no credentials). Only the
-  refused token and the wrong password were tried.
-- Without a dashboard session the context window of the model that
-  answered is mostly unknown: /v1/models ids are catalog ids
-  (gemini-3.1-pro), the route names provider ids
-  (nvidia/nemotron-3.5-lightning:free). The status line then says
-  "window unknown".
-- Install to /usr/local/bin again and tell the js-engines session (ask
-  the user first).
+## TUI widgets and own style, open (2026-11-19)
 
-## TUI widgets, own style, new name (asked 2026-11-19, done; next: install, then the multi-conversation work below)
-
-Order agreed: B widgets, C TUI (+ dashboard token over CDP), then the
-multi-conversation work below (approved, "start it now").
-
-A. [x] Name: stays ollama-repl (user decided 2026-11-19, no rename).
-B. [x] (done 2026-11-19) qjs-modules lib/terminal.js widgets, pure
-   string builders: style/parseColor/gradient, bigText (block font,
-   half blocks, shadow), boxLines (BOX_ROUNDED/HEAVY, tees in every box
-   set), inputBox, rule, statusBar, keyValue, table (sections, column
-   highlight), progressBar, sparkline, SPINNERS, ANSI-aware
-   truncate/pad/wrap. Asked on top: scrolling (ScrollView, scrollbar,
-   insertLines/deleteLines), buffers (alternateScreen(),
-   Screen.alternate()), mouse (mouseEnable/mouseDisable, SGR/urxvt/X10
-   reports decoded by decodeKeys and readKey). Tests 22/22, readline and
-   repl tests still green, doc/js/terminal.md with the regenerated export
-   list. terminal.js is compiled into qjsm: the installed
-   /usr/local/bin/qjsm needs a rebuild + install before ollama-repl runs
-   on it (asks the user first, together with the ollama-repl install).
-C. [x] (done 2026-11-19, C1-C9) TUI for the agent in its own style (teal -> lime ->
-   amber gradient, lib/look.js), built on B.
-   C1. [x] gradient banner + session panel + tips at start, gradient
-       rules, 3 status rows (rule, statusBar mode badge / cwd / effective
-       model / ctx meter, dim meter line with quota mini-bars).
-   C4. [x] panels for /last, /usage, /requests, /gateway and the
-       approval prompt (TUI only, plain text in pipes and for ctl).
-   Asked 2026-11-19 on top (screenshots: Qwen /about panel, Qwen edit
-   dialog, Qwen Code promo), in this order:
-   C5. [x] (done: banner() in lib/look.js, version = git commit) startup: informative panel like Qwen's /about - name banner
-       with an info box beside it (version, git commit, model, endpoint,
-       gateway, mode, root, log, os), "session initialized" line, tips.
-       Also /about showing the same panel.
-   C6. [x] (done: ChatREPL.choose(), Tui.drawInput(); write approvals and
-       run_command; ask_user stays a free-text question) questions are dialogs: bordered box (yellow) with the tool
-       name + target in the title, the diff inside, then a choice list
-       selected with up/down + Enter (Yes once / Yes, always for this
-       tool this session / No (Esc)); same for run_command and ask_user.
-       Needs a key-driven widget in chat-repl.js (the line editor must
-       give up keys while the dialog is up).
-   C7. [x] (done: lib/markdown.js MarkdownStream per streamed line,
-       toolLine/toolResult/numberedDiff in lib/look.js, panels capped at
-       half the screen, lib/pager.js on the alternate screen with
-       alternate scroll mode 1007 for the wheel, Tui.suspend/resume hold
-       transcript writes meanwhile, PgUp and /view N; open: a live
-       in-transcript scroll of the latest panel was not done, the pager
-       covers it) all output formatted: model replies rendered (markdown:
-       headings, lists, code blocks highlighted, inline code), tool
-       calls as one-line panels (check mark + tool + target), diffs
-       (edit_file/write_file/insert_above) colored +/- with line
-       numbers inside a panel limited in height; the full content is
-       scrollable: the latest panel scrolls with PgUp/PgDn/wheel, any
-       panel by number opens in a pager on the alternate screen
-       (ScrollView + mouse wheel, q/Esc back) - /view N.
-   C8. [x] (done: request/reasoning/tool call/tool result/response
-       panels in the TUI, plain verbose lines elsewhere) Ctrl-O verbose: a pane for everything the model ingests and
-       emits - request (system, user, tool results, attached files),
-       reasoning, reply, tool calls - each titled, height-limited,
-       viewable in the pager.
-   C9. [x] (done: reportLine() captures REPORT_COMMANDS output into
-       reportPanel(), helpPanel() for /help; /js, /each, /binding excluded)
-       every /command report styled, never plain text in the TUI:
-       /help as a sectioned table of commands, /status, /mode, /model,
-       /cd, /rename, /remote-control, errors as red panels. Plain text
-       stays for pipes and ollama-repl-ctl.
-C3. [x] (done) /remote-control [PATH]: start the --listen control socket after
-   startup, like Claude Code's /remote-control. /remote-control off
-   closes it. /rename NAME renames the session (control socket name,
-   <pid>.json, ollama-repl-ctl -s NAME).
-C2. [x] (done: lib/cdp-token.js, tab list through curl because of BUGS
-   ws-connect-after-http-to-devtools-port-fails) FREELLMAPI_DASHBOARD_TOKEN read over CDP from a logged-in
-   dashboard tab (localhost:3001) in the browser chat-bridge drives
-   (--remote-debugging-port 9222).
-
-## Proxy latency, split view, resources display (asked 2026-11-19, done)
-
-Asked while C was finishing. Most freellmapi models go out through a socks
-proxy (the runit service "anon" on this machine, tor-based but faster);
-tor-change-exitnode.sh changes the route through it.
-
-D1. [x] (done: lib/proxy-probe.js, /proxy [on|off|probe|exit], proxied flag per
-    request in /last, "proxy +NNNms" in the status rows; found: global
-    proxy socks5://192.168.178.52:9050 = anon, active, no bypass, no
-    per-key proxies; measured +0.2..0.8s to the first byte; one probe run
-    is noisy, /proxy probe takes the median of 3) detect the proxy and
-    measure its latency.
-    - find how freellmapi decides per model/provider whether the proxy is
-      used (its config), and where the anon service listens;
-    - the harness detects it at startup (service up, port open) and per
-      request knows whether the route went through it;
-    - latency: time to first byte / total per route, proxied vs direct,
-      plus an active probe (same small request with and without the
-      proxy, or a TCP connect through the socks port vs direct);
-    - /proxy command: status, measured latency, history; /proxy exit (or
-      similar) runs tor-change-exitnode.sh and measures again;
-    - shown in the status rows when it matters.
-D2. [x] (done: Tui.setPane/drawPane, transcript wraps at Tui.width and
-    the pane is redrawn after a scroll - no DECSLRM, tmux and VTE ignore
-    it; /split [diff|git|status|off]) vertical window split: a right-hand pane, like /diff in Claude
-    Code, showing the latest changes as diffs (numberedDiff of every write
-    of the session, newest first), toggled by a command/key; the
-    transcript scroll region becomes the left part (DECSLRM left/right
-    margins, CSI ?69h + CSI l;r s, where the terminal supports them, else
-    redraw the pane after each write).
-D3. [x] (done: OpenAIClient.onPhase sending/waiting/headers/receiving/
-    reasoning/streaming/tool-call/idle with bytesOut/bytesIn/chunks,
-    tool and dialog phases in repl.js, the phase in the spinner rule,
-    /split status with lib/resources.js: ss -tinp/-xp filtered by pid in
-    the shell (thousands of relay sockets here), rss, fds; open: lws
-    connections of the control socket clients and CDP are listed only
-    while connected, an idle lws context holds just a netlink socket)
-    raw resources and status display: the sockets the process owns
-    (lws connections to the model endpoint, control socket and its
-    clients, CDP), bytes in/out over each, and one clear state: idle,
-    waiting on a tool, sending the request, waiting for the first token,
-    streaming tokens from the model. A pane or panel (/resources), the
-    state also in the status rows.
+- a live in-transcript scroll of the latest panel was not done, the pager covers it.
+- lws connections of the control socket clients and CDP are listed in /split status only while connected, an idle
+  lws context holds just a netlink socket.
 
 ## Multi-conversation sessions and Claude Code sessions (asked 2026-11-19, approved, after A-D)
 
@@ -532,302 +215,93 @@ D3. [x] (done: OpenAIClient.onPhase sending/waiting/headers/receiving/
      - the other direction, already working: a Claude session drives
        ollama-repl through ollama-repl-ctl.
 
-## freellmapi gateway + TUI (2026-11-19)
+## freellmapi gateway + TUI, open (2026-11-19)
 
-Done:
-- lib/openai-client.js records per-request metadata (route, provider,
-  request id, tokens incl. reasoning/cached, timings, fallbacks, rate
-  limit). Streams ask for a usage chunk. Also getJSON().
-- lib/usage-stats.js: session ledger, /usage /last /requests.
-- lib/freellm.js: gateway detection and /gateway usage|providers|
-  forecast|models.
-- repl.js: --provider freellm, --no-tui, route line under each reply,
-  /status additions.
-- lib/tui.js + ChatREPL hooks: scroll-region transcript, activity rule,
-  growing input, status line, resize, Ctrl-L, type-ahead kept.
-- abort() rejects before closing, so Ctrl-C reports "aborted".
+- Ollama and Gemini clients report no token metadata yet (prompt_eval_count/eval_count and usageMetadata exist).
+  /usage and the status line stay empty for them.
+- Ctrl-C while a stream is already flowing does not cancel it: abort() only knows requests still waiting for headers
+  (#settled).
+- The dashboard's per-request detail (/api/analytics/requests/:id: attempt ladder, ttfb, served-model drift) needs a
+  dashboard session token and the request row id, which the response does not carry (only execution_id).
+- TUI: /js output and Tab-completion lists come from the base REPL with ttyWrite. /js output lands in the input
+  area, completions are copied into the transcript. The status line is clipped, not wrapped.
+- TUI start pushes the screen into the scrollback (output starts at row 1) instead of continuing below the cursor,
+  which would need a cursor position query before the REPL owns stdin.
+- Could send X-FreeLLM-Task-Type: code. The gateway already treats requests with tools as code, so only --failsafe
+  would gain.
 
-Open:
-- Ollama and Gemini clients report no token metadata yet (prompt_eval_count/
-  eval_count and usageMetadata exist). /usage and the status line stay
-  empty for them.
-- Ctrl-C while a stream is already flowing does not cancel it: abort()
-  only knows requests still waiting for headers (#settled).
-- The dashboard's per-request detail (/api/analytics/requests/:id: attempt
-  ladder, ttfb, served-model drift) needs a dashboard session token and
-  the request row id, which the response does not carry (only
-  execution_id).
-- TUI: /js output and Tab-completion lists come from the base REPL with
-  ttyWrite. /js output lands in the input area, completions are copied
-  into the transcript. The status line is clipped, not wrapped.
-- TUI start pushes the screen into the scrollback (output starts at row 1)
-  instead of continuing below the cursor, which would need a cursor
-  position query before the REPL owns stdin.
-- Could send X-FreeLLM-Task-Type: code. The gateway already treats
-  requests with tools as code, so only --failsafe would gain.
+## Coding-work assessment with qwen3.5:4b (2026-10-20), open ideas, roughly by value
 
-## Coding-work assessment with qwen3.5:4b (2026-10-20)
+- **The model does not always pick `for_each`.** One of two runs of the plain prompt did all 25 edits itself with
+  `edit_file` and deleted three declarations (the new WARNING in the edit_file result is untested against it).
+  Options: a harness-side nudge - if the prompt matches /every|each|all .* (function|file)/ and the model starts
+  editing without `for_each`, reject the first edit with "use for_each"; or run the item extraction in the harness
+  (`/each`-style) for prompts that name a header.
+- **Verify after edit.** Nothing checks that the file still compiles or that only comment lines were added. A
+  per-task check hook (e.g. for a comment-only task: `git diff` has no removed lines and no added non-comment lines
+  -> else auto-`/undo` that item and retry) would turn the remaining ~1-in-5 sloppy items into retries.
+- **Comment length.** Items still sometimes paste the whole multi-line doc block of the .c file although "1-2 lines"
+  was asked. A `max_lines` check on `insert_above` could reject with a message.
+- **Misplaced inserts.** `insert_above` anchors on a substring; an anchor that is a prefix of two lines is rejected,
+  but a model that anchors on the wrong (neighbouring) declaration is accepted. Could verify that the anchor line
+  contains the item name in `for_each` runs.
+- `think: true` for the planning round only (read the header, choose the items) and `think: false` for sub-items -
+  not tried.
+- `ask_user`/`[y/N]` at EOF of piped stdin ends the session without an answer (see piped mode below).
+- Larger refactors (rename across files) are untested: needs `grep` -> `for_each(files)` and a build/test step via
+  `run_command`.
+- Not tried: the other two providers on this task; qwen2.5-coder as the originally targeted model.
 
-Task used: `ollama-repl --provider ollama --model qwen3.5:4b --stream` in a
-copy of ~/Sources/shish: "add a 1-2 line documentation comment in front of
-every function declaration in lib/path.h, inferring its purpose from
-lib/path/<function-name>.c" (25 declarations).
+## Second round: qwen2.5-coder and Gemini (2026-10-20), open
 
-Findings, in the order they bit:
+- qwen2.5-coder still: comments inserted above a neighbouring declaration (31 comments added for 25 declarations in
+  one run), and items that end with a text `run_command` call although that tool is withheld for comment-only tasks.
+- Gemini: a 503 "high demand" on the first tool round outlasted all 5 retries (~85 s) and aborted the turn (0 of 25,
+  nothing damaged). Retrying longer, or skipping a busy item and carrying on, would help.
+- Not done: `thinkingConfig.thinkingLevel` ("low" is accepted by gemini-3.8-flash, "minimal" is not) as a client
+  option; for_each could pack several items per request to save quota; pick the model from `--model list` plus a
+  quota probe.
 
-1. **Context window.** Ollama defaults to `num_ctx` 4096. The old system
-   prompt + project scan + attached files was already ~4000 tokens, so
-   the second round returned `done_reason: "length"` with empty content,
-   which the REPL swallowed - the session just went back to the prompt
-   after the first `read_file`. Fixed: client sends `options.num_ctx`
-   (default 16384, `--num-ctx`) and throws on `done_reason: "length"`;
-   old tool results are elided when the history outgrows the window
-   (`elideOldToolResults()`).
-2. **No way to edit.** The only write path was "reply with a File: block
-   containing the whole new file" - hopeless for a 4B model on an
-   85-line header. Added `insert_above`, `edit_file` (exact, unique
-   match; WARNING listing lines an edit removed), `write_file`, `grep`,
-   `read_file` start/end; paths confined to the root; `/undo`, `/diff`.
-3. **Prompt.** ~1.5k tokens of QuickJS-binding instructions went to every
-   project; now only appended when README/CMakeLists/package.json mention
-   QuickJS. New prompt is short, task-agnostic, tool-oriented. The project
-   scan caps README/CLAUDE.md/AGENTS.md at 3000 and CMakeLists.txt at 1500
-   chars (shish's CMakeLists.txt alone was 16 KB).
-4. **MAX_TOOL_ROUNDS = 4** was far too low for any multi-edit job;
-   now `--max-rounds` (40).
-5. **Repetition in one context fails.** Doing 25 declarations in a single
-   conversation: it skipped reading most of the .c files and invented
-   behaviour, rewrote signatures, duplicated or *deleted* neighbouring
-   declarations when it "inserted" with edit_file (path_parentlen and
-   path_dirlen vanished in one run). Fix: `for_each` / `/each` - one short
-   fresh conversation per item. Result: all 25 documented in 40-60 s,
-   comments accurate (they mostly condense the doc block already in the
-   .c file).
-6. **Least privilege per batch item.** Comment-only tasks get no
-   `edit_file`/`write_file`/`run_command` in the sub-conversations
-   (`omitToolsFor()`), so a mistake can at worst add a misplaced comment.
-7. **Temperature.** Default sampling mangled anchors/copied blocks; 0.2
-   (`--temperature`) was visibly better (one clean run in 40 s vs 3-5 min
-   runs with duplicated declarations at the default).
-8. Smaller things fixed on the way: a tool that throws (missing `path`)
-   used to abort the whole turn - now reported to the model as an error
-   string; `ask_user` is not offered inside batch items.
+## Assessment (2026-08-04, updated 2026-08-30), open
 
-Still open / ideas, roughly by value:
+- **Not verified against the actual target model (`qwen2.5-coder` via a local Ollama server)** - this
+  environment's Ollama install fought system-level problems (a failed `snap install ollama`, then the native install
+  left `/usr/local/bin/ollama` at mode `700 root:root`, the `ollama.service` unit restart-looping on `Permission
+  denied`/`status=203/EXEC`, and `sudo` runs segfaulting, which smells like leftover AppArmor confinement from the
+  snap install). Retry `ollama list`/`ollama pull qwen2.5-coder` once that is sorted, then run the two PoC coding
+  tasks below through `--provider ollama --model qwen2.5-coder` and read the resulting `qwen2.5-coder.log`
+  transcript to see how the real target model behaves.
+- **Two PoC coding tasks, the harness's actual bar to clear**: (1) write a small JS class using only QuickJS's own
+  `std`/`os` modules (a `RingBuffer` class writing to a file via `std.open()`); (2) write a small C library routine
+  against `quickjs.h` - e.g. a class with a couple of "exotic" methods (closer to the fib.c/point.c reference
+  shape). Both through the *real* interactive `repl.js` harness, then read the `<model>.log` back to find what the
+  model got wrong or guessed at instead of checking.
+- **Unconfirmed oddity, not root-caused**: a PoC run piped as `<prompt>\n/exit\n` into `qjsm repl.js` hit a 90s
+  timeout after one `run_command` call that reached `ChatREPL#confirm()`'s y/n gate. Plausibly the piped `/exit`
+  does not match `confirm()`'s `/^y(es)?$/i`, so the command is declined and the loop goes on to a second live
+  round that outlasts the wrapper timeout - but not confirmed; re-test piped, non-interactive input against a
+  `confirm()`/`ask()` prompt before trusting non-interactive testing of this harness.
 
-- **The model does not always pick `for_each`.** One of two runs of the
-  plain prompt did all 25 edits itself with `edit_file` and deleted three
-  declarations (the new WARNING in the edit_file result is untested against
-  it). Options: a harness-side nudge - if the prompt matches
-  /every|each|all .* (function|file)/ and the model starts editing without
-  `for_each`, reject the first edit with "use for_each"; or run the item
-  extraction in the harness (`/each`-style) for prompts that name a header.
-- **Verify after edit.** Nothing checks that the file still compiles or
-  that only comment lines were added. A per-task check hook (e.g. for a
-  comment-only task: `git diff` has no removed lines and no added
-  non-comment lines -> else auto-`/undo` that item and retry) would turn
-  the remaining ~1-in-5 sloppy items into retries.
-- **Comment length.** Items still sometimes paste the whole multi-line doc
-  block of the .c file although "1-2 lines" was asked. A `max_lines`
-  check on `insert_above` could reject with a message.
-- **Misplaced inserts.** `insert_above` anchors on a substring; an anchor
-  that is a prefix of two lines is rejected, but a model that anchors on
-  the wrong (neighbouring) declaration is accepted. Could verify that the
-  anchor line contains the item name in `for_each` runs.
-- `think: true` for the planning round only (read the header, choose the
-  items) and `think: false` for sub-items - not tried.
-- `ask_user`/`[y/N]` at EOF of piped stdin ends the session without an
-  answer (see piped mode below).
-- Larger refactors (rename across files) are untested: needs `grep` ->
-  `for_each(files)` and a build/test step via `run_command`.
-- Not tried: the other two providers on this task; qwen2.5-coder as the
-  originally targeted model.
-- The old items 1-5 below were written before any of this and are mostly
-  about the binding demo; keep, but read them against the above.
+## ask_user (2026-08-30), open
 
-## Second round: qwen2.5-coder and Gemini (2026-10-20)
+- `ask_user` has not been exercised by an actual live model turning ambiguous scope into a real call; prompt for it
+  during the next live session (see the PoC coding tasks above).
 
-Same task (25 declarations in lib/path.h), same scorer (declarations lost /
-duplicated, lines removed, non-comment lines added, declarations preceded by
-a comment).
+## Rework the system prompt and context mechanism, open
 
-qwen2.5-coder (7.6B) findings and what was done:
+- Consider re-injecting a short reminder of the tool-use rule periodically (e.g. appended to each `tool`-role result
+  message in `runToolLoop`) rather than relying on it surviving from the system prompt alone across a long
+  conversation.
+- `gatherProjectContext()`'s scan is deliberately shallow and fixed at startup - good for payload size, but work
+  centered on a particular subtree (e.g. `lib/lws/`, a single `qjs-*` binding) gets no automatic help beyond the top
+  level, and the scan never updates as a session goes on. If it costs too many extra `LIST:`/`READ:` rounds, let the
+  model broaden its own view more cheaply instead of widening the automatic scan back out.
+- No memory of what's already been read: nothing stops the model from re-`READ:`ing the same file every round. A
+  per-session "already shown" set (like `SentFiles`/`FileExchange`) would let the system prompt say "don't
+  re-request a file you've already been shown" truthfully and shrink context growth over a long session.
+- Unverified: whether the shorter system prompt changes qwen2.5-coder's behavior in practice.
 
-1. It ignores Ollama's `<tool_call>` format and writes the call as text -
-   a ```json fenced `{"name": ..., "arguments": ...}`, or only the bare
-   arguments object (`{"items": [...], "task": "..."}`). Ollama then
-   returns plain content, no `tool_calls`. `lib/text-tool-calls.js` parses
-   those (fenced, `<tool_call>`, bare, arguments-only matched by a tool's
-   required keys); applied to every provider when no structured call came.
-2. It answers a change request in prose - plans, or prints the "updated"
-   file - without touching anything. `runToolLoop()` now nudges (at most
-   twice) when the prompt asks for a change and *this loop* has written
-   nothing; and prompts containing every/each/all get a hint appended
-   telling it to call for_each with ALL items the request names.
-3. The "lib/path/<function-name>.c" template in the prompt made
-   `extractFileRefs()` attach four arbitrary files of lib/path/ (the
-   directory part alone matched) - the model then took those four as its
-   item list. Templates (`<...>`, `{...}`) are now ignored when scanning.
-4. In a batch item it anchors `insert_above` on the *definition* line from
-   the .c file ("size_t path_rel(...) {"), which is not in the .h. The tool
-   now resolves an anchor that is not found but names exactly one
-   `name(` line, and failed lookups answer with the file's lines containing
-   the identifier. After a tool error it sometimes emits a bare
-   `<tool_response>` as its whole reply; a batch item that wrote nothing is
-   retried once with a fresh conversation.
-5. Result: 17-20 of 25 declarations documented per run, ~100-140 s, no
-   declaration lost or duplicated in any run (3 runs before the retry,
-   2 after). qwen3.5:4b regression check: 25/25 in both runs, ~115 s (one
-   run duplicated a declaration line). Remaining qwen2.5-coder failures:
-   comments inserted above a neighbouring declaration (31 comments added
-   for 25 declarations in one run), and items that end with a text
-   `run_command` call although that tool is withheld for comment-only tasks.
-
-Gemini:
-
-6. Free-tier API keys have a hard daily quota - **20 generate requests per
-   model per day** ("limit: 20, model: gemini-3.6-flash"; gemini-3.5-flash
-   shares gemini-3.6-flash's bucket), `gemini-3.1-pro` has limit 0, and
-   gemini-2.5-* answer 404 "no longer available to new users". A for_each
-   over 25 items needs 50+ requests, so it cannot finish on the free tier of
-   a flash model; the benchmark runs of this session used the quota up.
-   gemini-3.5-flash-lite / gemini-3.1-flash-lite still answered.
-7. "High demand" 503s and multi-minute latency (a one-line request took
-   115 s on gemini-3.8-flash, 92 s on 3.7-flash). `GeminiClient` now retries
-   429/5xx with backoff (3, 6, 12, 24, 40 s) and the HTTP error message is
-   short (API message first, headers/body after it).
-   A full run on gemini-3.5-flash-lite then failed: 503 "high demand" on
-   the first tool round outlasted all 5 retries (~85 s) and aborted the turn
-   (0 of 25, nothing damaged). Retrying longer, or skipping a busy item and
-   carrying on, would help.
-8. Not done: `thinkingConfig.thinkingLevel` ("low" is accepted by
-   gemini-3.8-flash, "minimal" is not) as a client option; for_each could
-   pack several items per request to save quota; pick the model from
-   `--model list` plus a quota probe.
-
-## Assessment (2026-08-04, updated 2026-08-30)
-
-`repl.js`'s tool loop was rewritten (2026-08-30) to drive real provider-
-native tool-calling (`tools`/`toolCalls` - see `API.md`) instead of a
-plain-text `LIST:`/`READ:`/`RUN:` protocol parsed out of the reply body -
-`TOOLS`/`executeTool()` (`lib/tool-requests.js`): `list_directory`,
-`read_file`, `run_command` (a real shell script via `shish -c`, falling
-back to `/bin/sh -c` if `shish` isn't installed - multi-line, heredocs,
-`find`/`xargs`, not just one command line), and the previously-missing
-`ask_user` (item 1 below - done). Verified live against a real OpenAI-
-compatible endpoint (`qwen3.8-flash`/`qwen3-coder-flash`): a
-`list_directory` round-trip, and a `run_command` round-trip where the
-model wrote and ran its own heredoc-based shell test script unprompted,
-guided only by the tool's own description text - see `API.md`'s "what's
-out of scope" section, now updated.
-
-**Not yet done / still open:**
-
-- **Not verified against the actual target model (`qwen2.5-coder` via a
-  local Ollama server)** - this environment's Ollama install has been
-  fighting system-level problems all session (a failed `snap install
-  ollama`, a working `curl -fsSL https://ollama.com/install.sh | sh`
-  install left `/usr/local/bin/ollama` at mode `700 root:root` - unreadable
-  by a normal user, and the `ollama.service` unit stuck restart-looping on
-  `Permission denied`/`status=203/EXEC` for the same reason - and running
-  the binary as root via `sudo` segfaults immediately even on `--version`,
-  which smells like leftover AppArmor confinement from the earlier failed
-  snap install (`snap.ollama.*` profiles visible in `dmesg`) colliding with
-  the native binary of the same name). Not resolved this session - next
-  session should retry `ollama list`/`ollama pull qwen2.5-coder` once
-  that's sorted, then actually run the two PoC coding tasks below through
-  `--provider ollama --model qwen2.5-coder` and read the resulting
-  `qwen2.5-coder.log` conversation transcript to see how the real target
-  model behaves (all live verification so far used an OpenAI-compatible
-  proxy with a different model family, as a stand-in).
-- **Two PoC coding tasks, chosen as the harness's actual bar to clear**
-  (per direct instruction): (1) write a small JS class using only
-  QuickJS's own `std`/`os` modules (a first attempt was started this
-  session against `qwen3-coder-flash` - a `RingBuffer` class writing to a
-  file via `std.open()` - but the session was interrupted before
-  completion, see the note below); (2) write a small C library routine
-  against `quickjs.h` - e.g. a class with a couple of "exotic" methods
-  (something beyond a trivial getter/setter, closer to the fib.c/point.c
-  reference shape). Both should go through the *real* interactive
-  `repl.js` harness (not a bypassed direct-client script), and the
-  resulting `<model>.log` should be read back afterward to find concrete,
-  specific things to fix in the system prompt/tool loop - not just "it
-  didn't work," but *what specifically* the model got wrong or guessed at
-  instead of checking.
-- **Unconfirmed oddity, not yet root-caused**: the interrupted PoC run
-  above (piped `<prompt>\n/exit\n` into `qjsm repl.js`, non-interactively)
-  hit a 90s timeout without ever finishing, after the model had already
-  made one `run_command` tool call that hit `ChatREPL#confirm()`'s y/n
-  gate. Plausible innocent explanation: the piped `/exit` line doesn't
-  match `confirm()`'s `/^y(es)?$/i` check, so the command is declined and
-  the tool loop correctly continues to a second live network round - which
-  on a slow/loaded API can easily exceed a 90s wrapper timeout on its own,
-  with no actual hang involved. But this wasn't confirmed either way before
-  the session ended - worth deliberately re-testing piped, non-interactive
-  input against a `confirm()`/`ask()` prompt specifically (not just as a
-  side effect of a PoC run) before trusting non-interactive testing of this
-  harness in general.
-
-## 1. Add an ASK: request type (user feedback loop) - done (2026-08-30)
-
-Implemented as the `ask_user` tool (`lib/tool-requests.js`'s `TOOLS`), not
-a text-prefix request type - part of the same native tool-calling rewrite
-as item 3 below. `ChatREPL#ask()` (`lib/chat-repl.js`, mirrors the
-existing `#confirm()`) prompts and waits for a typed answer;
-`executeTool('ask_user', ...)` returns it as the tool result, fed back the
-same way any other tool result is. Counts toward `MAX_TOOL_ROUNDS` like
-every other tool call, same as originally planned. Not yet exercised by an
-actual live model turning ambiguous scope into a real `ask_user` call
-(neither PoC run this session reached one) - worth specifically prompting
-for during the next live session (see the "PoC coding tasks" item above).
-
-## 2. Rework the system prompt and context mechanism
-
-Partly addressed: the prompt's QuickJS C API primer and the qjs-modules
-built-ins paragraph (the bulk of the "reference material" this item
-originally flagged) are gone - replaced with a one-line pointer telling
-the model to `READ:`/name-drop `quickjs.h`/`fs.js`/etc. instead of
-carrying a paraphrase of them inline. `SYSTEM_PROMPT` went from ~9.6KB to
-~2.6KB. `gatherProjectContext()`'s own payload dropped from a full
-recursive listing (up to 300 entries) plus every `README*` in the tree to
-a shallow top-level-only listing (filtered to `SOURCE_EXT`,
-`lib/file-refs.js`, and whatever `.gitignore` excludes) plus just the
-root `README.md`/`CMakeLists.txt` - on this project that's roughly an
-80KB first-turn payload down to the ~10-35KB range depending on `--root`.
-
-Also since (2026-08-30): the `LIST:`/`READ:`/`RUN:` text-contract
-paragraph is gone entirely, replaced by real tool declarations (`TOOLS`,
-`lib/tool-requests.js`) sent to the provider natively - the system prompt
-now only says *when*/*why* to prefer tools over guessing, not their exact
-syntax, since that's carried structurally by the `tools` schema instead.
-Also added: explicit guidance to check (via the tools) whether a project
-already imports qjs-modules' `process`/`fs`/`util`/`child_process` before
-defaulting to QuickJS's own `std`/`os`, and a note that the QuickJS-not-
-Node constraint only applies to code meant to run inside qjs/qjsm itself,
-not browser-side JS. Unverified: whether this actually changes qwen2.5-
-coder's behavior in practice - see the "not yet done" PoC items above.
-
-Still open:
-- Consider re-injecting a short reminder of the tool-use rule
-  periodically (e.g. appended to each `tool`-role result message in
-  `runToolLoop`) rather than relying on it surviving from the system
-  prompt alone across a long conversation.
-- `gatherProjectContext()`'s scan is now deliberately shallow and fixed at
-  startup - good for payload size, but it means work centered on a
-  particular subtree (e.g. `lib/lws/`, a single `qjs-*` binding) still
-  gets no automatic help beyond the top level, and the scan never
-  updates as a session goes on. That's an intentional trade for size
-  right now; if it turns out to cost too many extra `LIST:`/`READ:`
-  rounds in practice, consider letting the model broaden its own view
-  more cheaply instead of widening the automatic scan back out.
-- No memory of what's already been read: nothing stops the model from
-  re-`READ:`ing the same file every round. A per-session "already shown"
-  set (like `SentFiles`/`FileExchange` already track outgoing/written
-  files) would let the system prompt say "don't re-request a file you've
-  already been shown" truthfully, and would shrink context growth over a
-  long session.
-
-## 3. Push the model harder toward using the harness - tool-calling rewrite done (2026-08-30), still needs live pressure-testing
+## Push the model harder toward using the harness - needs live pressure-testing
 
 The mechanism changed (native `tools`/`toolCalls` instead of a text
 protocol - see the top of this file and `API.md`), but the underlying goal
@@ -865,374 +339,58 @@ is correct. Specific gaps to watch for once live:
   PoC coding tasks above are a good live test of whether 4 is actually too
   tight in practice.
 
-## 4a. Follow-ups from the message-format/tool-use rewrite (2026-08-06)
+## Follow-ups from the message-format/tool-use rewrite, open (2026-08-06)
 
-`OllamaClient`/`GeminiClient` now share one message/tool-use format instead
-of Gemini being forced through Ollama's flat `{role, content}` shape - see
-`API.md` for the full design, and its "What's explicitly out of scope here"
-section for the two biggest deliberate omissions (multimodal parts,
-wiring this into `repl.js`'s own tool loop). Concretely still open:
+- `OllamaClient`'s own wire format with `tools` (and its streaming `tool_calls`-mid-chunk path specifically) is
+  still unverified: the round trip was verified only against `GeminiClient` and `OpenAIClient`.
+- No multimodal message parts (images/audio/PDFs via `inlineData`/`fileData`) - not needed for this project's
+  text-only workflow yet; `API.md` sketches how it would extend the format.
 
-- Real `tools`/`toolCalls` round trip now verified (2026-08-30), but only
-  against `GeminiClient` (got real 503s - "high demand" - fast and
-  correctly surfaced as errors, no hang, confirming the request framing
-  with `tools` attached is sound) and `OpenAIClient` against an OpenAI-
-  compatible proxy (`qwen3.8-flash`/`qwen3-coder-flash` - a full
-  successful `list_directory` and `run_command` round trip each, see the
-  top of this file). `OllamaClient`'s own wire format (and its streaming
-  `tool_calls`-mid-chunk path specifically) is still unverified - no
-  reachable Ollama server this session either (see the "not yet done"
-  section at the top of this file for why).
-- ~~`repl.js`'s own `LIST:`/`READ:`/`RUN:` loop doesn't use this~~ - done
-  (2026-08-30): `runToolLoop()` now drives `TOOLS`/`executeTool()`
-  natively - see the top of this file and `API.md`.
-- No multimodal message parts (images/audio/PDFs via `inlineData`/
-  `fileData`) - not needed for this project's text-only workflow yet;
-  `API.md` sketches how it'd extend the format if it ever is.
+## Smaller gaps noticed while assessing, open
 
-## 4. Smaller/related gaps noticed while assessing
+- Not covered by `/context` and `/log`: a *filtered* view of just the tool-call history (request + result pairs,
+  without the surrounding chat turns) - still only in `<model>.log`.
+- `qjsProjectDirs()`/`referenceFiles()`/`nativeModules()` all re-`readdir()` their directories on every call (once
+  per chat prompt, at minimum) - fine at current scale, but worth caching per-session if it is ever noticeably
+  slow.
 
-- `/files` and the session log record what was sent/written; `/context`
-  and `/log` (`repl.js`, added 2026-08-06) now give REPL-side visibility
-  into the raw conversation too (LIST:/READ:/RUN: tool results are
-  embedded in the `user`-role messages they were fed back as, so they
-  show up there), closing most of what this bullet used to describe. Not
-  covered: a *filtered* view of just the tool-call history (request +
-  result pairs, without the surrounding chat turns) - still only in
-  `<model>.log` if that's specifically what's wanted.
-- `qjsProjectDirs()`/`referenceFiles()`/`nativeModules()` all re-`readdir()`
-  their directories on every call (once per chat prompt, at minimum) -
-  fine at current scale, but worth caching per-session if it's ever
-  noticeably slow.
-- Done: `OllamaClient`/`GeminiClient`/`OpenAIClient` each used to build
-  their own debug `Console` inline, inconsistently (only `OllamaClient`
-  set `maxStringLength: Infinity`, so a large attached-context body could
-  get truncated in `gemini-repl-debug.log`/`openai-repl-debug.log`), and
-  only logged the JSON body, never the request/response headers. Pulled
-  into a project-level, generic `RequestLogger` (the project root's
-  `lib/logger.js`, not chat-repl-specific - wraps `std.open()` + `Console`)
-  that all three now construct identically: `request()`/`response()` log
-  the method/status line plus headers, one per line, plain text;
-  `body()` logs the request/response body (or one streamed chunk) as a
-  still-live JS value via `colors: false`, `compact: -1`,
-  `reparseable: true`, `maxStringLength: Infinity`,
-  `maxArrayLength: Infinity` - so nothing truncates, a logged JSON body
-  stays copy-pasteable, and every client's debug log formats the same way.
+## Binding-writing context, open (see DEMO.md)
 
-## 5. Redesign the binding-writing context (see DEMO.md) - implemented, unverified live
+- The live re-run the redesign was meant to unblock (`BUGS: ollama-native-binding-demo-never-replies` - does the
+  smaller, curated context fix the never-replies case?) needs a reachable Ollama server or `GEMINI_API_KEY`.
 
-`DEMO.md` (2026-08-06) reconsidered from scratch what gets sent to the
-model for a "write a native (C) QuickJS binding" request, using zlib
-(`compress2`/`uncompress`/`crc32`, real signatures checked against
-`/usr/include/zlib.h`) as the worked example; its proposals are now
-implemented (full detail/rationale stays in `DEMO.md`, §9 tracks exactly
-what changed where):
+## Open notes from the old Done list
 
-- `examples/ollama-repl/reference/quickjs-binding-api.md`: curated
-  ~150-line cheat sheet (was: naming "quickjs.h" attached the whole
-  1041-line header, `lib/reference-files.js`, for a request that only
-  ever needs ~60 lines of it). The full header is still one `READ:` away.
-- `lib/binding-context.js` (new): auto-attaches
-  `examples/fib.c`/`examples/point.c`/the cheat sheet whenever a prompt
-  looks like a binding request (keyword heuristic); the `/binding
-  <prompt>` override that was added with it has been removed -
-  `DEMO.md`'s two detection options resolved as "support both" rather
-  than picking one.
-- System prompt's binding paragraph (`repl.js`) now asks for a one/two
-  line JS-API sketch before any C gets written, and points verification
-  at a standalone `gcc -shared -fPIC ... -DJS_SHARED_LIBRARY` compile
-  instead of this project's own `CMakeLists.txt`/`build/` (libwebsockets,
-  multi-minute link) - root-caused as (plausibly) why the one live demo
-  attempt never returned; the standalone recipe was verified directly
-  with `point.c` (`new Point(3,4).norm() === 5`, no CMake involved).
-- `/context` (`repl.js`) now reports a total char count alongside the
-  message count, so context size is visible per-session instead of
-  eyeballed - a diagnostic, not an optimization target (curation quality
-  matters more than raw size).
-- README.md's demo walkthrough rewritten to match: the zlib
-  `deflate`/`inflate`/`crc32` design, the auto-attach/`/binding` step,
-  and the standalone build/smoke-test recipe.
+- ollama-repl-ctl monitor: tool results of the cached/declined paths emit no event; not verified: the `waiting` event
+  (needs a model that calls run_command), two clients at once, a client that stops reading (the server's `send()`
+  blocks).
+- Repeated-call guard: the repeat limit (`MAX_REPEAT_ROUNDS`) is untested against a real model.
 
-Still open: the live re-run this was all meant to unblock
-(`BUGS: ollama-native-binding-demo-never-replies` - does the smaller,
-curated context actually fix the never-replies case?) needs a reachable
-Ollama server or `GEMINI_API_KEY`, neither available where this work was
-done - see item 4a above for the same live-verification gap.
+## Automatic model failover over a chat-bridge, open
 
-## Done
+Plan and rationale: `examples/chat-bridge/TODO.md` ("Failover plan").
 
-- ollama-repl-ctl monitor/steer (2026-11-20): control socket 'activity'
-  events (request, reasoning, answer, toolcall, toolresult, idle) and a
-  \x18\x13-prefixed line that steers (ChatRepl.sendNow). Tested against
-  a bare ControlSocket and live (2026-11-20, js-engines, freellm auto: monitor, steer).
-  Not done: tool results of the cached/declined paths emit no event.
+- failover only covers `chatRound()`; a limit hit in the middle of a streamed reply (after text was printed) is not
+  handled
+- when every model is unavailable the original error is shown; a hint with the earliest `resets_at` would help
+- after a handoff `/reset` keeps the base messages but the compacted turns are gone from the local history (the
+  session file is saved compacted too)
+- the summary comes from a 4B model: it can still drop or garble details, the strict headings in `lib/handoff.js`
+  only reduce that
+- `--provider bridge`: the browser is not started for you (the bridge prints the command), a repl that is killed
+  hard (not via /exit or Ctrl-C) can leave the bridge child running, no option for `--new-tabs` yet
+- a report that the prompt stops accepting input after "error: OpenAI connection failed: dropped" could not be
+  reproduced; if it happens again, check `ls -l /proc/<pid>/fd/0` of the chat-bridge child and whether Enter echoes
+- not done: `tools: false` in `/v1/models` so the repl switches to `--no-tools` by itself and a failover skips
+  chatgpt, duck and deepai (they ignore the emulated tools; chat-bridge/TODO.md idea 5), a handoff-aware prompt
+  budget for duck's 16000 characters
 
-- gateway probe report (2026-11-20): at startup and with `/gateway status` the REPL asks /v1/providers and, with a dashboard session, the limits, and prints per provider state (healthy, rate limited with resume time, exhausted, invalid, unknown) and ready/total model rows (`lib/gateway-report.js`). Tested against the live gateway only for the startup/status text; a provider shows ready/total from the gateway's own rows, not from a real request. A chat-bridge is not covered (it has `/gateway providers`).
+## TUI scrollback and flicker, open (2026-11-19)
 
-- restarts no longer nest (2026-11-19): a process started by a restart writes
-  the next command to `/tmp/ollama-repl-restart-<first pid>.json` and exits
-  with 75; the first process (it holds the terminal) runs it, with the
-  fallback to the previous version as before. Ten restarts are two
-  processes, not eleven. The child only trusts the request file when its
-  parent is the pid in `OLLAMA_REPL_RESTART_PARENT` (a worker started by the
-  harness inherits the variables). Tested with three `ollama-repl-ctl
-  restart` in tmux and `/exit` (status 0, file gone). Sessions started before
-  this build still hold their old chain until they exit.
-
-- chat-bridge harness step 6 (2026-11-19): `failoverHook` only for a bridge
-  with a pinned site (not `auto`, not "all models exhausted"), detection via
-  `gateway.isBridge`; `Failover.detect()`/`enabled` removed. Tested against a
-  fake bridge (pinned site -> handoff and switch; exhausted -> auto skip).
-
-- automatic `/model skip` (2026-11-19): when a gateway answers "All models
-  exhausted" / routing_exhausted, the round runs `/model skip` itself and asks
-  again, up to 4 times a round (`autoSkipHook` in repl.js; the skip works from
-  the error at hand, not from the stats). Tested against a fake gateway only
-  (spent model -> good model), not against a live freellmapi. A chat-bridge
-  keeps using its own failover hook. Since 2026-11-20 a 502 upstream_failed
-  ("All N routed attempt(s) failed with upstream provider errors") does the
-  same, skipping only that model (not its provider); fake gateway tested.
-
-- Tool-call loop guard (2026-10-31): `runToolLoop()` no longer re-executes
-  a call (same tool + args) already made this turn; the model gets an
-  error saying so instead. Two rounds in a row made only of repeats
-  (also catches A,B,A,B alternation) withdraw the tools (`toolChoice:
-  'none'`) so it must answer in text. Seen with qwen3:8b repeating
-  edit_file calls. Not verified live (only that repl.js loads); the
-  repeat limit (`MAX_REPEAT_ROUNDS`) is untested against a real model.
-- `/model NAME` (2026-10-30): switch model in a running session, conversation kept; session file and log stay named after the starting model.
-- Session names (2026-10-30): `--name`, shown by `ollama-repl-ctl list`,
-  picked with `-s NAME`; ctl waits for a session when none matches.
-- Terminal mirrors a remote session (2026-10-30): `[remote]> line` shown in
-  green; the hidden NUDGE re-prompt and the for_each prompt hint are now
-  printed. Found while checking this on a pty: `asksForChange()` tested the
-  whole user message including attached file contents, so a read-only
-  question about a file containing `add` made the REPL nudge the model into
-  editing it (a file was modified twice). It now tests the typed request
-  (`request` on the user message).
-- Control socket (2026-10-30): `--listen [PATH]` (`lib/control-socket.js`),
-  client `ctl.js` (installed as `ollama-repl-ctl`: list/send/watch). Output
-  is teed by wrapping `std.out.puts`; `ChatREPL#onIdle`/`onPrompt` emit
-  `ready`/`waiting`. Verified: `/model`, `/tools`, a real read_file round trip
-  with qwen2.5-coder, socket and info file removed on exit. Not verified:
-  the `waiting` event (needs a model that calls run_command), two clients at
-  once, a client that stops reading (the server's `send()` blocks).
-- Piped mode (2026-10-20): `ChatREPL`/`repl.js` follow the base REPL's
-  line mode when stdout is not a tty (`lib/ansi.js`: no escapes, no
-  spinner; `pipeBusy` held while a line is handled, released for
-  `confirm()`/`ask()` answers). Verified with a mock Ollama server
-  (`run_command` approval answered over the pipe, EOF waits for the
-  running turn); not yet verified against a real model. Not done: a
-  `--yes` flag to auto-approve `run_command` for unattended agents.
-
-- Session persistence and `/clear` (2026-08-17): the conversation
-  (`messages`, plus the `/reset` baseline `baseMessageCount`) is now saved
-  to `<model>.json` (`lib/session-store.js`) after every completed turn
-  and after `/reset`/`/clear`, and reloaded from there at startup instead
-  of always re-running the automatic project scan - a killed or restarted
-  REPL picks the session back up where it left off (same model name, same
-  `--root`; a different model or a fresh directory just starts clean, no
-  file to load). `/clear` wipes the conversation *and* the `/reset`
-  baseline completely (no system prompt, no project scan - a full restart
-  in place), unlike `/reset`, which keeps the initial project scan.
-  `/context` (already existed, see the entry below) is the way to inspect
-  what's currently held, resumed or not.
-- "Only the first prompt gets a reply, every one after it just hangs"
-  (2026-08-09, superseded 2026-08-23): originally mitigated by discarding
-  the kept-alive/pipelined (`LCCSCF_PIPELINE`) connection and reconnecting
-  if a request started more than `IDLE_RECONNECT_MS` (30s) after the
-  previous one - aimed at a real but *different* failure (the connection
-  going silently dead server-side after ~90s idle). That mitigation didn't
-  actually cover the common case: further investigation (prompted by a
-  live Gemini repro showing `ESTABLISHED_CLIENT_HTTP`/
-  `SERVER_NEW_CLIENT_INSTANTIATED` firing spuriously with no
-  `CLIENT_APPEND_HANDSHAKE_HEADER`/`CLIENT_HTTP_WRITEABLE` ever following,
-  then a timeout) root-caused the real, always-hit trigger to a
-  vendored-libwebsockets gap: an h1 client request queued onto an
-  already-idle pipelined connection - which is what any real, human-paced
-  pause between prompts produces, regardless of the 30s threshold - is
-  never promoted out of `LRS_H2_WAITING_TO_SEND_HEADERS`
-  (`lws_wsi_mux_apply_queue()` only handles h2/h3/mqtt roles; see BUGS:
-  h1-late-queued-pipeline-never-promoted for the full native trace). Not
-  fixable at this layer. `OllamaClient`/`GeminiClient`/`OpenAIClient`
-  (`lib/ollama-client.js`/`lib/gemini-client.js`/`lib/openai-client.js`)
-  now open a fresh connection per request instead of reusing one across
-  turns - `LCCSCF_PIPELINE` and `IDLE_RECONNECT_MS` removed entirely.
-  Verified against a real Ollama server with an explicit multi-second
-  pause between turns. `GeminiClient` needed a second fix on top of
-  removing `LCCSCF_PIPELINE`: a live repro (real `GEMINI_API_KEY`) still
-  hit the exact same symptom on a 2nd paused request even with the flag
-  gone, because `GeminiClient` (unlike `OpenAIClient`) never pinned ALPN
-  and was negotiating h2 with Google's servers - h2 has its own
-  connection-reuse behavior independent of the app-level pipeline flag.
-  Forcing `alpn: 'http/1.1'` (mirroring `OpenAIClient`'s own workaround
-  for a different h2 bug) hid it. 2026-11-05: the workaround is removed
-  again - with the lws.so and lib fixes of that day (the early h2
-  ESTABLISHED report, the file-completion transaction) three sequential
-  paused requests (0, 3 and 6 s gaps), `chat()` and `chatStream()`, all
-  complete over h2 against real Gemini (gemini-3.1-flash-lite, two runs).
-  `OpenAIClient` not re-verified live (same live-verification gap as the
-  rest of it, see item 4a above).
-
-- `--provider gemini`: `lib/gemini-client.js` (`chat()`/`chatStream()`,
-  same shape as `OllamaClient`) and `repl.js --provider gemini` wiring it
-  in. Verified working end to end, streaming and non-streaming both, for
-  both a short standalone prompt and a request carrying a large (~20-28KB)
-  attached-context body - the large-body case used to intermittently hang
-  or drop the connection (see BUGS: tls-client-large-body-hangs-or-closes,
-  found while wiring this in - fixed in `lib/lws/protocols.js`, not in
-  this subproject) but now returns a normal response every time.
-- `--provider gemini` always failing with "Gemini connection failed:
-  closed" (2026-08-06, reported after the item above had already marked
-  this "Done"): a real, separate, previously-undiscovered bug, not the
-  quota-exhaustion false alarm the item above's old caveat suspected -
-  see BUGS: tls-client-large-body-closes-above-16kb. Any request body over
-  exactly 16384 bytes deterministically closed the connection before a
-  response ever arrived - turned out to be HTTP/2's own default max
-  DATA-frame size (this project's traffic negotiates h2 via ALPN), not a
-  TLS record-size limit as first suspected; `repl.js`'s own automatic
-  project-scan payload is routinely ~20-30KB, so this hit *every* Gemini
-  session, not just ones with a large attached file. Fixed natively in
-  `lws-socket.c` (`socket_flush()`), not in this subproject or even in
-  JS at all - `wsi.write()` now handles a body of any size transparently,
-  same as it always could for a small one - see the BUGS entry for the
-  full story (two earlier fix attempts landed in the wrong place/layer
-  and were reverted) and how the final fix was verified (100-100000 byte
-  bodies against the real endpoint, spanning several chunk boundaries,
-  plus a full `repl.js --provider gemini` session with its real ~29KB
-  startup payload).
-- Ctrl-C during "Thinking..." now aborts just the in-flight
-  chat()/chatStream() call instead of doing nothing on the first press and
-  killing the whole REPL on a second, impatient one (2026-08-08):
-  `OllamaClient#abort()`/`GeminiClient#abort()` (`lib/*-client.js`) close
-  the pending connection and reject its promise, same as the existing
-  per-call timeout path; `ChatREPL#sigintHandler()` (`lib/chat-repl.js`)
-  calls it (wired via a new `onAbort` constructor param, `repl.js`) when a
-  request is actually pending, falling through to the base REPL's normal
-  (idle) Ctrl-C handling otherwise. Only covers the pre-first-token wait
-  (`#awaitResponse`) - a `chatStream()` call that's already past that (mid-
-  stream, spinner already stopped) isn't abortable this way; out of scope
-  since the spinner it was reported against is gone by then anyway.
-- `OllamaClient#destroy()`/`GeminiClient#destroy()` (both `lib/*-
-  client.js`) made idempotent (2026-08-06): root-caused a user-reported
-  "Ctrl-C doesn't stop the REPL, then a TypeError" - a double Ctrl-C runs
-  every registered cleanup handler twice (a bug in the vendored qjs-
-  modules `repl.js`'s own `controlC()`/`exit()`, confirmed with a
-  standalone repro, not fixed here since it's a different project's code)
-  - and `destroy()` unconditionally called `this.#debugFile?.close()`
-  with no guard, throwing "invalid file handle" on the second call. That
-  throw happened *inside* the REPL's own `exit()`, before its
-  `std.exit()` call, so it silently prevented the process from ever
-  actually exiting - not just a cosmetic error. See BUGS:
-  repl-controlc-double-invokes-cleanup-handlers for the full mechanism
-  and repro. A `#destroyed` guard on both classes makes a second
-  `destroy()` call a safe no-op instead.
-- A `SEARCH:` request type (web search via Google's Custom Search JSON
-  API) was built and then dropped again before landing: every keyless
-  scraping target tried as an alternative (DuckDuckGo html/lite, Bing,
-  several public SearXNG instances) came back bot-walled or rate-limited
-  from this environment's IP, and the user decided against shipping a
-  key-gated API for this. `LIST:`/`READ:`/`RUN:` remain the only request
-  types.
-- System prompt (`repl.js`) extended with explicit "writing a new native
-  (C) QuickJS binding" guidance (read an existing sibling `qjs-*`
-  binding as a template, read `quickjs.h` for real signatures, verify via
-  `RUN:`/`qjsm -e` rather than just describing code) and a worked demo of
-  the same in README.md.
-  `RUN:`'s underlying `runCommand()` (`lib/run-command.js`) already ran
-  arbitrary shell commands via `/bin/sh -c` with no changes needed -
-  confirmed directly that both `git log`/`git status` and
-  `qjsm -e '<code>'` work through it exactly as the demo assumes. The
-  demo walkthrough itself describes the intended tool-use sequence rather
-  than a transcript of a real model run: no reachable Ollama server or
-  valid `GEMINI_API_KEY` in this environment to actually drive a live
-  multi-turn session end to end and confirm a model follows every step -
-  see item 3's `MAX_TOOL_ROUNDS` note above for a concrete gap this
-  scenario would likely hit first.
-- `/context` and `/log` REPL commands added (`repl.js`) - inspect the
-  full outgoing context (system prompt + project scan + conversation) or
-  just the conversation so far, without leaving the REPL. Default output
-  is a one-line-per-message summary; run with `-x` and they instead
-  `console.log()` the raw message array - full-depth, `inspect()`-colored
-  on a TTY, same formatting the existing `-x` debug log already used for
-  request/response payloads, just live in the terminal instead of a file.
-
-## Automatic model failover over a chat-bridge
-
-Plan and rationale: `examples/chat-bridge/TODO.md` ("Failover plan"). All four
-steps are done: typed errors and `listModels()` in the OpenAI client;
-`lib/failover.js` builds the fallback order from the endpoint's `/models` (only
-when every entry is `owned_by: "chat-bridge"`, no `--fallback` option) and
-`chatRound()` switches to the next available model on a rate-limit or login
-error; `lib/handoff.js` compacts the conversation first (base messages kept,
-last `--handoff-turns` user turns kept with big tool results clipped, older
-turns summarized by `--handoff-model`, default `qwen3:4b-instruct`).
-Open:
-
-- failover only covers `chatRound()`; a limit hit in the middle of a
-  streamed reply (after text was printed) is not handled
-- when every model is unavailable the original error is shown; a hint with
-  the earliest `resets_at` would help
-- after a handoff `/reset` keeps the base messages but the compacted turns are
-  gone from the local history (the session file is saved compacted too)
-- the summary comes from a 4B model: it can still drop or garble details, the
-  strict headings in `lib/handoff.js` only reduce that
-
-Also done: `--provider bridge` (lib/bridge-process.js) runs the chat-bridge as a
-child process on a free port and rotates the starting model per session
-(state in ~/.cache/ollama-repl/bridge-next). The bridge now navigates blank
-tabs that are already open before it creates any (`chat-bridge/README.md`,
-"Tabs"); `--provider bridge` has no option for `--new-tabs` yet. Gaps: the browser is not started
-for you (the bridge prints the command), and a repl that is killed hard (not
-via /exit or Ctrl-C) can leave the bridge child running.
-
-Update 2026-11-05: `--no-tools` (files as text, `File:` blocks) and the short
-bridge prompt without project scan (`--scan` restores it) are in. A report that
-the prompt stops accepting input after "error: OpenAI connection failed:
-dropped" could not be reproduced with a pty (dropped connection, hung server
-plus Ctrl+C, `--listen`, `-x`); one real cause was fixed, the bridge child
-shared the terminal's stdin and now gets /dev/null. If it happens again, check
-`ls -l /proc/<pid>/fd/0` of the chat-bridge child and whether Enter echoes.
-Not done: `tools: false` in `/v1/models` so the repl switches to `--no-tools`
-by itself, a handoff-aware prompt budget for duck's 16000 characters.
-
-Update 2026-11-04: `--allow-paid` (billing guard), `--cdp-host/--cdp-port`,
-`--no-failover` and `--no-handoff` are documented in README.md ("Using the
-chat sites"); `/tools` output is word-wrapped to the terminal width. Open:
-chatgpt, duck and deepai ignore the emulated tools, so a failover onto them
-ends tool work (`tools: false` in `/v1/models` would let the failover skip
-them, chat-bridge/TODO.md idea 5).
-
-## TUI scrollback and flicker (asked 2026-11-19, done)
-
-E1. [x] transcript scrollback: lib/tui.js keeps the last 10000 transcript
-    lines (with their SGR state) itself, since neither the terminal nor
-    tmux keeps lines that scroll out of a DECSTBM region. PgUp/PgDn and
-    the wheel scroll it (Tui.scrollBy), new output is kept but not drawn
-    while scrolled back, any other key returns to the end. Mouse reports
-    (1000 + 1006) are on by default, /mouse off gives the terminal's own
-    selection back. The qjs-modules REPL now completes an SGR mouse report
-    at its final M/m instead of waiting for the next key. Open: the real
-    wheel inside tmux with mouse off is untested here (tested with SGR
-    reports sent through send-keys).
-E2. [x] no flicker while typing: the base line editor erased from the
-    input to the end of the screen (CSI J) on every key, the status rows
-    with it, and drawStatus() painted them again. The TUI now draws the
-    input itself (Tui.drawEditor, terminal.js layoutInput) and the input,
-    rule and status rows through terminal.js Region, which writes only
-    rows whose text changed and erases after the text, not before. A key
-    writes about 55 bytes now, the status rows not at all.
-E3. [x] the spinner and the after-reply line tell nerd jokes (Star Trek,
-    Monkey Island, Discworld, Indiana Jones games) per phase instead of
-    "Thinking..." and "Cogitated for", lib/quips.js; the TUI keeps the
-    phase facts after the joke. Open: no switch to turn them off, the
-    "thinking:" label of reasoning output is unchanged.
+- the real wheel inside tmux with mouse off is untested here (tested with SGR reports sent through send-keys).
+- the quips have no switch to turn them off, the "thinking:" label of reasoning output is unchanged.
 
 ## Config env, system.md and per-session cache (2026-11-25)
-
-Done:
-- [x] ~/.config/ollama-repl/env (KEY=VALUE, set only when unset) and system.md (lib/config.js loadEnvFile, userSystemPrompt)
-- [x] session files (session.json, session.log, diffs/, history, state.json) in ~/.cache/ollama-repl/sessions/KEY/, KEY = --name or model+root hash (lib/session-cache.js); no more <model>.json/.log/-diffs in the cwd
 
 Open:
 - briefs still live in ~/.config/ollama-repl/brief-*.json, not in ~/.cache (lib/project-brief.js cachePath)
@@ -1244,9 +402,6 @@ Open:
 
 ## Async exploration (2026-11-25)
 
-Done:
-- [x] /model health explores READY gateway models in the background (lib/exploration.js), cache ~/.cache/ollama-repl/exploration.json. It first ran in an os.Worker, which broke the main thread's requests (BUGS lws-statics-not-multi-runtime: lws.so keeps its class prototypes in statics), so it runs on the main event loop, two models at a time
-
 Open:
 - not run against a live gateway; each model costs 3 requests of free quota (identity, system prompt, tool call), 2 models at a time
 - /model health prints the results only on its next run; no live refresh of the pager, no status-bar segment
@@ -1255,10 +410,6 @@ Open:
 - a worker thread is possible again once lws.so keeps its prototypes per context (BUGS lws-statics-not-multi-runtime)
 
 ## Network pane, /split net (2026-11-25)
-
-Done:
-- [x] /split net: a box per TCP connection of the process (ss) with state, up/down bytes and rates, rtt, queues, and the request on it (phase, elapsed bar, route, request and reply tail); lib/net-pane.js, lib/net-activity.js
-- [x] OpenAI clients report through onPhase, Ollama/Gemini clients are wrapped (chat/chatStream), so local models show too
 
 Open:
 - not seen in a live TUI session yet, only rendered from sample data
@@ -1270,32 +421,18 @@ Open:
 
 ## Local-model traffic in verbose panels (2026-11-25)
 
-Done:
-- [x] /brief: the condenser model's requests and replies show as -> / <- verbose panels (lib/trace-chat.js, localTrace in repl.js)
-
 Open:
 - /handoff, /compact, /handoff-model summaries and /each use other local-model calls (lib/handoff.js) without the same panels
 - the /brief panels show whole documents (up to the 8k-token window) per request: long, behind /view N
 
-## Async exploration follow-ups (2026-11-25)
+## Async exploration follow-ups, takeover (2026-11-25), open
 
-Done:
-- [x] status line: tiny `⌕ done/total` segment while the exploration runs (Exploration#done/#total, statusLines)
-- [x] a log note when a model responds ("<id> responds in ..., warm"), and it takes the standby slot when that is empty, the standby is on, the model calls tools and is not the current one (explored() in repl.js)
-- [x] the exploration data augments the lists: /model health (Probe, Says), /model list (probe column), /gateway models, quota, limits, limited (probe column), providers (explored ✔n ✗n per platform); the cache of earlier runs is read at startup, so it shows without running /model health first. /gateway usage and forecast get nothing: no per-model rows there
-
-Done: TAKEOVER by a newly discovered better model (considerTakeover in repl.js, lib/takeover.js, test-takeover.js)
-- answers: the user is asked (never automatic); better = stronger tier or same tier and twice as fast; the local handoff model writes the handoff
-- flow: a usable model with working tools that is better than the running one; while a turn runs, the running model pauses at its next step (takeoverHook.hold in runToolLoop) while the candidate gets the compacted handoff (buildHandoff) plus a "take over" request with the tools offered and answers (nothing is run); if it names a step the user is asked to switch (declined or failed: not offered again for 30 min); idle: only a log line suggesting /model ID; --no-takeover / noTakeover turns it off
-- untested end to end against a live gateway, only the decision and step helpers are unit tested
-- open: the in-flight request of the running model finishes before the pause takes effect (no abort); a handoff when the conversation is short is the plain messages; only the main conversation is held (sub-agents run on)
+- takeover (considerTakeover in repl.js, lib/takeover.js): untested end to end against a live gateway, only the
+  decision and step helpers are unit tested.
+- takeover: the in-flight request of the running model finishes before the pause takes effect (no abort); a handoff
+  when the conversation is short is the plain messages; only the main conversation is held (sub-agents run on).
 
 ## Exploration without prompts (2026-11-25)
-
-Done:
-- [x] one global cache file (exploration.json, keys ORIGIN|MODEL); a model that passed the two prompts is never prompted again, a failed one after an hour; tool support from the gateway catalog (capabilities.tools), a ping call only when the catalog does not say
-- [x] refreshExplored() in repl.js: TCP connect to the gateway (bash /dev/tcp, 2s), limits from availability, requests served in this session -> Exploration#setLive; usable models go through explored() again (standby slot, takeover); /model health and the lists show limited / gateway down
-- [x] test-exploration.js
 
 Open:
 - the live refresh runs only with /model health (and its table), not on a timer or after each turn
@@ -1303,9 +440,6 @@ Open:
 - an entry written by the older three-prompt code counts as verified as it is
 
 ## Keyless providers through the anonymizing proxy (2026-11-25)
-
-Done:
-- [x] /proxy keyless [apply|clear] (keylessProxy in repl.js, lib/ip-fix.js, test-ip-fix.js): keyless keys whose models are limited by window, cooldown, exhaustion or IP errors are listed; apply asks, checks the proxy answers, sets the key's own proxy (PATCH /api/keys/:id proxyUrl) and optionally clears the cooldowns (DELETE /api/keys/:id/cooldowns); clear removes it again
 
 Open:
 - not run against a live gateway: the PATCH and DELETE calls follow the freellmapi source (server/src/routes/keys.ts), the dialog and listing only the mock data
@@ -1315,17 +449,11 @@ Open:
 
 ## /proxy exit without the script (2026-11-25)
 
-Done:
-- [x] newExit() (lib/proxy-probe.js) talks to Tor's control port itself over lib/tcpsocket.js: AUTHENTICATE, SIGNAL NEWNYM, QUIT; TORHOST / CTRLPORT / CTRLPASS as the script's defaults; checked against a fake control port (ok, refused password, nothing listening)
-
 Open:
 - cookie authentication (CookieAuthentication 1 in torrc) is not supported, only the password (empty by default); a remote Tor needs the ssh tunnel the script made by hand
 - Tor rate-limits NEWNYM to once per 10 s and still answers 250 OK: /proxy exit right after another one may keep the circuit
 
 ## Key restriction, /model key:ID,... (2026-11-25)
-
-Done:
-- [x] lib/key-models.js (loadKeyData, parseKeyScope, modelsOfKeys, test-key-models.js); keyScopeCommand in repl.js: list the models of keys, restrict getFilteredModels, completion, /model NAME, standby (pickNext allowed), takeover, exploration; the model in use moves into the set; /route that leaves it is refused; status segment; /gateway keys has an id and a platform quota column
 
 Open:
 - not run against a live gateway; only the key -> models mapping is unit tested
@@ -1333,9 +461,6 @@ Open:
 - the restriction is not kept over /restart or a new session
 
 ## /proxy keyless fix (2026-11-25)
-
-Done:
-- [x] fixKeyless in repl.js: proxy the keys, NEWNYM (own TCP connection, lib/proxy-probe.js newExit), probe the exit address until it differs (lib/ip-check.js externalIp: ipify, icanhazip, ifconfig.me, then the hosts of inet_extip; first public IPv4 of a page, private and loopback lines skipped; test-ip-check.js), clear cooldowns, one request per provider, a second address for the failing ones; exitIp() of /proxy exit uses the same probe
 
 Open:
 - the whole round has only run against pieces (the fake control port, the direct probe, the candidate logic), not against a live gateway and Tor
@@ -1345,26 +470,17 @@ Open:
 
 ## /split net as coloured rectangles (2026-11-25)
 
-Done:
-- [x] lib/net-pane.js: block() renders a connection as a background-coloured rectangle (TYPES, kindOf by label and port) with half-block edges and rounded corners; every line cut by fitLine() so nothing wraps; test-net-pane.js
-
 Open:
 - the compaction type needs the /brief, /handoff and /compact traffic to be watched with a label (they go through localTrace, not watchNet): until then only a request labelled brief/compact/handoff gets it
 - colours checked only as escape sequences, not looked at in a terminal
 
 ## /model health columns (2026-11-25)
 
-Done:
-- [x] Context (catalog context_window) and Tokens/month (the gateway's budget rows of the model: used/budget with percent) columns; READY models first, the strongest (gateway intelligence score) first, then cooldown, rate limited, out of quota, needs key, offline (lib/model-status.js)
-
 Open:
 - the token budget rows are matched to a model by model id or the group id of the row's display name; a model without a budget row (the gateway budgets only some platforms) shows -
 - not run against the live gateway
 
 ## Model rating (2026-11-25)
-
-Done:
-- [x] lib/rating.js (score, Ratings, rateOf/setRater, provider rating, ratingCell; test-rating.js); ratings.json in the cache dir; real requests (onMeta) and exploration probes feed it; pickNext picks the best rating; /model list, /model health (Rate column), /gateway models, limited, providers sorted by it
 
 Open:
 - the weights (55 for the intelligence score, +-25 learned, latency, probe, state) are a first guess, to tune on real use
@@ -1374,9 +490,6 @@ Open:
 
 ## Persisted statistics (2026-11-25)
 
-Done:
-- [x] lib/persist.js: usage.jsonl (appendUsage on every request, trimmed at start), quota.json + quota.jsonl (saveQuota from Gateway.refresh, preloaded as the stand-in until the gateway answers), cooldowns.json (learned cooldowns, unexpired shadow blocks; lib/availability.js); /usage history [DAYS]; flushed at /exit; test-persist.js
-
 Open:
 - quota.jsonl is written but nothing reads it back yet (a trend: /gateway forecast could use it)
 - usage.jsonl rows of one request can repeat when the gateway retries inside a chain: they are the harness's view, one per answered request
@@ -1384,11 +497,6 @@ Open:
 - a killed process loses at most 20 s of quota snapshot and 5 s of cooldowns; usage rows are appended at once
 
 ## Live panels, failover choice, exploration panes (2026-11-25)
-
-Done:
-- [x] lib/tui.js openPanel/updatePanel (owner tag per history line, throttled repaint, test-tui-panels.js); livePanel() in repl.js; live reasoning panel (tail), live response panel (progress, then the metadata), one live tool panel (arguments, then result and time)
-- [x] one next-model order: /model skip and the auto skip take the warm standby, else the best rated; /model next and a typed /model skip let the user choose among likelyModels()
-- [x] verbose: one live panel per exploration worker lane (Exploration.run onEvent, probeUsable onStep)
 
 Open:
 - live panels were checked by unit test and the smoke run, not looked at in a terminal; a repaint every 120 ms redraws the whole window (changed rows only would be cheaper)
@@ -1398,26 +506,16 @@ Open:
 
 ## /gateway views in the background (2026-11-25)
 
-Done:
-- [x] /gateway usage|providers|keys|forecast|quota|limits|limited|models run in the background in the TUI (backgroundReport): a live panel says "loading ..." at once and fills when the text is ready; typed while the model works they run at once, too; no stdout capture, so a streamed reply is not swallowed
-
 Open:
 - /gateway status and login still run in the foreground; the other report commands (/proxy probe, /model health) still capture stdout while they wait
 - not looked at in a terminal
 
 ## /model health fits the terminal (2026-11-25)
 
-Done:
-- [x] /model health uses fitTable (lib/usage-stats.js) with several flexible columns (Says, Quota/Reset, Providers, Probe, Model: the widest gives up width first, down to its header) and drop-out columns (Says, Probe, Tokens/month, Context) on a narrow terminal; the cut keeps colour codes (test-fit-table.js). The old compactTable had one flexible column whose index went stale when the Rate, Context and Tokens/month columns were added
 Open:
 - the other tables built with compactTable (/model list, limits) still have one flexible column
 
-- 2026-11-25: the /binding command was removed from the harness (repl.js, README, DEMO.md); the automatic attach of the binding reference for prompts that look like a binding request stays (lib/binding-context.js).
-
 ## Background events (2026-11-25)
-
-Done:
-- [x] lib/events.js (emit, ring buffer of 1000, sink, /events); sources: availability diff (lib/availability.js), quota thresholds, reachability and key status (lib/freellm.js), exploration batches and results, skips, switches, provider fallback, standby, takeover, failing models, proxy (repl.js); test-events.js
 
 Open:
 - candidates not reported yet: learned cooldown changes (recordCooldownEvent), a model whose rating moved by 10 or more, exploration cache hits skipped, key quota (monthly request cap) of a single key, the persisted-quota stand-in being replaced, the keyless IP fix steps, /gateway providers status changes (a provider turning down), the standby being used as a sub-agent
@@ -1426,19 +524,11 @@ Open:
 
 ## Startup list of likely routes (2026-11-25)
 
-Done:
-- [x] showLikelyRoutes() in repl.js replaces the provider report after the banner: top 8 rated usable models, cached probe verdicts, a live panel that fills in while up to 6 never-probed ones are probed in the background (a chat-bridge keeps its old report)
-
 Open:
 - not run against the live gateway; the probes cost a few small requests per unprobed model, once (a verified model is never probed again, a failed one after an hour)
 - a --quiet / piped start prints the list once without the background update
 
 ## Automatic proxy, pace/IP events, probe classes (2026-11-25)
-
-Done:
-- [x] autoProxy() in repl.js + ipProxyTargets/ipLimitedPlatforms/routedAll (lib/ip-fix.js): keyless keys and keys of IP-limited providers get the socks proxy by themselves (startup, a provider turning IP-limited, every 5 min; proxy must answer; /proxy auto on|off, --no-auto-proxy, off after /proxy keyless clear)
-- [x] events: the pace time of a limited model ran out (watchPace, every 10 s), usable again and why (pace over / accessible again after the IP change / other), exit address changes re-check the gateway (lib/availability.js noteIpChange, reportChanges; test-availability-events.js)
-- [x] probe failures are classified: transient (busy provider: "⚠ busy", no rating penalty, retried after 10 min) vs real ("✗", an hour, not a likely route)
 
 Open:
 - the automatic routing is not run against the live gateway; a keyed provider limited per IP gets a proxy for its key too, which adds the proxy's latency to every request of that key
@@ -1447,28 +537,17 @@ Open:
 
 ## Probe diagnosis, coloured model choice (2026-11-25)
 
-Done:
-- [x] lib/diagnose.js (parseTrail, causeOfError, diagnose; test-diagnose.js); Exploration.run option diagnose runs it in the worker after a failed probe, retries a hiccup with the full probe, stores diagnosis/retryAt; diagnoseModel() in repl.js gathers keys, providers, availability; probeBrief/probeCells show the cause; the startup list leaves failed models out and drops them when a probe fails
-- [x] the model choice of /model next and /model skip is coloured: name by strength (the /model list rainbow), verified green, not verified orange, warm standby teal
-
 Open:
 - the diagnosis is not run against the live gateway; its retry costs one small request per failed model, only when the failure looks transient
 - the retry cannot pin a provider route (the gateway picks it), so a model that fails through one provider and works through another reads as flaky
 
 ## Probe false negatives for reasoning models (2026-11-25)
 
-Done:
-- [x] followsSystem() in lib/exploration.js: the system-prompt test gets 700 tokens (was 96) and accepts a reasoning model that thinks aloud and ends in, or discusses, the word; results written by the old test (no v field) with a system-prompt failure are asked again; 16 of 276 cached models were affected (nemotron-3.5-lightning, -30b, -30b-a3b, gemini-3.5-flash, command-a-reasoning, qwen-sea-lion-v4.5-27b, ling-3.2-flash, ...)
-
 Open:
 - the gateway's own usage is evidence the harness does not use: kilo served 76M tokens of nemotron-3.5-lightning:free this month; a rating term for models that the gateway has served a lot without errors would have caught this
 - a reasoning model that never gets to its answer within 700 tokens still fails the test
 
 ## Two-tier exploration, coloured explore events (2026-11-25)
-
-Done:
-- [x] lib/probe-context.js (buildProbe, grade, deepBudget; test-probe-context.js); probeUsable = tier 0 (ping tool) + tier 1 (deep, top 30 by rating, repl.js deepFor); Exploration.needsDeep, run option deep; rating deepScore; identity and system-prompt questions removed (followsSystem gone)
-- [x] explore events with emoji and per-part colour (lib/events.js decorateExplore)
 
 Open:
 - not run against the live gateway; tier 1 costs about 3-12k tokens per top-30 model once
@@ -1477,10 +556,6 @@ Open:
 
 ## Net pane hops, /gateway limits layout (2026-11-25)
 
-Done:
-- [x] net pane request boxes show the gateway's hops (provider/model, key ordinal, outcome, ms) parsed from X-Fallback-Detail / X-Fallback-Trail (lib/net-pane.js hopsOf, hopLines); the served route was already shown from X-Routed-Via
-- [x] /gateway limits: empty columns left out, provider prefix dim, limited-by amber, back as '67m · 08:59' (green under 10 min), flex on provider/model and back, narrow terminals drop tok/min, req/min, probe, req/day
-
 Open:
 - the gateway sends the key only as an ordinal (key1 = the platform's first key), never its id or label, so the pane cannot name the key; a header with the key label would need a gateway change
 - a successful request shows no key at all (X-Routed-Via has platform/model only)
@@ -1488,74 +563,46 @@ Open:
 
 ## /model explore (2026-11-25)
 
-Done:
-- [x] /model explore PATTERN.. (repl.js; Exploration.run option force): glob or substring, READY models only, both tiers re-run, ratings updated, ranking shown as a background report
-
 Open:
 - limited models are skipped rather than queued until they are back; a sweep of a provider that is rate limited reports them as failed-busy
 - no argument to limit the tier (tier 0 only) or the concurrency
 
 ## Cards for takeover and sweep messages, status bar error (2026-11-25)
 
-Done:
-- [x] lib/look.js card(emoji, title, items, colour): a title and an indented bulleted list; used by the takeover messages (start, picked up, could not, declined, continues) and the /model explore sweep list (models in strength colours with ratings)
-- [x] the status bar shows the last error for 90 s, then a dim count of failed requests
-
 Open:
 - the colour path of card() is not covered by a test (tests run piped); the other note() messages of the exploration are still one-liners
 
 ## /model a,b,c, sweep suggestion (2026-11-25)
-
-Done:
-- [x] /model a,b,c (modelScope in repl.js, folded into inKeyScope), /model scope [off]; the sweep report ends with the /model line of its usable models (tier 0 and 1 passed)
 
 Open:
 - the list is not saved with the session, and not shown in /status; the gateway's own routing (auto) still picks any model, the list only limits what the harness picks and fails over to
 
 ## /model next picker: what is left, scrolling (2026-11-25)
 
-Done:
-- [x] the /model next and /model skip choosers list every candidate (up to 60, best rated first) with what is left of it: the limit that is on (kinds, back in) or cooling, else the share of the monthly token budget (leftCell in repl.js); repl.choose scrolls a long list (window, "N more above/below", PgUp PgDn Home End)
-
 Open:
 - no test for the scrolling dialog (it needs a terminal); the request-rate window left (req/min used/limit) is not in the line, only limits that are on and the token budget
 
 ## /model sweep (2026-11-25)
-
-Done:
-- [x] the sweep report lists the usable models one per line and `/model sweep` applies them (lastSweep in repl.js); no more long /model a,b,c line to copy
 
 Open:
 - lastSweep is not saved with the session; /model a,b,c does not accept the names split over several pasted lines
 
 ## Picker columns (2026-11-25)
 
-Done:
-- [x] repl.choose takes options that are arrays of cells: aligned columns (widest cell per column, ANSI-aware), the selected row with a background across the width; the /model next and /model skip choosers pass likelyModels().cells (name, rating, state, left, ctx)
-
 Open:
 - no test for the dialog drawing (needs a terminal); string options are unchanged
 
 ## /gateway usage: keys and spread (2026-11-25)
-
-Done:
-- [x] /gateway usage: per platform the number of keys that carried the month (of the enabled ones, from /api/keys when there is a dashboard session) and each key's share of the tokens, heaviest first; amber when one key carries over 90% or when all usage sits on one of several keys (lib/freellm.js keyCells, test-key-cells.js); the columns drop first on a narrow terminal
 
 Open:
 - the ledger lists only keys with usage this month, so without a dashboard session the key count is the used keys; shares are of tokens (requests for keys that logged none); not run against the live gateway
 
 ## /gateway limited layout (2026-11-25)
 
-Done:
-- [x] /gateway limited: one line per model at any width (lib/availability.js limitedTable): detail, model, providers and back are cut with an ellipsis, then detail, probe and providers drop; back as '67m · 08:59'; test in test-availability-events.js at widths 0..40
-
 Open:
 - a narrow terminal loses the detail and the providers, so the reason is only the "limited by" word
 
 ## Selection in /model health (2026-11-25)
-
-Done:
-- [x] lib/pager.js select mode (cursor, marks, shift range, space, a, c, action keys; the rows are cut, not wrapped), openPager(title, text, { select }), /model health uses it: Enter = /model a,b,c, e = /model explore ids; test-pager-select.js (needs a tty: run it under script, it is skipped otherwise)
 
 Open:
 - only /model health is selectable; /gateway limited, /gateway models and the other pagers could take the same select option
@@ -1564,25 +611,15 @@ Open:
 
 ## Column filters in the selectable list (2026-11-25)
 
-Done:
-- [x] lib/pager.js: select.columns/cell/build give the header focus (left/right), per-column filters (typing, Backspace, Ctrl-U), rows re-fitted by build(); /model health passes them; test-pager-select.js covers it under a pty
-- [x] the /model next picker shows the age and the share of tokens left in amber like the other values
-
 Open:
 - filters are plain substring matches (no regex, no numeric comparison such as rate>50); a column hidden by a narrow terminal can still be filtered, but its header is not visible
 
 ## Providers in the picker (2026-11-25)
 
-Done:
-- [x] /model next and /model skip pickers: a providers column (last), dropped first, then the ctx column, when the terminal is too narrow (repl.choose option drop: column indexes in the order they go; keepColumns in lib/chat-repl.js; recomputed on a resize)
-
 Open:
 - no test for the dialog layout (needs a terminal)
 
 ## Split pane keys (2026-11-25)
-
-Done:
-- [x] F2 / Shift-F2 (next / previous view), Alt-1..4, Alt-0, Alt-\, Ctrl-X d g s n o Tab (lib/chat-repl.js commands, SPLIT_CHORD, runNow); /split next|prev in repl.js
 
 Open:
 - not tested with a real keyboard: F2 may be taken by the terminal or the tmux/window manager, Alt may be sent as Meta by some terminals; no unit test (needs a tty)
