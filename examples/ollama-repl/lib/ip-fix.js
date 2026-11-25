@@ -19,7 +19,7 @@
 export const ANON_PROXY = 'socks5h://127.0.0.1:9050';
 
 /** the kinds of limit (lib/availability.js) a new IP address can lift */
-const IP_KINDS = new Set(['ip', 'rpm', 'tpm', 'rpd', 'cooldown', 'exhausted']);
+export const IP_KINDS = new Set(['ip', 'rpm', 'tpm', 'rpd', 'cooldown', 'exhausted']);
 
 const hostPort = url => /^[a-z0-9+.-]+:\/\/(?:[^@/]*@)?([^/]+)/i.exec(String(url ?? ''))?.[1] ?? '';
 
@@ -56,6 +56,25 @@ export function ipCandidates(keys, av, proxyUrl = ANON_PROXY) {
   }
 
   return rows.sort((a, b) => b.blocked / b.total - a.blocked / a.total || a.platform.localeCompare(b.platform));
+}
+
+/**
+ * whether every keyless provider is exhausted: each enabled keyless key's platform has models and all of them are blocked
+ * by a limit a new IP address can lift. One provider that still has a usable model, or no keyless key at all, is not it.
+ *
+ * @returns {{keys: {id: number, platform: string, routed: boolean}[], platforms: string[]}|null}
+ */
+export function keylessExhausted(keys, av, proxyUrl = ANON_PROXY) {
+  const mine = (keys ?? []).filter(k => k.keyless && k.enabled);
+  const platforms = [...new Set(mine.map(k => k.platform))];
+  if(!platforms.length) return null;
+
+  for(const p of platforms) {
+    const models = [...(av?.byModel ?? [])].filter(([, e]) => e.platforms?.includes(p));
+    if(!models.length || !models.every(([, e]) => e.blocked && e.kinds?.some(x => IP_KINDS.has(x)))) return null;
+  }
+
+  return { keys: mine.map(k => ({ id: k.id, platform: k.platform, routed: !!k.maskedProxyUrl && hostPort(k.maskedProxyUrl) === hostPort(proxyUrl) })), platforms };
 }
 
 /** every key that is routed through `proxyUrl` now, keyless or not (to take them off it again) */

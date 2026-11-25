@@ -437,7 +437,12 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   for a new exit (NEWNYM on Tor's control port, over a TCP connection of
   its own: `TORHOST`, `CTRLPORT` 9051 and `CTRLPASS` as the script's
   defaults; no script is run), shows the exit address
-  before and after and measures again. The status rows show the measured
+  before and after in a pane (old and new address in warning colors, the
+  models limited per IP address that could work again) and measures again;
+  afterwards the unverified models of the keyless providers are explored in
+  the background. When every keyless provider is exhausted the exit changes by
+  itself, at most every 10 minutes (off with `--no-auto-proxy` or
+  `/proxy auto off`). The status rows show the measured
   overhead (`proxy +430ms`), `/last` whether a request was proxied.
   `/proxy keyless` lists the keyless providers (Kilo, OVH, ...: their quotas
   are counted per IP address) whose models are limited now by a window, a

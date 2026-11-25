@@ -89,7 +89,8 @@ import { externalIp } from './lib/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
 import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
 import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
-import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns } from './lib/ip-fix.js';
+import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted } from './lib/ip-fix.js';
+import { ipGroups, ipChangePanel, ipChangeParts } from './lib/ip-pane.js';
 import { netPaneLines, annotateRates } from './lib/net-pane.js';
 import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting, loadEnvFile, userSystemPrompt } from './lib/config.js';
 import { sessionKey, sessionFile, sessionDir, loadSessionState, saveSessionState, setLogName } from './lib/session-cache.js';
@@ -147,7 +148,7 @@ const USAGE = [
   '',
   '@Conversation',
   ['--no-takeover', 'the async exploration never offers a better model to take over the running task (it only logs it).'],
-  ['--no-auto-proxy', 'do not send the keys of keyless providers and of IP-limited providers through the socks proxy by itself (also /proxy auto off).'],
+  ['--no-auto-proxy', 'do not send the keys of keyless providers and of IP-limited providers through the socks proxy by itself (also /proxy auto off); it also keeps the exit address as it is when every keyless provider is exhausted (otherwise changed by itself, at most every 10 minutes).'],
   ['--no-stream', 'wait for the whole reply instead of printing it as it arrives (streaming is the default; also /stream off).'],
   ['--temperature T', 'sampling temperature (default 0.2).'],
   ['--num-ctx N', 'context window requested from Ollama (default 16384; Ollama itself defaults to 4096).'],
@@ -3165,12 +3166,132 @@ async function main() {
   }
 
   /** after the exit address changed: look at the gateway again soon, so the models that are accessible again are reported */
+  let ipExploreTimer = null;
+
   function recheckAfterIpChange() {
     if(!gateway?.enabled || !gateway.hasLimits) return;
     for(const ms of [6000, 30000])
       setTimeout(() => {
         loadAvailability(gateway).then(av => ((availability = av), tui?.drawStatus())).catch(() => {});
       }, ms);
+
+    /* the keyless providers' models are explored again: what failed under the old address may answer under the new one */
+    clearTimeout(ipExploreTimer);
+    ipExploreTimer = setTimeout(() => exploreKeylessAgain().catch(e => emit('explore', `exploration after the address change failed: ${String(e.detail ?? e.message).split('\n')[0].slice(0, 100)}`, 'bad')), 8000);
+  }
+
+  /**
+   * after the exit address changed: the models of the keyless providers (their quotas and blocks are counted per IP
+   * address) that are usable now but not verified yet - never probed, or failed under the old address - are explored
+   * in the background; the ones that passed before are not asked again
+   */
+  async function exploreKeylessAgain() {
+    if(!gateway?.enabled || !gateway.hasLimits || gateway.isBridge) return;
+
+    const [keys, av] = await Promise.all([gateway.api('/api/keys').catch(() => []), loadAvailability(gateway).catch(() => null)]);
+    if(!av) return;
+    availability = av;
+
+    const keyless = new Set(keys.filter(k => k.keyless && k.enabled).map(k => k.platform));
+    if(!keyless.size) return;
+
+    exploration ??= new Exploration(gateway.origin);
+    ratings ??= new Ratings(gateway.origin);
+    await refreshExplored(av);
+
+    const ids = [...av.byModel].filter(([id, e]) => !e.blocked && !e.permanent && e.until == null && e.status !== 'needsKey' && id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && e.platforms?.some(p => keyless.has(p)) && inKeyScope(id) && !exploration.verified(id)).map(([id]) => id);
+    if(!ids.length) return void emit('explore', 'after the address change every usable keyless model is verified already');
+
+    const tools = {};
+    for(const m of gateway.modelsCached() ?? []) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
+
+    const queued = exploration.run(ids, makeExploreClient, {
+      tools,
+      deep: deepFor(ids),
+      force: true /* a failure from before the change is not fresh news */,
+      diagnose: diagnoseModel,
+      onEvent: exploreEvent,
+      onResult: (id, r) => {
+        ratings?.recordProbe(id, { ok: r.ok, toolOk: r.toolOk, systemOk: r.systemOk, latencyMs: r.latencyMs ?? r.ms, deep: r.deep, transient: isTransientProbe(r) });
+        explored(id, r, true);
+      },
+      onDone: ({ explored: n, usable }) => {
+        exploreLanes = [];
+        tui?.drawStatus();
+        emit('explore', `keyless exploration after the address change finished: ${usable} of ${n} models usable`, usable ? 'good' : 'warn');
+      },
+    });
+
+    if(queued) emit('explore', `${queued} keyless model${queued > 1 ? 's are' : ' is'} explored in the background (new exit address)`);
+  }
+
+  /**
+   * every keyless provider is exhausted (all their models limited per IP address, so nothing is left to try without a
+   * new address): the exit address of the proxy changes by itself, at most every 10 minutes, with a pane that shows the
+   * old and the new address and the models that could work again. Their keys go through the proxy first (autoProxy).
+   * Off with --no-auto-proxy and /proxy auto off.
+   */
+  const AUTO_EXIT_GAP_MS = 10 * 60e3;
+  let autoExitAt = 0;
+  let autoExitBusy = false;
+
+  async function autoExit() {
+    if(opts.noAutoProxy || autoExitBusy || !gateway?.enabled || !gateway.hasLimits || gateway.isBridge || Date.now() - autoExitAt < AUTO_EXIT_GAP_MS) return;
+    if(![...(availability?.byModel ?? [])].some(([, e]) => e.blocked)) return;
+    autoExitBusy = true;
+
+    try {
+      const socks = /^socks/.test(proxyInfo.settings?.url ?? '') ? proxyInfo.settings.url : ANON_PROXY;
+      let keys = await gateway.api('/api/keys');
+      let ex = keylessExhausted(keys, availability, socks);
+      if(!ex) return;
+
+      if(ex.keys.some(k => !k.routed)) {
+        await autoProxy('every keyless provider is exhausted');
+        keys = await gateway.api('/api/keys');
+        ex = keylessExhausted(keys, availability, socks);
+        if(!ex || ex.keys.some(k => !k.routed)) return;
+      }
+
+      autoExitAt = Date.now();
+      const probe = async proxy => (await externalIp({ proxy }).catch(() => null))?.ip ?? null;
+      const before = await probe(socks);
+      if(!before) return void emit('proxy', `every keyless provider is exhausted, but no "what is my IP" host answers through ${socks}: the exit address is not changed`, 'bad');
+
+      const groups = ipGroups(availability, keys);
+      emit('proxy', `every keyless provider is exhausted (${ex.platforms.join(', ')}): the exit address of ${socks} changes`, 'warn');
+      const pane = tui?.active ? livePanel('⚠ every keyless provider is exhausted', dim(`${ex.platforms.join(', ')}: asking for a new exit address …`), { border: '#fbbf24' }) : null;
+
+      try {
+        await newExit();
+      } catch(e) {
+        emit('proxy', `the exit address could not be changed: ${String(e.message).split('\n')[0]}`, 'bad');
+        return void pane?.update('⚠ exit address not changed', `\x1b[31m${String(e.message).split('\n')[0]}\x1b[0m`, { border: '#f87171' });
+      }
+
+      /* a circuit takes a moment to build; Tor answers NEWNYM at most every 10 s */
+      let after = null;
+      for(let i = 0; i < 6; i++) {
+        await new Promise(res => setTimeout(res, i ? 4000 : 3000));
+        after = await probe(socks);
+        if(after && after !== before) break;
+      }
+
+      const direct = await probe(null);
+      if(pane) pane.update(...ipChangeParts({ before, after, direct, groups }));
+      else console.log(ipChangePanel({ before, after, direct, groups }, 100));
+
+      if(after && after !== before) {
+        noteIpChange();
+        emit('proxy', `exit address ${before} -> ${after}`, 'good');
+        await clearCooldowns(gateway, ex.keys.map(k => k.id));
+        recheckAfterIpChange();
+      } else emit('proxy', `the exit address stayed ${before}: Tor keeps the circuit`, 'warn');
+    } catch(e) {
+      emit('proxy', `automatic exit change failed: ${String(e.detail ?? e.message).split('\n')[0].slice(0, 100)}`, 'bad');
+    } finally {
+      autoExitBusy = false;
+    }
   }
 
   /**
@@ -3189,6 +3310,7 @@ async function main() {
           for(const p of ipNow) ipSeen.add(p);
           autoProxy(`${ipNow.join(', ')} limited per IP address`);
         } else if(paceTicks % 30 === 0) autoProxy();
+        autoExit();
 
         const now = Date.now();
         const due = [...(availability?.byModel ?? [])].filter(([id, e]) => e.blocked && e.until != null && e.until <= now && !paceSeen.has(`${id}|${e.until}`));
@@ -3364,9 +3486,10 @@ async function main() {
       const changed = !!after && after !== before;
       if(changed) {
         noteIpChange();
+        recheckAfterIpChange();
         emit('proxy', `exit address ${before} -> ${after}`, 'good');
       }
-      console.log(note(`exit address: ${before} -> ${after ?? '?'} ${changed ? '(changed)' : '(UNCHANGED - Tor keeps the circuit, or the probe hosts answer from a cache)'}${direct && after === direct ? ' - it is our own address, the proxy is not used' : ''}`, changed ? 'explore' : 'warn'));
+      console.log(ipChangePanel({ before, after, direct, groups: left.map(r => ({ platform: r.platform, models: r.limitedIds.map(id => ({ id, kinds: r.kinds, until: r.until })) })) }, tui?.width ?? 100));
       if(!changed) {
         if(round < 2) await new Promise(res => setTimeout(res, 10000));
         continue;
@@ -4168,6 +4291,8 @@ async function main() {
       if((arg === 'probe' || arg === 'exit') && !url) return void console.log(red('error: the gateway has no proxy set'));
 
       if(arg === 'exit') {
+        const avBefore = availability;
+        const keys = gateway.hasLimits ? await gateway.api('/api/keys').catch(() => []) : [];
         const before = await exitIp(url);
         try {
           await newExit();
@@ -4177,6 +4302,7 @@ async function main() {
         const after = await exitIp(url);
         proxyInfo.exits = [before ?? '?', after ?? '?'];
         emit('proxy', `exit address ${before ?? '?'} -> ${after ?? '?'}`, before !== after ? 'good' : 'warn');
+        console.log(ipChangePanel({ before, after, direct: (await externalIp({ proxy: null }).catch(() => null))?.ip ?? null, groups: ipGroups(avBefore, keys) }, tui?.width ?? 100));
         if(before !== after) {
           noteIpChange();
           recheckAfterIpChange();

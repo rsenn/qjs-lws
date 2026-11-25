@@ -1,3 +1,15 @@
+## Exit address change pane, automatic exit change (2026-11-25)
+
+Done: lib/ip-pane.js (the pane: old/new address, models that could work again), keylessExhausted() in lib/ip-fix.js,
+/proxy exit and /proxy keyless fix print the pane, recheckAfterIpChange() also explores the unverified keyless models
+in the background, watchPace() calls autoExit() (every keyless provider exhausted: new Tor exit, at most every 10 min,
+off with --no-auto-proxy / /proxy auto off). test-ip-pane.js covers the pane and keylessExhausted().
+
+Open:
+- autoExit(), exploreKeylessAgain() and the live pane are not tested against a real Tor and a freellmapi gateway (none here), only syntax-checked and run through the unit test
+- the pane's "could work again" list is what was limited before the change; whether a model really answers again shows after the 6 s / 30 s recheck and the exploration (/model list, events)
+- the 10 minute gap between automatic exit changes and "all keyless exhausted" are guesses: tune after a real run
+
 ## Move generic widgets to qjs-modules terminal (2026-11-25), done except the candidates below
 
 Done: ollama-repl imports the split 'terminal', 'terminal/style', 'terminal/screen', 'terminal/widgets',
