@@ -7,7 +7,7 @@
  * const p = await proxySettings(gateway);          // { url, active, bypass, keyProxies }
  * proxied(p, 'kilo');                              // true
  * const m = await measure(p.url);                  // direct vs proxied timings
- * await newExit();                                 // tor-change-exitnode.sh
+ * await newExit();                                 // NEWNYM on Tor's control port, over our own TCP connection
  * ```
  *
  * measure() runs curl to one upstream LLM host, direct and through the
@@ -15,7 +15,12 @@
  * is what a model request feels: TCP and TLS setup plus the upstream's
  * answer, all of it through the proxy's circuit.
  */
+import { getenv } from 'std';
+import { setTimeout, clearTimeout } from 'os';
+import { toString } from 'lws.so';
+import { TCPSocket } from '../../../lib/tcpsocket.js';
 import { runCommand } from './run-command.js';
+import { externalIp } from './ip-check.js';
 
 /** a small upstream answer: an LLM host's model list without a key is a short 401 */
 export const PROBE_URL = 'https://api.groq.com/openai/v1/models';
@@ -94,12 +99,63 @@ export async function measure(proxyUrl, { url = PROBE_URL, runs = 3, timeoutS = 
 
 /** the proxy's exit address, null when it does not answer */
 export async function exitIp(proxyUrl) {
-  const { output, status } = await runCommand(`curl -s -m 20 --proxy '${proxyUrl.replace(/'/g, '')}' ${EXIT_IP_URL}`, { timeoutMs: 25000 });
-  return status === 0 && /^[\d.:a-f]+$/i.test(output.trim()) ? output.trim() : null;
+  return (await externalIp({ proxy: proxyUrl }))?.ip ?? null;
 }
 
-/** asks the proxy for a new circuit (tor-change-exitnode.sh, NEWNYM on the control port) */
-export async function newExit() {
-  const { output, status } = await runCommand('CTRLPASS= tor-change-exitnode.sh', { timeoutMs: 15000 });
-  if(status !== 0 || !/250 OK/.test(output)) throw new Error(`tor-change-exitnode.sh failed: ${output.trim().split('\n').pop() ?? status}`);
+/**
+ * asks the proxy for a new circuit: NEWNYM on Tor's control port, over a TCP connection of our own (what
+ * tor-change-exitnode.sh does with nc). Host, port and password default to the script's: TORHOST (127.0.0.1),
+ * CTRLPORT (9051) and CTRLPASS (empty). A Tor set up with cookie authentication refuses the empty password.
+ *
+ * @throws {Error} when the control port does not answer, the password is refused or Tor says no
+ */
+export async function newExit({ host = getenv('TORHOST') || '127.0.0.1', port = +(getenv('CTRLPORT') || 9051), password = getenv('CTRLPASS') ?? '', timeoutMs = 8000 } = {}) {
+  let buf = '';
+  let wake = null;
+
+  const sock = await TCPSocket.connect({
+    hostname: host,
+    port,
+    socket: {
+      data: (_s, d) => {
+        buf += typeof d === 'string' ? d : toString(d);
+        wake?.();
+      },
+      close: () => wake?.(),
+    },
+  }).catch(e => {
+    throw new Error(`Tor control port ${host}:${port} does not answer (${e.message})`);
+  });
+
+  /* the next final reply line, "250 OK" or "515 Authentication failed: ..." (a "250-" line is not the end) */
+  const reply = () =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Tor control port ${host}:${port} did not answer in ${timeoutMs / 1000}s`)), timeoutMs);
+      const check = () => {
+        const m = /^(\d{3}) ([^\r\n]*)\r?\n/m.exec(buf);
+        if(!m) return false;
+
+        buf = buf.slice(m.index + m[0].length);
+        clearTimeout(timer);
+        wake = null;
+        resolve({ code: +m[1], text: m[2] });
+        return true;
+      };
+
+      if(!check()) wake = () => check();
+    });
+
+  const command = async (line, what) => {
+    sock.write(`${line}\r\n`);
+    const r = await reply();
+    if(r.code !== 250) throw new Error(`Tor control port refused ${what}: ${r.code} ${r.text}`);
+  };
+
+  try {
+    await command(`AUTHENTICATE "${password.replace(/["\\]/g, '\\$&')}"`, 'the password');
+    await command('SIGNAL NEWNYM', 'NEWNYM');
+    sock.write('QUIT\r\n');
+  } finally {
+    sock.close();
+  }
 }

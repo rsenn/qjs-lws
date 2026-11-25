@@ -228,3 +228,11 @@
 - compact-single-turn (examples/ollama-repl/repl.js:3760): compactHook with one long user turn (a job with ~11 tool calls) summarizes the whole turn down to 2 messages, so the running job loses its context (reported after a model switch to a smaller context window)
 
     ollama-repl --compact-at 1 and send one prompt that makes the model call ~10 tools
+
+- lws-statics-not-multi-runtime (lws-socket.c:65): the socket and context class prototypes and constructors are static JSValues (lwsjs_socket_proto, lwsjs_socket_ctor, lwsjs_context_proto, lwsjs_context_ctor in lws-context.c:803), so a second JSRuntime loading lws.so (an os.Worker thread) overwrites the ones of the first: after that every new connection of the main thread fails with TypeError: not a function at onClientAppendHandshakeHeader (lib/lws/protocols.js:294, wsi.addHeader missing) and the request is dropped or answered 401 without its headers. Confirmed with a script: one request on the main thread works, a worker does a request, the next main thread request fails. Fix idea: keep the prototype per context with JS_SetClassProto / JS_GetClassProto instead of statics. ollama-repl runs its async exploration on the main thread because of this.
+
+    import * as os from 'os';
+    // main thread: any request with lib/lws/protocols.js httpClient works
+    const w = new os.Worker('worker-that-imports-lws-and-does-a-request.js');
+    await new Promise(r => { w.onmessage = e => e.data.done && r(); w.postMessage({}); });
+    // the next request on the main thread: ERROR: TypeError: not a function, STACK: at onClientAppendHandshakeHeader

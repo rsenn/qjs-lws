@@ -1138,3 +1138,118 @@ E3. [x] the spinner and the after-reply line tell nerd jokes (Star Trek,
     "Thinking..." and "Cogitated for", lib/quips.js; the TUI keeps the
     phase facts after the joke. Open: no switch to turn them off, the
     "thinking:" label of reasoning output is unchanged.
+
+## Config env, system.md and per-session cache (2026-11-25)
+
+Done:
+- [x] ~/.config/ollama-repl/env (KEY=VALUE, set only when unset) and system.md (lib/config.js loadEnvFile, userSystemPrompt)
+- [x] session files (session.json, session.log, diffs/, history, state.json) in ~/.cache/ollama-repl/sessions/KEY/, KEY = --name or model+root hash (lib/session-cache.js); no more <model>.json/.log/-diffs in the cwd
+
+Open:
+- briefs still live in ~/.config/ollama-repl/brief-*.json, not in ~/.cache (lib/project-brief.js cachePath)
+- the restored /model pattern is only announced at start, it does not restore the cycle position
+- /rename after start does not move the session files (the key is fixed at startup)
+- old <model>.json/.log/-diffs in a project directory are not migrated, a first run starts a fresh session
+- the provider debug logs (<provider>-repl-debug.log, lib/logger.js) still go to the cwd
+- no unit test for lib/session-cache.js and the env parser (checked by hand with XDG_* pointed at a temp dir)
+
+## Async exploration (2026-11-25)
+
+Done:
+- [x] /model health explores READY gateway models in the background (lib/exploration.js), cache ~/.cache/ollama-repl/exploration.json. It first ran in an os.Worker, which broke the main thread's requests (BUGS lws-statics-not-multi-runtime: lws.so keeps its class prototypes in statics), so it runs on the main event loop, two models at a time
+
+Open:
+- not run against a live gateway; each model costs 3 requests of free quota (identity, system prompt, tool call), 2 models at a time
+- /model health prints the results only on its next run; no live refresh of the pager, no status-bar segment
+- the explored identity is not used for routing yet (e.g. skip models that ignore a system prompt in auto routing, show it in /model list)
+- only OpenAI-compatible gateways (freellm) are explored
+- a worker thread is possible again once lws.so keeps its prototypes per context (BUGS lws-statics-not-multi-runtime)
+
+## Network pane, /split net (2026-11-25)
+
+Done:
+- [x] /split net: a box per TCP connection of the process (ss) with state, up/down bytes and rates, rtt, queues, and the request on it (phase, elapsed bar, route, request and reply tail); lib/net-pane.js, lib/net-activity.js
+- [x] OpenAI clients report through onPhase, Ollama/Gemini clients are wrapped (chat/chatStream), so local models show too
+
+Open:
+- not seen in a live TUI session yet, only rendered from sample data
+- the exploration's requests show in the boxes with the label explore
+- the elapsed bar counts against a fixed 90s, not the client's real first-token/stall timeouts
+- non-streamed OpenAI replies show no reply tail, and a wrapped Ollama chat() shows it only when the call ends
+- requests are paired to sockets by the peer port only: two parallel requests to one host share the first matching socket
+- no scrolling in the pane: a long list is clipped at the bottom
+
+## Local-model traffic in verbose panels (2026-11-25)
+
+Done:
+- [x] /brief: the condenser model's requests and replies show as -> / <- verbose panels (lib/trace-chat.js, localTrace in repl.js)
+
+Open:
+- /handoff, /compact, /handoff-model summaries and /each use other local-model calls (lib/handoff.js) without the same panels
+- the /brief panels show whole documents (up to the 8k-token window) per request: long, behind /view N
+
+## Async exploration follow-ups (2026-11-25)
+
+Done:
+- [x] status line: tiny `⌕ done/total` segment while the exploration runs (Exploration#done/#total, statusLines)
+- [x] a log note when a model responds ("<id> responds in ..., warm"), and it takes the standby slot when that is empty, the standby is on, the model calls tools and is not the current one (explored() in repl.js)
+- [x] the exploration data augments the lists: /model health (Probe, Says), /model list (probe column), /gateway models, quota, limits, limited (probe column), providers (explored ✔n ✗n per platform); the cache of earlier runs is read at startup, so it shows without running /model health first. /gateway usage and forecast get nothing: no per-model rows there
+
+Done: TAKEOVER by a newly discovered better model (considerTakeover in repl.js, lib/takeover.js, test-takeover.js)
+- answers: the user is asked (never automatic); better = stronger tier or same tier and twice as fast; the local handoff model writes the handoff
+- flow: a usable model with working tools that is better than the running one; while a turn runs, the running model pauses at its next step (takeoverHook.hold in runToolLoop) while the candidate gets the compacted handoff (buildHandoff) plus a "take over" request with the tools offered and answers (nothing is run); if it names a step the user is asked to switch (declined or failed: not offered again for 30 min); idle: only a log line suggesting /model ID; --no-takeover / noTakeover turns it off
+- untested end to end against a live gateway, only the decision and step helpers are unit tested
+- open: the in-flight request of the running model finishes before the pause takes effect (no abort); a handoff when the conversation is short is the plain messages; only the main conversation is held (sub-agents run on)
+
+## Exploration without prompts (2026-11-25)
+
+Done:
+- [x] one global cache file (exploration.json, keys ORIGIN|MODEL); a model that passed the two prompts is never prompted again, a failed one after an hour; tool support from the gateway catalog (capabilities.tools), a ping call only when the catalog does not say
+- [x] refreshExplored() in repl.js: TCP connect to the gateway (bash /dev/tcp, 2s), limits from availability, requests served in this session -> Exploration#setLive; usable models go through explored() again (standby slot, takeover); /model health and the lists show limited / gateway down
+- [x] test-exploration.js
+
+Open:
+- the live refresh runs only with /model health (and its table), not on a timer or after each turn
+- the TCP check is one connect to the gateway, not to the model's upstream provider
+- an entry written by the older three-prompt code counts as verified as it is
+
+## Keyless providers through the anonymizing proxy (2026-11-25)
+
+Done:
+- [x] /proxy keyless [apply|clear] (keylessProxy in repl.js, lib/ip-fix.js, test-ip-fix.js): keyless keys whose models are limited by window, cooldown, exhaustion or IP errors are listed; apply asks, checks the proxy answers, sets the key's own proxy (PATCH /api/keys/:id proxyUrl) and optionally clears the cooldowns (DELETE /api/keys/:id/cooldowns); clear removes it again
+
+Open:
+- not run against a live gateway: the PATCH and DELETE calls follow the freellmapi source (server/src/routes/keys.ts), the dialog and listing only the mock data
+- nothing changes the exit address by itself: /proxy exit does it on request; an automatic new exit when a keyless provider runs dry again is not done
+- a keyless platform the gateway lists only as a provider (no key row yet) cannot be given a proxy: the dashboard keeps the sentinel row
+- which limits an address change lifts is a guess (windows, cooldown, exhaustion, IP errors); credit, tier and key state are left alone
+
+## /proxy exit without the script (2026-11-25)
+
+Done:
+- [x] newExit() (lib/proxy-probe.js) talks to Tor's control port itself over lib/tcpsocket.js: AUTHENTICATE, SIGNAL NEWNYM, QUIT; TORHOST / CTRLPORT / CTRLPASS as the script's defaults; checked against a fake control port (ok, refused password, nothing listening)
+
+Open:
+- cookie authentication (CookieAuthentication 1 in torrc) is not supported, only the password (empty by default); a remote Tor needs the ssh tunnel the script made by hand
+- Tor rate-limits NEWNYM to once per 10 s and still answers 250 OK: /proxy exit right after another one may keep the circuit
+
+## Key restriction, /model key:ID,... (2026-11-25)
+
+Done:
+- [x] lib/key-models.js (loadKeyData, parseKeyScope, modelsOfKeys, test-key-models.js); keyScopeCommand in repl.js: list the models of keys, restrict getFilteredModels, completion, /model NAME, standby (pickNext allowed), takeover, exploration; the model in use moves into the set; /route that leaves it is refused; status segment; /gateway keys has an id and a platform quota column
+
+Open:
+- not run against a live gateway; only the key -> models mapping is unit tested
+- no per-request key choice exists in the gateway: with other enabled keys on a platform the restriction is of models, not of keys (only a warning); real enforcement would need the keys' model scope or enabled flag changed, as /proxy keyless does with the proxy
+- the restriction is not kept over /restart or a new session
+
+## /proxy keyless fix (2026-11-25)
+
+Done:
+- [x] fixKeyless in repl.js: proxy the keys, NEWNYM (own TCP connection, lib/proxy-probe.js newExit), probe the exit address until it differs (lib/ip-check.js externalIp: ipify, icanhazip, ifconfig.me, then the hosts of inet_extip; first public IPv4 of a page, private and loopback lines skipped; test-ip-check.js), clear cooldowns, one request per provider, a second address for the failing ones; exitIp() of /proxy exit uses the same probe
+
+Open:
+- the whole round has only run against pieces (the fake control port, the direct probe, the candidate logic), not against a live gateway and Tor
+- no automatic trigger: when a keyless provider runs dry nothing starts the round, it is a command (a log hint would be the next step)
+- the request per provider tests the strongest limited model only; a provider whose other models stay limited is reported as working
+- Tor keeps one circuit per 10 s at least: a round that sees the same address twice waits 10 s and tries once more

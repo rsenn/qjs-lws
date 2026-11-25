@@ -29,6 +29,7 @@ import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
 import { RequestLogger } from '../../../lib/logger.js';
+import { debugLogPath } from './session-cache.js';
 import { getenv, puts } from 'std';
 import { setTimeout, clearTimeout } from 'os';
 
@@ -47,7 +48,7 @@ const DEFAULT_TIMEOUT_SECS = 15 * 60;
 /* Mirrors OllamaClient's own debug log (see its DEBUG_LOG_PATH comment)
    but kept in a separate file so the two clients' logs don't interleave.
    See lib/logger.js's own doc comment. */
-const DEBUG_LOG_PATH = 'gemini-repl-debug.log';
+/* the debug log: lib/session-cache.js debugLogPath() */
 
 export class GeminiClient {
   #apiKey;
@@ -79,7 +80,7 @@ export class GeminiClient {
     this.#timeoutMs = timeoutSecs * 1000;
     this.#timeoutSecs = timeoutSecs;
 
-    this.#logger = new RequestLogger(DEBUG_LOG_PATH, debug);
+    this.#logger = new RequestLogger(debugLogPath('gemini', debug), debug);
 
     this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
 

@@ -1,7 +1,9 @@
 # ollama-repl
 
 A small Claude-Code-style REPL for chatting with a local [Ollama](https://ollama.com)
-model (`qwen2.5-coder` by default) about the files in your project. It also
+model (`--provider ollama`) about the files in your project. By default it
+talks to a local freellmapi gateway
+(`--provider freellm`, model `auto`). It also
 works against Gemini, any OpenAI-compatible endpoint, and - through
 `examples/chat-bridge` - the free chat websites (DeepSeek, Mistral, Qwen, ...)
 driven in your own browser (`--provider bridge`).
@@ -12,7 +14,7 @@ driven in your own browser (`--provider bridge`).
   its own `LWSContext`. Each prompt opens its own fresh connection rather
   than reusing one across turns - see BUGS:
   h1-late-queued-pipeline-never-promoted for why.
-- **Token streaming (`--stream`).** Ollama's own HTTP API streams
+- **Token streaming (the default; `--no-stream` turns it off).** Ollama's own HTTP API streams
   newline-delimited JSON when asked (`stream: true`) over that same
   connection - no child process or second connection needed. `chatStream()`
   reads the response body (a real `ReadableStream`) incrementally via
@@ -36,7 +38,7 @@ driven in your own browser (`--provider bridge`).
   every file the model writes back (model -> project) is recorded for the
   session (`lib/file-exchange.js`); `/files` dumps the full history. A
   written file that already existed gets diffed against its previous
-  content first, and the diff is saved to `<model>-diffs/NNN-name.diff` -
+  content first, and the diff is saved to `diffs/NNN-name.diff` in the session's cache directory (below) -
   reviewable, and revertible with `patch -R < that-file`.
 - **File output.** When you ask the model to create or modify a file, it's
   instructed (via the system prompt in `repl.js`) to reply with a
@@ -77,11 +79,11 @@ driven in your own browser (`--provider bridge`).
   to know the project's shape; `LIST:`/`READ:` reaches anything deeper.
   `/reset` clears conversation history but keeps this initial scan; `/clear`
   wipes it too, for a session with no scan at all.
-- **Session persistence.** The conversation is saved to `<model>.json`
+- **Session persistence.** The conversation is saved to `session.json` in the session's cache directory
   (`lib/session-store.js`) after every turn and after `/reset`/`/clear`. If
   that file already exists at startup, the REPL resumes from it instead of
   running the automatic project scan again - kill and restart the REPL
-  (same `--model`, same working directory) and the conversation picks up
+  (same `--model` and project, or the same `--name`) and the conversation picks up
   where it left off. `/clear` (see above) is the way to discard a resumed
   session and start over.
 - **QuickJS/qjs-modules awareness.** The system prompt points the model at
@@ -105,10 +107,10 @@ driven in your own browser (`--provider bridge`).
   default JS-identifier completion. Input is plain bright white, not the
   base REPL's live JS-syntax highlighting (meaningless for a chat prompt).
 - **Session log.** Every prompt (with what was attached), reply, tool
-  result, and file written is appended, timestamped, to `<model>.log` in
-  the current directory (`lib/session-log.js`) - independent of the
+  result, and file written is appended, timestamped, to `session.log` in
+  the session's cache directory (`lib/session-log.js`) - independent of the
   terminal, and across runs (opened in append mode). This is a read-only
-  transcript; `<model>.json` (see "Session persistence" above) is the
+  transcript; `session.json` (see "Session persistence" above) is the
   actual resumable conversation state.
 - **Thinking indicator.** A small animated spinner (cycling through the
   four Unicode quadrant-block glyphs) shows while waiting on the model,
@@ -156,11 +158,12 @@ against any of the three clients. `API.md` has a full round-trip example.
 
 ## Requirements
 
-- `--provider ollama` (the default): a running Ollama server with the
-  model pulled:
-  ```sh
-  ollama pull qwen2.5-coder
-  ```
+- `--provider freellm` (the default): a freellmapi gateway at
+  `FREELLMAPI_URL` (else `http://localhost:3001/v1`), key in
+  `FREELLMAPI_KEY`; the model is `auto` unless `--model` says otherwise.
+- `--provider ollama`: a running Ollama server with a model pulled
+  (`ollama pull MODEL`); without `--model` the first model `ollama list`
+  shows is used, there is no built-in default model.
 - `--provider gemini`: `GEMINI_API_KEY` exported in the environment (a
   free-tier key from https://aistudio.google.com/apikey works).
 - `--provider openai`: `OPENAI_API_KEY` exported in the environment (a
@@ -175,7 +178,7 @@ against any of the three clients. `API.md` has a full round-trip example.
 ## Run
 
 ```sh
-qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai|freellm|bridge] [--model NAME] [--host localhost] [--port 11434] [--root .] [--stream] [-x [-x]] [--failsafe] [--no-tui]
+qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai|freellm|bridge] [--model NAME] [--host localhost] [--port 11434] [--root .] [--no-stream] [-x [-x]] [--failsafe] [--no-tui]
         [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes]
 ```
 
@@ -281,7 +284,7 @@ Engaged at warp 9 in 3.2s - auto:fast -> kilo/nvidia/nemotron-3.5-lightning:free
 | `/requests [N]` | The last N (10) requests of the session, one line each |
 | `/usage` | Session totals, then a table per routed model and per platform |
 | `/gateway usage` | The gateway's month across all clients: requests and tokens per platform and key, with caps |
-| `/gateway providers` | Health of every upstream platform (healthy, rate limited, cooldown end, invalid key) |
+| `/gateway providers` | Health of every upstream platform (healthy, rate limited, cooldown end, invalid key), the heaviest used first, with the month's recorded tokens (share of all, meter) and requests |
 | `/gateway forecast` | Request quotas the providers reported, low balance, reset time |
 | `/gateway quota [FILTER]` | Per-model quota windows (requests/min, requests/day, tokens/min used vs limit) and monthly token budget, the models used today first (needs a dashboard session, see below) |
 | `/gateway models [FILTER]` | Models a request can use right now, with context window |
@@ -428,9 +431,27 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   per-key proxies, the latency it adds and the time to first byte per
   platform in this session. `/proxy probe` measures it (curl to an LLM
   host, direct and through the proxy, median of 3), `/proxy exit` asks
-  for a new exit (`tor-change-exitnode.sh`), shows the exit address
+  for a new exit (NEWNYM on Tor's control port, over a TCP connection of
+  its own: `TORHOST`, `CTRLPORT` 9051 and `CTRLPASS` as the script's
+  defaults; no script is run), shows the exit address
   before and after and measures again. The status rows show the measured
   overhead (`proxy +430ms`), `/last` whether a request was proxied.
+  `/proxy keyless` lists the keyless providers (Kilo, OVH, ...: their quotas
+  are counted per IP address) whose models are limited now by a window, a
+  cooldown, exhaustion or an IP error - the ones another address could
+  help. `/proxy keyless apply` asks, then gives their keys a proxy of their
+  own in the gateway, `socks5h://127.0.0.1:9050` (the anonymizing proxy, or
+  the gateway's own socks URL), and optionally clears their cooldowns so
+  they are tried at once; `/proxy exit` then gets the proxy a new exit
+  address, `/proxy keyless clear` takes the keys off it again.
+  `/proxy keyless fix` does the whole round after one question: it probes
+  the external address direct and through the proxy (a list of "what is my
+  IP" hosts tried in turn, as the shell function `inet_extip` does, the
+  first public address wins), puts the keys on the proxy, sends NEWNYM to
+  the control port (`127.0.0.1:9051`), probes again until the address
+  really differs (and says so if it does not), clears the cooldowns and
+  sends one small request per provider to see whether its model answers
+  through the new address; providers that still fail get a second address.
   `/proxy off` and `/proxy on` switch the global proxy of the gateway
   (dashboard setting `enabled`, the URL stays saved, effective for the next
   request; needs a dashboard session, also works through `ollama-repl-ctl`).
@@ -468,6 +489,57 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   wins), `delegates.json` what the sub-agent models did. `/config` shows
   saved and current values, `/config set KEY VALUE` and `/config unset KEY`
   write the file (used by the next start).
+  `env` holds `KEY=VALUE` lines (`FREELLMAPI_URL`, `FREELLMAPI_KEY`, ...)
+  put in the environment at startup, a variable already set wins;
+  `system.md` replaces the built-in system prompt.
+- Every session keeps its files under
+  `~/.cache/ollama-repl/sessions/KEY/` (`$XDG_CACHE_HOME` honoured), none
+  in the current directory: `session.json`, `session.log`, `diffs/`,
+  `history` (input lines) and `state.json` (the last `/model PATTERN`).
+  KEY is the `--name`, else the model plus a hash of the project root.
+  Output files `<model>-output-N.ext` stay in the project.
+- **Network pane (`/split net`).** A box on the right for every TCP
+  connection of the process, local models included: state, bytes up and
+  down with rates, round trip, and for the request on it the phase, a
+  progress bar, the route and a peek at what was sent and what flows back.
+  Finished requests stay a minute. `lib/net-pane.js`, `lib/net-activity.js`.
+- **Key restriction (`/model key:ID,key:ID`).** Lists the models reachable
+  through those gateway keys (a key serves the models of its platform inside
+  its model scope; the ids are in `/gateway keys`) and restricts the model
+  selection to them: the model list, `/model NAME`, the next model after a
+  skip, the standby, the takeover and the exploration. The model in use
+  moves to the strongest usable one of them, `/route` that would leave the
+  set is refused, the status line shows `⚿ keys 3,7`. `/model key:off`
+  lifts it. The gateway has no way to name a key per request and picks it
+  itself, so the restriction holds for a key only where it is the only
+  enabled key of its platform; the others are named in a warning.
+- **Provider keys (`/gateway keys [all|FILTER]`).** The providers the
+  gateway has keys for and their keys, as the dashboard's Keys page lists
+  them: provider, label, the *masked* key, status, enabled, requests and
+  tokens used this month (with a meter where a cap is set), when the key
+  last worked, cooldowns and the last error. Needs a dashboard session
+  (`/gateway login`); `all` adds the providers without a key. Real keys
+  are never read: the gateway's reveal and export endpoints are not used.
+- **Async exploration.** `/model health` starts a background exploration
+  (`lib/exploration.js`, on the REPL's own event loop, two models at a
+  time) of every READY gateway model: it is asked which model it is, whether it obeys a system
+  prompt (a tool call is only tried when the gateway's catalog does not say
+  whether it takes tools). The answers are kept in one file for all
+  gateways, `~/.cache/ollama-repl/exploration.json`, and appear in the
+  Probe and Says columns the next time `/model health` runs. A model that
+  passed is never prompted again (a failed one is asked again after an
+  hour): from then on `/model health` only checks, without prompting, that
+  the gateway answers a TCP connect, whether the usage and quota it reports
+  limit the model, and which requests of the session it served.
+  While it runs the status line shows `⌕ done/total`; each model that
+  responds is logged, and takes the standby slot when that is empty. The
+  results also add a probe column to `/model list` and to `/gateway models`,
+  `quota`, `limits` and `limited`, and an explored count to `/gateway
+  providers`. A model that looks better than the running one (stronger tier,
+  or the same tier and twice as fast) is offered as a **takeover**: the
+  running model pauses at its next step, the candidate gets a compacted
+  handoff of the task and says what it would do next, and you are asked
+  whether to switch (the context is kept). `--no-takeover` only logs it.
 - Delegation: unless `--no-delegate` or `/delegate off`, the primary model's
   system prompt says it may hand documentation, build-system wiring,
   summaries and simple repetitive jobs to weaker sub-agents
@@ -626,13 +698,13 @@ scratch. A resumed session's saved system prompt is dropped too.
 
 Three separate logs, not one - each answers a different question:
 
-- `<model>.log` - the conversation transcript (prompts/replies/tool
+- `session.log` - the conversation transcript (prompts/replies/tool
   calls/files written), always on.
 - `-x`/`--debug` (or the `DEBUG` env var set to any non-empty value - not
   a numeric "level", `DEBUG=1` and `DEBUG=anything` behave identically)
   logs every raw request/response - and, with `--stream`, every
-  individual streamed chunk - to `<provider>-repl-debug.log` (e.g.
-  `ollama-repl-debug.log`; append mode, `inspect()`-formatted, full
+  individual streamed chunk - to `~/.cache/ollama-repl/logs/DATE-TIME-NAME-PROVIDER.log` (e.g.
+  `2026-11-25-041500-idempotent-quokka-openai.log`; append mode, `inspect()`-formatted, full
   depth) instead of the terminal.
 - `TRAFFIC=<path>` (an env var, not a flag) additionally logs native
   socket-level RX/TX traffic for the underlying HTTP connection itself
@@ -651,7 +723,7 @@ the output up to the next `<model>> ` prompt, which is printed exactly once
 each time the REPL is ready for input:
 
 ```sh
-printf 'what does lib/run-command.js do?\n/status\n' | qjsm repl.js --stream > out.txt
+printf 'what does lib/run-command.js do?\n/status\n' | qjsm repl.js > out.txt
 ```
 
 - lines run strictly in order; EOF on stdin ends the session only after
@@ -685,8 +757,8 @@ ollama-repl-ctl -s alpha restart        # /restart: smoke test, new process, sam
 ```
 
 A session started without `--listen` can open its socket later with
-`/remote-control [PATH]` (like Claude Code's), and close it with
-`/remote-control off`. `/rename NAME` renames the session for
+`/remote-control [PATH]` (alias `/listen`, like Claude Code's), and close it with
+`/remote-control off`. `/rename [NAME]` renames the session (without NAME a funny one is made up, as one is at start when no `--name` is given) for
 `ollama-repl-ctl -s NAME`. The status line shows `remote: NAME` while the
 socket is open.
 
@@ -989,8 +1061,8 @@ end to end.
 
 ## Notes / limitations
 
-- Non-streaming (full reply printed at once) by default; pass `--stream`
-  for token-by-token output.
+- Replies stream token by token by default; `--no-stream` (or `/stream off`,
+  or `stream` in `settings.json`) prints the full reply at once.
 - File detection is a best-effort token scan (`lib/file-refs.js`), capped
   at 20 files / 1&nbsp;MiB total per prompt so a broad glob can't flood the
   request; skipped matches are reported.

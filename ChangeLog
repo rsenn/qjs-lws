@@ -1,3 +1,9 @@
+2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
+
+	* BUGS (lws-statics-not-multi-runtime): New. A second JSRuntime
+	(an os.Worker) loading lws.so overwrites the static class
+	prototypes of the first, the main thread's requests then fail.
+
 2026-11-24  Roman Senn  <roman.l.senn@gmail.com>
 
 	* examples/ollama-repl/repl.js (skipModel, skipModels, retryMs,

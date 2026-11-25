@@ -33,6 +33,7 @@ import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
 import { RequestLogger } from '../../../lib/logger.js';
+import { debugLogPath } from './session-cache.js';
 import { getenv } from 'std';
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -47,7 +48,7 @@ const DEFAULT_TIMEOUT_SECS = 15 * 60;
 /* Mirrors OllamaClient's own debug log (see its DEBUG_LOG_PATH comment)
    but kept in a separate file so the clients' logs don't interleave.
    See lib/logger.js's own doc comment. */
-const DEBUG_LOG_PATH = 'openai-repl-debug.log';
+/* the debug log: lib/session-cache.js debugLogPath() */
 
 /**
  * A non-2xx answer from the endpoint. `message` keeps the full dump
@@ -229,7 +230,7 @@ export class OpenAIClient {
     this.#timeoutSecs = timeoutSecs;
     this.#streamUsage = streamUsage;
 
-    this.#logger = new RequestLogger(DEBUG_LOG_PATH, debug);
+    this.#logger = new RequestLogger(debugLogPath('openai', debug), debug);
 
     this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
 
@@ -389,6 +390,8 @@ export class OpenAIClient {
 
     const body = JSON.stringify(payload);
     if(meta) {
+      meta.url = url;
+      meta.request = String(payload.messages?.[payload.messages.length - 1]?.content ?? '').slice(-200);
       meta.bytesOut = body.length;
       meta.bytesIn = 0;
       meta.chunks = 0;
@@ -672,6 +675,7 @@ export class OpenAIClient {
           if(!meta.reasoning) this.onPhase?.('reasoning', meta);
           meta.chunks++;
           meta.reasoning = (meta.reasoning ?? '') + thought;
+          meta.tailReasoning = meta.reasoning.slice(-160);
           onReasoning?.(thought);
         }
 
@@ -680,6 +684,7 @@ export class OpenAIClient {
           meta.chunks++;
           meta.firstTokenMs ??= Date.now() - meta.t0;
           full += delta.content;
+          meta.tail = full.slice(-160);
           onToken(delta.content);
         }
 

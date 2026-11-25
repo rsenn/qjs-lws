@@ -1,17 +1,18 @@
 /**
  * Persists the conversation (`messages`, plus the `/reset` baseline
- * `baseMessageCount`) to `<model>.json` after every completed turn, so a
+ * `baseMessageCount`) to `session.json` of the session's cache directory
+ * (lib/session-cache.js) after every completed turn, so a
  * killed or restarted REPL can pick a session back up via load() instead
- * of starting cold - same model name a session's other per-model files
- * (`<model>.log`, `<model>-diffs/`) already key off.
+ * of starting cold; `session.log` and `diffs/` sit beside it.
  */
 import { loadFile, open as fopen } from 'std';
 
 export class SessionStore {
   #path;
 
-  constructor(model) {
-    this.#path = `${model}.json`;
+  /** @param {string} path  the session file */
+  constructor(path) {
+    this.#path = path;
   }
 
   get path() {

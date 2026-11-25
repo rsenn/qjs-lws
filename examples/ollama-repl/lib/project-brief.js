@@ -177,9 +177,10 @@ export function lastBrief(root) {
  * @param {boolean} [o.refresh]  ignore the cache
  * @param {(line: string) => void} [o.onProgress]
  * @param {(stop: () => void) => void} [o.register]  gets a function that aborts the running model call
+ * @param {(client: OllamaClient) => void} [o.onClient]  gets the client of the condenser model before its first call (to watch its traffic)
  * @returns {Promise<{brief: string, files: number, cached: boolean, by: string}|null>} null if the condenser model could not be reached
  */
-export async function buildBrief(root, { size, model = HANDOFF_MODEL, host = 'localhost', port = 11434, refresh = false, onProgress = () => {}, register = () => {} } = {}) {
+export async function buildBrief(root, { size, model = HANDOFF_MODEL, host = 'localhost', port = 11434, refresh = false, onProgress = () => {}, register = () => {}, onClient = () => {} } = {}) {
   const paths = await listFiles(root);
   const docs = pickDocs(paths);
   const abs = p => (root === '.' ? p : `${root}/${p}`);
@@ -191,6 +192,7 @@ export async function buildBrief(root, { size, model = HANDOFF_MODEL, host = 'lo
   const client = new OllamaClient({ host, port, model, think: false, numCtx: 8192, temperature: 0.2, timeoutSecs: 240 });
 
   register(() => client.abort());
+  onClient(client);
 
   try {
     const tree = renderTree(paths, Math.round(size * 0.3));

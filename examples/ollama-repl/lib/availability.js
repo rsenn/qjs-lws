@@ -22,7 +22,9 @@
  * UTC month, and a daily request window within 24 h (the oldest request
  * leaves it first; `approx` marks such a time).
  */
-import { formatTable, fmtNum } from './usage-stats.js';
+import { formatTable, fitTable, fmtNum } from './usage-stats.js';
+import { quotaCell, paint } from './look.js';
+import { probeBrief } from './exploration.js';
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -125,7 +127,7 @@ export function applyShadowBlocks(byModel, now = Date.now()) {
 const IP_ERROR = /\b(ips?|ip address)\b|your (ip|network|region|country)|region|country|geo[- ]?(block|restrict)|location|vpn|proxy|data ?cent(er|re)|too many requests from|not available in your/i;
 
 /** the id the gateway gives a group of rows: stripProviderSuffix() of the display name, then slugifyGroupLabel() */
-const groupId = displayName => {
+export const groupId = displayName => {
   let s = String(displayName ?? '').trim();
   for(let prev; prev !== s; ) {
     prev = s;
@@ -370,14 +372,14 @@ export const backText = (entry, now = Date.now()) => (entry.permanent ? 'not by 
 export const kindsText = entry => (entry.kinds.length ? entry.kinds.map(k => KIND[k] ?? k).join(', ') : 'exhausted');
 
 /** 'used/limit' of a window, '-' when the model has none */
-const windowText = w => (w && w.limit > 0 ? `${fmtNum(w.used)}/${fmtNum(w.limit)}` : '-');
+const windowText = (w, bar) => (w && w.limit > 0 ? quotaCell(w.used, w.limit, bar) : '-');
 
 /**
  * /gateway limits [FILTER]: for each provider row the requests and tokens
  * used of every period (minute, day, month), what is limited right now and
  * when it ends. Without FILTER only rows that have usage or a limit are shown.
  */
-export function limitsText(av, filter = '') {
+export function limitsText(av, filter = '', width = 0, ex = null) {
   const f = filter.toLowerCase();
   const names = new Set([...av.rate.keys(), ...av.budget.keys()]);
 
@@ -388,23 +390,21 @@ export function limitsText(av, filter = '') {
       const b = av.budget.get(k);
       const blocks = av.byRow.get(k) ?? [];
       const until = blocks.length && !blocks.some(x => x.until == null) ? Math.max(...blocks.map(x => x.until)) : null;
-      const month = b ? (b.budget > 0 ? `${fmtNum(b.used)}/${fmtNum(b.budget)}` : fmtNum(b.used)) : '-';
-
-      return { k, until, cells: [k, windowText(r?.rpm), windowText(r?.rpd), windowText(r?.tpm), month, blocks.length ? [...new Set(blocks.map(x => KIND[x.kind] ?? x.kind))].join(', ') : '', blocks.length ? (blocks.every(x => x.until == null && (x.kind === 'scope' || x.kind === 'key')) ? 'not by waiting' : untilText(until, av.at, blocks.some(x => x.approx))) : ''] };
+      return { k, until, cells: bar => [k, windowText(r?.rpm, bar), windowText(r?.rpd, bar), windowText(r?.tpm, bar), b ? quotaCell(b.used, b.budget, bar) : '-', blocks.length ? [...new Set(blocks.map(x => KIND[x.kind] ?? x.kind))].join(', ') : '', blocks.length ? (blocks.every(x => x.until == null && (x.kind === 'scope' || x.kind === 'key')) ? 'not by waiting' : untilText(until, av.at, blocks.some(x => x.approx))) : ''] };
     })
-    .sort((a, b) => (b.cells[5] ? 1 : 0) - (a.cells[5] ? 1 : 0) || (a.until ?? Infinity) - (b.until ?? Infinity) || a.k.localeCompare(b.k));
+    .sort((a, b) => (b.cells(0)[5] ? 1 : 0) - (a.cells(0)[5] ? 1 : 0) || (a.until ?? Infinity) - (b.until ?? Infinity) || a.k.localeCompare(b.k));
 
   if(!rows.length) return f ? `(no model matches "${filter}")` : '(nothing is limited or used yet - /gateway limits FILTER lists any model)';
 
   return [
     `limits per provider row, used/limit: minute and day windows slide, the month budget ends ${new Date(firstOfNextMonth(av.at)).toISOString().slice(0, 10)} (UTC)`,
     '',
-    formatTable([['provider/model', 'req/min', 'req/day', 'tok/min', 'month tok', 'limited by', 'back'], ...rows.map(r => r.cells)]),
+    fitTable(width, bar => [['provider/model', 'req/min', 'req/day', 'tok/min', 'month tok', 'limited by', 'back', ...(ex?.any ? ['probe'] : [])], ...rows.map(r => [...r.cells(bar), ...(ex?.any ? [probeBrief(ex, r.k)] : [])])]),
   ].join('\n');
 }
 
 /** /gateway limited [FILTER]: the model ids that cannot serve a request now, soonest back first */
-export function limitedText(av, filter = '') {
+export function limitedText(av, filter = '', width = 0, ex = null) {
   const f = filter.toLowerCase();
   const rows = [...av.byModel]
     .filter(([id, e]) => e.blocked && (!f || id.toLowerCase().includes(f)))
@@ -416,7 +416,7 @@ export function limitedText(av, filter = '') {
   return [
     `${rows.length} models cannot serve a request right now`,
     '',
-    formatTable([['model', 'providers', 'limited by', 'back', 'detail'], ...rows.map(([id, e]) => [id, e.platforms.join(',') || '-', kindsText(e), backText(e, av.at), e.blocks[0]?.detail ?? 'the gateway does not say why'])]),
+    fitTable(width, () => [['model', 'providers', 'limited by', 'back', ...(ex?.any ? ['probe'] : []), 'detail'], ...rows.map(([id, e]) => [id, e.platforms.join(',') || '-', paint(kindsText(e), '#f87171'), paint(backText(e, av.at), '#fbbf24'), ...(ex?.any ? [probeBrief(ex, id)] : []), e.blocks[0]?.detail ?? 'the gateway does not say why'])], ex?.any ? 5 : 4),
     ...(ip ? ['', `${ip} look limited by IP or region: /proxy exit asks for another exit address, /proxy off sends requests directly`] : []),
   ].join('\n');
 }

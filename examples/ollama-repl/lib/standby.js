@@ -30,12 +30,12 @@ const PING = { name: 'ping', description: 'Reports that the model can call tools
  *
  * @param {import('./freellm.js').Gateway} gateway
  * @param {{byModel: Map<string, object>}|null} av  loadAvailability() result, null without a dashboard session
- * @param {{exclude?: string[]}} opts  model ids, or platform/modelId of a row, not to pick
+ * @param {{exclude?: string[], allowed?: (id: string) => boolean}} opts  model ids, or platform/modelId of a row, not to pick; allowed limits the choice (a key selection)
  * @returns {Promise<{id: string, platform?: string, name: string, score?: number}|null>}
  */
-export async function pickNext(gateway, av, { exclude = [] } = {}) {
+export async function pickNext(gateway, av, { exclude = [], allowed = () => true } = {}) {
   const skip = new Set(exclude);
-  const usable = id => !skip.has(id) && id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && (av ? av.byModel.get(id)?.blocked === false : true);
+  const usable = id => allowed(id) && !skip.has(id) && id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && (av ? av.byModel.get(id)?.blocked === false : true);
 
   if(av && gateway.dashboard) {
     const [routing, chain] = await Promise.all([gateway.api('/api/fallback/routing').catch(() => null), gateway.api('/api/fallback').catch(() => null)]);

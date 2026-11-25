@@ -11,6 +11,7 @@
 import { BOX_ROUNDED, bigText, boxLines, gradient, keyValue, pad, progressBar, rule, stringWidth, stripAnsi, style, wrap } from 'terminal';
 import { getenv } from 'std';
 import { piped } from './ansi.js';
+import { fmtNum } from './usage-stats.js';
 
 /** colors of the gradient, the accent is its first stop */
 export const STOPS = ['#2dd4bf', '#a3e635', '#fbbf24'];
@@ -299,6 +300,37 @@ export function meter(fraction, width) {
   const fg = f >= 0.85 ? '#f87171' : f >= 0.6 ? WARN : '#4ade80';
 
   return progressBar(f, width, { style: { fg }, empty: '·', emptyStyle: { dim: true } });
+}
+
+/** a share as a meter in one calm color (teal): how much of something, not how close to a limit */
+export function shareBar(fraction, width) {
+  const f = Math.max(0, Math.min(1, fraction || 0));
+  return progressBar(f, width, { style: { fg: '#2dd4bf' }, empty: '·', emptyStyle: { dim: true } });
+}
+
+/** text in a color, plain when piped */
+export const paint = (text, fg, bold = false) => (piped ? String(text) : style(String(text), { fg, bold }));
+
+/** a status word colored by what it says: ok green, trouble red, anything else amber */
+export function statusWord(s) {
+  const t = String(s);
+  return paint(t, /^(ok|ready|active|healthy|enabled|up)$/i.test(t) ? '#4ade80' : /^(down|error|failed|disabled|exhausted|invalid|dead|unavailable)/i.test(t) ? '#f87171' : '#fbbf24');
+}
+
+/** a fraction (0..1) as a meter and percent: `███··· 40%`; no meter when piped or width 0 */
+export function pctCell(f, width = 6) {
+  const pct = `${Math.round(100 * f)}%`.padStart(4);
+  return `${piped || !width ? '' : `${meter(f, width)} `}${pct}`;
+}
+
+/** a quota as a meter, the percent and used/limit: `███··· 40%  4/10` (no meter when piped); no limit: just `used` */
+export function quotaCell(used, limit, width = 6) {  /* width 0: no meter */
+  if(!(limit > 0)) return fmtNum(used);
+
+  const f = used / limit;
+  const pct = `${Math.round(100 * f)}%`.padStart(4);
+
+  return `${piped || !width ? '' : `${meter(f, width)} `}${pct} ${fmtNum(used)}/${fmtNum(limit)}`;
 }
 
 /** the mode as a colored badge, code is an SGR color (MODE_COLOR) */

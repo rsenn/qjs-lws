@@ -3,8 +3,9 @@
  */
 import { loadAvailability, untilText } from './availability.js';
 import { formatTable } from './usage-stats.js';
+import { probeCells } from './exploration.js';
 
-export function modelStatusTable(av) {
+export function modelStatusTable(av, exploration = null) {
   const now = av?.at ?? Date.now();
   const rows = [];
 
@@ -49,6 +50,7 @@ export function modelStatusTable(av) {
       statusColor + statusLabel + '\x1b[0m',
       quotaCell,
       providers,
+      ...(exploration ? (statusLabel === 'READY' ? probeCells(exploration, modelId) : ['', '']) : []),
     ]);
   }
 
@@ -60,6 +62,6 @@ export function modelStatusTable(av) {
     return ra - rb || a[0].localeCompare(b[0]);
   });
 
-  const header = ['Model', 'Status', 'Quota / Reset', 'Providers'];
+  const header = ['Model', 'Status', 'Quota / Reset', 'Providers', ...(exploration ? ['Probe', 'Says'] : [])];
   return { rows, header };
 }

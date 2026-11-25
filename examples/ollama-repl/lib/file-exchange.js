@@ -22,10 +22,11 @@ export class FileExchange {
   #sent = [];
   #received = [];
 
-  constructor(model, root = '.') {
+  /** @param {string} [diffDir]  where the diffs go, default `<model>-diffs` under root; an absolute path is used as it is */
+  constructor(model, root = '.', diffDir) {
     this.#model = model;
     this.#root = root;
-    this.#diffDir = `${model}-diffs`;
+    this.#diffDir = diffDir ?? `${model}-diffs`;
   }
 
   /** Record a file attached to an outgoing prompt (project -> model). */
@@ -88,7 +89,7 @@ export class FileExchange {
   }
 
   #saveDiff(path, diffText) {
-    const diffDirFull = this.#root === '.' ? this.#diffDir : `${this.#root}/${this.#diffDir}`;
+    const diffDirFull = this.#diffDir.startsWith('/') || this.#root === '.' ? this.#diffDir : `${this.#root}/${this.#diffDir}`;
 
     if(!this.#diffDirReady) {
       mkdir(diffDirFull); // ignores the error if it already exists

@@ -3,6 +3,9 @@
  * (`$XDG_CONFIG_HOME/ollama-repl/` when set):
  *
  *   settings.json    defaults for command-line options, written by /config set
+ *   env              KEY=VALUE lines (FREELLMAPI_URL, FREELLMAPI_KEY, ...) put in the
+ *                    environment at startup; a variable already set wins
+ *   system.md        replaces the built-in system prompt when present
  *   delegates.json   which sub-agent models did well (lib/delegates.js)
  *
  * ```js
@@ -13,7 +16,7 @@
  * A command-line option always wins over settings.json. Only the options in
  * SETTINGS can be set; a wrong type in the file is ignored, not fatal.
  */
-import { getenv, loadFile, open } from 'std';
+import { getenv, loadFile, open, setenv } from 'std';
 import { mkdir, rename } from 'os';
 
 /** option name (as in opts) -> type; the command-line spelling is --kebab-case of it */
@@ -27,6 +30,7 @@ export const SETTINGS = {
   noDelegate: 'boolean',
   noFailover: 'boolean',
   noHandoff: 'boolean',
+  noTakeover: 'boolean',
   fallbackModel: 'string',
   handoffTurns: 'number',
   handoffModel: 'string',
@@ -54,6 +58,25 @@ export function writeConfigFile(path, text) {
   f.puts(text);
   f.close();
   return rename(`${path}.tmp`, path) === 0;
+}
+
+/** puts the KEY=VALUE lines of `env` in the environment, keeping variables already set; returns how many were added */
+export function loadEnvFile() {
+  let n = 0;
+
+  for(const line of (loadFile(`${configDir()}/env`) ?? '').split('\n')) {
+    const m = /^\s*(?:export\s+)?([A-Za-z_]\w*)\s*=\s*(.*?)\s*$/.exec(line);
+    if(!m || getenv(m[1]) !== undefined) continue;
+    setenv(m[1], m[2].replace(/^(["'])(.*)\1$/, '$2'));
+    n++;
+  }
+  return n;
+}
+
+/** the text of system.md, null when there is none */
+export function userSystemPrompt() {
+  const text = loadFile(`${configDir()}/system.md`);
+  return text?.trim() ? text.trim() : null;
 }
 
 /** the saved settings that are known options of the right type */

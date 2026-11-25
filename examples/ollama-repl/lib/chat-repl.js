@@ -70,6 +70,13 @@ export class ChatREPL extends REPL {
   /* key hooks: Shift-Tab or Alt-Tab cycles the mode, Ctrl-O toggles verbose */
   onCycleMode;
   onToggleVerbose;
+  #historyPath;
+
+  /** a named session keeps its own history file */
+  historyFile() {
+    return this.#historyPath ?? super.historyFile();
+  }
+
   /** (cols, label) => the pager's header line, else reverse video */
   pagerHeader;
 
@@ -111,8 +118,9 @@ export class ChatREPL extends REPL {
    *   whatever request is currently in flight and return true if it did,
    *   false if nothing was actually pending.
    */
-  constructor(name, onLine, root = '.', onAbort) {
+  constructor(name, onLine, root = '.', onAbort, historyPath) {
     super(name, false);
+    this.#historyPath = historyPath ?? null;
     this.onLine = onLine;
     this.#root = root;
     this.#onAbort = onAbort;

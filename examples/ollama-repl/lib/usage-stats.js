@@ -109,10 +109,40 @@ export function formatMeta(meta) {
 
 /** fixed-width table: rows of cells, first row is the header, numbers right-aligned */
 export function formatTable(rows) {
-  const widths = rows[0].map((_, i) => Math.max(...rows.map(r => String(r[i]).length)));
+  /* colors do not take room: a cell is as wide as what it shows */
+  const shown = c => String(c).replace(/\x1b\[[0-9;]*m/g, '');
+  const widths = rows[0].map((_, i) => Math.max(...rows.map(r => shown(r[i]).length)));
+  const fill = (c, i) => ' '.repeat(Math.max(0, widths[i] - shown(c).length));
+  /* a column of numbers lines up on the right; one that also holds meters or text stays on the left, dashes included */
+  const numeric = rows[0].map((_, i) => i > 0 && rows.slice(1).every(r => /^[\d.,kMG%-]*$/.test(String(r[i]))));
 
-  return rows.map(r => r.map((c, i) => (i && /^[\d.,kMG%-]+$/.test(String(c)) ? String(c).padStart(widths[i]) : String(c).padEnd(widths[i]))).join('  ').trimEnd()).join('\n');
+  return rows.map(r => r.map((c, i) => (numeric[i] && r !== rows[0] ? fill(c, i) + c : c + fill(c, i))).join('  ').trimEnd()).join('\n');
 }
+
+/**
+ * a table that fits `width` columns: `make(bar)` builds the rows with meters
+ * of `bar` cells; the meters shrink (6, 3, none), then the first column is
+ * cut with an ellipsis (column `flex`, text without colors). Without a width
+ * (or piped) the first try is used.
+ */
+export function fitTable(width, make, flex = 0) {
+  const shown = c => String(c).replace(/\x1b\[[0-9;]*m/g, '');
+  const wide = rows => rows[0].reduce((n, _, i) => n + Math.max(...rows.map(r => shown(r[i]).length)), 2 * (rows[0].length - 1));
+  const flexWide = rows => Math.max(...rows.map(r => shown(r[flex]).length));
+  let rows;
+
+  /* the flexible column (default the first) gives up what is missing, down to 24 characters; below that the meters shrink first */
+  for(const bar of [6, 3, 0]) {
+    rows = make(bar);
+    const over = width > 0 ? wide(rows) - width : 0;
+    if(over <= 0) return formatTable(rows);
+
+    const room = flexWide(rows) - over;
+    if(room >= 24 || bar === 0) return formatTable(rows.map((r, n) => r.map((c, i) => (i === flex && n ? cut(c, Math.max(12, room)) : c))));
+  }
+}
+
+const cut = (c, room) => (String(c).length > room ? `${String(c).slice(0, room - 1)}…` : c);
 
 export class UsageStats {
   records = [];

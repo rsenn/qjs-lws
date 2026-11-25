@@ -32,9 +32,9 @@
  * suspicion (or simply unwanted).
  *
  * Three separate logs, not one - each answers a different question:
- *   - `<model>.log` (lib/session-log.js) - the conversation transcript
+ *   - `session.log` in the session's cache dir (lib/session-log.js) - the conversation transcript
  *     (prompts/replies/tool calls/files written), always on.
- *   - `<provider>-repl-debug.log` (lib/logger.js's `RequestLogger`, one
+ *   - `DATE-TIME-NAME-PROVIDER.log` in ~/.cache/ollama-repl/logs/ (lib/logger.js's `RequestLogger`, one
  *     per client) - the raw request/response JSON each provider actually
  *     sent/received, turned on by `-x`/`--debug` here or by setting the
  *     `DEBUG` env var to any non-empty value (not a numeric "level" -
@@ -72,12 +72,22 @@ import { FileExchange } from './lib/file-exchange.js';
 import { runCommand } from './lib/run-command.js';
 import { extractTextToolCalls } from './lib/text-tool-calls.js';
 import { formatUsage } from './lib/usage.js';
-import { UsageStats, routeLine, routeName, formatMeta, formatTable, fmtNum, fmtMs } from './lib/usage-stats.js';
+import { UsageStats, routeLine, routeName, formatMeta, formatTable, fitTable, fmtNum, fmtMs } from './lib/usage-stats.js';
 import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAllowed, needsApproval, describeWrite, WRITE_TOOLS } from './lib/modes.js';
 import { expandHome, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/standby.js';
-import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting } from './lib/config.js';
+import { Exploration, probeBrief } from './lib/exploration.js';
+import { funnyName } from './lib/session-name.js';
+import { NetActivity } from './lib/net-activity.js';
+import { traceChat } from './lib/trace-chat.js';
+import { betterReason, stepText } from './lib/takeover.js';
+import { loadKeyData, parseKeyScope, modelsOfKeys } from './lib/key-models.js';
+import { externalIp } from './lib/ip-check.js';
+import { ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns } from './lib/ip-fix.js';
+import { netPaneLines, annotateRates } from './lib/net-pane.js';
+import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting, loadEnvFile, userSystemPrompt } from './lib/config.js';
+import { sessionKey, sessionFile, sessionDir, loadSessionState, saveSessionState, setLogName } from './lib/session-cache.js';
 import { findPeers, askPeer, peerAnswer } from './lib/peer.js';
 import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './lib/skills.js';
 import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
@@ -95,7 +105,7 @@ import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { done as doneQuip, quip } from './lib/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta } from './lib/rawcolor.js';
-import { file, highlight, note, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
+import { file, highlight, note, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { keyValue, statusBar, stripAnsi } from 'terminal';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
@@ -121,7 +131,7 @@ const USAGE = [
   'A Claude-Code-style REPL for a local Ollama model, Gemini, any OpenAI-compatible API or the chat-bridge.',
   '',
   '@Provider and model',
-  ['--provider NAME', 'ollama (default), gemini, openai, freellm or bridge. freellm is a freellmapi gateway (FREELLMAPI_URL, else http://localhost:3001/v1, key FREELLMAPI_KEY, else OPENAI_API_KEY), model auto. bridge starts examples/chat-bridge itself on a free port and uses it (models = the chat sites).'],
+  ['--provider NAME', 'freellm (default), ollama, gemini, openai or bridge. freellm is a freellmapi gateway (FREELLMAPI_URL, else http://localhost:3001/v1, key FREELLMAPI_KEY, else OPENAI_API_KEY), model auto. ollama without --model takes the first model `ollama list` shows. bridge starts examples/chat-bridge itself on a free port and uses it (models = the chat sites).'],
   ['--model NAME', 'model to talk to; with bridge one is picked in turn unless given.'],
   ['--model list', 'list the available chat models and exit (gemini, openai-compatible /models incl. chat-bridge; ollama via `ollama list`).'],
   ['--host HOST', 'API host (default localhost).'],
@@ -129,7 +139,8 @@ const USAGE = [
   ['--root DIR', 'project directory the model works in (default .).'],
   '',
   '@Conversation',
-  ['--stream', 'print the reply as it arrives.'],
+  ['--no-takeover', 'the async exploration never offers a better model to take over the running task (it only logs it).'],
+  ['--no-stream', 'wait for the whole reply instead of printing it as it arrives (streaming is the default; also /stream off).'],
   ['--temperature T', 'sampling temperature (default 0.2).'],
   ['--num-ctx N', 'context window requested from Ollama (default 16384; Ollama itself defaults to 4096).'],
   [
@@ -169,7 +180,7 @@ const USAGE = [
   '@Control and debugging',
   ['--listen [PATH]', 'open a control socket so another process (ollama-repl-ctl, Claude Code) can type into this session and read its output.'],
   ['--name NAME', 'session name for --listen (default: the model name, made unique); ollama-repl-ctl -s NAME picks it among several.'],
-  ['-x, --debug', 'log raw request/response JSON to <provider>-repl-debug.log (same as setting DEBUG=1).'],
+  ['-x, --debug', 'log raw request/response JSON to ~/.cache/ollama-repl/logs/DATE-TIME-NAME-PROVIDER.log (same as setting DEBUG=1).'],
   ['-h, --help', 'show this help and exit.'],
   '',
   '@Environment',
@@ -183,13 +194,14 @@ const USAGE = [
   '',
   '@Examples',
   ['qjsm repl.js', 'chat with the default local Ollama model.'],
-  ['qjsm repl.js --provider gemini --stream', 'Gemini, replies printed as they arrive.'],
+  ['qjsm repl.js --provider gemini --no-stream', 'Gemini, the whole reply printed at once.'],
   ['qjsm repl.js --provider freellm --model auto:smart', 'free models behind a local freellmapi; /usage and /gateway show where each request went.'],
   ['qjsm repl.js --provider bridge --no-tools', 'free chat sites through chat-bridge.'],
 ];
 
 function parseArgs(argv) {
-  const opts = { ...{ mode: DEFAULT_MODE, provider: 'ollama', model: undefined, host: 'localhost', port: 11434, root: '.', stream: false, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80, sessionId: undefined }, ...globalSettings() };
+  loadEnvFile(); /* ~/.config/ollama-repl/env, before anything reads FREELLMAPI_* */
+  const opts = { ...{ mode: DEFAULT_MODE, provider: 'freellm', model: undefined, host: 'localhost', port: 11434, root: '.', stream: true, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80, sessionId: undefined }, ...globalSettings() };
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -216,6 +228,8 @@ function parseArgs(argv) {
     else if(arg === '--cdp-host') opts.cdpHost = argv[++i];
     else if(arg === '--cdp-port') opts.cdpPort = +argv[++i];
     else if(arg === '--stream') opts.stream = true;
+    else if(arg === '--no-stream') opts.stream = false;
+    else if(arg === '--no-takeover') opts.noTakeover = true;
     else if(arg === '-x' || arg === '--debug') opts.debug = true;
     else if(arg === '--failsafe') opts.failsafe = true;
     else if(arg === '--no-system') opts.noSystem = true;
@@ -268,7 +282,12 @@ function parseArgs(argv) {
   }
 
   /* bridge: undefined = picked from the bridge's models, see main() */
-  opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : opts.provider === 'openai' ? 'gpt-4o-mini' : opts.provider === 'bridge' ? undefined : 'qwen2.5-coder';
+  opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : opts.provider === 'openai' ? 'gpt-4o-mini' : opts.provider === 'bridge' ? undefined : (ollamaModels() ?? [])[0];
+
+  if(opts.provider === 'ollama' && !opts.model) {
+    console.log(red('error: no model: `ollama list` shows none, pull one (ollama pull MODEL) or pass --model NAME'));
+    exit(1);
+  }
 
   return opts;
 }
@@ -301,7 +320,7 @@ before you change it, change it with edit_file (exact old text) or
 insert_above, keep the existing style, change only what was asked, and end
 with one short sentence saying what you did.`;
 
-const SYSTEM_PROMPT = `You are a coding assistant that maintains and refactors the code in the
+const BUILTIN_SYSTEM_PROMPT = `You are a coding assistant that maintains and refactors the code in the
 current project directory, like Claude Code. You act through tools: you do
 not just describe changes, you make them.
 
@@ -347,6 +366,9 @@ File: path/to/file.ext
 
 The project's top-level layout and README are given below, gathered when
 the session started.`;
+
+/* ~/.config/ollama-repl/system.md replaces the built-in prompt */
+const SYSTEM_PROMPT = userSystemPrompt() ?? BUILTIN_SYSTEM_PROMPT;
 
 /* Only appended for QuickJS projects (see main()) - it is noise, and costs
    context a small model needs, anywhere else. */
@@ -706,8 +728,46 @@ const signedMs = ms => (ms < 0 ? '-' : '+') + fmtMs(Math.abs(ms));
 /* every file change of the session, newest last, for the diff pane */
 const changes = [];
 
-/* the right-hand pane (/split): mode diff, git or status, and what it shows */
+/* the right-hand pane (/split): mode diff, git, status or net, and what it shows */
 const split = { mode: null, git: '', sockets: [], timer: null };
+
+/* the HTTP requests in flight or just done, for the network pane (/split net) */
+const net = new NetActivity();
+
+/**
+ * the traffic of a local-model call the REPL does not drive itself (/brief) as verbose panels: in the TUI always
+ * written, tagged verbose-only, so Ctrl+O shows them later; outside it printed while verbose is on
+ */
+function localTrace(label) {
+  return ev => {
+    const n = ev.messages?.length;
+
+    if(ev.dir === 'out') {
+      const title = `→ ${ev.model} (${label}) · ${n} messages, ${fmtNum(totalChars(ev.messages))} chars`;
+      if(tui?.active) showPanel(title, messagesText(ev.messages), { border: '#c084fc', kind: 1 });
+      else if(ui.verbose) console.log(dim(`${title}\n${stripAnsi(messagesText(ev.messages))}`));
+      return;
+    }
+
+    const title = `← ${ev.model} (${label}) · ${fmtMs(ev.ms)}${ev.error ? ' · failed' : ''}`;
+    const text = ev.error ? `\x1b[31m${ev.error}\x1b[0m` : colorContent(ev.content || '(empty)');
+    if(tui?.active) showPanel(title, text, { border: ev.error ? '#f87171' : '#c084fc', kind: 1 });
+    else if(ui.verbose) console.log(dim(`${title}\n${stripAnsi(text)}`));
+  };
+}
+
+/** a client reports to the network pane: OpenAI clients by their phases, the others by wrapping their calls */
+function watchNet(client, label) {
+  if('onPhase' in client) {
+    const prev = client.onPhase;
+    client.onPhase = (name, meta) => {
+      prev?.(name, meta);
+      net.phase(label, name, meta);
+      if(split.mode === 'net') tui?.drawPane();
+    };
+  } else net.wrap(client, label);
+  return client;
+}
 
 /** lines of the pane, width cells wide (Tui clips them) */
 function paneLines(width, height) {
@@ -719,6 +779,8 @@ function paneLines(width, height) {
   }
 
   if(split.mode === 'git') return [head('git diff'), ...(split.git ? split.git.split('\n') : ['', '\x1b[2m(no changes)\x1b[0m'])];
+
+  if(split.mode === 'net') return netPaneLines(width, split.sockets, net.records);
 
   return statusPane(width);
 }
@@ -758,9 +820,14 @@ const panels = [];
 /** keeps text for the pager, returns its number */
 const keepPanel = (title, text) => panels.push({ title: stripAnsi(title), text });
 
+/** the columns a table has inside a panel of the TUI (0 = no limit) */
+const panelInner = () => (tui?.active ? tui.width - 5 : 0);
+
 /** a panel at most half the screen high into the transcript, the full text kept */
 function showPanel(title, text, { kind = 0, ...opts } = {}) {
   const n = keepPanel(title, text);
+  /* no transcript to replay from outside the TUI: verbose-only panels print only while verbose is on */
+  if(!tui?.active && kind === 1 && !ui.verbose) return;
   inKind(kind, () => console.log(panel(title, text, tui.width, { max: Math.max(6, Math.floor(tui.rows / 2) - 4), more: k => `… ${k} more lines · /view ${n} shows all`, ...opts })));
 }
 
@@ -983,9 +1050,9 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   let thinking = false;
   let reasoning = '';
 
-  /* TUI verbose: the reasoning as one panel, before the reply */
+  /* TUI: the reasoning as one panel, before the reply (kind 0: not verbose only) */
   const showReasoning = () => {
-    if(reasoning) showPanel('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`, { border: '#f472b6', kind: 1 }); /* pink frame (pink-400, the 400 tones of the rest of the palette), sky blue italic text (a Balearic sunset): stands out from the dim tool lines - verbose only */
+    if(reasoning) showPanel('◌ reasoning', `\x1b[3;38;2;125;211;252m${reasoning.trim()}\x1b[0m`, { border: '#f472b6' }); /* pink frame (pink-400, the 400 tones of the rest of the palette), sky blue italic text (a Balearic sunset): stands out from the dim tool lines - shown in the compact view, too */
     reasoning = '';
   };
 
@@ -1016,9 +1083,9 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   /* verbose: what came back, with every gateway header */
   const response = result => {
     const m = result?.meta;
-    if(!verbose || !m) return;
+    if(!m) return;
     if(panes) return showPanel(`← ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` via ${m.provider}` : ''} · ${fmtMs(m.ms)}`, colorMeta(formatMeta({ ...m, reasoning: result.reasoning })), { border: '#c084fc', kind: 1 });
-    console.log(dim([`<- ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` (${m.provider})` : ''} ${fmtMs(m.ms)}, finish ${m.finish ?? '-'}${m.usage ? `, ${m.usage.prompt}+${m.usage.completion} tok` : ''}`, ...Object.entries(m.headers ?? {}).map(([k, v]) => `   ${k}: ${v}`)].join('\n')));
+    if(verbose) console.log(dim([`<- ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` (${m.provider})` : ''} ${fmtMs(m.ms)}, finish ${m.finish ?? '-'}${m.usage ? `, ${m.usage.prompt}+${m.usage.completion} tok` : ''}`, ...Object.entries(m.headers ?? {}).map(([k, v]) => `   ${k}: ${v}`)].join('\n')));
   };
 
   // `finally` (not just the explicit stopSpinner() calls below, which only
@@ -1452,6 +1519,7 @@ async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, a
     if(opts.provider === 'gemini') subClient = new (await import('./lib/gemini-client.js')).GeminiClient(subOpts);
     else if(opts.provider === 'openai') subClient = new (await import('./lib/openai-client.js')).OpenAIClient(subOpts);
     else subClient = new (await import('./lib/ollama-client.js')).OllamaClient(subOpts);
+    watchNet(subClient, 'sub-agent');
   }
 
   // Build isolated messages for sub-agent
@@ -1538,6 +1606,8 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
   const writesAtStart = writeCount; // this loop's own changes, not an earlier item's
 
   for(let round = 0; ; round++) {
+    /* a takeover candidate is being assessed (considerTakeover): the running model pauses at this step */
+    await takeoverHook?.hold(messages);
     const final = round >= opts.maxRounds - 1 || repeatRounds >= MAX_REPEAT_ROUNDS;
     await compactHook?.(messages);
     elideOldToolResults(messages, ctxWindowNow ?? opts.numCtx);
@@ -1600,8 +1670,10 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       control?.activity('toolcall', { name: tc.name, args: tc.args });
 
-      showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
-      if(!tui?.active && verbose) inKind(1, () => console.log(toolLine(tc.name, tc.args ?? {})));
+      if(!opts.quiet) {
+        if(tui?.active) showPanel(`⚙ ${tc.name}`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
+        else if(ui.verbose) console.log(toolLine(tc.name, tc.args ?? {}));
+      }
 
       /* Handle special tools that need access to repl.js context */
       if(tc.name === 'restart_harness') {
@@ -1666,15 +1738,12 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
       }
 
       if(!opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
-      else if(!opts.quiet) {
-        showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
-        if(!tui?.active && ui.verbose) {
-          const lines = output.split('\n');
-          const shown = lines.slice(0, 200).join('\n');
-          console.log(dim(`[${tc.name} result, ${output.length} chars]`));
-          console.log(piped ? shown : colorContent(shown, { code: tc.name === 'read_file' }));
-          if(lines.length > 200) console.log(dim(`... (${lines.length - 200} more lines)`));
-        }
+      else if(ui.verbose && !opts.quiet) {
+        const lines = output.split('\n');
+        const shown = lines.slice(0, 200).join('\n');
+        console.log(dim(`[${tc.name} result, ${output.length} chars]`));
+        console.log(piped ? shown : colorContent(shown, { code: tc.name === 'read_file' }));
+        if(lines.length > 200) console.log(dim(`... (${lines.length - 200} more lines)`));
       }
       control?.activity('toolresult', { name: tc.name, text: String(output).slice(0, 2000) });
       log.toolResults(`${tc.name}(${JSON.stringify(tc.args)})\n${output}`);
@@ -1808,8 +1877,8 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /cd DIR         - change the project directory (~, ~user, - for the previous one) the model works in (file refs, writes, run_command all follow it)
 /exit, /quit    - quit
 /help           - this text
-/split [diff|git|status|off] - a pane right of the transcript: this session's file changes as diffs (default), git diff of the project, or the live status (what happens now, the request, sockets with their traffic, memory). /split alone toggles
-/proxy [on|off|probe|exit] - the socks proxy the gateway sends upstream requests through: settings, latency it adds (probe measures direct vs proxied, 3 runs each), time to first byte per platform; on/off switches it for the gateway's upstream requests (the URL stays saved); exit asks for a new exit (tor-change-exitnode.sh) and measures again
+/split [diff|git|status|net|off] - a pane right of the transcript: this session's file changes as diffs (default), git diff of the project, the live status (what happens now, the request, sockets with their traffic, memory), or net: a box per TCP connection (also to local models) with state, traffic rates, the request on it, its progress and a peek at what flows. /split alone toggles
+/proxy [on|off|probe|exit|keyless [apply|clear|fix]] - the socks proxy the gateway sends upstream requests through: settings, latency it adds (probe measures direct vs proxied, 3 runs each), time to first byte per platform; on/off switches it for the gateway's upstream requests (the URL stays saved); exit asks for a new exit (tor-change-exitnode.sh) and measures again; keyless lists the keyless providers (quotas counted per IP address) that are limited now and could work again through another address, keyless apply sends their keys through the anonymizing socks proxy (127.0.0.1:9050, asks first, can clear their cooldowns), keyless fix does the whole round (proxy their keys, NEWNYM on the control port 127.0.0.1:9051, probe that the exit address really changed, clear cooldowns, one request per provider to see it answers again, a second address if not), keyless clear takes them off the proxy
 /view [N]       - panel N (the last one) full-screen in a pager: arrows, PgUp/PgDn, Home/End, mouse wheel, q back
 /mouse [on|off] - the mouse wheel scrolls the transcript (on, the default: select text with Shift-drag) or the terminal handles the mouse (off)
 /about          - the session panel shown at startup: version, model, endpoint, gateway, mode, root, log
@@ -1820,11 +1889,11 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /binding <text> - force-attach the native-binding reference (fib.c/point.c/cheat sheet) for this prompt, even if it doesn't sound like a binding request
 /mode [NAME]    - show or set the mode: ${MODES.map(m => `${m} (${MODE_INFO[m]})`).join(', ')}. Shift-Tab or Alt-Tab cycles it
 /verbose [on|off] - show full tool results, every request and response with all gateway headers (Ctrl-O toggles)
-/remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it
+/remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it. /listen is the same command
 /queue [list|clear|drop N] - the prompts waiting behind the running request (Enter queues one while the model works, Ctrl-X Ctrl-S sends the typed one now and cancels the running request); the queue is saved with the session and runs again after a restart
-/rename NAME    - rename the session (ollama-repl-ctl -s NAME picks it)
-/model [NAME|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip
-/model health - display real-time health, quota and rate-limit status of all available models
+/rename [NAME]  - rename the session (ollama-repl-ctl -s NAME picks it); without NAME a funny one is made up
+/model [NAME|key:ID[,key:ID..]|key:off|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip; key:ID,key:ID lists the models reachable through those gateway keys (/gateway keys shows the ids) and restricts the model selection to them (list, /model NAME and patterns, skip, standby, takeover, exploration; the model in use moves to the strongest usable one of them), key:off lifts it - the gateway still picks the key of a request itself
+/model health - display real-time health, quota and rate-limit status of all available models; the first call starts the async exploration of the READY ones in the background (what is it, obeys a system prompt, calls tools), cached in ~/.cache/ollama-repl/exploration.json and shown in the Probe and Says columns
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
 /fallback [NAME|off] - show or set fallback model for auto-failover
 /route [list|smart|fast|cheap|reliable|balanced|auto|profile NAME|MODEL|new] - freellmapi routing: show what the gateway does with this session, pick a sort axis, a named chain or one pinned model; new restarts sticky routing
@@ -1840,7 +1909,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /usage          - tokens and requests of this session, per routed model and platform
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
 /requests [N]   - the last N (10) requests of this session, one line each
-/gateway [usage|status|providers|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login] - ask the freellmapi gateway: month usage of all clients, upstream health, provider quotas, per-model quotas (dashboard session), models ready now; limits shows tokens and requests used per minute/day/month and when each limit ends, limited lists the models that cannot serve a request now and when they are back (/model list shows them too, not selectable). login fetches the dashboard token from the browser (CDP, --cdp-port), opening a dashboard tab if needed
+/gateway [usage|status|providers|keys [all|FILTER]|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login] - ask the freellmapi gateway: month usage of all clients, upstream health, provider quotas, per-model quotas (dashboard session), models ready now; limits shows tokens and requests used per minute/day/month and when each limit ends, limited lists the models that cannot serve a request now and when they are back (/model list shows them too, not selectable). login fetches the dashboard token from the browser (CDP, --cdp-port), opening a dashboard tab if needed
 /tools          - list the tools the model can call
 /system         - print the system prompt
 /system default [N[-M]] - (re)set it to the default prompt, or only its lines N..M
@@ -1863,7 +1932,7 @@ const HELP_SECTIONS = [
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each and /binding talk to the model) */
-const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run', '/model health']);
+const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/listen', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run', '/model health']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -1964,7 +2033,7 @@ function modelGlobRe(pattern) {
 /** The model names in `known` matching glob `pattern`, in `known`'s order. */
 function modelsForGlob(pattern, known) {
   const re = modelGlobRe(pattern);
-  return (known ?? []).filter(m => re.test(m) && !unavailableModels.has(m) && !availability?.byModel.get(m)?.blocked);
+  return (known ?? []).filter(m => re.test(m) && !unavailableModels.has(m) && !availability?.byModel.get(m)?.blocked && inKeyScope(m));
 }
 
 /* what the gateway limits right now (lib/availability.js), loaded by /model and /gateway; null without a dashboard session */
@@ -1975,6 +2044,15 @@ let gatewayRef = null;
 /* the standby model (lib/standby.js): probed and warm, ready to take over or to run a sub-agent */
 const standby = { on: false, id: null, name: '', state: 'off', ms: 0, toolOk: false, servedBy: '', error: '', at: 0, busy: false, pinned: null, bad: new Map(), switchedAt: 0 };
 const STANDBY_TTL_MS = 10 * 60_000;
+
+/* the gateway keys the model selection is restricted to (/model key:ID,key:ID): their ids and the catalog ids they reach, null models = no restriction */
+const keyScope = { ids: [], models: null };
+let keyIdsCache = [];
+const inKeyScope = id => !keyScope.models || keyScope.models.has(id);
+
+/* the async exploration of the gateway's READY models (lib/exploration.js), started by /model health */
+let exploration = null;
+let takeoverHook = null; /* set by main(): { hold(messages) } */
 let standbyHook = null; /* set by main(): { switchTo(id) } */
 const standbyReady = () => standby.on && standby.state === 'ready' && standby.id; /* main()'s gateway, for the helpers outside it */
 
@@ -2001,6 +2079,7 @@ function getFilteredModels(known, remote, avail = availability) {
     for(const m of remote) {
       const skipped = skippedModels.get(m.name);
       if(skipped && skipped.until > now) continue;
+      if(!inKeyScope(m.name)) continue;
       const strength = modelStrength(m.name, avail?.byModel.get(m.name)?.intelligence);
       models.push({
         name: m.name,
@@ -2178,7 +2257,7 @@ let modelNamesCache = null; /* names of /model list or the Ollama host, for the 
 
 /** model names that can be chosen now: the gateway's ready models, else what /model last listed, else the Ollama host */
 function completionModels() {
-  if(gatewayRef?.enabled) return gatewayRef.modelsCached().filter(m => (m.execution_status ?? 'ready') === 'ready' && !availability?.byModel.get(m.id)?.blocked).map(m => m.id);
+  if(gatewayRef?.enabled) return gatewayRef.modelsCached().filter(m => (m.execution_status ?? 'ready') === 'ready' && !availability?.byModel.get(m.id)?.blocked && inKeyScope(m.id)).map(m => m.id);
   if(modelNamesCache) return modelNamesCache;
   return completionOllama ? (ollamaModelsCache ??= ollamaModels() ?? []) : [];
 }
@@ -2199,18 +2278,21 @@ function completeArgs(cmd, args, word) {
     case '/mouse':
       return n === 0 ? onoff : [];
     case '/proxy':
-      return n === 0 ? ['on', 'off', 'probe', 'exit'] : [];
+      if(n === 0) return ['on', 'off', 'probe', 'exit', 'keyless'];
+      return n === 1 && args[0] === 'keyless' ? ['apply', 'clear', 'fix'] : [];
     case '/split':
-      return n === 0 ? ['diff', 'git', 'status', 'off'] : [];
+      return n === 0 ? ['diff', 'git', 'status', 'net', 'off'] : [];
     case '/provider':
       return n === 0 ? ['ollama', 'gemini', 'openai', 'freellm', 'bridge'] : [];
     case '/fallback':
       return n === 0 ? ['off', ...completionModels()] : [];
     case '/model':
-      if(n === 0) return ['list', 'skip', 'unskip', ...completionModels()];
+      if(n === 0) {
+        if(gatewayRef?.dashboard && !keyIdsCache.length) loadKeyData(gatewayRef).then(d => (keyIdsCache = d.keys.map(k => k.id))).catch(() => {});
+        return ['list', 'health', 'skip', 'unskip', 'key:off', ...keyIdsCache.map(id => `key:${id}`), ...completionModels()];
+      }
       if(n === 1 && args[0] === 'list') return ['all'];
       if(n === 1 && (args[0] === 'skip' || args[0] === 'unskip')) return completionModels();
-      if(n === 1 && args[0] === 'health') return ['health'];
       return [];
     case '/route':
       if(n === 0) return ['list', ...ROUTE_AXES.map(a => a[0]), 'auto', 'profile', 'new', ...completionModels()];
@@ -2239,11 +2321,15 @@ function completeArgs(cmd, args, word) {
       if(n === 1 && args[0] === 'off') return listSkills().map(sk => sk.name);
       return [];
     case '/gateway':
-      return n === 0 ? ['usage', 'status', 'providers', 'forecast', 'quota', 'limits', 'limited', 'models', 'login'] : [];
+      if(n === 0) return ['usage', 'status', 'providers', 'keys', 'forecast', 'quota', 'limits', 'limited', 'models', 'login'];
+      if(n === 1 && args[0] === 'keys') return ['all'];
+      if(n === 1 && ['quota', 'limits', 'limited', 'models'].includes(args[0])) return completionModels();
+      return [];
     case '/system':
       if(n === 0) return ['default', 'file', 'off'];
       return n === 1 && args[0] === 'file' ? null : [];
     case '/remote-control':
+    case '/listen':
       return n === 0 && !/^[/.~]/.test(word) ? ['off'] : null;
     case '/help':
       return n === 0 ? HELP_TEXT.match(/^\/[a-z-]+/gm).map(c => c.slice(1)) : [];
@@ -2252,13 +2338,14 @@ function completeArgs(cmd, args, word) {
     case '/handoff-model':
       return n === 0 ? ['default', ...localOllamaModels()] : [];
     case '/handoff':
-      return [];
+      return word.startsWith('-') ? ['--local', '--size', '--replace'] : [];
+    case '/view':
+      return n === 0 ? panels.map((_, i) => String(i + 1)) : [];
+    case '/queue':
+      return n === 0 ? ['list', 'clear', 'drop'] : [];
     case '/compact':
     case '/last':
     case '/requests':
-    case '/view':
-    case '/queue':
-      return n === 0 ? ['list', 'clear', 'drop'] : [];
     case '/rename':
     case '/restart':
     case '/undo':
@@ -2310,6 +2397,7 @@ async function showModelList(remote, known, provider, showAll = false) {
     ['name', m => m.name, 0, true],
     ['provider', m => m.provider, 14, width >= 56],
     ['strength', m => m.strengthLabel, 14, width >= 72],
+    ['probe', m => probeBrief(exploration, m.name), 12, !!exploration?.any && width >= 84],
     ['limits', caps, 16, hasCaps],
     ['', mark, 8, true],
   ].filter(c => c[3]);
@@ -2397,13 +2485,13 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   two.push(`${tc('Σ')} ${t.requests} req ${fmtNum(t.total)} tok`);
 
   /* a quota as a small meter, used/limit */
-  const quota = (name, x) => (x?.limit ? `${tc('◔')} ${name} ${meter(x.used / x.limit, 4)} ${fmtNum(x.used)}/${fmtNum(x.limit)}` : null);
+  const quota = (name, x) => (x?.limit ? `${tc('◔')} ${name} ${meter(x.used / x.limit, 5)} ${Math.round((100 * x.used) / x.limit)}% ${dimmed(`${fmtNum(x.used)}/${fmtNum(x.limit)}`)}` : null);
   const q = gateway?.modelQuota(last);
   if(q) two.push(...[quota('req/min', q.rpm), quota('req/day', q.rpd), quota('tok/min', q.tpm), quota('month', q.month)].filter(Boolean));
 
   const u = gateway?.state.usage;
   const b = gateway?.state.budget;
-  if(u) two.push(b?.totalBudget ? `${tc('⛁')} gateway ${meter(b.totalUsed / b.totalBudget, 4)} ${Math.round((100 * b.totalUsed) / b.totalBudget)}% of ${fmtNum(b.totalBudget)}` : `${tc('⛁')} gateway month ${fmtNum(u.tokens)} tok ${fmtNum(u.requests)} req`);
+  if(u) two.push(b?.totalBudget ? `${tc('⛁')} gateway ${meter(b.totalUsed / b.totalBudget, 6)} ${Math.round((100 * b.totalUsed) / b.totalBudget)}% ${dimmed(`of ${fmtNum(b.totalBudget)}`)}` : `${tc('⛁')} gateway month ${fmtNum(u.tokens)} tok ${fmtNum(u.requests)} req`);
   if(last?.rateLimit) two.push(`gw ${last.rateLimit.remaining}/${last.rateLimit.limit}/min`);
   if(proxyInfo.settings?.active) {
     const o = proxyInfo.probe?.overhead;
@@ -2412,6 +2500,8 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
   if(standby.on) two.push(standby.state === 'ready' ? `${tc('⏻')} standby ${standby.id} ✓ ${fmtMs(standby.ms)}${standby.toolOk ? '' : ' (no tools)'}` : standby.state === 'probing' ? `${tc('⏻')} standby probing…` : `\x1b[33m⏻ standby ${standby.state}\x1b[39m`);
   const health = gateway?.enabled ? routingHealth({ skips: skippedModels.values(), av: availability }) : null;
   if(health) two.push(`\x1b[${health.level === 'bad' ? 31 : 33}m⚠ ${health.text}\x1b[39m`);
+  if(keyScope.models) two.push(`${tc('⚿')} keys ${keyScope.ids.join(',')}`);
+  if(exploration?.pending.size) two.push(`\x1b[36m⌕ ${exploration.done}/${exploration.total}\x1b[39m`);
   if(last?.fallbacks) two.push(`\x1b[33m⚑ ${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
   if(queued) two.push(`\x1b[33m⏳ ${queued} queued\x1b[39m`);
   two.push(busy ? dimmed(`${lime('⎋')} Esc cancels · ^X^S sends now`) : dimmed(`${lime('⇧⇥')} mode · ${lime('^O')} verbose · ${lime('/help')}`));
@@ -2421,6 +2511,10 @@ function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, co
 
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
+  /* the session name now: the debug logs carry it; the cache key below only follows an explicit --name */
+  const givenName = opts.name;
+  opts.name ??= funnyName(listSessions().map(s => s.name));
+  setLogName(opts.name);
   completionOllama = opts.provider === 'ollama';
   initHarness(opts.root);
   snapshotHarness();
@@ -2457,6 +2551,7 @@ async function main() {
   let ctxWindow;
 
   if('onPhase' in client) client.onPhase = (name, meta) => setPhase(name, { meta });
+  watchNet(client, 'main');
 
   if('onMeta' in client)
     client.onMeta = meta => {
@@ -2509,7 +2604,7 @@ async function main() {
   const makeClient = model => {
     const c = new OpenAIClient({ ...opts, model });
     c.extraHeaders = gatewayHeaders(`${opts.sessionId ?? 'ollama-repl'}-standby`);
-    return c;
+    return watchNet(c, 'standby');
   };
 
   const currentIds = () => [opts.model, stats.last()?.routedVia, stats.last()?.model].filter(Boolean);
@@ -2538,11 +2633,11 @@ async function main() {
 
         /* nothing routed yet on auto: the gateway's first choice is what the first request will use, the standby is the one after it */
         if(!standby.pinned && !stats.last()?.routedVia && /^auto(:|$)/.test(opts.model)) {
-          const first = await pickNext(gateway, av, { exclude });
+          const first = await pickNext(gateway, av, { exclude, allowed: inKeyScope });
           if(first) exclude.push(first.id);
         }
 
-        const pick = standby.pinned ? { id: standby.pinned, name: standby.pinned } : await pickNext(gateway, av, { exclude });
+        const pick = standby.pinned ? { id: standby.pinned, name: standby.pinned } : await pickNext(gateway, av, { exclude, allowed: inKeyScope });
 
         if(!pick) {
           Object.assign(standby, { id: null, name: '', state: 'none', error: 'no other usable model', at: Date.now() });
@@ -2583,6 +2678,313 @@ async function main() {
     },
   };
 
+  /**
+   * the async exploration found out about a model: say so in the log when it answers, and put it in the
+   * standby slot when that is empty (the probe has warmed it up already)
+   */
+  function explored(id, r, quiet = false) {
+    tui?.drawStatus();
+    if(!r.ok) return;
+
+    const takeStandby = inKeyScope(id) && standby.on && !standby.busy && !standbyReady() && r.toolOk && !currentIds().includes(id) && !standby.bad.has(id);
+    if(takeStandby) Object.assign(standby, { id, name: id, state: 'ready', ms: r.ms, toolOk: r.toolOk, servedBy: r.servedBy ?? '', error: '', at: Date.now() });
+
+    if(!quiet || takeStandby) console.log(note(`async exploration: ${id} ${quiet ? 'is usable' : 'responds'} in ${fmtMs(r.latencyMs ?? r.ms)}, ${r.toolOk ? 'calls tools' : 'no tool calls'}${r.identity ? `, says "${r.identity.slice(0, 60)}"` : ''}${quiet ? '' : ' - warm'}${takeStandby ? ', now the standby' : ''}`, 'explore'));
+    if(takeStandby) tui?.drawStatus();
+
+    considerTakeover(id, { ...r, ms: r.latencyMs ?? r.ms }).catch(e => console.log(note(`takeover: ${String(e.message).split('\n')[0]}`, 'warn')));
+  }
+
+  /**
+   * a model the exploration found may take over the running task: the running model pauses at its next step
+   * (takeoverHook.hold) while the candidate gets a compacted handoff of the conversation and says what it would do;
+   * if that works the user is asked, only then the model is switched. The context is never cleared.
+   */
+  /**
+   * what is known about the models that passed their prompts, found out without prompting any of them: the gateway
+   * answers a TCP connect, the usage and quota it reports (availability) say whether the model is limited, and the
+   * requests of this session served by it. Models usable now go through explored() again (standby slot, takeover).
+   */
+  async function refreshExplored(av) {
+    if(!exploration || !gateway?.origin) return;
+
+    const m = /^https?:\/\/([^/:]+)(?::(\d+))?/.exec(gateway.origin);
+    const port = m ? m[2] ?? (gateway.origin.startsWith('https') ? 443 : 80) : null;
+    const reachable = m ? (await runCommand(`timeout 2 bash -c 'exec 3<>/dev/tcp/${m[1]}/${port}'`, { timeoutMs: 4000 }).catch(() => ({ status: 1 }))).status === 0 : undefined;
+
+    const served = new Map();
+    for(const r of stats.records) if(!r.error && r.at) for(const n of [r.model, r.routedVia?.slice((r.platform?.length ?? -1) + 1)]) if(n) served.set(n, { at: r.at, ms: r.ms });
+
+    const now = Date.now();
+    const live = {};
+    for(const [id, e] of av?.byModel ?? []) if(exploration.verified(id)) live[id] = { at: now, reachable, blocked: !!e.blocked, kinds: e.kinds, until: e.until ?? null, servedAt: served.get(id)?.at, servedMs: served.get(id)?.ms };
+
+    exploration.setLive(live);
+    for(const [id, l] of Object.entries(live)) if(l.reachable !== false && !l.blocked && l.until == null) explored(id, exploration.get(id), true);
+  }
+
+  /* a client of its own per explored model, on the REPL's thread */
+  const makeExploreClient = id => {
+    const c = new OpenAIClient({ ...opts, model: id });
+    c.extraHeaders = gatewayHeaders(`${opts.sessionId ?? 'ollama-repl'}-explore`);
+    return watchNet(c, 'explore');
+  };
+
+  /**
+   * /proxy keyless fix: the whole round for the limited keyless providers: their keys go through the proxy, the
+   * proxy gets a new exit address (NEWNYM on its control port), the address is probed (does it really differ, from
+   * the one before and from ours?), their cooldowns are cleared and one small request per provider shows whether
+   * the model works again through the new address. A second round with another address follows for those that
+   * still fail. The one question is asked first, it changes the gateway's keys.
+   */
+  async function fixKeyless(rows, socks, host) {
+    const step = text => console.log(waveNote(text));
+    const probe = async proxy => (await externalIp({ proxy }))?.ip ?? null;
+
+    const direct = await probe(null);
+    let before = await probe(socks);
+    if(!before) return void console.log(red(`error: no "what is my IP" host answers through ${socks}, the proxy does not carry traffic`));
+
+    const k = await repl.choose(`Fix ${rows.length} limited keyless provider${rows.length > 1 ? 's' : ''} (${rows.map(r => r.platform).join(', ')}): proxy their keys through ${socks} (exit now ${before}), new exit address, check again?`, ['Yes', 'No']);
+    if(k !== 0) return void console.log(note('nothing changed'));
+
+    const set = await setKeyProxy(gateway, rows.filter(r => !r.routed).map(r => r.id), socks);
+    if(set.some(r => !r.ok)) console.log(note(`proxy not set on key ${set.filter(r => !r.ok).map(r => `${r.id} (${r.error})`).join(', ')}`, 'warn'));
+    step(`${set.filter(r => r.ok).length} keys now go through ${socks}`);
+
+    let left = rows;
+    const result = new Map();
+
+    for(let round = 1; round <= 2 && left.length; round++) {
+      try {
+        await newExit({ host });
+      } catch(e) {
+        return void console.log(red(`error: ${e.message}`));
+      }
+
+      /* a circuit takes a moment to build; Tor answers NEWNYM at most every 10 s */
+      let after = null;
+      for(let i = 0; i < 6; i++) {
+        await new Promise(res => setTimeout(res, i ? 4000 : 3000));
+        after = await probe(socks);
+        if(after && after !== before) break;
+      }
+
+      const changed = !!after && after !== before;
+      console.log(note(`exit address: ${before} -> ${after ?? '?'} ${changed ? '(changed)' : '(UNCHANGED - Tor keeps the circuit, or the probe hosts answer from a cache)'}${direct && after === direct ? ' - it is our own address, the proxy is not used' : ''}`, changed ? 'explore' : 'warn'));
+      if(!changed) {
+        if(round < 2) await new Promise(res => setTimeout(res, 10000));
+        continue;
+      }
+      before = after;
+
+      await clearCooldowns(gateway, left.map(r => r.id));
+
+      const still = [];
+      for(const r of left) {
+        const tier = n => modelStrength(n, availability?.byModel.get(n)?.intelligence).tier;
+        const id = [...r.limitedIds].sort((a, b) => tier(a) - tier(b))[0];
+        const c = makeExploreClient(id);
+        const timer = setTimeout(() => c.abort(), 40000);
+        let ok = false;
+        let why = '';
+
+        try {
+          const reply = await c.chat([{ role: 'user', content: 'Reply with the word OK.' }], { max_tokens: 16 });
+          ok = String(reply?.content ?? '').trim().length > 0;
+          why = ok ? '' : 'empty answer';
+        } catch(e) {
+          why = (e.detail ?? e.message ?? String(e)).split('\n')[0].slice(0, 100);
+        } finally {
+          clearTimeout(timer);
+          c.destroy();
+        }
+
+        result.set(r.platform, { id, ok, why, ip: after, round });
+        if(!ok) still.push(r);
+      }
+      left = still;
+    }
+
+    availability = await loadAvailability(gateway).catch(() => availability);
+    tui?.drawStatus();
+    const lines = [...result].map(([platform, x]) => `${x.ok ? '\x1b[32m✔\x1b[0m' : '\x1b[31m✗\x1b[0m'} ${platform} ${dim(x.id)} ${x.ok ? `answers again through ${x.ip} (round ${x.round})` : `still fails through ${x.ip}: ${x.why}`}`);
+    console.log([waveNote(`keyless fix: ${[...result.values()].filter(x => x.ok).length} of ${rows.length} providers work again`), ...lines, dim('/proxy keyless clear takes their keys off the proxy again')].join('\n'));
+  }
+
+  /**
+   * /proxy keyless [apply|clear|fix]: the keyless providers (their quotas are counted per IP address) whose models are
+   * limited right now could work again through another address. Without an argument they are listed; apply sends
+   * their keys through the anonymizing SOCKS proxy (a key's own proxy in the gateway, after asking, optionally
+   * clearing their cooldowns); clear takes them off it again. /proxy exit gets the proxy a new exit address.
+   */
+  async function keylessProxy(sub) {
+    if(!gateway?.hasLimits) return void console.log(red('error: this needs a dashboard session: /gateway login'));
+    if(sub && sub !== 'apply' && sub !== 'clear' && sub !== 'fix') return void console.log('usage: /proxy keyless [apply|clear|fix]');
+
+    const socks = /^socks/.test(proxyInfo.settings?.url ?? '') ? proxyInfo.settings.url : ANON_PROXY;
+    const keys = await gateway.api('/api/keys');
+    availability = await loadAvailability(gateway).catch(() => availability);
+
+    if(sub === 'clear') {
+      const mine = routedKeys(keys, socks);
+      if(!mine.length) return void console.log(note(`no keyless key is routed through ${socks}`));
+      const done = await setKeyProxy(gateway, mine.map(k => k.id), '');
+      return void console.log(note(`${done.filter(r => r.ok).length} of ${mine.length} keyless keys go direct again${done.some(r => !r.ok) ? ` (failed: ${done.filter(r => !r.ok).map(r => `${r.id}: ${r.error}`).join('; ')})` : ''}`));
+    }
+
+    const rows = ipCandidates(keys, availability, socks);
+    if(!rows.length) return void console.log(note('no keyless provider is limited right now, nothing to route through another address'));
+
+    const width = tui?.active ? tui.width - 5 : 0;
+    console.log(`${waveNote(`${rows.length} keyless provider${rows.length > 1 ? 's' : ''} limited per IP address (their quotas count per address), could work again through another`)}\n${fitTable(width, bar => [['provider', 'key', 'models limited', 'limited by', 'back', 'proxy'], ...rows.map(r => [r.platform, r.id, `${pctCell(r.blocked / r.total, bar)} ${r.blocked}/${r.total}`, r.kinds.join(', '), r.until ? untilText(r.until, availability.at) : '-', r.routed ? `\x1b[32m✔ ${socks}\x1b[0m` : r.via ? `\x1b[33m${r.via}\x1b[0m` : '\x1b[2mdirect\x1b[0m'])], 0)}`);
+
+    const todo = rows.filter(r => !r.routed);
+    if(!sub) return void console.log(dim(todo.length ? `/proxy keyless apply sends ${todo.length} of them through ${socks}; /proxy exit gets the proxy a new exit address` : `all of them already go through ${socks}; /proxy exit gets the proxy a new exit address`));
+    if(!todo.length && sub !== 'fix') return void console.log(note('all of them already go through the proxy'));
+
+    /* is something listening there at all? */
+    const m = /\/\/(?:[^@/]*@)?([^/:]+):(\d+)/.exec(socks);
+    const up = m && (await runCommand(`timeout 2 bash -c 'exec 3<>/dev/tcp/${m[1]}/${m[2]}'`, { timeoutMs: 4000 }).catch(() => ({ status: 1 }))).status === 0;
+    if(!up) return void console.log(red(`error: nothing answers at ${m?.[1]}:${m?.[2]}, start the anonymizing proxy first`));
+
+    if(sub === 'fix') return void (await fixKeyless(rows, socks, m[1]));
+
+    const k = await repl.choose(`Send ${todo.length} keyless key${todo.length > 1 ? 's' : ''} (${todo.map(r => r.platform).join(', ')}) through ${socks} in the gateway?`, ['Yes, and clear their cooldowns', 'Yes, only the proxy', 'No']);
+    if(k === 2 || k === undefined || k < 0) return void console.log(note('nothing changed'));
+
+    const set = await setKeyProxy(gateway, todo.map(r => r.id), socks);
+    const cleared = k === 0 ? await clearCooldowns(gateway, set.filter(r => r.ok).map(r => r.id)) : [];
+    const bad = [...set, ...cleared].filter(r => !r.ok);
+    await loadProxy(true).catch(() => {});
+    availability = await loadAvailability(gateway).catch(() => availability);
+    tui?.drawStatus();
+    console.log(note(`${set.filter(r => r.ok).length} of ${todo.length} keys now go through ${socks}${k === 0 ? ', their cooldowns are cleared' : ''}${bad.length ? ` (failed: ${bad.map(r => `${r.id}: ${r.error}`).join('; ')})` : ''}; /proxy keyless clear undoes it`));
+  }
+
+  /**
+   * /model key:ID[,key:ID...]: the models reachable through those gateway keys are listed and the selection of models
+   * (the model list, /model NAME, the next model after a skip, the standby, the takeover, the exploration) is
+   * restricted to them; key:off lifts it. The gateway picks the key of a request itself, so this restricts which
+   * models are chosen, not which key of a platform serves them (shared says where another key could).
+   */
+  async function keyScopeCommand(arg) {
+    if(!gateway?.hasLimits || gateway.isBridge) return void console.log(red('error: this needs a gateway with a dashboard session: /gateway login'));
+
+    const p = arg === 'key' ? { show: true } : parseKeyScope(arg);
+    if(p.error) return void console.log(red(`error: ${p.error}`));
+
+    if(p.show) return void console.log(keyScope.models ? note(`the model selection is restricted to the keys ${keyScope.ids.join(', ')}: ${keyScope.models.size} models (/model key:off lifts it, /model list shows them)`) : note('no key restriction: /model key:ID,key:ID restricts the models to those of gateway keys (/gateway keys lists the ids)'));
+
+    if(p.off) {
+      keyScope.ids = [];
+      keyScope.models = null;
+      tui?.drawStatus();
+      return void console.log(note('key restriction lifted: every model of the gateway can be chosen again'));
+    }
+
+    const data = await loadKeyData(gateway);
+    keyIdsCache = data.keys.map(k => k.id);
+    const set = modelsOfKeys(data, p.ids);
+
+    if(set.missing.length) return void console.log(red(`error: no such key: ${set.missing.join(', ')} (/gateway keys lists the ids)`));
+    if(!set.ids.size) return void console.log(red(`error: the keys ${p.ids.join(', ')} reach no model (disabled, or every model is outside their scope)`));
+
+    availability = await loadAvailability(gateway).catch(() => availability);
+    keyScope.ids = p.ids;
+    keyScope.models = set.ids;
+    tui?.drawStatus();
+
+    const rows = [...set.models].map(([id, rs]) => ({ id, rs, e: availability?.byModel.get(id), tier: modelStrength(id, availability?.byModel.get(id)?.intelligence) })).sort((a, b) => a.tier.tier - b.tier.tier || a.id.localeCompare(b.id));
+    const width = tui?.active ? tui.width - 5 : 0;
+    const flag = r => (r.e?.blocked ? `\x1b[33m⏸ ${kindsText(r.e)}\x1b[0m` : '\x1b[32m✔\x1b[0m');
+    console.log(`${waveNote(`${rows.length} models reachable through key${p.ids.length > 1 ? 's' : ''} ${p.ids.join(', ')}`)}\n${fitTable(width, () => [['model', 'via', 'keys', 'strength', 'now', 'probe'], ...rows.map(r => [r.id, r.rs.map(x => x.platform).filter((v, i, a) => a.indexOf(v) === i).join(','), [...new Set(r.rs.flatMap(x => x.keyIds))].join(','), r.tier.label, flag(r), probeBrief(exploration, r.id)])], 0)}`);
+    for(const s of set.shared) console.log(note(`${s.platform}: ${s.others} other enabled key${s.others > 1 ? 's' : ''} can serve its requests, too - the gateway picks the key itself`, 'warn'));
+
+    /* the model in use (auto included) is outside the set: the best usable one of it takes over */
+    if(!set.ids.has(opts.model)) {
+      const best = rows.find(r => !r.e?.blocked && !(skippedModels.get(r.id)?.until > Date.now()));
+      if(!best) return void console.log(note(`every model of these keys is limited right now, ${opts.model} stays (and is outside the selection)`, 'warn'));
+
+      opts.model = best.id;
+      client.model = best.id;
+      repl.setPromptName?.(best.id);
+      control?.update({ model: best.id });
+      await updateCtxWindow?.();
+      tui?.drawStatus();
+      console.log(note(`model: ${best.id}, the strongest usable model of these keys (the conversation is kept)`));
+    }
+  }
+
+  const takeover = { busy: false, gate: null, declined: new Map() };
+  takeoverHook = { hold: msgs => (msgs === messages ? takeover.gate : null) };
+
+  async function considerTakeover(id, r) {
+    if(opts.noTakeover || takeover.busy || !r.ok || !r.toolOk || !repl || !inKeyScope(id)) return;
+
+    const last = stats.last();
+    const current = last && !last.error ? (last.routedVia ?? last.model ?? opts.model) : opts.model;
+    if(!current || id === current || id === opts.model || (takeover.declined.get(id) ?? 0) > Date.now()) return;
+
+    const strengthOf = n => modelStrength(n, availability?.byModel.get(n)?.intelligence).tier;
+    const why = betterReason({ strength: { cand: strengthOf(id), cur: strengthOf(current) }, probeMs: r.latencyMs ?? Math.round(r.ms / 3), currentMs: last?.ms ?? 0 });
+    if(!why) return;
+
+    if(!repl.busy) return void console.log(note(`async exploration: ${id} looks better than ${current} (${why}) - /model ${id} switches`, 'explore'));
+
+    takeover.busy = true;
+    let release;
+    takeover.gate = new Promise(res => (release = res));
+    const cand = makeClient(id);
+
+    try {
+      console.log(note(`takeover: ${id} looks better than ${current} (${why}); ${current} pauses at its next step while ${id} gets a handoff of the task`, 'explore'));
+
+      const h = await buildHandoff(messages.slice(), baseMessageCount, { keepTurns: opts.handoffTurns ?? 3, model: opts.handoffModel ?? HANDOFF_MODEL, host: opts.host, port: opts.port, reason: 'handoff' }).catch(() => null);
+      const ctx = h?.messages ?? messages.slice();
+
+      let step = null;
+      let failure = 'it did not answer';
+      const timer = setTimeout(() => cand.abort(), 60000);
+
+      try {
+        const reply = await cand.chat([...ctx, { role: 'user', content: '[takeover check] You are asked to take over this task. Do your next step now: call the tool you need, or say in one short paragraph what you do next. Nothing is run, this only checks that you can pick the task up.' }], { tools: TOOLS.filter(t => toolAllowed(opts.mode, t.name)) });
+        step = stepText(reply);
+        if(!step) failure = 'its answer was empty or off the task';
+      } catch(e) {
+        failure = String(e.message).split('\n')[0].slice(0, 100);
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if(!step) {
+        takeover.declined.set(id, Date.now() + 30 * 60_000);
+        return void console.log(note(`takeover: ${id} could not pick the task up (${failure}); ${current} goes on`, 'warn'));
+      }
+
+      console.log(note(`takeover: ${id} picked the task up: ${step}`, 'explore'));
+      const k = await repl.choose(`Switch to ${id}? ${why}; it picked the task up with ${step.slice(0, 60)}`, [`Yes, ${id} takes over`, `No, ${current} goes on`]);
+
+      if(k !== 0) {
+        takeover.declined.set(id, Date.now() + 30 * 60_000);
+        return void console.log(note(`takeover: ${current} goes on`, 'explore'));
+      }
+
+      opts.model = id;
+      client.model = id;
+      repl.setPromptName?.(id);
+      control?.update({ model: id });
+      await updateCtxWindow?.();
+      tui?.drawStatus();
+      console.log(note(`takeover: ${id} continues the task, the conversation is kept`, 'explore'));
+    } finally {
+      cand.destroy();
+      takeover.busy = false;
+      takeover.gate = null;
+      release();
+    }
+  }
+
   /* provider failover: a route that refuses (bad key), is out of quota or down is cooled down and the request
      retried on the next provider, finally the local Ollama model (chatRound, lib/provider-fallback.js) */
   {
@@ -2599,7 +3001,7 @@ async function main() {
       const model = [opts.localModel, 'qwen3:4b-instruct'].find(m => m && have.includes(m)) ?? have[0];
       if(!model) return local;
 
-      const c = new OllamaClient({ ...opts, model });
+      const c = watchNet(new OllamaClient({ ...opts, model }), 'local fallback');
       local = { key: `${endpointOf(c)}/${model}`, label: `ollama/${model}`, client: c };
       return local;
     };
@@ -2626,6 +3028,7 @@ async function main() {
 
   if(opts.provider === 'openai') {
     gateway = gatewayRef = new Gateway(client);
+    exploration ??= new Exploration(gateway.origin); /* its cached results of earlier runs show in the lists at once */
 
     if((await gateway.detect()) && gateway.isBridge) {
       /* a chat-bridge: usage, health and limits per site, auto and auto:AXIS routing, no named profiles, dashboard or proxy */
@@ -2702,10 +3105,13 @@ async function main() {
 
   if(opts.provider === 'ollama') console.log(dim(await thinkNote(client)));
 
-  const log = new SessionLog(`${opts.model.replaceAll(':', '-')}.log`);
+  /* the session's files live in ~/.cache/ollama-repl/sessions/KEY/, not in the current directory */
+  /* no --name: the funny one made at the start (lib/session-name.js); the cache key stays model + project so a restart still resumes */
+  const cacheKey = sessionKey({ ...opts, name: givenName });
+  const log = new SessionLog(sessionFile(cacheKey, 'session.log'));
   let sentFiles = new SentFiles(opts.model, opts.root);
-  let fileExchange = new FileExchange(opts.model, opts.root);
-  const store = new SessionStore(opts.model);
+  let fileExchange = new FileExchange(opts.model, opts.root, `${sessionDir(cacheKey)}/diffs`);
+  const store = new SessionStore(sessionFile(cacheKey, 'session.json'));
 
   /* Handle --resume: load serialized state from temp file */
   let saved = store.load();
@@ -3038,19 +3444,20 @@ async function main() {
       if(!tui?.active) return void console.log(note('the split needs the TUI'));
 
       const arg = prompt.slice('/split'.length).trim() || (split.mode ? 'off' : 'diff');
-      if(!['diff', 'git', 'status', 'off'].includes(arg)) return void console.log('usage: /split [diff|git|status|off]');
+      if(!['diff', 'git', 'status', 'net', 'off'].includes(arg)) return void console.log('usage: /split [diff|git|status|net|off]');
 
       clearTimeout(split.timer);
       split.timer = null;
       split.mode = arg === 'off' ? null : arg;
 
       if(arg === 'git') await refreshGit();
-      if(arg === 'status') {
+      if(arg === 'status' || arg === 'net') {
         const poll = async () => {
-          if(split.mode !== 'status') return;
+          if(split.mode !== arg) return;
           split.sockets = await ownSockets(getpid()).catch(() => []);
+          if(arg === 'net') annotateRates(split.sockets);
           tui.drawPane();
-          split.timer = setTimeout(poll, 1000);
+          split.timer = setTimeout(poll, net.active.length ? 500 : 1000);
         };
         await poll();
       }
@@ -3068,6 +3475,8 @@ async function main() {
       const arg = prompt.slice('/proxy'.length).trim();
       await loadProxy(false);
       const url = proxyInfo.settings?.url;
+
+      if(arg === 'keyless' || arg.startsWith('keyless ')) return void (await keylessProxy(arg.slice('keyless'.length).trim()));
 
       if(arg === 'on' || arg === 'off') {
         if(!proxyInfo.settings) return void console.log(red('error: proxy settings need a dashboard session: /gateway login'));
@@ -3105,7 +3514,7 @@ async function main() {
           proxyInfo.measuring = false;
         }
         tui?.drawStatus();
-      } else if(arg) return void console.log('usage: /proxy [on|off|probe|exit]');
+      } else if(arg) return void console.log('usage: /proxy [on|off|probe|exit|keyless [apply|clear|fix]]');
 
       return void console.log(proxyText(stats));
     }
@@ -3179,8 +3588,8 @@ async function main() {
       return void console.log(`verbose: ${ui.verbose ? 'on' : 'off'}`);
     }
 
-    if(prompt === '/remote-control' || prompt.startsWith('/remote-control ')) {
-      const arg = prompt.slice('/remote-control'.length).trim();
+    if(/^\/(remote-control|listen)(\s|$)/.test(prompt)) {
+      const arg = prompt.replace(/^\/\S+/, '').trim();
 
       if(arg === 'off') {
         if(!control) return void console.log(note('no control socket open', 'warn'));
@@ -3212,8 +3621,8 @@ async function main() {
     }
 
     if(prompt === '/rename' || prompt.startsWith('/rename ')) {
-      const name = prompt.slice('/rename'.length).trim();
-      if(!name) return void console.log(note(`session name: ${opts.name ?? sessionName(opts)}`));
+      /* no argument: a new funny name */
+      const name = prompt.slice('/rename'.length).trim() || funnyName(listSessions().map(s => s.name));
       if(!/^[\w.:@+-]+$/.test(name)) return void console.log(red('error: a session name is letters, digits and . _ : @ + - only'));
       if(listSessions().some(s => s.name === name && s.pid !== getpid())) return void console.log(red(`error: another session is already called "${name}"`));
 
@@ -3246,8 +3655,8 @@ async function main() {
         return void console.log(ok ? `(dashboard session from ${gateway.tokenSource}: per-model quotas on)` : `(${gateway.dashboardNote})`);
       }
 
-      const show = { usage: () => gateway.usageText(), status: () => probeGateway(true), providers: () => gateway.providersText(), forecast: () => gateway.forecastText(), quota: () => gateway.quotaText(rest.join(' ')), models: () => gateway.modelsText(rest.join(' ')), limits: () => withAvailability(av => limitsText(av, rest.join(' '))), limited: () => withAvailability(av => limitedText(av, rest.join(' '))) }[what];
-      if(!show) return void console.log('usage: /gateway [usage|status|providers|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login]');
+      const show = { usage: () => gateway.usageText(panelInner()), status: () => probeGateway(true), providers: () => gateway.providersText(panelInner(), exploration), keys: () => gateway.keysText(rest.join(' '), panelInner()), forecast: () => gateway.forecastText(panelInner()), quota: () => gateway.quotaText(rest.join(' '), panelInner(), exploration), models: () => gateway.modelsText(rest.join(' '), panelInner(), exploration), limits: () => withAvailability(av => limitsText(av, rest.join(' '), panelInner(), exploration)), limited: () => withAvailability(av => limitedText(av, rest.join(' '), panelInner(), exploration)) }[what];
+      if(!show) return void console.log('usage: /gateway [usage|status|providers|keys [all|FILTER]|forecast|quota [FILTER]|limits [FILTER]|limited [FILTER]|models [FILTER]|login]');
 
       try {
         console.log(await show());
@@ -3276,16 +3685,26 @@ async function main() {
         return void console.log(note('model list is only available for --provider ollama and openai endpoints that serve /models'));
       }
 
+      if(arg === 'key' || arg.startsWith('key:')) return void (await keyScopeCommand(arg));
+
       if(arg === 'health') {
         const av = await loadAvailability(gatewayRef);
         if (!av) {
           console.log('No dashboard session. Cannot load health.');
           return;
         }
-        const { rows, header } = modelStatusTable(av);
+        /* async exploration: every READY model is explored in the background (what is it, does it obey a system prompt, does it call tools), the results cached */
+        exploration ??= new Exploration(gatewayRef.origin);
+        const ready = [...av.byModel].filter(([id, e]) => !e.blocked && !e.permanent && e.until == null && e.status !== 'needsKey' && id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && inKeyScope(id)).map(([id]) => id);
+        await refreshExplored(av);
+        const tools = {};
+        for(const m of gateway?.modelsCached() ?? []) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
+        const queued = exploration.run(ready, makeExploreClient, { tools, onResult: explored, onDone: ({ explored: n, usable }) => { tui?.drawStatus(); console.log(note(`async exploration: ${usable} of ${n} models usable (/model health shows them)`)); } });
+        if(queued) console.log(dim(`async exploration: ${queued} ready models are being explored in the background, /model health again shows the results`));
+        const { rows, header } = modelStatusTable(av, exploration);
         const width = repl.tui ? repl.tui.cols : (ttyGetWinSize(1)?.[0] ?? 100);
         /* caps: Model 28, Status 15, Quota/Reset (flex), Providers 20 */
-        const caps = [28, 15, 0, 20];
+        const caps = [28, 15, 0, 20, 22, 30];
         const paint = (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : text);
         const table = [header, ...rows].length ? compactTable([header, ...rows], width - 2, 2, caps, paint).join('\n') : '(no models with health data)';
         if (repl.tui) {
@@ -3363,6 +3782,8 @@ async function main() {
 
       /* glob pattern: /model qwen* cycles through every matching model on each
          repeat, /model qwen* again picks the next one */
+      if(keyScope.models && !isModelGlob(arg) && !/^\d+$/.test(arg) && !keyScope.models.has(arg)) return void console.log(red(`error: ${arg} is outside the key selection ${keyScope.ids.join(', ')} (/model key:off lifts it)`));
+
       if(isModelGlob(arg)) {
         const matches = modelsForGlob(arg, known);
         if(!matches.length) return void console.log(red(`error: no model matches "${arg}" (/model list shows the installed ones)`));
@@ -3371,6 +3792,7 @@ async function main() {
            matching a different set) restarts at the first match */
         if(!modelCycle || modelCycle.pattern !== arg || modelCycle.matches.join('\0') !== matches.join('\0')) {
           modelCycle = { pattern: arg, matches, index: 0 };
+          saveSessionState(cacheKey, { modelPattern: arg });
         } else {
           modelCycle.index = (modelCycle.index + 1) % matches.length;
         }
@@ -3609,6 +4031,7 @@ async function main() {
     if(prompt === '/route' || prompt.startsWith('/route ')) {
       const arg = prompt.slice('/route'.length).trim();
       if(!gateway?.enabled) return void console.log(note('/route needs a gateway that routes: --provider freellm, or a chat-bridge'));
+      if(keyScope.models && arg && arg !== 'list' && arg !== 'new') return void console.log(red(`error: the model selection is restricted to the keys ${keyScope.ids.join(', ')}, the gateway's own routing would leave it (/model key:off lifts it)`));
 
       const last = stats.last();
       const sticky = opts.sessionId ? `x-session-id ${opts.sessionId}` : '-';
@@ -3702,7 +4125,7 @@ async function main() {
 
       let r;
       try {
-        r = await buildBrief(opts.root, { size: chars, model, host: opts.host, port: opts.port, refresh: arg === 'refresh', onProgress: line => console.log(dim(line)), register: stop => (stopBrief = stop) });
+        r = await buildBrief(opts.root, { size: chars, model, host: opts.host, port: opts.port, refresh: arg === 'refresh', onProgress: line => console.log(dim(line)), register: stop => (stopBrief = stop), onClient: c => watchNet(traceChat(c, localTrace('brief')), 'brief') });
       } finally {
         abortRef.current = null;
       }
@@ -3970,13 +4393,16 @@ async function main() {
     tui.write(reportPanel(prompt.length > 40 ? prompt.slice(0, 39) + '…' : prompt, text, tui.width, { max: Math.max(6, tui.rows - 12), more: k => `… ${k} more lines · /view ${n} shows all` }) + '\n');
   };
 
-  repl = new ChatREPL(opts.model, reportLine, opts.root, () => abortRef.current?.() ?? false);
+  repl = new ChatREPL(opts.model, reportLine, opts.root, () => abortRef.current?.() ?? false, sessionFile(cacheKey, 'history'));
+  /* the /model pattern of the last run of this session */
+  const lastPattern = loadSessionState(cacheKey).modelPattern;
+  if(lastPattern) console.log(dim(`last /model pattern of this session: ${lastPattern} (/model ${lastPattern} cycles it)`));
 
   /* commands that only flip a flag or show something do not wait for the running request: typed while the
      model works they act at once (output goes straight to the transcript, not into a panel, because a panel
      captures stdout and would swallow the streamed reply). Piped input keeps its order. */
   if(!piped) {
-    const INSTANT = [/^\/verbose(\s|$)/, /^\/proxy(\s+(on|off))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+off)?$/, /^\/delegate(\s+(on|off))?$/, /^\/config$/, /^\/skill(\s+loaded)?$/, /^\/rename\s/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/, /^\/model\s+health\b/];
+    const INSTANT = [/^\/verbose(\s|$)/, /^\/split(\s|$)/, /^\/(mouse|stream|diff|log|view|export)(\s|$)/, /^\/(remote-control|listen)(\s|$)/, /^\/run\s/, /^\/(model|provider)$/, /^\/(fallback|handoff-model)(\s|$)/, /^\/route(\s+list)?$/, /^\/brief\s+show$/, /^\/proxy(\s+(on|off|keyless))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|keys|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+(on|off))?$/, /^\/delegate(\s+(on|off|add|remove|pin)\b.*)?$/, /^\/config(\s+(set|unset)\b.*)?$/, /^\/skill(\s+loaded)?$/, /^\/rename(\s|$)/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/, /^\/model\s+health\b/];
     repl.immediate = line => INSTANT.some(re => re.test(line.trim()));
     repl.onImmediate = runLine;
     repl.getModel = () => opts.model;
@@ -3989,7 +4415,7 @@ async function main() {
   }
 
   repl.argCompleter = completeArgs;
-  repl.commandNames = [...new Set([...HELP_TEXT.matchAll(/(?:^|, )(\/[a-z]+)/gm)].map(m => m[1]))].sort();
+  repl.commandNames = [...new Set([...HELP_TEXT.matchAll(/(?:^|, )(\/[a-z-]+)/gm)].map(m => m[1]), '/listen', '/quit')].sort(); /* hyphenated names whole; the aliases the help only mentions */
 
   /* a key press outside the TUI has no status line: say it in one line and draw the prompt again */
   const keyNote = text => {

@@ -32,6 +32,7 @@ import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { toString } from 'lws.so';
 import { RequestLogger } from '../../../lib/logger.js';
+import { debugLogPath } from './session-cache.js';
 
 /* lws's own default (15s, see wsi-timeout.c/context.c) for how long a
    client connection may sit waiting on e.g. the server's reply before lws
@@ -55,7 +56,7 @@ const DEFAULT_NUM_CTX = 16384;
 /* Low: tool calls and exact-text edits want repeatable output, not variety
    (a 4B model at the default 0.8 mangles anchors and copies wrongly). */
 const DEFAULT_TEMPERATURE = 0.2;
-const DEBUG_LOG_PATH = 'ollama-repl-debug.log';
+/* the debug log: lib/session-cache.js debugLogPath() */
 
 export class OllamaClient {
   #ctx;
@@ -95,7 +96,7 @@ export class OllamaClient {
     this.#timeoutMs = timeoutSecs * 1000;
     this.#timeoutSecs = timeoutSecs;
 
-    this.#logger = new RequestLogger(DEBUG_LOG_PATH, debug);
+    this.#logger = new RequestLogger(debugLogPath('ollama', debug), debug);
 
     this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
 
