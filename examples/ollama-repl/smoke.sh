@@ -58,6 +58,9 @@ WORK=$(mktemp -d) || exit 1
 SOCK=/tmp/or-sm-$$.s # short, to stay clear of the 107 byte limit
 trap 'rm -rf "$WORK" "$SOCK"' EXIT
 cd "$WORK" || exit 1
+# its own cache directory: the REPL keeps its session (key tmp.XXXX-hash from the directory) there, not in the real ~/.cache/ollama-repl
+XDG_CACHE_HOME=$WORK/cache
+export XDG_CACHE_HOME
 
 LOG=$WORK/out.txt
 {

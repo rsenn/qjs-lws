@@ -1,5 +1,34 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* repl.js (logUsage, watchNet, main): every request is written to
+	usage.jsonl, also without a gateway (origin: the client's endpoint,
+	platform: the provider name); a direct provider's spend was invisible to
+	/usage.
+
+	* repl.js (DIRECT_TOKEN_BUDGET, spentTokens, runToolLoop, parseArgs,
+	/budget): --token-budget N and /budget [N|off]; a direct hosted provider
+	gets 1000000 tokens per run by default, the tool loop stops before a
+	request over it (a "continue" no longer restarts the bound).
+
+	* repl.js (updateCtxWindow): a direct provider's context window is
+	--num-ctx, so old tool results are elided and auto-compaction runs for it.
+
+	* repl.js (providerFallback): the failover line names the candidate by its
+	label; it printed "cerebras/undefined".
+
+	* smoke.sh: the REPL run uses its own XDG_CACHE_HOME, so a run no longer
+	leaves a tmp.* session in ~/.cache/ollama-repl.
+
+	* lib/lag.js (slicer), lib/gateway/availability.js (availabilityFrom,
+	loadAvailabilityNow), tests/test-lag.js: availabilityFrom is async and
+	gives the event loop a turn every 20 ms instead of computing 220-270 ms in
+	one block.
+
+	* doc/ARCHITECTURE.md, README.md, BUGS, TODO.md: the "Spend on direct
+	providers" decisions, /budget and --token-budget; fixed bugs removed from
+	BUGS (env-json-stores-dashboard-token-plain was a misreading of the
+	documented env.json design and is removed too).
+
 	* lib/tui/markdown.js, tests/test-markdown.js: TEAL, AMBER and LIME come
 	from lib/palette.js like in lib/tui/rawcolor.js; markdown had its own
 	copies with other values (#2dd4bf, #fbbf24, #a3e635), so headings, bullets

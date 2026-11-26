@@ -1,16 +1,11 @@
 
-- loadavailability-stalls-the-loop (lib/availability.js:availabilityFrom, lib/openai-client.js:fetchJSON): one load blocks the loop for 0.5-1.1 s against a fake gateway of the live size (699 models, 1500 rows, 83 keys; compute 220-270 ms, JSON.parse of /api/fallback/penalty-inspector 140 ms, the rest decoding and chunk handling of 7 responses, about 12 MB in the fake); callers that finished together used to run their continuations in one pass (the 4.8 s and 9 s stalls in the strace logs); the real response sizes are not known, lag.jsonl (lib/lag.js) says which section ran how long.
+
+- loadavailability-stalls-the-loop (lib/clients/openai-client.js:fetchJSON): what is left of the stall of one availability load: JSON.parse of the biggest dashboard tables (about 140 ms for /api/fallback/penalty-inspector in the fake of the live size: 699 models, 1500 rows, 83 keys) and the decoding and chunk handling of 7 responses (about 12 MB in the fake) still run in one block each; the compute part (220-270 ms) now gives the loop a turn every 20 ms (lib/gateway/availability.js, slicer in lib/lag.js); the real response sizes are not known, lag.jsonl (lib/lag.js) says which section ran how long.
 
     note: stalls of about 2.27 s every 6.5 s while waiting for a model (real lag.jsonl, no timed section) are not explained; restart a session, use /model skip and /gateway views, read /events lag or ~/.cache/ollama-repl/lag.jsonl
-
-- shish-head-c-dev-zero-empty (/usr/local/bin/shish, installed 2026-11-26 03:08): shish -c 'head -c 20 /dev/zero | wc -c' prints 0 where sh prints 20 (head -c on /dev/zero gives no output); found because tests/test-run-command.js ran that pipeline through run_command and got an empty result, the test now uses dd.
-
-    note: shish -c 'head -c 20 /dev/zero | wc -c'
-
-- smoke-leaves-sessions (smoke.sh:56): every smoke.sh run starts the REPL in a fresh mktemp directory without its own XDG_CACHE_HOME, so each run leaves a tmp.XXXX-hash session directory in the real ~/.cache/ollama-repl/sessions/ (seen in /sessions: three tmp.* entries from runs within the hour).
-
-    XDG_CACHE_HOME=$(mktemp -d) sh smoke.sh repl.js; ls ~/.cache/ollama-repl/sessions | grep '^tmp\.'
 
 - stream-dropped-in-long-reasoning (../../lib/lws/protocols.js:528): a streamed qwen-3.8-27b request over cerebras ended with "error: dropped" (onClientHttpDropProtocol) after 18 s of reasoning, 347 KB, while the loop was blocked 400 ms per chunk (see the lag fix in rawcolor.js); whether the blocked loop (no lws service for hundreds of ms) or the server dropped the connection is not known, seen once in a screenshot of the cerebras session on 2026-11-26.
 
     note: send a prompt that makes the model reason for more than 15 s through --provider cerebras, watch /events lag and the end of the turn; compare with the colouring fix in place
+
+    note: a drop in the middle of a body now fails with "dropped after N ms, B bytes received" (lib/lws/protocols.js:onClientHttpDropProtocol), which tells a server cut from a stall of the loop on the next occurrence; the cause is still not known

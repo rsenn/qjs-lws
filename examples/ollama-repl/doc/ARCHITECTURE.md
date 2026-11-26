@@ -846,6 +846,27 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
   key, age, messages, model, project, title. `/sessions prune [DAYS]` / `--prune-sessions DAYS` delete the ones not
   touched for DAYS (default 30) except live ones. Nothing is deleted without being asked.
 
+### Spend on direct providers (decided 2026-11-26)
+
+Found when a `--provider cerebras` session (qwen-3.8-27b, 528 model turns in an hour, every turn resending the whole
+history) used up a quota that `/usage` never showed.
+
+- **Usage is recorded for every provider.** `usage.jsonl` gets a row per request also without a gateway: `origin` is the
+  endpoint of the client (`baseUrl`, or `ollama://host:port`), `platform` the provider name (`cerebras`, `gemini`, ...).
+  `/usage history` therefore also covers direct runs (it filters by origin only when a gateway is in use).
+  `quota.jsonl` stays gateway-only (it snapshots the gateway's own counters).
+- **Token budget.** `--token-budget N` (default 1000000 for a direct hosted provider, i.e. not `ollama`, not the freellm
+  gateway; 0 turns it off) caps the prompt+completion tokens one run of the REPL spends. It is checked before every model
+  round: over the budget the tool loop stops with a note and no new request goes out, also for a `continue`. `/budget`
+  shows spent and limit, `/budget N` or `/budget off` changes it for the run. The reason is that `maxRounds` is per prompt
+  and a `continue` restarts it, so nothing else bounded a long autonomous job.
+- **Context window.** A direct provider has no window to ask for, so `--num-ctx` (default 16384) is also the size the
+  history is kept under: old tool results are elided to it, and auto-compaction (`compactAt` percent of it) works as it
+  does for Ollama. Raise it with `--num-ctx` for a model that takes more. Elision only touches tool results; user and
+  assistant text is left to compaction.
+- **Failover line.** The line names the candidate by its own `label` (`ollama/qwen3:4b-instruct`), not by running the
+  client's label function on the candidate record (that printed `cerebras/undefined`).
+
 ### Session browser (decided 2026-11-26)
 
 `/sessions` in the TUI opens a full-screen browser (`lib/tui/session-browser.js`, hosted by `ChatREPL#openSessionBrowser`

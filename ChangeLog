@@ -1,5 +1,17 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/lws/protocols.js (onClientHttpDropProtocol, connect,
+	onReceiveClientHttpRead): a client connection dropped in the middle of a
+	body fails with "dropped after N ms, B bytes received"; a drop before the
+	response keeps the bare "dropped" that lib/fetch.js retries on.
+
+	* tests/unittests/test-socket-dangling-wsi.js: New. Reads .local of
+	sockets reached through LWSContext.contexts and ctx.sockets() after the
+	wsi was closed or the context destroyed; run under valgrind it shows
+	the dangling s->wsi after ctx.destroy().
+
+	* BUGS: socket-wsi-dangling-after-context-destroy.
+
 	* lws-socket.c (lwsjs_socket_get): LWSSocket.peer is null for a
 	listening or not yet connected socket (ENOTCONN) instead of throwing,
 	so every socket can be inspected; fixed the "getpeername" typo in the

@@ -170,6 +170,7 @@ const USAGE = [
     'ollama: let the model think before answering. MODE is detect (default: on if `ollama show` lists the "thinking" capability, else off), on (default when the flag has no MODE), off, auto (send nothing, the model decides) or low|medium|high (gpt-oss). `on` errors on models without that capability; thinking is much slower on a model running partly on the CPU.',
   ],
   ['--max-rounds N', 'tool-calling rounds per prompt (default 40).'],
+  ['--token-budget N', 'prompt+completion tokens one run may spend, checked before every model round (default 1000000 for a direct hosted provider: cerebras, gemini, openai:NAME; 0 = no limit, and the default for ollama and the freellm gateway). /budget shows and changes it.'],
   ['--no-system', 'start without the built-in system prompt (tools and project scan stay); set one later with /system. For controllers that bring their own.'],
   ['--no-tui', 'plain scrolling output instead of the full-terminal interface (input box and status line at the bottom). The TUI is used only when stdin and stdout are a terminal.'],
   ['--failsafe', 'no system prompt, project scan, file attachment, tool loop or File: auto-write: just the bare conversation.'],
@@ -269,6 +270,7 @@ function parseArgs(argv) {
     } else if(arg === '--num-ctx') opts.numCtx = +argv[++i];
     else if(arg === '--temperature') opts.temperature = +argv[++i];
     else if(arg === '--max-rounds') opts.maxRounds = +argv[++i];
+    else if(arg === '--token-budget') opts.tokenBudget = +argv[++i];
     else if(arg === '--yes' || arg === '-y') opts.mode = 'auto';
     else if(arg === '--mode') opts.mode = argv[++i];
     else if(arg === '--verbose') (ui.verbose = true), (opts.verbose = true);
@@ -329,6 +331,10 @@ function parseArgs(argv) {
     console.log(red(`error: --provider ${opts.label} has no default model: pass --model NAME (or --model list)`));
     exit(1);
   }
+
+  /* a hosted provider reached directly has no gateway pool behind it: its quota is the user's own, so a run is bounded by default */
+  opts.direct = opts.provider === 'gemini' || (opts.provider === 'openai' && opts.label !== 'freellm');
+  opts.tokenBudget ??= opts.direct ? DIRECT_TOKEN_BUDGET : 0;
 
   opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : opts.provider === 'openai' ? 'gpt-4o-mini' : opts.provider === 'bridge' ? undefined : (ollamaModels() ?? [])[0];
 
@@ -850,6 +856,18 @@ function localTrace(label) {
 
 /** a client reports to the network pane: OpenAI clients by their phases, the others by wrapping their calls */
 let usageSession = null; /* the session key of the usage rows, set by main() */
+let usageProvider = ''; /* the provider name of the rows of a direct (no gateway) run, set by main() */
+
+/* a request goes into usage.jsonl whichever way it went: through the gateway (its origin), or straight to a provider
+   (cerebras, gemini, a local ollama: the endpoint of the client as origin, the provider name as platform), so /usage history
+   and the spend of a session on a direct provider can be read back */
+function logUsage(client, session, meta, label) {
+  if(!session) return;
+  if(gatewayRef?.enabled) return void appendUsage(gatewayRef.origin, session, meta, label);
+
+  const origin = client.baseUrl ?? (client.host ? `ollama://${client.host}:${client.port}` : usageProvider);
+  appendUsage(origin, session, meta.platform ? meta : { ...meta, platform: usageProvider }, label);
+}
 
 function watchNet(client, label) {
   /* the other clients (explore, standby, sub-agent) log their requests too, with the label; the main client's onMeta does it itself */
@@ -857,7 +875,7 @@ function watchNet(client, label) {
     const prev = client.onMeta;
     client.onMeta = meta => {
       prev?.(meta);
-      if(gatewayRef?.enabled && usageSession) appendUsage(gatewayRef.origin, usageSession, meta, label);
+      logUsage(client, usageSession, meta, label);
     };
   }
   if('onPhase' in client) {
@@ -1118,7 +1136,7 @@ async function providerFallback(e, active, tried, attempts, opts) {
   tried.add(route);
 
   const to = await providerHook.next(tried);
-  emit('failover', to ? `${from} failed (${fail.reason}): provider fallback to ${providerHook.label(to)}` : `${from} failed (${fail.reason}): no other provider to fall back to`, to ? 'warn' : 'bad');
+  emit('failover', to ? `${from} failed (${fail.reason}): provider fallback to ${to.label}` : `${from} failed (${fail.reason}): no other provider to fall back to`, to ? 'warn' : 'bad');
   if(!to) return null;
 
   providerHook.announce(from, fail.reason, to, opts);
@@ -1885,6 +1903,12 @@ async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, a
 /* tools whose repeat is never short-circuited by the duplicate-call guard: they act on the session */
 const NEVER_CACHED = new Set(['restart_harness', 'spawn_agent']);
 
+/* tokens one run may spend on a direct hosted provider unless --token-budget says otherwise, see doc/ARCHITECTURE.md "Spend on direct providers" */
+const DIRECT_TOKEN_BUDGET = 1000000;
+
+/** the tokens (prompt + completion) this run has spent, from the usage stats */
+const spentTokens = () => statsRef?.totals().total ?? 0;
+
 /* rounds made only of already-seen tool calls before tools are withdrawn */
 const MAX_REPEAT_ROUNDS = 2;
 
@@ -1928,6 +1952,13 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
     /* a takeover candidate is being assessed (considerTakeover): the running model pauses at this step */
     await takeoverHook?.hold(messages);
     const final = round >= opts.maxRounds - 1 || repeatRounds >= MAX_REPEAT_ROUNDS;
+    /* the budget of the run is spent: no request goes out, not even for a `continue` (a prompt restarts maxRounds, the budget stays) */
+    if(opts.tokenBudget > 0 && spentTokens() >= opts.tokenBudget) {
+      const text = `token budget reached: ${fmtNum(spentTokens())} of ${fmtNum(opts.tokenBudget)} tokens spent in this run, stopped before the next request - /budget N raises the limit, /budget off removes it`;
+      if(!opts.quiet) console.log(note(text));
+      return text;
+    }
+
     await compactHook?.(messages);
     elideOldToolResults(messages, ctxWindowNow ?? opts.numCtx);
     const result = await chatRound(client, messages, opts, abortRef, final ? { toolChoice: 'none' } : { tools });
@@ -2236,6 +2267,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /delegate [on|off|add MODEL [KIND..]|remove MODEL|pin KIND [MODEL]|ban MODEL|unban MODEL|good|bad|forget] - sub-agent delegation: the model is told it may hand docs, build wiring, summaries and repetitive jobs to weaker models; the harness discovers candidates (gateway or Ollama), picks per kind by what worked before and remembers it; good/bad rates the last delegated run
 /restart        - restart the harness with current session state (serializes to temp file and re-execs)
 /events [KIND|WORD] [N] - the recent background events: exploration results, what the gateway inspection saw change (limited, back, quota thresholds, unreachable), skips and switches, standby, takeover, failing models, proxy; in verbose mode (Ctrl+O) they also appear as one line each as they happen
+/budget [N|off] - the token budget of this run (--token-budget): tokens spent and the limit; N sets it, off removes it. The tool loop stops before a request that would start over it.
 /usage [history [DAYS]] - tokens and requests of this session, per routed model and platform; history DAYS (default 7) sums up the earlier sessions from usage.jsonl in ~/.cache/ollama-repl
 /last [N]       - everything known about the last request (or request #N of /requests): route, provider, request id, tokens, timings, fallbacks
 /requests [N]   - the last N (10) requests of this session, one line each
@@ -2257,7 +2289,7 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/events', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/quota', '/last', '/requests', '/gateway', '/proxy', '/status', '/model health']],
+  ['model and gateway', ['/model', '/events', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/budget', '/quota', '/last', '/requests', '/gateway', '/proxy', '/status', '/model health']],
   ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/sessions', '/env', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
@@ -3139,7 +3171,7 @@ async function main() {
       const dry = spentPlatforms(meta.trail, meta.routedVia, p => availability?.keyCounts?.get(p) ?? 0);
       if(dry.length) for(const [m, e] of availability?.byModel ?? []) if(e.platforms?.length && e.platforms.every(p => dry.includes(p))) skipModel(m, `every key of ${dry.join(', ')} ran out`, TRAIL_SKIP_MS);
       stats.add(meta);
-      if(gatewayRef?.enabled) appendUsage(gatewayRef.origin, cacheKey, stats.last());
+      logUsage(client, cacheKey, stats.last());
       /* a failure that no route answered (no routedVia: the gateway had nothing to try, so auto or the pinned name would take the blame
          of the whole pool) and an exception of our own code say nothing about a model: they are not rated */
       if(ratings && gatewayRef?.enabled && !(meta.error && (!meta.routedVia || isHarnessError(meta.error)))) {
@@ -4096,6 +4128,7 @@ async function main() {
   /* the session's files live in ~/.cache/ollama-repl/sessions/KEY/, not in the current directory */
   /* no --name: the funny one made at the start (lib/session/session-name.js); the cache key is the project (or --name), see lib/session/session-cache.js */
   usageSession = cacheKey;
+  usageProvider = opts.label ?? opts.provider;
   const log = new SessionLog(sessionFile(cacheKey, 'session.log'));
   let sentFiles = new SentFiles(opts.model, opts.root);
   let fileExchange = new FileExchange(opts.model, opts.root, `${sessionDir(cacheKey)}/diffs`);
@@ -4201,7 +4234,7 @@ async function main() {
   /* context window of the model, for the status line */
   /* the model a /model command picked outlives the process: the next start of this session goes on with it unless --model is given */
   const rememberModel = () => saveSessionState(cacheKey, { model: opts.model });
-  const updateCtxWindow = async () => (ctxWindowNow = ctxWindow = gateway?.enabled ? await gateway.contextWindow(opts.model) : opts.provider === 'ollama' ? opts.numCtx : undefined);
+  const updateCtxWindow = async () => (ctxWindowNow = ctxWindow = gateway?.enabled ? await gateway.contextWindow(opts.model) : opts.provider === 'ollama' || opts.direct ? opts.numCtx : undefined); /* a direct provider: --num-ctx is the size the history is kept under */
   await updateCtxWindow();
 
   /* the facts of /about and the startup panel */
@@ -4802,6 +4835,17 @@ async function main() {
       const past = new UsageStats();
       past.records = readUsage({ origin: gatewayRef?.enabled ? gatewayRef.origin : undefined, sinceMs: Date.now() - days * 86400e3 });
       return void console.log(past.summary(`last ${days} day${days > 1 ? 's' : ''}`));
+    }
+
+    /* /budget [N|off]: the token budget of this run (--token-budget) */
+    if(prompt === '/budget' || prompt.startsWith('/budget ')) {
+      const arg = prompt.slice('/budget'.length).trim();
+      if(arg === 'off') opts.tokenBudget = 0;
+      else if(/^\d+$/.test(arg)) opts.tokenBudget = +arg;
+      else if(arg) return void console.log(red('usage: /budget [N|off]'));
+
+      const spent = spentTokens();
+      return void console.log(opts.tokenBudget > 0 ? `token budget: ${fmtNum(spent)} of ${fmtNum(opts.tokenBudget)} tokens spent (${Math.round((100 * spent) / opts.tokenBudget)}%)` : `token budget: off, ${fmtNum(spent)} tokens spent in this run`);
     }
 
     if(prompt === '/quota') {
@@ -5816,7 +5860,7 @@ async function main() {
      captures stdout and would swallow the streamed reply). Piped input keeps its order. */
   if(!piped) {
     const GATEWAY_VIEW = /^\/gateway(\s+(usage|providers|keys|forecast|quota|limits|limited|models))?(\s|$)/;
-    const INSTANT = [GATEWAY_VIEW, /^\/usage\s+history(\s|$)/, /^\/events(\s|$)/, /^\/verbose(\s|$)/, /^\/split(\s|$)/, /^\/(mouse|stream|diff|log|view|export)(\s|$)/, /^\/(remote-control|listen)(\s|$)/, /^\/run\s/, /^\/(model|provider)$/, /^\/(fallback|handoff-model)(\s|$)/, /^\/route(\s+list)?$/, /^\/brief\s+show$/, /^\/proxy(\s+(on|off|keyless))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|keys|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+(on|off))?$/, /^\/delegate(\s+(on|off|add|remove|pin)\b.*)?$/, /^\/config(\s+(set|unset)\b.*)?$/, /^\/skill(\s+loaded)?$/, /^\/rename(\s|$)/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/, /^\/model\s+health\b/];
+    const INSTANT = [GATEWAY_VIEW, /^\/budget(\s|$)/, /^\/usage\s+history(\s|$)/, /^\/events(\s|$)/, /^\/verbose(\s|$)/, /^\/split(\s|$)/, /^\/(mouse|stream|diff|log|view|export)(\s|$)/, /^\/(remote-control|listen)(\s|$)/, /^\/run\s/, /^\/(model|provider)$/, /^\/(fallback|handoff-model)(\s|$)/, /^\/route(\s+list)?$/, /^\/brief\s+show$/, /^\/proxy(\s+(on|off|keyless))?$/, /^\/(help|status|usage|about|tools|mode|last|requests)(\s|$)/, /^\/gateway(\s+(usage|providers|keys|forecast|quota|limits|limited|models)\b.*)?$/, /^\/standby(\s+(on|off))?$/, /^\/delegate(\s+(on|off|add|remove|pin)\b.*)?$/, /^\/config(\s+(set|unset)\b.*)?$/, /^\/skill(\s+loaded)?$/, /^\/rename(\s|$)/, /^\/queue(\s|$)/, /^\/(context|files)(\s|$)/, /^\/system$/, /^\/cd(\s|$)/, /^\/model\s+list\b/, /^\/model\s+health\b/];
     repl.immediate = line => INSTANT.some(re => re.test(line.trim()));
     /* a /gateway view typed while the model works goes to the background report, the rest runs as it is */
     repl.onImmediate = line => (GATEWAY_VIEW.test(line.trim()) ? reportLine(line) : runLine(line));

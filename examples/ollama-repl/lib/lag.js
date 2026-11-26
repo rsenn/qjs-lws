@@ -42,6 +42,20 @@ function callers() {
   }
 }
 
+/**
+ * A long loop that must not block the event loop: `const turn = slicer(); for(...) { await turn(); work(); }`.
+ * turn() returns at once until `ms` have gone by since the last time the loop had a turn, then waits one timer tick.
+ */
+export function slicer(ms = 20) {
+  let t0 = Date.now();
+
+  return async () => {
+    if(Date.now() - t0 < ms) return;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    t0 = Date.now();
+  };
+}
+
 /** runs fn (synchronous) and reports it when it took SLOW_MS or more; returns its result */
 export function timed(name, fn) {
   const t0 = Date.now();

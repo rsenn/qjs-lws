@@ -194,3 +194,4 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 ### 15. Continuous
 
 - **M3** keep the docs true: `README.md` and `/help` agree; a new slash command touches the six places of `ARCHITECTURE.md` section 16; update this file and the plan when a task closes.
+

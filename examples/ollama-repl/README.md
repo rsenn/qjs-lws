@@ -213,7 +213,7 @@ choice, TUI, persistence), see `doc/ARCHITECTURE.md`.
 
 ```sh
 qjsm examples/ollama-repl/repl.js [--provider ollama|gemini|openai|freellm|bridge] [--model NAME] [--host localhost] [--port 11434] [--root .] [--no-stream] [-x [-x]] [--failsafe] [--no-tui]
-        [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--yes]
+        [--num-ctx N] [--think [MODE]] [--temperature T] [--max-rounds N] [--token-budget N] [--yes]
 ```
 
 (`qjsm`, not `qjs` - the REPL's service loop needs `os`/`std` available as
@@ -241,8 +241,14 @@ model's own default applies) or low|medium|high. A model that cannot
 think rejects `on`. The reasoning text is not
 shown, only the answer.
 `--temperature` (default 0.2) keeps edits repeatable. `--max-rounds`
-(default 40) caps tool-calling rounds per prompt. `--yes` runs
-`run_command` without asking.
+(default 40) caps tool-calling rounds per prompt. `--token-budget N`
+caps the prompt+completion tokens one run spends (default 1000000 for a
+provider reached directly: cerebras, gemini, `openai:NAME`; 0 = no limit,
+the default for ollama and the freellm gateway): the tool loop stops
+before the request that would start over it, also for a `continue`, and
+`/budget` shows or changes it. On a direct provider `--num-ctx` is also the
+size the history is kept under (old tool results are elided, auto-compaction
+at `--compact-at` percent of it). `--yes` runs `run_command` without asking.
 
 ## Using the chat sites (`--provider bridge`)
 
@@ -318,6 +324,7 @@ Engaged at warp 9 in 3.2s - auto:fast -> kilo/nvidia/nemotron-3.5-lightning:free
 | `/last [N]` | Everything about the last request, or request #N of `/requests`: requested model, served model, routed platform/model (`X-Routed-Via`), upstream provider, request id (`X-Request-ID` = `execution_id`), HTTP status, finish reason, prompt/completion/reasoning/cached tokens, cost, time to headers / first token / end, failed hops before it (`X-Fallback-Attempts`, `-Trail`, `-Detail`), compression, cache, rate limit left |
 | `/requests [N]` | The last N (10) requests of the session, one line each |
 | `/usage` | Session totals, then a table per routed model and per platform |
+| `/budget [N\|off]` | Tokens this run has spent against its budget (`--token-budget`); `N` sets the limit, `off` removes it |
 | `/gateway usage` | The gateway's month across all clients: requests and tokens per platform and key, with caps |
 | `/gateway providers` | Health of every upstream platform (healthy, rate limited, cooldown end, invalid key), the heaviest used first, with the month's recorded tokens (share of all, meter) and requests |
 | `/gateway forecast` | Request quotas the providers reported, low balance, reset time |

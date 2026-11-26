@@ -31,4 +31,29 @@ check('the stall is an event naming the section and the phase', lag.some(e => /b
 const { loadFile } = await import('std');
 const rows = loadFile(`${dir}/ollama-repl/lag.jsonl`).split('\n').filter(Boolean).map(l => JSON.parse(l));
 check('a slow row says where it was asked for', rows.some(r => r.kind === 'slow' && r.name === 'heavy-part' && typeof r.where === 'string' && r.where.length > 0));
+/* slicer: a long loop gives the event loop a turn, so a timer is never kept waiting much longer than a slice */
+{
+  const { slicer } = await import('../lib/lag.js');
+  const turn = slicer(10);
+  let ticks = 0;
+  let worst = 0;
+  let last = Date.now();
+  let going = true;
+  os.setTimeout(function tick() {
+    if(!going) return;
+    ticks++;
+    worst = Math.max(worst, Date.now() - last);
+    last = Date.now();
+    os.setTimeout(tick, 5);
+  }, 5);
+  const t0 = Date.now();
+  while(Date.now() - t0 < 300) {
+    await turn();
+    spin(3);
+  }
+  going = false;
+  check('slicer: the timer ran during a 300 ms loop', ticks >= 10);
+  check(`slicer: no gap much longer than a slice (worst ${worst} ms)`, worst < 60);
+}
+
 console.log('test-lag: ok');

@@ -31,7 +31,7 @@ import { setTimeout, clearTimeout } from 'os';
 import { writeConfigFile } from '../config.js';
 import { cooldownsPath } from '../session/persist.js';
 import { emit } from '../events.js';
-import { timed } from '../lag.js';
+import { timed, slicer } from '../lag.js';
 import { reportKeys } from './key-events.js';
 
 const MINUTE = 60_000;
@@ -421,15 +421,15 @@ async function loadAvailabilityNow(gateway, fresh = false) {
 
   const [models, chain, rateRes, tokenRes, penRes, keyRes, routing] = await Promise.all([gateway.models(true), get('/api/models'), get('/api/fallback/rate-limit-usage'), get('/api/fallback/token-usage'), get('/api/fallback/penalty-inspector'), get('/api/keys'), get('/api/fallback/routing')]);
 
-  const av = timed('loadAvailability compute', () => availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRes, routing }));
+  const av = await availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRes, routing });
   av.missing = missing;
   reportMissing(missing, now);
   reportKeys(Array.isArray(keyRes) ? keyRes : []);
   return av;
 }
 
-/** the synchronous part of loadAvailabilityNow: what the answers of the gateway mean for each model */
-function availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRes, routing }) {
+/** the computing part of loadAvailabilityNow: what the answers of the gateway mean for each model; it gives the event loop a turn every 20 ms (a gateway of 700 models and 1500 rows took 220 to 270 ms in one block) */
+async function availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRes, routing }) {
   const rate = new Map((rateRes?.rows ?? []).map(r => [key(r.platform, r.modelId), r]));
   const budget = new Map((tokenRes?.models ?? []).map(m => [key(m.platform, m.modelId), m]));
   const errorsOf = new Map((penRes?.rows ?? []).map(r => [key(r.platform, r.modelId), (r.recentErrors ?? []).map(e => e.error ?? '')]));
@@ -442,7 +442,10 @@ function availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRe
   const rowsOf = new Map();
   const add = (id, r) => (rowsOf.get(id) ?? rowsOf.set(id, []).get(id)).push(r);
   const platformsOf = new Map();
+  const turn = slicer();
+
   for(const r of Array.isArray(chain) ? chain : []) {
+    await turn();
     if(r.enabled === false) continue;
     for(const id of new Set([groupId(r.displayName), r.modelId])) {
       (platformsOf.get(id) ?? platformsOf.set(id, new Set()).get(id)).add(r.platform);
@@ -466,6 +469,7 @@ function availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRe
 
   // Record success events for ready models to update learned cooldowns
   for(const m of models) {
+    await turn();
     if (m.execution_status !== 'exhausted') {
       const rows = rowsOf.get(m.id) ?? [];
       for(const row of rows) {
@@ -478,6 +482,7 @@ function availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRe
   const byModel = new Map();
 
   for(const m of models) {
+    await turn();
     const rows = [...new Set(rowsOf.get(m.id) ?? [])];
     const blocks = rows.map(blocksFor);
 
