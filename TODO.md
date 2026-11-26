@@ -19,7 +19,7 @@
   Postponed: the Deps.cmake based port of qjs-modules' Find/Build OpenSSL
   (TLS_LIBRARY, dep_resolve) was not done, since there is no second library
   to choose from; the dietlibc OpenSSL build (BuildOpenSSL.cmake, diet-compat.h)
-  is untested; test-crypto.js has no skip for a build without OpenSSL 3;
+  is untested;
   stale BUILD_LIBRESSL entries sit in old CMakeCaches.
 - OPEN, other session (qjs-lws [5e1aaa]): LWSSPA open param slots (BUGS:
   lwsspa-length-open-slots, lws-spa.c) and test-rawcolor.js import path; both

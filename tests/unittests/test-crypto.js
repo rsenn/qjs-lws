@@ -1,13 +1,27 @@
 /**
  * lws.crypto: digest, hmac, ECDSA (P-256/384/521) and KDF primitives.
  */
-import { tests, assert, assertEquals } from './tinytest.js';
+import { tests, assert, assertEquals, skip } from './tinytest.js';
 import { crypto } from 'lws.so';
 
 const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
 const enc = s => new TextEncoder().encode(s);
 
-await tests({
+/* lws-crypto.c needs OpenSSL 3: a build without it (LibreSSL, none) exports an
+   empty crypto object, and every test here skips instead of failing */
+const available = typeof crypto.digest == 'function';
+const guarded = obj =>
+  Object.fromEntries(
+    Object.entries(obj).map(([name, fn]) => [
+      name,
+      function(...args) {
+        if(!available) skip('lws.crypto is not available (lws.so built without OpenSSL 3)');
+        return fn.apply(this, args);
+      },
+    ])
+  );
+
+await tests(guarded({
   'digest: known vectors'() {
     assertEquals(hex(crypto.digest('SHA-256', enc('abc'))), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
     assertEquals(hex(crypto.digest('SHA-1', enc('abc'))), 'a9993e364706816aba3e25717850c26c9cd0d89d');
@@ -107,4 +121,4 @@ await tests({
     try { crypto.argon2id(enc('x'), enc('short')); } catch(x) { e = x; }
     assert(e instanceof RangeError);
   },
-});
+}));

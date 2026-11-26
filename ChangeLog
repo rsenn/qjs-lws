@@ -1,5 +1,9 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* tests/unittests/test-crypto.js: Every test skips when crypto.digest is
+	missing (lws.so built without OpenSSL 3 exports an empty crypto object)
+	instead of failing 14 of 15.
+
 	* cmake/BuildLibreSSL.cmake, cmake/FindLibreSSL.cmake,
 	cmake/diet-endian-compat.h: Removed. LibreSSL is no longer supported:
 	lws-crypto.c needs OpenSSL 3 and is empty under LibreSSL;
