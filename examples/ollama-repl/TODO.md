@@ -42,10 +42,11 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
 2. **A5** (U, S) look at a real automatic skip once (the hop line, colours, a piped run) and say whether the wording is right.
 3. **A2** (U, S) who takes the gateway proposals D4 to D8: the user changes freellmapi, a patch is prepared against
    `~/Sources/freellmapi`, or the harness keeps working around them. Needed before D4 to D8.
-4. **A4** (U/H, S) restart the running session so it uses the code of Phases 1 to 3 and the 2026-11-26 changes. Blocked: it is
-   under `sudo ptrace.sh -f ollama-repl` (the stall investigation of the other session) and a restart ends that trace;
-   do it when that is finished (`ollama-repl-ctl` does not see it, its socket is under `/run/user/1000/ollama-repl/snap-*`).
-   It starts the clock for B1.
+4. **A4** (U, S) the installed copy is current (2026-11-26 04:15: `/usr/local/bin/ollama-repl`, `bin/lib/*.js`). Two sessions still run old code:
+   `shish-2` (pid 3528177) is stopped (`T`, with a `shish` test job in the same terminal: `fg` it; a `/restart` was sent and runs
+   when it continues), and `qjs-modules` (pid 1205281, `qjs-ort...`) is held in a tracing stop by `sudo ptrace.sh -f ollama-repl`
+   (its socket is under `/run/user/1000/ollama-repl/snap-*`): end the trace, then `/restart` in it. Restarting starts the clock for B1.
+
 ### 2. Bugs and enablers (small, they unblock later work)
 
 6. **N1 rest** (H, S) the availability load is cheaper (shared loads, the chain and routing tables once a minute) but still blocks the loop
