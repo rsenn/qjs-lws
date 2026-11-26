@@ -78,6 +78,20 @@ function(hide_static_symbols TARGET INIT_SYMBOL)
     separate_arguments(_hss_flags NATIVE_COMMAND "${CMAKE_CXX_FLAGS}")
   endif()
 
+  # a cross toolchain keeps --target, --sysroot and the linker choice apart from the compiler
+  # path and CMAKE_C_FLAGS, without them ld -r links for the host
+  if(CMAKE_CROSSCOMPILING)
+    if(CMAKE_C_COMPILER_TARGET)
+      list(APPEND _hss_flags "--target=${CMAKE_C_COMPILER_TARGET}")
+    endif()
+    if(CMAKE_SYSROOT)
+      list(APPEND _hss_flags "--sysroot=${CMAKE_SYSROOT}")
+    endif()
+    string(REGEX MATCHALL "(-fuse-ld|--ld-path)=[^ ]+" _hss_ld "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_EXE_LINKER_FLAGS}")
+    list(REMOVE_DUPLICATES _hss_ld)
+    list(APPEND _hss_flags ${_hss_ld})
+  endif()
+
   set(_hss_dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${TARGET}-hide")
   file(MAKE_DIRECTORY "${_hss_dir}")
 
