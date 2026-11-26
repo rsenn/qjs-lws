@@ -88,7 +88,8 @@ import { loadKeyData, parseKeyScope, modelsOfKeys } from './lib/key-models.js';
 import { externalIp } from './lib/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
 import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
-import { hopLine } from './lib/hop-line.js';
+import { hopLine, hopStyle } from './lib/hop-line.js';
+import { exploreOrder as exploreOrderOf, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/transcript-text.js';
 import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
 import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms as exhaustedByAddress } from './lib/ip-fix.js';
 import { ipGroups, ipChangePanel, ipChangeParts } from './lib/ip-pane.js';
@@ -977,14 +978,7 @@ function livePanel(title, text, { kind = 0, tail = false, ...opts } = {}) {
 
 /** runs `fn` with what it writes to the TUI transcript tagged: 1 shown in the verbose view only, 2 outside it only (Tui.kind) */
 function inKind(kind, fn) {
-  if(!tui?.active || !kind) return fn();
-
-  tui.kind = kind;
-  try {
-    return fn();
-  } finally {
-    tui.kind = 0;
-  }
+  return !tui?.active || !kind ? fn() : tui.inKind(kind, fn);
 }
 
 /** the verbose switch, applied to the transcript already written, too (the TUI keeps the verbose panels either way) */
@@ -2255,9 +2249,9 @@ function modelStrength(modelName, intelligence = null) {
 const exploreOrder = () => {
   let served = new Set();
   try {
-    served = new Set(readUsage({ origin: gatewayRef?.enabled ? gatewayRef.origin : undefined, sinceMs: Date.now() - 86400e3 }).filter(r => !r.error && r.routedVia).map(r => catalogId(r.routedVia)));
+    served = servedIds(readUsage({ origin: gatewayRef?.enabled ? gatewayRef.origin : undefined, sinceMs: Date.now() - 86400e3 }), catalogId);
   } catch(e) {}
-  return { platformsOf: id => availability?.byModel.get(id)?.platforms ?? [], priority: id => (served.has(id) ? 100 : 0) + (rateOf(id) ?? 0) };
+  return exploreOrderOf({ served, platformsOf: id => availability?.byModel.get(id)?.platforms ?? [], rateOf });
 };
 
 const tierOf = id => modelStrength(id, availability?.byModel.get(id)?.intelligence).tier;
@@ -2615,23 +2609,12 @@ function listWidth() {
 }
 
 /** the hop line of an automatic model switch: model names by strength tier, providers teal, times amber (lib/hop-line.js) */
-const HOP_COLORS = { provider: '#2dd4bf', time: '#fbbf24', arrow: '#a3e635', warn: '#fbbf24', bad: '#f87171' };
 /** one route that failed, as a card line: provider dim, model by strength, the first sentence of the error, the reset time amber */
-function routeFailure(route, why) {
-  const text = String(why ?? '');
-  const back = /Soonest cooldown reset ~?(\S+?)\.?(\s|$)/i.exec(text)?.[1];
-  const what = text.split(/\.\s/)[0].replace(/\s+/g, ' ').slice(0, 90);
-  const i = String(route).lastIndexOf('/');
-  const name = i < 0 ? modelName(route) : `${dim(route.slice(0, i + 1))}${modelName(route.slice(i + 1))}`;
-  return `${name}  ${what}${back ? `  ${piped ? '' : '\x1b[38;2;251;191;36m'}back in ~${back}${piped ? '' : '\x1b[0m'}` : ''}`;
-}
+const routeFailure = (route, why) => routeFailureText(route, why, { piped, dim, modelName });
 
 /** a model name in its strength colour (as in /model list); plain when piped */
-const modelName = id => (piped || !id ? id : `\x1b[1m${fgHex(strengthColor(tierOf(id)), id)}\x1b[0m`);
-const hopText = hop => hopLine(hop, piped ? {} : {
-  model: modelName,
-  paint: (kind, text) => (kind === 'dim' ? dim(text) : fgHex(HOP_COLORS[kind], text)),
-});
+const modelName = makeModelName({ piped, fgHex: (hex, text) => fgHex(hex, text), strengthColor, tierOf }); /* fgHex is a const declared below: reached lazily */
+const hopText = hop => hopLine(hop, hopStyle({ piped, dim, fgHex: (hex, text) => fgHex(hex, text), modelName }));
 
 /** 38;2;r;g;b text from a #rrggbb color */
 const fgHex = (hex, text) => `\x1b[38;2;${hex.slice(1).match(/.{2}/g).map(h => parseInt(h, 16)).join(';')}m${text}\x1b[0m`;

@@ -206,10 +206,10 @@ export function colorReasoning(text) {
     let rest = line;
 
     if(marker) {
-      out += marker[1] + (/^\d/.test(marker[1]) ? fg(P.HEADER) : fg(P.INLINE_CODE)) + marker[1] + BASE;
+      out += marker[1] + (/^\d/.test(marker[2]) ? fg(P.HEADER) : fg(P.INLINE_CODE)) + marker[2] + BASE;
       rest = line.slice(marker[0].length);
     } else if(head) {
-      out += fg(P.HEADER) + head[1] + BASE + ' ';
+      out += fg(P.HEADER) + head[1] + BASE;
       rest = line.slice(head[0].length);
     }
 

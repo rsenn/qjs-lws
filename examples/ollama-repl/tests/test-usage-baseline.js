@@ -39,4 +39,13 @@ check('old rows: each is a turn, one run of two failures', old.turns === 4 && ol
 check('classes', errorClass("'colorReasoning' is not defined") === 'harness exception' && errorClass('Rate limit exceeded: more than 120 requests per minute') === 'gateway rpm cap' && errorClass('All 3 routed attempt(s) failed with upstream provider errors') === 'upstream provider errors' && errorClass('weird') === 'other');
 check('empty input', baseline([]).records === 0 && baselineText(baseline([])).includes('no rows'));
 
+/* a proxied platform is its own row, so the two routes of one provider can be compared */
+{
+  const b = baseline([row({ ms: 1000 }), row({ ms: 1200 }), row({ ms: 2400, proxied: true }), row({ ms: 2600, proxied: true })]);
+  const direct = b.platforms.find(p => p.platform === 'kilo');
+  const socks = b.platforms.find(p => p.platform === 'kilo +socks');
+  check('direct and proxied are separate rows', direct?.n === 2 && socks?.n === 2);
+  check('with their own latency', direct.msMedian < socks.msMedian);
+}
+
 console.log('test-usage-baseline: ok');

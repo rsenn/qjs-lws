@@ -79,7 +79,7 @@ export function baseline(rows) {
 
   const platforms = new Map();
   for(const r of rows) {
-    const p = r.platform ?? '?';
+    const p = `${r.platform ?? '?'}${r.proxied ? ' +socks' : ''}`; /* a proxied platform is its own row: the comparison of the two routes */
     const x = platforms.get(p) ?? { n: 0, failed: 0, fallback: 0, ms: [], ttfb: [], tokens: 0 };
     x.n++;
     if(failed(r)) x.failed++;

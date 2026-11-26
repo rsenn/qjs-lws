@@ -37,7 +37,7 @@ Contents
 
 | # | Task | Owner | Size |
 |---|---|---|---|
-| A1 | **Kilo behind Tor?** Since about 21:58 on 2026-11-25 the proxy policy has 22 keys on `socks5://192.168.178.52:9050`, `kilo` (67 to 77 % of the traffic) among them. It is gateway key state and outlives the harness. Compare before/after per platform (latency, ttfb, errors; split `usage.jsonl` at that time) and decide: keep, take kilo off (`/proxy keyless clear` for it), or keep only the keyless ones. Record the decision in `doc/HEALTH-EXPERIMENTS.md`. | U | S |
+| A1 | **Kilo behind Tor?** (data side done 2026-11-26: usage rows carry `proxied`, the baseline splits `kilo` / `kilo +socks`, see `HEALTH-EXPERIMENTS.md`; the decision needs a day of rows.) Since 2026-11-25 the proxy policy has 22 keys on `socks5://192.168.178.52:9050`, `kilo` (67 to 77 % of the traffic) among them. It is gateway key state and outlives the harness. Compare before/after per platform (latency, ttfb, errors; split `usage.jsonl` at that time) and decide: keep, take kilo off (`/proxy keyless clear` for it), or keep only the keyless ones. Record the decision in `doc/HEALTH-EXPERIMENTS.md`. | U | S |
 | A2 | **Who takes the gateway proposals** (D4 to D8 below, `doc/GATEWAY-PROPOSALS.md`)? Options: the user changes freellmapi, a patch is prepared here against `~/Sources/freellmapi`, or the harness keeps working around them. | U | S |
 | A3 | **Delete the strace logs** (`strace.log`, `strace.log.copy.txt`, `strace.log.txt`, 110 MB, untracked or ignored). `harness.mp4` (14 MB) is also in the directory: keep or move out. | U | S |
 | A4 | **Restart the running sessions** (`auto`, `worker-freellm`, `qjs-modules`) so they use the code of Phases 1 to 3: attempt rows, probe budget, rating reliability, exploration order, Tor host. Without it the 4.2 "after" numbers stay the old code. `ollama-repl-ctl -s NAME restart` after `smoke.sh` passes. | U / H | S |
@@ -244,9 +244,10 @@ Harness side (H) unless marked G.
 - **H2. Live panels (M).** A repaint every 120 ms redraws the whole window; repaint changed rows only; the exploration
   panels scroll away as the chat goes on (pin them in the split pane, or a `/events` follow mode); a tool that throws
   leaves its panel on the failure line only when `runToolLoop` catches it (make every path close its panel).
-- **H3. Testability of `repl.js` (M).** `repl.js` runs `main()` on import, so `inKind`, the context subcommands, the
-  dialog state, `hopText`/`modelName`, `exploreOrder` and `routeFailure` have no tests. Move the pure ones into
-  `lib/` (as `lib/hop-line.js` was) and test them; keep `repl.js` for wiring.
+- **H3. Testability of `repl.js` (rest, S).** Done 2026-11-25: `hopStyle` (`lib/hop-line.js`), `makeModelName`,
+  `routeFailure`, `soonestReset`, `servedIds`, `exploreOrder` (`lib/transcript-text.js`) and `Tui#inKind` have tests.
+  Still only in `repl.js`: the context subcommands (`/context`, `/log`), the dialog state of `ChatREPL`, and the
+  rest of the wiring; move pure parts out as they are touched.
 - **H4. Kitty keyboard and focus events (L).** Off today. `ChatREPL#termReadHandler` needs a layer that runs
   `decodeKeys()` and hands `handleKey()` the legacy string of each key (press events only); focus events could pause
   repaints. Needs a kitty terminal.
@@ -385,19 +386,17 @@ Plan and rationale: `../chat-bridge/doc/HARNESS.md` and `../chat-bridge/TODO.md`
 
 ## N. Open bugs (`BUGS`)
 
-- **N1. `availability-load-uncoalesced-and-429-swallowed` (`lib/availability.js:319`):** every `loadAvailability()`
-  sends 7 requests at once (`/v1/models` of about 340 KB, `/api/models`, rate-limit-usage, token-usage, ...); callers
-  from `/model skip`, `/split net` and others multiply this, and 429s are swallowed. Fix: coalesce concurrent loads
-  into one promise with a short TTL, surface 429s, add a test with a counting fake gateway. Evidence: count GET lines
-  to port 3001 per minute in a strace of a session that uses `/model skip` and `/split net` (not reproduced from a
-  script). Blocks D3.
-- **N2. `reasoning-test-never-ran` (`tests/test-rawcolor-reasoning.js`):** wrong import path and no `assert`
-  (`ReferenceError: assert is not defined`), so the reasoning colour test never ran. Fix the import, give it a
-  checker like `test-rawcolor.js`, keep the colours from `lib/palette.js`.
+- **N1. `loadavailability-stalls-the-loop` (`lib/availability.js:availabilityFrom`, `lib/openai-client.js:fetchJSON`):**
+  one load blocks the loop for 0.5 to 1.1 s against a fake gateway of the live size (compute 220 to 270 ms, JSON.parse
+  of the penalty inspector 140 ms, the rest decoding of 7 responses). Another session works on it (`lib/lag.js` shows
+  which section ran how long: restart a session, use `/model skip` and the `/gateway` views, read `/events lag` or
+  `~/.cache/ollama-repl/lag.jsonl`). Done: concurrent loads share one load, a table that answers 429 keeps its
+  previous answer and is reported (`av.missing`, `reportMissing`, `tests/test-availability-missing.js`). A load still
+  costs 7 requests: a per-table TTL (the key table changes rarely) would cut it; blocks D3 until decided.
 
 ## Suggested order
 
-1. **A1 to A5** (a few minutes of the user's time) and **N2**, **N1** (small, unblock others).
+1. **A1, A3, A5** (a few minutes of the user's time); N1's stall and H3's rest are open (small).
 2. **B1 after A4** (let a day of traffic run while doing the rest).
 3. **C6, C1, C2** (one terminal and one gateway session) before building more UI or failover on top.
 4. **B2, B3, B4** (failover work, measured by the baseline), then **D1 to D3, D9 to D11**.

@@ -503,6 +503,16 @@ write(text, kind) {
   }
 
   /** switches the view: lines of kind 1 (verbose only) and 2 (compact only) appear or go, the past ones too */
+  /** runs `fn` with what it writes tagged `kind` (1 verbose view only, 2 outside it only), then untags */
+  inKind(kind, fn) {
+    this.kind = kind;
+    try {
+      return fn();
+    } finally {
+      this.kind = 0;
+    }
+  }
+
   setVerbose(on) {
     if(this.verbose === !!on) return;
     this.verbose = !!on;

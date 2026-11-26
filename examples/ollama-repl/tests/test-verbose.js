@@ -1,4 +1,4 @@
-/* test-verbose.js: verbose-only output (kind 1) stays out of the compact view, also when written without a kind under Tui.kind (inKind in repl.js) */
+/* test-verbose.js: verbose-only output (kind 1) stays out of the compact view, also when written without a kind under Tui.kind (Tui#inKind, called by inKind in repl.js) */
 import { open } from 'std';
 import { Tui } from '../lib/tui.js';
 
@@ -12,15 +12,7 @@ tui.start();
 const lines = () => tui.transcript.map(plain);
 const has = s => lines().some(l => l.includes(s));
 
-/* the same as inKind() in repl.js */
-const inKind = (kind, fn) => {
-  tui.kind = kind;
-  try {
-    return fn();
-  } finally {
-    tui.kind = 0;
-  }
-};
+const inKind = (kind, fn) => tui.inKind(kind, fn); /* repl.js inKind() calls this */
 
 inKind(1, () => tui.write('RAW assistant panel read_file {"path":"x.js"}\n')); /* what console.log does: stdout.puts is Tui.write(text) */
 tui.write('hello\n');

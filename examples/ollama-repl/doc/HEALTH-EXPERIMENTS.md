@@ -118,7 +118,12 @@ Every item had a test and closed its `BUGS` entry; tests are in `tests/`.
 
 ## Decisions still needed from the user
 
-1. Should kilo (the main provider, 22 keys behind the LAN Tor since the proxy policy went live,
-   about 21:58 on 2026-11-25; split usage.jsonl there to compare latency, ttfb and errors per platform)
-   stay on Tor?
+1. Should kilo (the main provider, 22 keys behind the LAN Tor since the proxy policy went live on
+   2026-11-25) stay on Tor? What the data of that day can say: kilo median latency 1.5 to 1.9 s, ttfb 1.4 to
+   1.8 s from 15:00 to 19:00; 2.3 s and 2.1 s in the hour of 20:00 (74 requests, about +0.5 s); then kilo
+   served only 9 requests at 21:00 and none at 22:00 and 23:00 while the gateway lists it `healthy` with 3
+   keys, and nvidia answered at 3.8 s (was 1.9 s). The usage rows had no route flag, so proxied and direct
+   requests cannot be told apart, and the drop in kilo traffic cannot be attributed to the proxy (the session
+   may simply have pinned another model). Since 2026-11-26 each row carries `proxied`, and
+   `qjsm usage-baseline.js` shows `kilo` and `kilo +socks` as separate rows: decide from those after a day.
 2. Who takes the gateway proposals 3.6 to 3.9?
