@@ -1238,13 +1238,6 @@ lwsjs_init(JSContext* ctx, JSModuleDef* m) {
   if(m) {
     JS_SetModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
     JS_SetModuleExport(ctx, m, "crypto", lwsjs_crypto_object(ctx));
-#ifdef LWSJS_PRECOMPILED
-    JSValue fetch_fn = JS_NewCFunction(ctx, lwsjs_fetch_trampoline, "fetch", 2);
-    JSValue wss_ctor = JS_NewCFunction2(ctx, lwsjs_websocketstream_trampoline, "WebSocketStream", 1, JS_CFUNC_constructor, 0);
-    JS_SetPropertyStr(ctx, wss_ctor, "protocol", JS_NewCFunction(ctx, lwsjs_websocketstream_protocol_trampoline, "protocol", 2));
-    JS_SetModuleExport(ctx, m, "fetch", fetch_fn);
-    JS_SetModuleExport(ctx, m, "WebSocketStream", wss_ctor);
-#endif
   }
 
   return 0;
@@ -1278,8 +1271,6 @@ JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
     JS_AddModuleExportList(ctx, m, lws_funcs, countof(lws_funcs));
   }
 
-  // lws_set_log_level((LLL_USER << 1) - 1, 0);
-  // lws_set_log_level((LLL_USER << 1) - 1, &lwsjs_callback_log);
   lws_set_log_level(lwsjs_loglevel, &lwsjs_callback_log);
 
   return m;

@@ -27,6 +27,17 @@
 	doc/native/examples.md, doc/building.md, doc/README.md, TODO.md:
 	Document the registry and the new API.
 
+	* BUGS: Removed socket-list-process-wide (fixed by the per-context
+	lists).
+
+	* BUGS: Logged socket-list-process-wide (LWSSocket.list() and get()
+	use one process-wide socket list, not per context or runtime).
+
+	* CMakeLists.txt (ollama-repl lib install): The copies of
+	examples/ollama-repl/lib/ are made and installed recursively, keeping
+	their subdirectory, and the in-repo prefix is stripped by a regular
+	expression whatever its depth, so lib/ can have subdirectories.
+
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
 	* examples/ollama-repl/lib/rawcolor.js (colorReasoning): Rewritten

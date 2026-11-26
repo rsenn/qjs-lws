@@ -90,7 +90,11 @@ driven in your own browser (`--provider bridge`).
   `state.json` keeps the session's name, model, project, title and its settings (`mode`, `stream`, `think`,
   `temperature`, `numCtx`, `maxRounds`, `scan`, `verbose`, `fallbackModel`, the `/cd` root, skipped models), written
   whenever one changes; a plain start puts them back (the command line still wins, then `settings.json`) and says
-  which ones. `allowPaid` and the `--no-*` switches are never saved. `session.json` is written whole or not at
+  which ones. A session also keeps the directory it was started in (`startRoot`), every `/cd` it made (with
+  the time) and the directory it is in now: a start without `--root` goes on there, whatever directory you start from,
+  and falls back to an earlier directory of the session (then the start one) when the last is gone; `/cd` is a
+  `CD: OLD -> NEW` line in `session.log`, and the browser shows `started in` and `moves`. `allowPaid` and the `--no-*`
+  switches are never saved. `session.json` is written whole or not at
   all; an unreadable one is kept as `session.json.corrupt`.
 - **`/sessions` (session browser), `--sessions`.** In the TUI `/sessions` opens a full-screen browser: the saved
   sessions as a list that scrolls (the highlighted row has a background; `*` is this session, `●` one that runs in

@@ -1,5 +1,14 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/session/session-cache.js (addRoot, pickRoot, SESSION_SETTINGS),
+	lib/session/session-log.js (SessionLog#cd), lib/tui/session-browser.js
+	(detailLines), repl.js (main, /cd, persistState): state.json keeps
+	startRoot, root and the chain roots of every /cd; a start goes on in
+	the last directory, else the newest earlier one that exists, then the
+	start one; /cd writes a CD line to session.log; the browser shows
+	started in and moves. root is no longer one of the saved settings.
+	tests/test-session-cache.js, tests/test-session-browser.js.
+
 	* lib/project/resources.js (ownSockets, joinLws, lwsConnections): The
 	connections come from LWSContext.sockets() (local, peer, protocol,
 	buffered bytes) and are joined by local+peer address to the ss entries,

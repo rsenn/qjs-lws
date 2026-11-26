@@ -1001,22 +1001,27 @@ file(MAKE_DIRECTORY "${OLLAMA_REPL_LIB_BUILD_DIR}")
 # themselves are configure dependencies: the rewritten copies below are made
 # at configure time, so without this an edited or added lib/*.js stayed
 # missing or stale in bin/lib/ until someone re-ran cmake by hand.
-file(GLOB OLLAMA_REPL_LIB_FILES CONFIGURE_DEPENDS examples/ollama-repl/lib/*.js)
+# lib/ has subdirectories (clients/, gateway/, ... see examples/ollama-repl/doc/
+# ARCHITECTURE.md "Layout of lib/"): the copies keep their place, and the
+# in-repo prefix is stripped whatever its depth (../../../lib/ from lib/x.js,
+# ../../../../lib/ from lib/gateway/x.js).
+set(OLLAMA_REPL_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/examples/ollama-repl/lib")
+file(GLOB_RECURSE OLLAMA_REPL_LIB_FILES CONFIGURE_DEPENDS "${OLLAMA_REPL_LIB_DIR}/*.js")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OLLAMA_REPL_LIB_FILES})
 foreach(OLLAMA_REPL_LIB_FILE ${OLLAMA_REPL_LIB_FILES})
-  get_filename_component(OLLAMA_REPL_LIB_FILE_NAME "${OLLAMA_REPL_LIB_FILE}" NAME)
+  file(RELATIVE_PATH OLLAMA_REPL_LIB_FILE_REL "${OLLAMA_REPL_LIB_DIR}" "${OLLAMA_REPL_LIB_FILE}")
   file(READ "${OLLAMA_REPL_LIB_FILE}" OLLAMA_REPL_LIB_FILE_CONTENTS)
-  string(REPLACE "../../../lib/lws/" "lws/" OLLAMA_REPL_LIB_FILE_CONTENTS
-                  "${OLLAMA_REPL_LIB_FILE_CONTENTS}")
-  string(REPLACE "../../../lib/" "" OLLAMA_REPL_LIB_FILE_CONTENTS
-                  "${OLLAMA_REPL_LIB_FILE_CONTENTS}")
-  file(WRITE "${OLLAMA_REPL_LIB_BUILD_DIR}/${OLLAMA_REPL_LIB_FILE_NAME}"
+  string(REGEX REPLACE "(\\.\\./)+lib/lws/" "lws/" OLLAMA_REPL_LIB_FILE_CONTENTS
+                       "${OLLAMA_REPL_LIB_FILE_CONTENTS}")
+  string(REGEX REPLACE "(\\.\\./)+lib/" "" OLLAMA_REPL_LIB_FILE_CONTENTS
+                       "${OLLAMA_REPL_LIB_FILE_CONTENTS}")
+  file(WRITE "${OLLAMA_REPL_LIB_BUILD_DIR}/${OLLAMA_REPL_LIB_FILE_REL}"
              "${OLLAMA_REPL_LIB_FILE_CONTENTS}")
 endforeach(OLLAMA_REPL_LIB_FILE)
 
-file(GLOB OLLAMA_REPL_LIB_INSTALL_FILES "${OLLAMA_REPL_LIB_BUILD_DIR}/*.js")
-install(FILES ${OLLAMA_REPL_LIB_INSTALL_FILES}
-        DESTINATION "${CMAKE_INSTALL_BINDIR}/lib")
+install(DIRECTORY "${OLLAMA_REPL_LIB_BUILD_DIR}/"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/lib"
+        FILES_MATCHING PATTERN "*.js")
 
 # Installed last: BIN_JS and BIN_CHAT_BRIDGE_JS are build-time generated files (see
 # generate_search_js and generate_chat_bridge_js above), not a source file. If it's ever missing at
