@@ -1,11 +1,11 @@
+- loadavailability-stalls-the-loop (lib/clients/openai-client.js:fetchJSON): what is left of the stall of one availability load: JSON.parse of the biggest dashboard tables (about 140 ms for /api/fallback/penalty-inspector in the fake of the live size: 699 models, 1500 rows, 83 keys) and the decoding and chunk handling of 7 responses (about 12 MB in the fake) still run in one block each; the compute part (220-270 ms) gives the loop a turn every 20 ms (lib/gateway/availability.js, slicer in lib/lag.js); the real response sizes are not known, lag.jsonl (lib/lag.js) says which section ran how long.
 
-
-- loadavailability-stalls-the-loop (lib/clients/openai-client.js:fetchJSON): what is left of the stall of one availability load: JSON.parse of the biggest dashboard tables (about 140 ms for /api/fallback/penalty-inspector in the fake of the live size: 699 models, 1500 rows, 83 keys) and the decoding and chunk handling of 7 responses (about 12 MB in the fake) still run in one block each; the compute part (220-270 ms) now gives the loop a turn every 20 ms (lib/gateway/availability.js, slicer in lib/lag.js); the real response sizes are not known, lag.jsonl (lib/lag.js) says which section ran how long.
-
-    note: stalls of about 2.27 s every 6.5 s while waiting for a model (real lag.jsonl, no timed section) are not explained; restart a session, use /model skip and /gateway views, read /events lag or ~/.cache/ollama-repl/lag.jsonl
+    note: stalls of 1.4 to 1.8 s in phase idle with no timed section (real lag.jsonl, 2026-11-26, four of them in the last hour) are not explained; writeQuota rows of up to 1.2 s are mostly the disk (25 ms of work measured), only the re-read of quota.json is gone; restart a session, read /events lag or ~/.cache/ollama-repl/lag.jsonl, record perf (perf record -g -p PID) while one happens
 
 - stream-dropped-in-long-reasoning (../../lib/lws/protocols.js:528): a streamed qwen-3.8-27b request over cerebras ended with "error: dropped" (onClientHttpDropProtocol) after 18 s of reasoning, 347 KB, while the loop was blocked 400 ms per chunk (see the lag fix in rawcolor.js); whether the blocked loop (no lws service for hundreds of ms) or the server dropped the connection is not known, seen once in a screenshot of the cerebras session on 2026-11-26.
 
     note: send a prompt that makes the model reason for more than 15 s through --provider cerebras, watch /events lag and the end of the turn; compare with the colouring fix in place
 
     note: a drop in the middle of a body now fails with "dropped after N ms, B bytes received" (lib/lws/protocols.js:onClientHttpDropProtocol), which tells a server cut from a stall of the loop on the next occurrence; the cause is still not known
+
+    note: tried 2026-11-26 with a local server (no TLS): 100 SSE chunks of 2 KB at 100 ms, the client blocking its loop 400 ms per chunk (59 s) and a plain 250-chunk 25 s stream; neither dropped, so a blocked loop alone does not explain it, a cut by the server, the TLS path or a proxy is more likely

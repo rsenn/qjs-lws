@@ -97,7 +97,7 @@ import { messageText, messageSelection, summarizeMessages, parseContextArgs } fr
 import { appendEvent, appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/session/persist.js';
 import { hopLine, hopStyle } from './lib/failover/hop-line.js';
 import { exploreOrder as exploreOrderOf, earliestReset, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/tui/transcript-text.js';
-import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/gateway/rating.js';
+import { Ratings, setRater, setProviderRater, rateOf, ratingCell, sortByRating } from './lib/gateway/rating.js';
 import { ipProxyTargets, ipProxyReleases, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms as exhaustedByAddress } from './lib/gateway/ip-fix.js';
 import { ipGroups, ipChangePanel, ipChangeParts } from './lib/tui/ip-pane.js';
 import { netPaneLines, annotateRates } from './lib/tui/net-pane.js';
@@ -2610,8 +2610,10 @@ function getFilteredModelsNow(known, remote, avail = availability) {
     }
   }
   
-  /* best rating first (gateway models), else strongest first; then by name */
-  return models.sort((a, b) => (rateOf(b.name) ?? -1) - (rateOf(a.name) ?? -1) || a.strength - b.strength || a.name.localeCompare(b.name));
+  /* best rating first (gateway models), else strongest first; then by name. The rating is looked up once per model, not
+     twice per comparison: rateOf runs through the catalog and took 20 s in all of one session's 176 calls (lag.jsonl) */
+  const rate = new Map(models.map(m => [m, rateOf(m.name) ?? -1]));
+  return models.sort((a, b) => rate.get(b) - rate.get(a) || a.strength - b.strength || a.name.localeCompare(b.name));
 }
 
 /** Resolves a model pattern (exact, glob, or number) to a model name. */
@@ -3640,11 +3642,11 @@ async function main() {
       : gateway.modelsCached().filter(m => (m.execution_status ?? 'ready') === 'ready').map(m => m.id);
     /* the best rated usable ones; a model whose probe failed (busy, gone, no key, ...) is not a likely route, and drops out of the list when its probe fails */
     const picks = () =>
-      pool
-        .filter(id => id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && inKeyScope(id))
-        .filter(id => { const e = exploration.get(id); return !(e && e.ok === false && exploration.fresh(id)); })
-        .sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1) || a.localeCompare(b))
-        .slice(0, limit);
+      sortByRating(
+        pool
+          .filter(id => id !== 'auto' && id !== 'fusion' && !id.startsWith('auto:') && inKeyScope(id))
+          .filter(id => { const e = exploration.get(id); return !(e && e.ok === false && exploration.fresh(id)); }),
+      ).slice(0, limit);
     let ids = picks();
 
     if(!ids.length) return void console.log(note('no usable model route yet - /gateway providers shows what the gateway has', 'warn'));
@@ -3730,7 +3732,7 @@ async function main() {
    * the 30 best rated of `ids` only: it costs several thousand tokens per model, and verified results are kept
    */
   const deepFor = ids => {
-    const top = new Set([...ids].sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1)).slice(0, 30));
+    const top = new Set(sortByRating(ids).slice(0, 30));
     return id => (top.has(id) ? deepBudget(modelInfo(id).ctx) : 0);
   };
 
@@ -4939,7 +4941,7 @@ async function main() {
         emit('failover', `the model choice is restricted to ${names.length} models: ${names.join(', ')}`);
         console.log(card('📋', `model list: ${bold(String(names.length))} models`, [...names.map(n => `${fgHex(strengthColor(tierOf(n)), n)} ${ratingCell(rateOf(n))}`), dim('/model next, /model skip and the failover pick from these; /model scope off lifts it')], ACCENT));
         tui?.drawStatus();
-        arg = names.includes(opts.model) ? opts.model : [...names].sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1))[0];
+        arg = names.includes(opts.model) ? opts.model : sortByRating(names)[0];
         if(arg === opts.model) return;
       }
 
@@ -4988,7 +4990,7 @@ async function main() {
             exploreLanes = [];
             tui?.drawStatus();
             emit('explore', `sweep finished: ${usable} of ${n} models usable${costText(exploration.cost()) ? ` (${costText(exploration.cost())})` : ''}`, usable ? 'good' : 'warn');
-            const rows = ready.slice().sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1) || a.localeCompare(b));
+            const rows = sortByRating(ready);
             const table = fitTable(panelInner(), () => [['rate', 'model', 'probe', 'says'].map(h => `\x1b[1m${h}\x1b[0m`), ...rows.map(id => { const [pr, says] = probeCells(exploration, id); return [ratingCell(rateOf(id)), `\x1b[1m${fgHex(strengthColor(tierOf(id)), id)}\x1b[0m`, pr, says]; })], [1, 3], [3]);
             backgroundReport('/model explore', async () => `${note(`sweep finished: ${usable} of ${n} usable, best rated first - /model next chooses among them`)}\n${table}${(() => {
               /* the usable ones: tier 0 passed, tier 1 (when run) passed too, best rated first */

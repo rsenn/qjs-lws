@@ -1,5 +1,17 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* repl.js (getFilteredModelsNow, picks, /model handlers),
+	lib/gateway/rating.js (sortByRating): a list is sorted by a rating looked
+	up once per model, not twice per comparison; getFilteredModels took
+	20 s in 176 calls of one session (lag.jsonl).
+
+	* lib/session/persist.js (writeQuota): quota.json is read back only when
+	its mtime moved since this process wrote it.
+
+	* BUGS: what remains of loadavailability-stalls-the-loop; the drop in
+	stream-dropped-in-long-reasoning is not caused by a blocked loop alone
+	(tried with a local SSE server).
+
 	* repl.js (logUsage, watchNet, main): every request is written to
 	usage.jsonl, also without a gateway (origin: the client's endpoint,
 	platform: the provider name); a direct provider's spend was invisible to

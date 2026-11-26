@@ -176,7 +176,10 @@ export const setProviderRater = fn => (provRater = fn);
 export const rateProvider = platform => provRater(platform);
 
 /** ids best first (unrated ones last), ties by name */
-export const sortByRating = ids => [...ids].sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1) || String(a).localeCompare(String(b)));
+export const sortByRating = ids => {
+  const rate = new Map([...ids].map(id => [id, rateOf(id) ?? -1])); /* once per id, not twice per comparison */
+  return [...ids].sort((a, b) => rate.get(b) - rate.get(a) || String(a).localeCompare(String(b)));
+};
 
 /** the rating as a cell: the number coloured red .. green, `-` when unknown */
 export function ratingCell(n) {

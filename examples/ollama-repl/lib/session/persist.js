@@ -21,7 +21,7 @@
  * The jsonl files are trimmed at startup (trimLogs): usage.jsonl keeps 90 days, quota.jsonl 180, events.jsonl 30.
  */
 import { loadFile, open as fopen } from 'std';
-import { setTimeout, clearTimeout } from 'os';
+import { setTimeout, clearTimeout, stat } from 'os';
 import { writeConfigFile } from '../config.js';
 import { cacheDir } from './session-cache.js';
 import { timed } from '../lag.js';
@@ -101,6 +101,7 @@ export const readUsage = ({ origin, sinceMs = 0 } = {}) => readLines(usagePath()
 const snaps = new Map(); /* origin -> the snapshot waiting to be written */
 const timers = new Map();
 const lastLogged = new Map();
+const quotaCache = { all: null, mtime: null }; /* quota.json as this process wrote it, and its mtime then */
 
 /** the quota snapshot of a gateway, written at most every 20 s; a line of the history every 15 minutes */
 export function saveQuota(origin, snap) {
@@ -117,12 +118,18 @@ function writeQuota(origin) {
   if(!snap) return;
 
   const now = Date.now();
-  let all = {};
-  try {
-    all = JSON.parse(loadFile(quotaPath())) ?? {};
-  } catch(e) {}
+  /* the file is read back only when another session wrote it since this one did (its mtime moved): parsing 200 KB every 20 s is a stall */
+  const mtime = stat(quotaPath())[0]?.mtime;
+  let all = quotaCache.all;
+  if(!all || mtime !== quotaCache.mtime) {
+    all = {};
+    try {
+      all = JSON.parse(loadFile(quotaPath())) ?? {};
+    } catch(e) {}
+  }
   all[origin] = { at: now, ...snap };
   writeConfigFile(quotaPath(), JSON.stringify(all));
+  Object.assign(quotaCache, { all, mtime: stat(quotaPath())[0]?.mtime });
 
   if(now - (lastLogged.get(origin) ?? 0) >= QUOTA_LOG_EVERY_MS) {
     lastLogged.set(origin, now);
