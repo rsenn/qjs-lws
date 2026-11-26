@@ -10,7 +10,15 @@
 	wsi was closed or the context destroyed; run under valgrind it shows
 	the dangling s->wsi after ctx.destroy().
 
-	* BUGS: socket-wsi-dangling-after-context-destroy.
+	* lws-context.c (sockets_detach): New. Clears sock->wsi of the sockets
+	still listed after lws_context_destroy(), so a LWSSocket held by a
+	script does not keep a freed wsi.
+	(context_free, lwsjs_context_methods): Call it after
+	lws_context_destroy(); METHOD_DESTROY did not go through context_free.
+
+	* lws-socket.c (lwsjs_socket_get): PROP_PEER_WRITE_ALLOWANCE returns -1
+	for a wsi without a role (queued pipelined client request) instead of
+	crashing on a NULL role_ops.
 
 	* lws-socket.c (lwsjs_socket_get): LWSSocket.peer is null for a
 	listening or not yet connected socket (ENOTCONN) instead of throwing,

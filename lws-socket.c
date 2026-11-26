@@ -1897,7 +1897,9 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
     }
 
     case PROP_PEER_WRITE_ALLOWANCE: {
-      ret = JS_NewInt32(ctx, lws_get_peer_write_allowance(s->wsi));
+      /* a queued, pipelined client wsi has no role yet, and
+         lws_get_peer_write_allowance() dereferences wsi->role_ops */
+      ret = JS_NewInt32(ctx, s->wsi->role_ops ? lws_get_peer_write_allowance(s->wsi) : -1);
       break;
     }
 

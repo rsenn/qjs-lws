@@ -739,6 +739,19 @@ context_new(JSContext* ctx) {
   return lws;
 }
 
+/* Call after lws_context_destroy(): sockets still listed must not point
+   into the freed context, and a wrapper the script still holds must not
+   keep the freed wsi either. */
+static void
+sockets_detach(LWSContext* lws) {
+  while(!list_empty(&lws->sockets)) {
+    LWSSocket* sock = list_entry(lws->sockets.next, LWSSocket, link);
+
+    sock->wsi = 0;
+    list_del(&sock->link);
+  }
+}
+
 static void
 context_free(JSRuntime* rt, LWSContext* lws) {
 #ifdef USE_EPOLL
@@ -769,9 +782,7 @@ context_free(JSRuntime* rt, LWSContext* lws) {
 
   lwsjs_context_creation_info_free(rt, &lws->info);
 
-  /* sockets still listed must not point into the freed context */
-  while(!list_empty(&lws->sockets))
-    list_del(lws->sockets.next);
+  sockets_detach(lws);
 
   CONTEXT_LIST_LOCK();
   list_del(&lws->link);
@@ -1010,6 +1021,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
         timers_cleanup(lws);
         lws_context_destroy(lws->ctx);
         lws->ctx = NULL;
+        sockets_detach(lws);
         /* lws sends no DEL_POLL_FD for a wsi it did not get to close before
          * the context went away: its fd handlers would stay in the event loop
          * and make it spin on an fd nobody services any more. */
