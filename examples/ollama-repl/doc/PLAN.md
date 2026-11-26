@@ -142,14 +142,11 @@ Harness side (H) unless marked G.
 - **E3. Keyless platform without a key row (M).** A platform the gateway lists only as a provider cannot get a proxy:
   the dashboard keeps the sentinel row. Needs the gateway to create the row; until then the pane says so.
 - **E4. What an address change lifts (S).** The set (windows, cooldown, exhaustion, IP errors; not credit, tier, key
-  state) is a guess: after C4, count which cleared cooldowns really came back and adjust `ipLimitedPlatforms` /
-  `clearCooldowns`.
+  state) is a guess. Done: the verdict per kind after each address change (`ipLiftTally`). Open: adjust `ipLimitedPlatforms` /
+  `clearCooldowns` to what the verdicts show.
 - **E5. `/proxy keyless fix` per model (M).** It tests the strongest limited model per provider only and reports a
   provider as working when its other models stay limited. Test a second model of the provider when the first works;
   turn its steps into `proxy` events (they are printed only).
-- **E6. Latency of proxied keyed providers (S).** A keyed provider limited per IP gets a proxy for its key, adding the
-  proxy's latency to every request of that key: show the added latency per platform in `/proxy` (exists:
-  `measure`), (the take-off when the limit is gone is done: `ipProxyReleases`, `autoProxy`).
 - **E7. Transient/real split without a regex (M).** `isTransientProbe` and `diagnose` classify by regex over the error
   text; use the gateway's error code and status where the gateway gives them (`upstream_error`, `rate_limited`).
 
@@ -157,16 +154,13 @@ Harness side (H) unless marked G.
 
 - **F1. Non-OpenAI explorers (M).** Only OpenAI-compatible gateways are explored. Ollama and Gemini could be probed
   with the same tier 0 (ping tool) when selected; low value, do after C7.
-- **F2. Quota cost of exploration (S).** Each model costs 2 requests of free quota (tier 0) and the top 30 a tier 1 of
-  3 to 12k tokens, once. Add a counter (probes sent today, tokens) to `/events` or `/model health` so the cost is
-  visible (done: `Exploration#cost`, `costText`), and an option for tier 0 only and for the concurrency of `/model explore` (open).
 - **F3. Queue limited models (M).** `/model explore` skips limited models; queue them until their `until` instead and
   report them as "waiting" (3.1 skips providers within one run; this is the same idea across runs).
 - **F4. Use the explored identity for routing (M).** Skip models that ignore a system prompt in auto routing and show
   the identity in `/model list`. Check first whether tier 0/1 still collect identity (they do not ask for it any
   more): either re-add a cheap identity field or drop the idea and delete the stale README wording.
-- **F6. Live refresh (S).** The live refresh runs only with `/model health`; add a status segment and a timer
-  (every 2 minutes while idle), and make the TCP check connect to the model's upstream where the gateway exposes it.
+- **F6. Live refresh (S).** Done: a timer (every 2 minutes while idle) and the status segment. Open: make the TCP check connect to the
+  model's upstream where the gateway exposes it.
 - **F8. Rating tuning (M, needs data).** The weights (55 intelligence, +-25 learned, reliability +-10, latency, probe,
   state) are a first guess: after a week of `usage.jsonl`, fit them (does the rating order predict the success
   share and latency?), and add a term for the gateway's own usage evidence (kilo served 76M tokens of one model).

@@ -79,6 +79,7 @@ import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/standby.js';
 import { diagnose } from './lib/diagnose.js';
 import { deepBudget } from './lib/probe-context.js';
+import { proxyLatency } from './lib/usage-baseline.js';
 import { costText, Exploration, isTransientProbe, probeBrief, probeCells } from './lib/exploration.js';
 import { funnyName } from './lib/session-name.js';
 import { NetActivity } from './lib/net-activity.js';
@@ -754,6 +755,12 @@ function proxyText(stats) {
     out.push('', 'this session, time to the response headers:');
     out.push(formatTable([['platform', 'proxied', 'requests', 'median', 'max'], ...[...groups].map(([k, rs]) => [k, proxied(p, k) ? 'yes' : 'no', rs.length, fmtMs(median(rs.map(r => r.ttfbMs))), fmtMs(Math.max(...rs.map(r => r.ttfbMs)))])]));
   }
+
+  /* what the proxy added, from the usage of the last 7 days: the same platform proxied and direct */
+  try {
+    const cost = proxyLatency(readUsage({ origin: gatewayRef?.enabled ? gatewayRef.origin : undefined, sinceMs: Date.now() - 7 * 86400e3 }));
+    if(cost.length) out.push('', 'what the proxy adds per platform (usage of the last 7 days, median time to the response headers):', formatTable([['platform', 'direct', 'proxied', 'added', 'requests'], ...cost.map(c => [c.platform, fmtMs(c.direct), fmtMs(c.proxied), signedMs(c.added), `${c.nDirect} / ${c.nProxied}`])]));
+  } catch(e) {}
 
   return out.join('\n');
 }
@@ -2130,7 +2137,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /model [NAME|next|key:ID[,key:ID..]|key:off|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip; key:ID,key:ID lists the models reachable through those gateway keys (/gateway keys shows the ids) and restricts the model selection to them (list, /model NAME and patterns, skip, standby, takeover, exploration; the model in use moves to the strongest usable one of them), key:off lifts it - the gateway still picks the key of a request itself; next lists the models most likely to work now (the warm standby, then the best rated ones verified lately) and switches to the one you choose; skip (typed by you) asks the same way after skipping, a round that skips by itself takes the warm standby, else the best rated
 /model sweep - /model a,b,c with the usable models of the last /model explore sweep
 /model a,b,c - restrict /model next, /model skip, the standby and the failover to these models (the best rated of them becomes the model); /model scope shows the list, /model scope off lifts it
-/model explore PATTERN.. - sweep the READY models matching a glob (nemotron*) or part of a name through both exploration tiers again, update their ratings and show the ranking, so they appear in /model next
+/model explore [--tier0] [--workers N] PATTERN.. - sweep the READY models matching a glob (nemotron*) or part of a name through both exploration tiers again (--tier0: the first only; --workers N: N at once, 1 to 8), update their ratings and show the ranking, so they appear in /model next
 /model health - display real-time health, quota and rate-limit status of all available models; the first call starts the async exploration of the READY ones in the background (what is it, obeys a system prompt, calls tools), cached in ~/.cache/ollama-repl/exploration.json and shown in the Probe and Says columns
 /provider [NAME] - show or switch the provider (ollama, gemini, openai, freellm, bridge)
 /fallback [NAME|off] - show or set fallback model for auto-failover
@@ -2900,6 +2907,11 @@ function statusLinesNow(opts, stats, messages, ctxWindow, busy, gateway, remote,
   if(keyScope.models) two.push(`${tc('⚿')} keys ${keyScope.ids.join(',')}`);
   if(modelScope.set) two.push(`${tc('📋')} ${modelScope.names.length} models`);
   if(exploration?.pending.size) two.push(`\x1b[36m⌕ ${exploration.done}/${exploration.total}\x1b[39m`);
+  else if(exploration) {
+    /* the verified models that are usable right now, as the last live check saw them */
+    const live = exploration.liveSummary();
+    if(live.verified) two.push(`\x1b[2m⌕ ${live.usable}/${live.verified} live\x1b[22m`);
+  }
   if(last?.fallbacks) two.push(`\x1b[33m⚑ ${last.fallbacks} fallback${last.fallbacks > 1 ? 's' : ''}\x1b[39m`);
   if(queued) two.push(`\x1b[33m⏳ ${queued} queued\x1b[39m`);
   two.push(busy ? dimmed(`${lime('⎋')} Esc cancels · ^X^S sends now`) : dimmed(`${lime('⇧⇥')} mode · ${lime('^O')} verbose · ${lime('/help')}`));
@@ -3157,7 +3169,7 @@ async function main() {
    * answers a TCP connect, the usage and quota it reports (availability) say whether the model is limited, and the
    * requests of this session served by it. Models usable now go through explored() again (standby slot, takeover).
    */
-  async function refreshExplored(av) {
+  async function refreshExplored(av, { notify = true } = {}) {
     if(!exploration || !gateway?.origin) return;
 
     const m = /^https?:\/\/([^/:]+)(?::(\d+))?/.exec(gateway.origin);
@@ -3172,7 +3184,22 @@ async function main() {
     for(const [id, e] of av?.byModel ?? []) if(exploration.verified(id)) live[id] = { at: now, reachable, blocked: !!e.blocked, kinds: e.kinds, until: e.until ?? null, servedAt: served.get(id)?.at, servedMs: served.get(id)?.ms };
 
     exploration.setLive(live);
-    for(const [id, l] of Object.entries(live)) if(l.reachable !== false && !l.blocked && l.until == null) explored(id, exploration.get(id), true);
+    if(notify) for(const [id, l] of Object.entries(live)) if(l.reachable !== false && !l.blocked && l.until == null) explored(id, exploration.get(id), true);
+  }
+
+  /* the live state of the verified models, every 2 minutes while the session is idle: no request to the gateway (the last availability and one TCP connect), no takeover or standby side effects */
+  function watchLive() {
+    setTimeout(async () => {
+      try {
+        if(exploration && gateway?.enabled && availability && !repl?.busy && !exploration.pending.size) {
+          await refreshExplored(availability, { notify: false });
+          tui?.drawStatus();
+        }
+      } catch(e) {
+      } finally {
+        watchLive();
+      }
+    }, 120000);
   }
 
   /* a client of its own per explored model, on the REPL's thread */
@@ -4062,6 +4089,7 @@ async function main() {
   else if(gateway?.enabled) showLikelyRoutes().catch(e => console.log(note(`gateway probe failed: ${e.detail ?? e.message}`, 'warn')));
   if(gateway?.enabled && gateway.hasLimits) {
     watchPace();
+    watchLive();
     setTimeout(() => autoProxy('startup'), 4000);
   }
 
@@ -4614,11 +4642,16 @@ async function main() {
       /* /model explore PATTERN.. : a sweep of the READY models that match (a glob with *, else a part of the name), probed again
          through both tiers whatever is cached, ratings updated, then the ranking */
       if(arg === 'explore' || arg.startsWith('explore ')) {
-        const words = arg.slice(7).trim().split(/\s+/).filter(Boolean);
+        const rawWords = arg.slice(7).trim().split(/\s+/).filter(Boolean);
+        /* options: --tier0 (no context probe), --workers N (models asked at once) */
+        const tier0 = rawWords.includes('--tier0');
+        const wi = rawWords.indexOf('--workers');
+        const workers = wi >= 0 ? Math.max(1, Math.min(8, parseInt(rawWords[wi + 1], 10) || 2)) : 2;
+        const words = rawWords.filter((w, i) => w !== '--tier0' && w !== '--workers' && !(wi >= 0 && i === wi + 1));
         const exact = new Set(availability?.byModel.keys() ?? []);
         /* a word that is exactly a model id (from the /model health selection) matches that model only */
         const pats = words.map(p => exact.has(p) ? new RegExp(`^${p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')}$`) : new RegExp(p.includes('*') ? `^${p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$` : p.replace(/[.+?^${}()|[\]\\*]/g, '\\$&'), 'i'));
-        if(!pats.length) return void console.log(note('usage: /model explore PATTERN [PATTERN..] - e.g. /model explore nemotron* (a glob with *, else a part of the name); probes the READY models that match again, updates their ratings'));
+        if(!pats.length) return void console.log(note('usage: /model explore [--tier0] [--workers N] PATTERN [PATTERN..] - e.g. /model explore nemotron* (a glob with *, else a part of the name); probes the READY models that match again, updates their ratings'));
         const av = await loadAvailability(gatewayRef);
         if(!av) return void console.log('No dashboard session. Cannot explore.');
         exploration ??= new Exploration(gatewayRef.origin);
@@ -4634,12 +4667,13 @@ async function main() {
         const tools = {};
         for(const m of gateway?.modelsCached() ?? []) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
         const all = new Set(ready);
-        const deep = id => (all.has(id) ? deepBudget(modelInfo(id).ctx) : 0);
+        const deep = id => (!tier0 && all.has(id) ? deepBudget(modelInfo(id).ctx) : 0);
         console.log(card('🧹', `sweep: ${bold(String(ready.length))} model${ready.length === 1 ? '' : 's'} matching ${arg.slice(7).trim()}`, [...ready.slice(0, 12).map(id => `${fgHex(strengthColor(tierOf(id)), id)} ${ratingCell(rateOf(id))}`), ...(ready.length > 12 ? [dim(`… ${ready.length - 12} more`)] : []), ...(skipped ? [`${fgHex('#fb923c', `${skipped} skipped`)} ${dim('limited or without a key')}`] : []), dim('both tiers, ratings updated, 2 at a time')], '#2dd4bf'));
         emit('explore', `sweep of ${ready.length} models matching ${arg.slice(7).trim()}`);
 
         exploration.run(ready, makeExploreClient, {
           ...exploreOrder(),
+          concurrency: workers,
           tools,
           deep,
           force: true,

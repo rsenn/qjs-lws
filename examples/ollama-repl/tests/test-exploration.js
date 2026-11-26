@@ -34,6 +34,10 @@ check('run queues nothing for known models', ex.run(['good', 'newfail'], {}) ===
 
 ex.setLive({ good: { at: now, reachable: true, blocked: false }, newfail: { at: now, reachable: true } });
 check('live state only for verified models', ex.get('good').live && !ex.get('newfail').live);
+{
+  const l = ex.liveSummary();
+  check('live summary: verified and usable now', l.verified === 2 && l.usable === 1 && l.at === now);
+}
 check('usable cell shows the probe time', /usable 900ms tools/.test(strip(probeCells(ex, 'good')[0])));
 
 ex.setLive({ good: { at: now, reachable: true, blocked: true, kinds: ['rpm'] } });

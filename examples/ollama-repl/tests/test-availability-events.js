@@ -1,5 +1,5 @@
 /* test-availability-events.js: events for models that become limited or usable again, and why */
-import { reportChanges, noteIpChange } from '../lib/availability.js';
+import { reportChanges, noteIpChange, ipLiftTally } from '../lib/availability.js';
 import { setSink } from '../lib/events.js';
 
 const check = (what, ok) => {
@@ -71,4 +71,21 @@ console.log('test-availability-events: ok');
     if(table.length !== 4) throw new Error(`test-availability-events: limited rows at ${width}: ${table.length}\n${out.join('\n')}`);
     if(width && table.some(l => [...strip(l)].length > width)) throw new Error(`test-availability-events: limited row wider than ${width}:\n${table.map(strip).join('\n')}`);
   }
+}
+
+/* what an address change lifted, by kind of limit */
+{
+  const t = ipLiftTally(new Map([['a', ['rpm']], ['b', ['rpm']], ['c', ['rpd']], ['d', ['credit', 'rpm']]]), new Map([['a', { blocked: false }], ['b', { blocked: true }], ['c', { blocked: true }]]));
+  check('tally: lifted of total', t.lifted === 2 && t.total === 4);
+  check('tally: per kind, the most frequent first', t.kinds[0].join() === 'rpm,2,3' && t.kinds.some(k => k.join() === 'rpd,0,1') && t.kinds.some(k => k.join() === 'credit,1,1'));
+}
+{
+  seen.length = 0;
+  reportChanges(av({ a: e(true, ['rpm']), b: e(true, ['rpd']) }));
+  noteIpChange(Date.now() - 30000);
+  reportChanges(av({ a: e(false), b: e(true, ['rpd']) }));
+  check('the verdict on the address change is one event', seen.some(x => /address change lifted 1 of 2 limits: req\/min 1\/1, req\/day 0\/1/.test(x)));
+  const n = seen.length;
+  reportChanges(av({ a: e(false), b: e(true, ['rpd']) }));
+  check('and said once', !seen.slice(n).some(x => /address change lifted/.test(x)));
 }

@@ -36,6 +36,28 @@ const count = (xs, key) => xs.reduce((m, x) => m.set(key(x), (m.get(key(x)) ?? 0
 const sorted = m => [...m].sort((a, b) => b[1] - a[1]);
 
 /**
+ * what the proxy adds per platform: the median time to the response headers of the proxied requests against the direct ones
+ * (usage rows carry `proxied`); a platform needs `minRows` of each to be compared
+ *
+ * @param {object[]} rows  usage rows
+ * @returns {{platform: string, direct: number, proxied: number, added: number, nDirect: number, nProxied: number}[]}  the largest added latency first
+ */
+export function proxyLatency(rows, minRows = 3) {
+  const by = new Map();
+  for(const r of rows ?? []) {
+    if(!r.platform || r.error || !(r.ttfbMs > 0) || typeof r.proxied !== 'boolean') continue;
+    const x = by.get(r.platform) ?? { direct: [], proxied: [] };
+    x[r.proxied ? 'proxied' : 'direct'].push(r.ttfbMs);
+    by.set(r.platform, x);
+  }
+
+  return [...by]
+    .filter(([, x]) => x.direct.length >= minRows && x.proxied.length >= minRows)
+    .map(([platform, x]) => ({ platform, direct: median(x.direct), proxied: median(x.proxied), added: median(x.proxied) - median(x.direct), nDirect: x.direct.length, nProxied: x.proxied.length }))
+    .sort((a, b) => b.added - a.added);
+}
+
+/**
  * @param {object[]} rows  usage rows (lib/persist.js usageRow), any order
  * @returns {object} the numbers: see the field names; times are ms, rates are 0..1
  */

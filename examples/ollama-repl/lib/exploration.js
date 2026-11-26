@@ -197,6 +197,24 @@ export class Exploration {
     return out;
   }
 
+  /**
+   * how many verified models are usable right now, from the live state the last refresh stored (`setLive`): reachable and not blocked
+   *
+   * @returns {{verified: number, usable: number, at: number}}  at: the oldest live check of a usable one, 0 without any
+   */
+  liveSummary() {
+    const out = { verified: 0, usable: 0, at: 0 };
+    for(const [k, e] of Object.entries(this.#load())) {
+      if(!k.startsWith(`${this.#origin}|`) || !e.ok) continue;
+      out.verified++;
+      if(e.live && e.live.reachable !== false && !e.live.blocked && e.live.until == null) {
+        out.usable++;
+        out.at = out.at ? Math.min(out.at, e.live.at ?? 0) : e.live.at ?? 0;
+      }
+    }
+    return out;
+  }
+
   /** whether the entry was written by the present tier 0 (`v` 3); an older pass (the three-prompt code) is asked once more, from scratch */
   current(id) {
     const e = this.get(id);

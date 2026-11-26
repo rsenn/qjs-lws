@@ -1,5 +1,17 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/availability.js (noteIpChange, ipLiftTally, reportChanges): one
+	event says how many limits an address change lifted, per kind.
+
+	* lib/usage-baseline.js (proxyLatency), repl.js (proxyText): /proxy shows
+	what the proxy adds per platform (proxied against direct, 7 days).
+
+	* repl.js (/model explore): the options --tier0 and --workers N.
+
+	* lib/exploration.js (Exploration#liveSummary), repl.js (watchLive,
+	refreshExplored, statusLines): the live state of the verified models is
+	refreshed every 2 minutes while idle; the status bar shows usable/verified.
+
 	* lib/ip-fix.js (ipProxyTargets, ipProxyReleases), repl.js (autoProxy):
 	proxy policy: a keyed provider goes direct, its keys use the proxy only
 	while it is limited per IP address and come off it 30 minutes after the

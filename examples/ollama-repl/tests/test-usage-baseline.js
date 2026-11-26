@@ -1,5 +1,5 @@
 /* test-usage-baseline.js: turns, failure runs and error classes of the usage baseline */
-import { baseline, baselineText, errorClass } from '../lib/usage-baseline.js';
+import { baseline, baselineText, errorClass, proxyLatency } from '../lib/usage-baseline.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-usage-baseline: ${what}`);
@@ -57,5 +57,17 @@ check('empty input', baseline([]).records === 0 && baselineText(baseline([])).in
   const { usageRow } = await import('../lib/persist.js');
   check('usageRow keeps the label of another client', usageRow('o', 's', { model: 'm' }, 'explore').label === 'explore');
   check('the main client has none', usageRow('o', 's', { model: 'm' }, 'main').label === undefined && usageRow('o', 's', { model: 'm' }).label === undefined);
+}
+/* what the proxy adds per platform */
+{
+  const r = (platform, proxied, ttfbMs, o = {}) => ({ at: t0, session: 's', platform, proxied, ttfbMs, ...o });
+  const rows = [
+    ...[1000, 1100, 1200].map(t => r('kilo', false, t)), ...[1600, 1700, 1800].map(t => r('kilo', true, t)),
+    ...[500, 500, 500].map(t => r('groq', false, t)), r('groq', true, 900),
+    r('nvidia', true, 100, { error: 'x' }), r('nvidia', undefined, 100),
+  ];
+  const c = proxyLatency(rows);
+  check('proxy latency: the platform with both sides', c.length === 1 && c[0].platform === 'kilo');
+  check('proxy latency: medians and the difference', c[0].direct === 1100 && c[0].proxied === 1700 && c[0].added === 600 && c[0].nDirect === 3 && c[0].nProxied === 3);
 }
 console.log('test-usage-baseline: ok');

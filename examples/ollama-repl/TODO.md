@@ -106,18 +106,16 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 
 ### 7. Proxy and exit address (after C4)
 
-40. **E4** (H, S) which limits an address change really lifts: count the cooldowns that came back, adjust `ipLimitedPlatforms`/`clearCooldowns`.
-43. **E6** (H, S) show the latency a proxy adds per platform (the take-off when the limit is gone is done: `ipProxyReleases`).
+40. **E4 rest** (H, S) the address change verdict is measured (`proxy` event, kept in `events.jsonl`); what is left: after a few real address changes, adjust
+    `ipLimitedPlatforms`/`clearCooldowns` to the kinds that really lifted.
 44. **E5** (H, M) `/proxy keyless fix` tests a second model of a provider and turns its steps into `proxy` events.
 45. **E7** (H, M) classify transient vs real failures by the gateway's error code and status, not by a regex over the text.
 46. **E3** (H/G, M) a keyless platform without a key row cannot get a proxy: needs the gateway to create the row; until then the pane says so.
 
 ### 8. Exploration and rating
 
-47. **F2 rest** (H, S) the probe cost is shown (`/model health`, the sweep event); what is left: an option for tier 0 only and one for the
-   concurrency of `/model explore`.
 50. **F3** (H, M) queue limited models until their `until` instead of skipping them, report them as "waiting".
-51. **F6** (H, S) a live refresh timer and a status segment for the exploration; check the model's upstream, not only the gateway.
+51. **F6 rest** (H, S) the live refresh runs every 2 minutes with a status segment; what is left: the TCP check goes to the gateway, make it connect to the model's upstream where the gateway exposes it.
 52. **F4** (H, M) decide on the explored identity: tier 0/1 no longer collect it; either re-add a cheap identity field and use it for routing, or drop the idea and the stale wording.
 53. **F10** (H, M) save `/model a,b,c` and the last sweep with the session, show them in `/status`, accept a sweep list split over lines, show the request-rate window in `/model next`.
 54. **F11** (H, M) one flexible column in `compactTable` tables, more selectable pagers, numeric and regex filters, mouse selection, `test-pager-select.js` under a pty in `smoke.sh`.

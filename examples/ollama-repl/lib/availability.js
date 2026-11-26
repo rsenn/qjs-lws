@@ -283,6 +283,34 @@ let lastIpChange = 0;
 /** the exit address of the proxy changed (or the proxy was switched): models that come back soon after are reported as such */
 export function noteIpChange(at = Date.now()) {
   lastIpChange = at;
+  /* what was limited just before, by kind: the later looks say which of those limits the new address really lifted */
+  ipBaseline = new Map([...(lastSeen ?? [])].filter(([, e]) => e.blocked).map(([id, e]) => [id, e.kinds ?? []]));
+}
+
+let ipBaseline = null;
+const IP_TALLY_AFTER_MS = 25e3;
+
+/**
+ * which limits an address change lifted: of the models limited before it, per kind of limit, how many are usable now
+ *
+ * @param {Map<string, string[]>} baseline  model id -> its limit kinds before the change
+ * @param {Map<string, {blocked: boolean}>} current  the models now
+ * @returns {{lifted: number, total: number, kinds: [string, number, number][]}}  kinds: [kind, lifted, total], the most frequent first
+ */
+export function ipLiftTally(baseline, current) {
+  const by = new Map();
+  let lifted = 0;
+  for(const [id, kinds] of baseline) {
+    const back = !current.get(id)?.blocked;
+    if(back) lifted++;
+    for(const k of kinds.length ? kinds : ['unknown']) {
+      const x = by.get(k) ?? [0, 0];
+      x[1]++;
+      if(back) x[0]++;
+      by.set(k, x);
+    }
+  }
+  return { lifted, total: baseline.size, kinds: [...by].map(([k, [l, t]]) => [k, l, t]).sort((a, b) => b[2] - a[2]) };
 }
 
 const IP_WINDOW_MS = 15 * 60e3;
@@ -295,6 +323,16 @@ export function reportChanges(av) {
   const now = new Map([...av.byModel].map(([id, e]) => [id, { blocked: !!e.blocked, kinds: e.kinds ?? [], until: e.until, platforms: e.platforms ?? [] }]));
   const before = lastSeen;
   lastSeen = now;
+
+  /* the verdict on the last address change, once its recheck has come in (the address change settles within seconds) */
+  if(ipBaseline && Date.now() - lastIpChange >= IP_TALLY_AFTER_MS) {
+    const base = ipBaseline;
+    ipBaseline = null;
+    if(Date.now() - lastIpChange < IP_WINDOW_MS && base.size) {
+      const t = ipLiftTally(base, now);
+      emit('proxy', `the address change lifted ${t.lifted} of ${t.total} limits: ${t.kinds.slice(0, 6).map(([k, l, n]) => `${KIND[k] ?? k} ${l}/${n}`).join(', ')}`, t.lifted ? 'good' : 'warn');
+    }
+  }
   if(!before) return;
 
   const limited = [];

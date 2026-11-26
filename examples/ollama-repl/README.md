@@ -617,7 +617,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   sweep lists its usable models (tier 0 and tier 1 passed), best rated first, one
   per line, and `/model sweep` applies them as the list: a long `/model a,b,c`
   line does not survive wrapping and copying from the terminal.
-- **`/model explore PATTERN..`** sweeps the READY models that match (a glob
+- **`/model explore [--tier0] [--workers N] PATTERN..`** (`--tier0`: no context probe, 2 requests per model; `--workers N`: N models at once, 1 to 8) sweeps the READY models that match (a glob
   anchored at both ends, `nemotron*`, `*nemotron*`, or a part of the name,
   `nemotron`) through both exploration tiers again, whatever is cached, two at a
   time in the background, then shows the ranking best rated first. The ratings are

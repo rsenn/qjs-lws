@@ -864,6 +864,18 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   models is limited per IP address** (`ipLimitedPlatforms`, kind `ip`), and loses them again once no model of it has been
   IP-limited for 30 minutes (`ipProxyReleases`; hysteresis, so a limit that returns is not chased on and off); the release also
   runs at startup, which takes the keys the old policy put on the proxy (22 of kilo) off it. `autoProxy` does both.
+- **Live refresh (2026-11-26).** Every 2 minutes while the session is idle and no exploration runs, `watchLive` refreshes the live state
+  of the verified models (`refreshExplored(availability, { notify: false })`: the last availability and one TCP connect, no request to
+  the gateway, no standby or takeover side effect); the status bar shows `⌕ usable/verified live` when nothing is being probed
+  (`Exploration#liveSummary`). Open: the TCP check goes to the gateway, not to the model's upstream.
+- **Sweep options (2026-11-26).** `/model explore [--tier0] [--workers N] PATTERN..`: `--tier0` skips the tier 1 context probe (a sweep
+  that costs 2 requests per model and no 3 to 12k prompt tokens), `--workers N` sets how many models are asked at once (1 to 8,
+  default 2: the `concurrency` of `Exploration#run`). The options are words starting with `--`; the rest are patterns as before.
+- **Address change verdict.** After `noteIpChange` the models that were limited are counted again at the recheck 25 s or more later
+  (`ipLiftTally`): one `proxy` event says how many limits the new address lifted, per kind (`req/min 8/10, req/day 0/20, ...`);
+  the events are kept in `events.jsonl`, so the data to adjust `ipLimitedPlatforms`/`clearCooldowns` (which kinds really lift) builds up.
+- **Proxy latency.** `/proxy` shows what the proxy adds per platform: the median time to the response headers of the proxied
+  against the direct requests of the last 7 days (`proxyLatency`, `lib/usage-baseline.js`), for platforms with 3 rows of each.
 - **Availability tables.** `/api/models` (the chain) and `/api/fallback/routing` change rarely and are asked once a minute
   (`SLOW_TABLES`, `lastTables`), the other five tables (usage, limits, penalties, keys with their cooldowns) every load;
   `{ fresh: true }` asks all of them. `av.keyCounts` (platform to enabled keys) lets `spentPlatforms` (`lib/fallback-trail.js`)
