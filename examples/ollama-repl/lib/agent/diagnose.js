@@ -14,6 +14,8 @@
  * ```
  */
 
+import { causeOfStatus } from '../failover/cause-of-status.js';
+
 /** "electronhub/deepseek-v4-flash key1: rate_limited; bazaarlink/x key2: upstream_error" -> [{route, key, reason}] */
 export function parseTrail(error) {
   const out = [];
@@ -41,6 +43,8 @@ const minutes = ms => (ms < 90e3 ? `${Math.max(1, Math.round(ms / 1e3))}s` : ms 
  * @param {object} i
  * @param {string} i.id
  * @param {string} i.error  the probe's error text
+ * @param {number} [i.status]  HTTP status of the failure, when it had one
+ * @param {string} [i.code]    error code of the answer (upstream_error, rate_limit_exceeded, ...)
  * @param {object} [i.entry]  the gateway's availability entry of the model: { blocked, kinds, until, platforms }
  * @param {object[]} [i.keys]  GET /api/keys
  * @param {object[]} [i.providers]  GET /api/keys/providers (providers)
@@ -49,9 +53,12 @@ const minutes = ms => (ms < 90e3 ? `${Math.max(1, Math.round(ms / 1e3))}s` : ms 
  * @param {number} [i.now]
  * @returns {Promise<{cause: string, detail: string, transient: boolean, retryInMs: number|null, steps: string[]}>}
  */
-export async function diagnose({ id, error, entry, keys = [], providers = [], retry, wait = ms => new Promise(r => setTimeout(r, ms)), now = Date.now() }) {
+export async function diagnose({ id, error, status, code, entry, keys = [], providers = [], retry, wait = ms => new Promise(r => setTimeout(r, ms)), now = Date.now() }) {
   const steps = [];
+  /* the status and error code of the failure say more than its text; the text decides only without them */
   let cause = causeOfError(error);
+  const byCode = causeOfStatus(status, code);
+  if(byCode && byCode !== 'refused' && !['system-prompt', 'empty'].includes(cause)) cause = byCode;
   const trail = parseTrail(error);
   let detail = '';
   let retryInMs = null;

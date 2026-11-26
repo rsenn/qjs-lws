@@ -81,6 +81,7 @@ import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAl
 import { expandHome, toRelativePath, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/gateway/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/failover/standby.js';
+import { shouldAskAgain, withContinuation } from './lib/failover/continuation.js';
 import { diagnose } from './lib/agent/diagnose.js';
 import { deepBudget } from './lib/gateway/probe-context.js';
 import { proxyLatency } from './lib/session/usage-baseline.js';
@@ -141,6 +142,7 @@ const DEFAULT_MAX_ROUNDS = 40;
    changes - after this many nudges the harness stops and returns the
    response, even if no file was written. */
 const MAX_NUDGES = 2;
+
 
 const THINK_VALUES = ['detect', 'on', 'off', 'true', 'false', 'auto', 'low', 'medium', 'high'];
 
@@ -1179,6 +1181,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   let backoffs = 0;
   let pass = 0;
   let dropRetried = false;
+  let carried = ''; /* the answer text already shown by failed attempts of this round */
 
   for(;;) {
     checkStop();
@@ -1195,15 +1198,17 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
     usageAttempt = pass++; /* 0 = the first try of the round, n = the n-th retry (a skip, a wait, a standby or failover switch) */
 
     try {
-      return await chatRoundOnce(client, messages, opts, abortRef, chatOptions);
+      const result = await chatRoundOnce(client, messages, opts, abortRef, carried ? { ...chatOptions, continuation: carried } : chatOptions);
+      return carried ? { ...result, content: carried + (result.content ?? '') } : result;
     } catch(e) {
       if(stopRequested) throw e; /* no failover, no wait, no retry */
+      if(e?.partial) carried += e.partial; /* kept: the next attempt continues after it */
 
       /* the connection was cut in the middle of the reply (lib/lws/protocols.js "dropped after N ms"): the same route is
-         asked once more, the partial reply is discarded; not past the token budget, a second cut falls through to the failover */
-      if(!dropRetried && /^dropped after \d+ ms/.test(String(e?.message ?? '')) && !(opts.tokenBudget > 0 && spentTokens() >= opts.tokenBudget)) {
+         asked once more, continuing after the partial reply (D9); not past the token budget, a second cut falls through to the failover */
+      if(shouldAskAgain(e, { asked: dropRetried, spent: spentTokens(), budget: opts.tokenBudget })) {
         dropRetried = true;
-        if(!opts.quiet) console.log(note(`${client.model}: ${e.message}, asking once more (the partial reply is dropped)`, 'skip'));
+        if(!opts.quiet) console.log(note(`${client.model}: ${e.message}, asking once more${carried ? ' (continuing the reply)' : ''}`, 'skip'));
         continue;
       }
       if(ui.verbose && e.headers && !opts.quiet) console.log(dim(`${e.message}\nheaders: ${JSON.stringify(e.headers, null, 2)}\nbody: ${e.body ?? ''}`));
@@ -1392,6 +1397,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   /* a request that shows no token (nor reasoning) within firstTokenSecs is cancelled: a stuck route fails over like an error */
   const waitSecs = opts.firstTokenSecs ?? 90;
   let stalled = false;
+  let partial = () => '';
   let watchdog = null;
   const disarm = () => {
     if(watchdog !== null) clearTimeout(watchdog);
@@ -1417,12 +1423,16 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   try {
     if(opts.stream) {
       let first = true;
+      let answered = '';
       let chars = 0;
       let chunks = 0;
       const md = piped ? null : new MarkdownStream();
 
-      const result = await client.chatStream(messages, chatOptions, token => {
+      const sent = withContinuation(messages, chatOptions.continuation);
+      partial = () => answered;
+      const result = await client.chatStream(sent, chatOptions, token => {
         disarm();
+        answered += token;
         chars += token.length;
         progress(chars, ++chunks);
         control?.activity('answer', { text: token });
@@ -1430,7 +1440,8 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
           if(panes) showReasoning();
           if(!tui?.active) stopSpinner(); // in the TUI it runs on in its own row until the round is done
           if(thinking) stdout.puts('\n');
-          stdout.puts(`\n${piped ? `${opts.label ?? opts.provider}> ` : replyMark()}`);
+          /* a continuation goes on right after the text already shown: no new reply mark */
+          if(!chatOptions.continuation) stdout.puts(`\n${piped ? `${opts.label ?? opts.provider}> ` : replyMark()}`);
           first = false;
         }
 
@@ -1473,6 +1484,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     liveResponse?.update(`← failed · ${fmtMs(Date.now() - t0)}`, `\x1b[31m${String(e.detail ?? e.message ?? e).split('\n')[0]}\x1b[0m`, { border: ERROR });
     liveResponse = null;
     if(stalled) throw Object.assign(new Error(`no response after ${waitSecs}s (no first token)`), { code: 'timeout' });
+    if(partial() && e && typeof e === 'object') e.partial = partial(); /* the answer text shown before the failure, see chatRound */
     throw e;
   } finally {
     liveResponse?.update(`← ${fmtMs(Date.now() - t0)} · no metadata`, dim('the endpoint reported none'));
@@ -3717,6 +3729,8 @@ async function main() {
     return diagnose({
       id,
       error: result.error,
+      status: result.status,
+      code: result.code,
       entry: availability?.byModel.get(id),
       keys: Array.isArray(keys) ? keys : [],
       providers: provs,

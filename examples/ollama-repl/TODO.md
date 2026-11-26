@@ -2,11 +2,9 @@
 
 The two causes found are fixed (the blocking pipe read in `lib/run-command.js`; the slow `Array.sort` comparators in
 `limitsText` and `modelStatusTable`) and the loop-lag instrumentation `lib/lag.js` exists. What is left:
-- `/split status|net` still spawns `ss` (lws sockets now come from `LWSContext.sockets()`, `ss` only adds counters; dropping `ss` needs
-  byte counters on LWSSocket, see qjs-lws TODO.md) every 0.5 to 1 s (a slow `ss` on a host with many sockets is what timed out): poll slower, or
-  only while the pane is visible.
-- After the restart (A4): confirm that `/events lag` no longer names `limitsText` or `modelStatusTable`; check the other comparators
-  that call heavy functions (`lib/gateway/freellm.js` `keysText` orders, `lib/gateway/availability.js` `limitedText`, where `rateOf` is called per comparison).
+- `/split status|net` spawns `ss` only while the pane is open, every 3 s (1 s with a request in flight, never under 5 times the last
+  poll's duration: `pollDelay`); dropping `ss` altogether needs byte counters on LWSSocket (qjs-lws TODO.md).
+- After the restart (A4): confirm that `/events lag` no longer names `limitsText` or `modelStatusTable`; (the comparators of `limitedText` and the ready-models list look the rating up once per model since 2026-11-26).
 - Waiting for the next hiccup: read `/events lag` or `~/.cache/ollama-repl/lag.jsonl` first (the perf data of 23:09:38 shows no long CPU
   burst: that stall was waiting, not running).
 - The 4.8 s stall is explained and fixed (2026-11-26): it is `/model skip` of a spent provider (listModels download, then the loop, then
@@ -65,13 +63,10 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
 
 6. **N1 rest** (H, S) the availability load is cheaper (shared loads, the chain and routing tables once a minute) but still blocks the loop
    0.3 to 1 s; confirm after a restart with `/events lag` that no section is left (`loadAvailability compute`, `JSON.parse`).
-7. **H3 rest** (H, S) the dialog state of `ChatREPL` and the remaining wiring of
-   `repl.js` are only testable inside `main()`: move the pure parts into `lib/` as they are touched; prerequisite for H1, H2, J1.
+7. **H3 rest** (H, S) the dialog keys of `ChatREPL#choose()` are in `lib/tui/choose-dialog.js` (2026-11-26); the rest of the wiring of
+   `repl.js` is only testable inside `main()`: move the pure parts into `lib/` as they are touched; prerequisite for H1, H2, J1.
 ### 3. Small failover and display fixes (each with a test)
 
-12. **D11 rest** (H, S) the local client now reports to the status line (`onMeta`); what is left: the next round still starts on the
-    failed client until its cool-down routes it away (decide whether the switch should stick).
-17. **D9** (H, M) a limit in the middle of a streamed reply: keep what was printed, drop the spent model, continue; design first.
 18. **D14** (H, M) fold the provider fallback and `/handoff-model` into the one next-model order, or document why they stay apart.
 19. **D3** (H, S) a low-rate availability refresh while a request runs or the session is idle; not before N1 rest says what a load costs (a load every
     minute is a 0.3 to 1 s freeze every minute).
@@ -84,7 +79,8 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
     panels, pickers and the chooser filter, `/brief save`, sync frames, the reply colour, the hop line (also settles A5), the long
     reasoning panel, Ctrl-O.
 21. **C1** (H, M) provoke a 429 on a pinned model: Retry-After skips, task-type header, trail soft-skip, `/last` trail, turn repair,
-    routing-health segment, early skip release, hop line, give-up panel after 3 backoffs.
+    routing-health segment, early skip release, hop line, give-up panel after 3 backoffs; also a cut mid-stream (D9: kill the connection
+    during a long reply, the continuation must follow the shown text) and a probe failure with status/code (E7).
 22. **C2** (H, M) startup likely-routes list, `/model health` columns, `/gateway usage` key spread, persisted quota stand-in,
     dashboard success path.
 23. **C3** (H, S) key restriction `/model key:ID,ID`: status mark, `/route` refusal, warning for shared platforms.
@@ -123,7 +119,6 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 40. **E4 rest** (H, S) the address change verdict is measured (`proxy` event, kept in `events.jsonl`); what is left: after a few real address changes, adjust
     `ipLimitedPlatforms`/`clearCooldowns` to the kinds that really lifted.
 44. **E5** (H, M) `/proxy keyless fix` tests a second model of a provider and turns its steps into `proxy` events.
-45. **E7** (H, M) classify transient vs real failures by the gateway's error code and status, not by a regex over the text.
 46. **E3** (H/G, M) a keyless platform without a key row cannot get a proxy: needs the gateway to create the row; until then the pane says so.
 
 ### 8. Exploration and rating

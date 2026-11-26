@@ -181,6 +181,9 @@ shared part to the base. Tests stay flat in `tests/`. Moves are done with
 |---|---|
 | `lib/agent/tool-requests.js` | `TOOLS` (schemas), `executeTool`, `writeCount`, `journalPaths`/`undoJournal`/`resetJournal` (`/undo`), `listFiles`. |
 | `lib/agent/modes.js` | `MODES` (`plan auto manual edits`), `needsApproval`, `toolAllowed`, `nextMode`, `PLAN_NOTE`, `describeWrite`. |
+| `lib/failover/cause-of-status.js` | `causeOfStatus`, `isTransientCause`: what the HTTP status and error code say about a failure. |
+| `lib/failover/continuation.js` | `withContinuation`, `shouldAskAgain`, `isCutConnection`, `CONTINUE_PROMPT`: a reply cut off mid-stream continues. |
+| `lib/tui/choose-dialog.js` | `dialogKey`, `visibleOptions`, `scrollWindow`, `pickAnswer`: the key handling of `ChatREPL#choose()` without the terminal. |
 | `lib/failover/turn-repair.js` | `repairTurn(messages, turnMsg, {sideEffects, reason})`: what to keep of a failed turn. |
 | `lib/failover/handoff.js` | `buildHandoff`, `summarize`, `digest`, `splitTurns`, `clipToolResults`, `buildKnowledge`, `HANDOFF_MODEL`: compacted conversation for a model switch or `/compact`. |
 | `lib/failover/failover.js` | `Failover`, `failoverNote`, `skipNote`: client-side failover for a **pinned chat-bridge site** only. |
@@ -499,6 +502,36 @@ title `every route failed · waiting 30s · retry 1/3`, then one line per route
 (`routeFailure`: provider dim, model by strength colour, the first sentence of the
 error cut at 90 characters, the gateway's "Soonest cooldown reset" as an amber
 `back in ~48s`). The full error stays in verbose mode.
+
+**A switch to another provider or the local model does not stick (decided 2026-11-26, D11).** Each round
+starts on the client the caller holds; step 1 routes it away while its route cools down (30 s to 60 min by the
+kind of failure) and the transcript names the switch once (`providerNoted`). When the cool-down ends the
+primary route is tried again, which is wanted: the local model is a stop-gap, not a new home. A user who wants
+to stay switches the model with `/model`.
+
+**Transient or not (decided 2026-11-26, E7).** `causeOfStatus(status, code)` (`lib/failover/cause-of-status.js`)
+reads the HTTP status and the gateway's `error.code` first (`upstream_error`, `rate_limited`, 429/5xx, 401,
+400/404/413/422 = the request itself is wrong); only a failure without either (a dead connection, a timeout)
+is classified by the regex over its text. `isTransient`, `isTransientProbe` and `diagnose` all go that way;
+probe results carry `status` and `code` for it.
+
+**Mid-stream failure (decided 2026-11-26, D9).** A streamed reply can fail after text was printed: a limit,
+an outage, a connection cut (`dropped after N ms`). Rules:
+
+- What was printed of the *answer* is kept (`e.partial`, set by `chatRoundOnce` from the tokens it wrote);
+  reasoning text is not kept, it is shown but not part of the conversation, and a failure with only reasoning
+  shown simply asks again.
+- The next try, on whichever route the steps above pick (the same one for a cut connection, once; another one
+  for a limit or an outage), is sent the conversation plus the partial text as an assistant message plus one
+  user message, `CONTINUE_PROMPT`; these two messages are for that request only, never stored in the history.
+- The continuation prints without a new reply mark, right after the text already on screen, and the round's
+  result is the partial text followed by the new text, so the history holds one reply.
+- Tool calls are only complete at the end of a stream, so a cut one is never kept: with no answer text shown
+  the round is asked again from the start; with text before it, the continuation repeats the call.
+- Failures keep adding to the partial (a second cut continues after both parts). The retry of a cut
+  connection is made once per round and not past the token budget; a limit or an outage goes through the
+  steps above as before. `repairTurn` is not involved: the turn never failed.
+- A continuation costs the whole prompt again; that is the price of not losing a long reply.
 
 Skipped models live in `skippedModels` (Map, 10 min, `skipModel`, `releaseRecovered`
 ends self-set skips when availability shows recovery) and are saved over `/restart`.

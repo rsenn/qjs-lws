@@ -1,5 +1,30 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/failover/continuation.js, repl.js (chatRound, chatRoundOnce): New.
+	D9: a reply cut off mid-stream (a limit, an outage, a cut connection)
+	keeps the answer text already shown and the next attempt, on whichever
+	route, continues after it (the partial text and CONTINUE_PROMPT are sent
+	for that request only); the round's result is the whole text. The retry
+	of a cut connection moved to shouldAskAgain.
+
+	* lib/failover/cause-of-status.js, lib/failover/standby.js (isTransient,
+	probeModel), lib/gateway/exploration.js (isTransientProbe, worker),
+	lib/agent/diagnose.js (diagnose), repl.js (diagnoseModel): New. E7: the
+	HTTP status and the error code decide whether a failure is transient;
+	the regex over the text is only the fallback. Probe results carry status
+	and code.
+
+	* lib/tui/choose-dialog.js, lib/tui/chat-repl.js (choose, handleKey,
+	#drawDialog): New. H3: the key handling, the filter and the scroll window
+	of the choose() dialog are pure functions with a test.
+
+	* lib/gateway/availability.js (limitedText), lib/gateway/freellm.js
+	(ready models list): the rating is looked up once per model, not twice
+	per comparison.
+
+	* doc/ARCHITECTURE.md (section 10): the decisions of D9, D11 (a switch
+	does not stick beyond the cool-down) and E7.
+
 	* repl.js (chatRound): a reply cut in the middle of the body
 	("dropped after N ms, B bytes received") is asked once more on the same
 	route, the partial reply is discarded; not past the token budget, a

@@ -551,7 +551,8 @@ export class Gateway {
   async modelsText(filter = '', width = 0, ex = null) {
     const all = await this.models(true);
     const f = filter.toLowerCase();
-    const rows = all.filter(m => (m.execution_status ?? 'ready') === 'ready' && (!f || m.id.toLowerCase().includes(f) || (m.name ?? '').toLowerCase().includes(f))).sort((a, b) => (rateOf(b.id) ?? -1) - (rateOf(a.id) ?? -1));
+    const rate = new Map(all.map(m => [m.id, rateOf(m.id) ?? -1])); /* once per model, not twice per comparison */
+    const rows = all.filter(m => (m.execution_status ?? 'ready') === 'ready' && (!f || m.id.toLowerCase().includes(f) || (m.name ?? '').toLowerCase().includes(f))).sort((a, b) => rate.get(b.id) - rate.get(a.id));
 
     return `${paint(rows.length, '#4ade80', true)} of ${all.length} models ready${f ? ` matching "${filter}"` : ''}, best rated first\n\n` + fitTable(width, () => [['id', 'rate', 'ctx', ...(ex?.any ? ['probe'] : []), 'name'], ...rows.map(m => [m.id, ratingCell(rateOf(m.id)), fmtNum(m.context_window ?? m.context_length), ...(ex?.any ? [probeBrief(ex, m.id)] : []), m.name ?? ''])], ex?.any ? 4 : 3);
   }

@@ -127,13 +127,6 @@ Harness side (H) unless marked G.
   request with tools; filter before counting routes.
 - **D8. (G) Invalid upstream key** (4.1): disable or replace the provider key that fails authentication; the gateway
   could disable a key that fails authentication so it stops counting as an attempted route.
-- **D9. Mid-stream limits (M).** A limit in the middle of a streamed reply, after text was printed, is not handled
-  (failover covers `chatRound()` start). Steps: detect an error after first token; keep what was printed as an
-  assistant prefix, drop the spent model, continue with "continue" or re-ask; design first (what the transcript
-  shows, what `repairTurn` keeps).
-- **D11. Local model switch leaves the old route (S).** After a switch to the local model the next round still starts
-  on the failed client (routed by the cool-down) and the status line keeps the old route (the local client has no
-  `onMeta`). Done: the local client has an `onMeta`. Open: should the switch stick for the next round.
 - **D14. One next-model order (M).** The provider fallback and `/handoff-model` are not part of the single order
   (standby, then best rated); fold them in, or document why they stay apart.
 
@@ -147,8 +140,6 @@ Harness side (H) unless marked G.
 - **E5. `/proxy keyless fix` per model (M).** It tests the strongest limited model per provider only and reports a
   provider as working when its other models stay limited. Test a second model of the provider when the first works;
   turn its steps into `proxy` events (they are printed only).
-- **E7. Transient/real split without a regex (M).** `isTransientProbe` and `diagnose` classify by regex over the error
-  text; use the gateway's error code and status where the gateway gives them (`upstream_error`, `rate_limited`).
 
 ## F. Exploration and rating
 

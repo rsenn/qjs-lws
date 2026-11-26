@@ -24,6 +24,7 @@ import { setTimeout, clearTimeout } from 'os';
 import { writeConfigFile } from '../config.js';
 import { cacheDir } from '../session/session-cache.js';
 import { probeModel } from '../failover/standby.js';
+import { causeOfStatus, isTransientCause } from '../failover/cause-of-status.js';
 import { buildProbe, grade, plainQuestion } from './probe-context.js';
 
 export const explorationPath = () => `${cacheDir()}/exploration.json`;
@@ -33,8 +34,14 @@ const FAIL_TTL_MS = 3600e3;
 const BUSY_TTL_MS = 10 * 60e3;
 const TRANSIENT = /rate.?limit|429|upstream|provider-side|5\d\d\b|timeout|timed out|no response|exhaust|cooldown|quota|model_not_found|unavailable|too many|overloaded|connection|ECONN/i;
 
+/* the status and error code of the failure, when it has them: the text is only read when they say nothing */
+const byStatus = e => {
+  const cause = causeOfStatus(e.status, e.code);
+  return cause ? isTransientCause(cause) : undefined;
+};
+
 /** whether a failed probe says nothing about the model: the provider was rate limited, down or timed out */
-export const isTransientProbe = e => !!e && e.ok === false && (e.diagnosis?.transient ?? e.transient ?? TRANSIENT.test(String(e.error ?? '')));
+export const isTransientProbe = e => !!e && e.ok === false && (e.diagnosis?.transient ?? e.transient ?? byStatus(e) ?? TRANSIENT.test(String(e.error ?? '')));
 
 /** one request, aborted after timeoutMs; returns the answer text */
 async function ask(client, messages, timeoutMs = 45000, maxTokens = 96) {
@@ -313,7 +320,7 @@ export class Exploration {
         try {
           result = await probeUsable(c, id, { toolsKnown: tools[id], deep: deep(id), seed, base: force || !this.current(id) ? undefined : this.get(id), onStep: s => onEvent?.(n, id, { type: 'step', ...s }) });
         } catch(e) {
-          result = { ok: false, toolOk: false, ms: 0, error: String(e.message).slice(0, 160) };
+          result = { ok: false, toolOk: false, ms: 0, status: e.status, code: e.code, error: String(e.message).slice(0, 160) };
         } finally {
           c.destroy();
         }

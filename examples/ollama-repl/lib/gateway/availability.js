@@ -660,9 +660,11 @@ function limitedTable(width, rows, av, ex) {
 export const limitedText = (...args) => timed('limitedText', () => limitedTextNow(...args));
 function limitedTextNow(av, filter = '', width = 0, ex = null) {
   const f = filter.toLowerCase();
+  const rates = new Map(); /* rateOf walks the catalog: once per model, not twice per comparison */
+  const rate = id => (rates.has(id) ? rates.get(id) : rates.set(id, rateOf(id) ?? -1).get(id));
   const rows = [...av.byModel]
     .filter(([id, e]) => e.blocked && (!f || id.toLowerCase().includes(f)))
-    .sort((a, b) => (rateOf(b[0]) ?? -1) - (rateOf(a[0]) ?? -1) || (a[1].until ?? Infinity) - (b[1].until ?? Infinity) || a[0].localeCompare(b[0]));
+    .sort((a, b) => rate(b[0]) - rate(a[0]) || (a[1].until ?? Infinity) - (b[1].until ?? Infinity) || a[0].localeCompare(b[0]));
 
   if(!rows.length) return f ? `(no limited model matches "${filter}")` : '(no model is limited right now)';
 

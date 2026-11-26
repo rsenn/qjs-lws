@@ -21,6 +21,7 @@
  */
 
 import { setTimeout, clearTimeout } from 'os';
+import { causeOfStatus, isTransientCause } from './cause-of-status.js';
 
 /** the tool the probe offers */
 const PING = {
@@ -81,7 +82,7 @@ export async function probeModel(client, id, { timeoutMs = 45000 } = {}) {
 
     return { ok: answered, toolOk, ms: Date.now() - t0, servedBy: r.meta?.routedVia, ...(answered ? {} : { error: 'empty answer' }) };
   } catch(e) {
-    return { ok: false, toolOk: false, ms: Date.now() - t0, error: (e.detail ?? e.message ?? String(e)).split('\n')[0].slice(0, 160) };
+    return { ok: false, toolOk: false, ms: Date.now() - t0, status: e.status, code: e.code, error: (e.detail ?? e.message ?? String(e)).split('\n')[0].slice(0, 160) };
   } finally {
     clearTimeout(timer);
   }
@@ -89,7 +90,7 @@ export async function probeModel(client, id, { timeoutMs = 45000 } = {}) {
 
 /** an error another model could make up for: a limit, an outage or a dead connection */
 export function isTransient(e) {
-  const status = e?.status;
-  if(status === 429 || (status >= 500 && status < 600) || status === 408) return true;
+  const cause = causeOfStatus(e?.status, e?.code);
+  if(cause) return isTransientCause(cause);
   return /no response after|stream stalled|connection|timed? ?out|ECONN|EPIPE/i.test(String(e?.message ?? ''));
 }
