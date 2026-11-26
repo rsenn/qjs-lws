@@ -1,5 +1,23 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* tests/unittests/test-ws.js: The close tests reject through the
+	reject function of their promise instead of resolving it with a
+	rejected promise, so client.destroy() firing onClientConnectionError
+	after the promise settled no longer ends qjsm with an unhandled
+	rejection.
+
+	* tests/unittests/test-crypto.js: Import from 'lws.so', not 'lws'.
+
+	* tests/unittests/test-imports.js: Allow the optional dynamic import of
+	'blob' in test-serve-bun-compat.js.
+
+	* tests/unittests/run-all.sh: A suite without a tinytest summary line
+	counts as passed when it exits 0 with some output (test-fetch-reuse.js,
+	test-server-client-disconnect.js).
+
+	* BUGS: crypto-compiled-against-libressl-headers,
+	lwsspa-length-open-slots.
+
 	* tests/unittests/test-socket-dangling-wsi.js: The test server holds the
 	connection open (headers only) so the sockets are still live when read,
 	and each test destroys its contexts in a finally block.

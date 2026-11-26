@@ -113,8 +113,8 @@ await tests({
 
   async 'server (raw): onClosed reports the code/reason the server itself sent (locally-initiated)'() {
     const port = freePort();
-    let resolveClosed;
-    const closed = new Promise(resolve => (resolveClosed = resolve));
+    let resolveClosed, rejectClosed;
+    const closed = new Promise((resolve, reject) => ((resolveClosed = resolve), (rejectClosed = reject)));
 
     const server = echoServer(port, {
       onEstablished(wsi) {
@@ -127,7 +127,7 @@ await tests({
 
     const client = connect(port, {
       onClientConnectionError(wsi, msg) {
-        resolveClosed(Promise.reject(new Error(msg)));
+        rejectClosed(new Error(msg));
       },
     });
 
@@ -141,8 +141,8 @@ await tests({
 
   async 'server (raw): onClosed leaves reason undefined for a code-only close'() {
     const port = freePort();
-    let resolveClosed;
-    const closed = new Promise(resolve => (resolveClosed = resolve));
+    let resolveClosed, rejectClosed;
+    const closed = new Promise((resolve, reject) => ((resolveClosed = resolve), (rejectClosed = reject)));
 
     const server = echoServer(port, {
       onEstablished(wsi) {
@@ -155,7 +155,7 @@ await tests({
 
     const client = connect(port, {
       onClientConnectionError(wsi, msg) {
-        resolveClosed(Promise.reject(new Error(msg)));
+        rejectClosed(new Error(msg));
       },
     });
 
@@ -169,8 +169,8 @@ await tests({
 
   async 'server (raw): onClosed reports no code/reason for a peer-initiated close'() {
     const port = freePort();
-    let resolveClosed;
-    const closed = new Promise(resolve => (resolveClosed = resolve));
+    let resolveClosed, rejectClosed;
+    const closed = new Promise((resolve, reject) => ((resolveClosed = resolve), (rejectClosed = reject)));
 
     const server = echoServer(port, {
       onClosed(wsi, code, reason) {
@@ -183,7 +183,7 @@ await tests({
         Promise.resolve().then(() => wsi.close(4013, 'client-bye'));
       },
       onClientConnectionError(wsi, msg) {
-        resolveClosed(Promise.reject(new Error(msg)));
+        rejectClosed(new Error(msg));
       },
     });
 
@@ -197,8 +197,8 @@ await tests({
 
   async 'server (raw): onWsPeerInitiatedClose reports the code/reason the client sent'() {
     const port = freePort();
-    let resolveClosed;
-    const closed = new Promise(resolve => (resolveClosed = resolve));
+    let resolveClosed, rejectClosed;
+    const closed = new Promise((resolve, reject) => ((resolveClosed = resolve), (rejectClosed = reject)));
 
     const server = echoServer(port, {
       onWsPeerInitiatedClose(wsi, code, reason) {
@@ -212,7 +212,7 @@ await tests({
         Promise.resolve().then(() => wsi.close(4014, 'client-bye'));
       },
       onClientConnectionError(wsi, msg) {
-        resolveClosed(Promise.reject(new Error(msg)));
+        rejectClosed(new Error(msg));
       },
     });
 
@@ -229,8 +229,8 @@ await tests({
 
     const server = echoServer(port);
 
-    let resolveClosed;
-    const closed = new Promise(resolve => (resolveClosed = resolve));
+    let resolveClosed, rejectClosed;
+    const closed = new Promise((resolve, reject) => ((resolveClosed = resolve), (rejectClosed = reject)));
 
     const client = connect(port, {
       onClientEstablished(wsi) {
@@ -240,7 +240,7 @@ await tests({
         resolveClosed({ code, reason: asText(reason) });
       },
       onClientConnectionError(wsi, msg) {
-        resolveClosed(Promise.reject(new Error(msg)));
+        rejectClosed(new Error(msg));
       },
     });
 
@@ -257,8 +257,8 @@ await tests({
 
     const server = echoServer(port);
 
-    let resolveClosed;
-    const closed = new Promise(resolve => (resolveClosed = resolve));
+    let resolveClosed, rejectClosed;
+    const closed = new Promise((resolve, reject) => ((resolveClosed = resolve), (rejectClosed = reject)));
 
     const client = connect(port, {
       onClientEstablished(wsi) {
@@ -268,7 +268,7 @@ await tests({
         resolveClosed({ code, reason });
       },
       onClientConnectionError(wsi, msg) {
-        resolveClosed(Promise.reject(new Error(msg)));
+        rejectClosed(new Error(msg));
       },
     });
 
@@ -289,15 +289,15 @@ await tests({
       },
     });
 
-    let resolveClosed;
-    const closed = new Promise(resolve => (resolveClosed = resolve));
+    let resolveClosed, rejectClosed;
+    const closed = new Promise((resolve, reject) => ((resolveClosed = resolve), (rejectClosed = reject)));
 
     const client = connect(port, {
       onClientClosed(wsi, code, reason) {
         resolveClosed({ code, reason });
       },
       onClientConnectionError(wsi, msg) {
-        resolveClosed(Promise.reject(new Error(msg)));
+        rejectClosed(new Error(msg));
       },
     });
 
@@ -318,8 +318,8 @@ await tests({
       },
     });
 
-    let resolveClosed;
-    const closed = new Promise(resolve => (resolveClosed = resolve));
+    let resolveClosed, rejectClosed;
+    const closed = new Promise((resolve, reject) => ((resolveClosed = resolve), (rejectClosed = reject)));
 
     const client = connect(port, {
       onWsPeerInitiatedClose(wsi, code, reason) {
@@ -327,7 +327,7 @@ await tests({
         return 0;
       },
       onClientConnectionError(wsi, msg) {
-        resolveClosed(Promise.reject(new Error(msg)));
+        rejectClosed(new Error(msg));
       },
     });
 
@@ -343,8 +343,8 @@ await tests({
     const port = freePort();
     const results = {};
     let doneCount = 0;
-    let resolveAll;
-    const all = new Promise(resolve => (resolveAll = resolve));
+    let resolveAll, rejectAll;
+    const all = new Promise((resolve, reject) => ((resolveAll = resolve), (rejectAll = reject)));
 
     // First connection in gets 4030/'bye-a', the second 4031/'bye-b' - a
     // plain closed-over counter, since this protocol has no per-session
@@ -366,7 +366,7 @@ await tests({
     function client() {
       return connect(port, {
         onClientConnectionError(wsi, msg) {
-          resolveAll(Promise.reject(new Error(msg)));
+          rejectAll(new Error(msg)); /* a no-op once all has settled: client.destroy() reports "closed before established" late */
         },
       });
     }

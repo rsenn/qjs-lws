@@ -2,7 +2,7 @@
  * lws.crypto: digest, hmac, ECDSA (P-256/384/521) and KDF primitives.
  */
 import { tests, assert, assertEquals } from './tinytest.js';
-import { crypto } from 'lws';
+import { crypto } from 'lws.so';
 
 const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
 const enc = s => new TextEncoder().encode(s);

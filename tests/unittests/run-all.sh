@@ -1,7 +1,8 @@
 #!/bin/sh
 # Runs every tests/unittests/test-*.js suite with qjsm and reports overall
 # pass/fail by grepping each suite's summary line (tinytest.js also exits 1
-# on a failure, but a suite that crashes before the summary has no line).
+# on a failure, but a suite that crashes before the summary has no line). A script-style
+# suite without tinytest passes with exit status 0 and some output.
 #
 # Usage: tests/unittests/run-all.sh [qjsm-binary]
 
@@ -15,6 +16,7 @@ suites_failed=0
 for f in "$DIR"/test-*.js; do
   name="$(basename "$f")"
   out="$("$QJSM" "$f" 2>&1)"
+  rc=$?
   summary="$(printf '%s\n' "$out" | grep -E 'tests? (succeeded|failed)\.$' | tail -1)"
 
   if printf '%s' "$summary" | grep -q 'failed\.$'; then
@@ -23,6 +25,10 @@ for f in "$DIR"/test-*.js; do
     total_failed=$((total_failed + 1))
   elif [ -n "$summary" ]; then
     echo "OK    $name: $summary"
+  elif [ "$rc" -eq 0 ] && [ -n "$out" ]; then
+    # a script-style suite (plain top-level code, no tinytest): a failed assertion
+    # or a crash ends the process non-zero, so exit 0 and a last line say it passed
+    echo "OK    $name: $(printf '%s\n' "$out" | tail -1)"
   else
     echo "ERROR $name: no summary line found (suite crashed?)"
     printf '%s\n' "$out" | tail -20

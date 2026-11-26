@@ -17,6 +17,7 @@ const OPTIONAL = {
   'lib/cdn-loader.js': ['module'],
   'lib/logger.js': ['console'],
   'tests/test-jsonrpc-ws.js': ['repl'],
+  'tests/unittests/test-serve-bun-compat.js': ['blob'],
 };
 
 /* vendored or browser-side code, not ours to constrain */
