@@ -192,6 +192,50 @@ export function reportPanel(title, text, cols, opts = {}) {
   return panel(title, text, cols, { ...opts, border: error ? ERROR : ACCENT });
 }
 
+/* the phases of the moon for the windows: a minute, an hour, a day */
+const WINDOW_GLYPH = { minute: '◔', hour: '◑', day: '●' };
+
+const grouped = v => String(Math.trunc(+v)).replace(/\B(?=(\d{3})+$)/g, ',');
+
+/**
+ * /quota as a panel: a meter per window and kind (requests, tokens) showing how much is left (full = all of it), the
+ * figures, a `?` where the endpoint reports more than its limit, a moon phase per window. A meter, its figures and the
+ * border are green, amber from 60 % used, red from 85 %. `data` is quotaData(); at most cols - 1 wide.
+ */
+export function quotaPanel(data, cols) {
+  const wide = cols >= 72;
+  const barW = Math.max(8, Math.min(24, cols - (wide ? 62 : 44)));
+  let worst = 0;
+  const lines = [];
+
+  for(const w of data.windows) {
+    for(const kind of ['requests', 'tokens']) {
+      const q = w[kind];
+      const rem = +q.remaining;
+      const lim = +q.limit;
+      if(!Number.isFinite(rem) || !Number.isFinite(lim) || lim <= 0) continue;
+
+      const odd = rem > lim;
+      const used = odd ? 0 : 1 - rem / lim;
+      if(!odd) worst = Math.max(worst, used);
+
+      const tone = odd ? WARN : used >= 0.85 ? ERROR : used >= 0.6 ? WARN : ARROWS;
+      const name = kind === 'requests' ? 'req' : 'tok';
+      const head = `${style(WINDOW_GLYPH[w.window] ?? '○', { fg: ACCENT })} ${style(pad(w.window || 'now', 6), { fg: ACCENT, bold: true })} ${style(name, { dim: true })} `;
+      const figures = `${style(grouped(rem), { fg: tone, bold: true })}${style(` / ${grouped(lim)}`, { dim: true })}`;
+      const left = odd ? style(' ?', { fg: WARN, bold: true }) : wide ? style(` ${Math.round((1 - used) * 100)}% left`, { dim: true }) : '';
+      const reset = q.reset ? style(` ↻ ${q.reset}`, { dim: true }) : '';
+      lines.push(`${head}${widgets.meter(odd ? 1 : rem / lim, barW, { color: tone })} ${figures}${left}${reset}`);
+    }
+  }
+
+  const when = data.at ? new Date(data.at).toISOString().slice(11, 19) : '';
+  const top = `${style('◇', { fg: ACCENT })} ${style(data.route ?? '', { fg: ACCENT })}${when ? style(` · as of ${when}Z`, { dim: true }) : ''}`;
+  const foot = style('x-ratelimit-* · ? = above its limit', { dim: true });
+  const border = worst >= 0.85 ? ERROR : worst >= 0.6 ? WARN : ACCENT;
+  return panel(`◈ quota`, [top, '', ...(lines.length ? lines : [style('(no limits with figures in the headers)', { dim: true })]), '', foot].join('\n'), cols, { border });
+}
+
 const HELP_KEY = 24;
 
 /** one command of /help: the command in a fixed column, its text wrapped beside it, a long command on its own line */

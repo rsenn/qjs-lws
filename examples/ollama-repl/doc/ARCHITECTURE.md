@@ -805,7 +805,7 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
   renamed, so a crash leaves the old file whole. A file that cannot be read is renamed to `session.json.corrupt` (never
   overwritten, a note says so) and the session starts cold; a file without `version` is version 0 (same fields).
 - **`state.json`** is the session's metadata and settings, small, read without opening the conversation:
-  `{ version, updatedAt, name, provider, model, modelPattern, root, startRoot, roots, title, messages, settings, skippedModels }`.
+  `{ version, updatedAt, name, provider, model, modelPattern, root, startRoot, roots, env (names), title, messages, settings, skippedModels }`.
   `title` is the first prompt (60 characters), `messages` the count. `settings` holds `mode`, `stream`, `think`,
   `temperature`, `numCtx`, `maxRounds`, `scan`, `verbose`, `fallbackModel`, `root`; it is written whenever one of them
   changed (after every turn and every command). `allowPaid`, the `--no-*` switches and the cdp endpoint are **not**
@@ -818,6 +818,19 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
   line to `session.log`. A start without `--root` goes on in `root`; when that directory is gone it falls back to the
   newest earlier entry that exists, then `startRoot`, then the current directory, and says so. All paths are absolute and
   real (symlinks resolved). The browser shows `started in` and `moves` when the session has been elsewhere.
+- **Environment (decided 2026-11-26).** A session records the environment variables it uses, values included (API keys
+  are the point: a session can be taken up from a shell that does not export them). Which: the ones the run reads for its
+  provider (`relevantEnv`): `NAME_API_KEY` and `NAME_API_URL` of the provider alias (`OPENAI_*` for plain openai),
+  `GEMINI_API_KEY`, and for freellm `FREELLMAPI_URL`, `FREELLMAPI_KEY`, `FREELLMAPI_DASHBOARD_TOKEN`; nothing else of the
+  environment. Where: `sessions/KEY/env.json` `{ version, updatedAt, vars: { NAME: value } }`, **mode 0600** (written to a
+  0600 temp file and renamed), kept apart from `state.json`; `state.json` and the browser only carry the **names**
+  (`env: [...]`). Values never go into `state.json`, `session.log`, `/export`, the debug logs, a handoff or what is sent
+  to another session; displays mask a secret (a name with KEY, TOKEN, SECRET, PASSWORD or AUTH: the first 4 and last 3
+  characters of a value of 16 or more, else `***`; a URL's `user:password@` part is masked). At start a recorded variable
+  that the provider needs and that is not set in the environment is set from the record, and the note names it (masked);
+  a variable that is set always wins and replaces the record at the next save. `/env` shows the record masked, `/env forget`
+  deletes the file; `/sessions prune` deletes it with the session. A recorded value can be stale: a refused key shows up
+  as the provider's error, and `/env forget` is the way out.
 - **Precedence** at start: command line, then the session's saved `settings`, then `settings.json`, then the built-in
   default. `--resume FILE` (restart) still overrides all of them, as before. The saved `name` is reused unless
   `--name` is given or another live session has it.

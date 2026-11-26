@@ -56,6 +56,10 @@ export const GREEN = '#07923a';
 export const RED = '#f83171';
 export const SKYBLUE = '#a9d8ea';
 
+/** the background of the selected row of a list (bright enough to stand out on a dark terminal) and of a marked one */
+export const SELECT_BG = '#1c7f72';
+export const MARK_BG = '#5f3da8';
+
 /** beach / balearic theme: panel border, header, hints */
 export const BORDER = '#a000ff';
 export const HEADER = '#ffcc00';

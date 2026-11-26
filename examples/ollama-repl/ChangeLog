@@ -1,5 +1,39 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/palette.js (SELECT_BG, MARK_BG), lib/ansi.js (bgSgr),
+	lib/tui/pager.js, lib/tui/chat-repl.js, lib/tui/session-browser.js: the
+	selected row of every list (pager list, choose dialog, session browser)
+	has a brighter background from one place (#1c7f72, marked rows #5f3da8,
+	were #1e403c and #342854); a yellow pointer on the selected row, ◉/○
+	in the pager list instead of [x]/[ ], ◉ here / ● running elsewhere / ○
+	saved and a symbol per label in the session browser.
+
+	* lib/tui/shared-spinner.js (shareSpinner): New. repl.js (startSpinner,
+	plainSpinner): requests that run at the same time share one spinner;
+	every request had its own timer and they took turns writing the one
+	status line (two quips, 26s and 0s alternating: the flicker of
+	harness.mp4). The line is cleared when the last one stops.
+	tests/test-shared-spinner.js, smoke.sh.
+
+	* lib/look.js (quotaPanel), lib/session/usage-stats.js (quotaData,
+	quotaText), repl.js (/quota): /quota is a coloured panel in the TUI: a
+	title and border in the accent colour (amber, red with the worst
+	window), a meter of what is left per window and kind, the figures
+	coloured by how little is left, moon phases per window. quotaText is
+	the plain table for elsewhere. tests/test-quota-panel.js, smoke.sh.
+
+	* lib/session/session-env.js: New. relevantEnv, captureEnv, restoreEnv,
+	readEnvRecord, writeEnvRecord, forgetEnvRecord, maskValue, envText: the
+	variables a run reads for its provider are kept in the session's
+	env.json (0600, written through a 0600 temp file); state.json only has
+	the names.
+
+	* repl.js (main, persistState, /env): a start restores the recorded
+	variables the shell lacks (a set variable wins) and says so, masked;
+	persistState records the ones in use; /env shows the record masked,
+	/env forget deletes it. lib/tui/session-browser.js shows the names.
+	tests/test-session-env.js, run by smoke.sh. README.md, doc/ARCHITECTURE.md.
+
 	* lib/session/usage-stats.js (emptyReplyNote), repl.js (chatRound): New.
 	A reply with no text and no tool call prints a note with the finish
 	reason, the tokens and where the answer may be (the reasoning, or the

@@ -26,7 +26,8 @@ import { gradient } from 'terminal/style';
 import { Pager } from './pager.js';
 import { SessionBrowser } from './session-browser.js';
 import { STOPS, remoteMark, remoteText, note } from '../look.js';
-import { red, yellow } from '../ansi.js';
+import { red, yellow, bgSgr } from '../ansi.js';
+import { SELECT_BG } from '../palette.js';
 
 export const PrintError = e => console.log(red(`error: ${e.detail ?? e.message}${e.stack && e.message != 'interrupted' ? '\nstack: ' + e.stack : ''}`));
 
@@ -798,8 +799,8 @@ export class ChatREPL extends REPL {
         const text = d.cells?.[k] ? columns(d.cells, k, d.layout) : o;
         if(at !== d.sel) return `  \x1b[2m○\x1b[0m ${text}`;
         /* the selected row: a background across the width, kept through the resets inside the cells */
-        const bg = '\x1b[48;2;30;64;60m';
-        const row = `  \x1b[1;32m●\x1b[0m${bg} ${text}`.replace(/\x1b\[0m/g, `\x1b[0m${bg}`);
+        const bg = bgSgr(SELECT_BG);
+        const row = `  \x1b[1;93m▶\x1b[0m${bg} ${text}`.replace(/\x1b\[0m/g, `\x1b[0m${bg}`);
         return `${row}${' '.repeat(Math.max(0, (this.tui.cols ?? 80) - stringWidth(row) - 1))}\x1b[0m`;
       }),
       ...(d.top + rows < n ? [`\x1b[2m  ↓ ${n - d.top - rows} more below · PgDn End\x1b[0m`] : []),

@@ -13,6 +13,9 @@ export const red = sgr('31');
 export const green = sgr('32');
 export const yellow = sgr('33');
 
+/** the escape that sets a background from '#rrggbb' */
+export const bgSgr = hex => `\x1b[48;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
+
 /** terminal width in columns, or 0 when stdout is not a tty (no wrapping) */
 export function termWidth() {
   if(piped) return 0;

@@ -74,7 +74,9 @@ import { extractTextToolCalls } from './lib/clients/text-tool-calls.js';
 import { formatUsage } from './lib/session/usage.js';
 import { estimateCost } from './lib/clients/pricing.js';
 import { ageText } from './lib/tui/session-browser.js';
-import { UsageStats, emptyReplyNote, routeLine, routeName, formatMeta, quotaText, formatTable, fitTable, fmtNum, fmtMs } from './lib/session/usage-stats.js';
+import { shareSpinner } from './lib/tui/shared-spinner.js';
+import { relevantEnv, captureEnv, restoreEnv, readEnvRecord, writeEnvRecord, forgetEnvRecord, envText, maskValue } from './lib/session/session-env.js';
+import { UsageStats, emptyReplyNote, quotaData, routeLine, routeName, formatMeta, quotaText, formatTable, fitTable, fmtNum, fmtMs } from './lib/session/usage-stats.js';
 import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAllowed, needsApproval, describeWrite, WRITE_TOOLS } from './lib/agent/modes.js';
 import { expandHome, toRelativePath, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/gateway/freellm.js';
@@ -119,7 +121,7 @@ import { MarkdownStream } from './lib/tui/markdown.js';
 import { isHarnessError } from './lib/agent/harness-error.js';
 import { done as doneQuip, quip } from './lib/tui/quips.js';
 import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning, lastLines, fg, HEADER, BORDER, HINT, THEME } from './lib/tui/rawcolor.js';
-import { file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
+import { quotaPanel, file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { stripAnsi } from 'terminal';
 import { enableCapabilities, queryCapabilities } from 'terminal/capabilities';
 import { keyValue, statusBar } from 'terminal/widgets';
@@ -576,9 +578,7 @@ const QUIP_MS = 4000;
 /** Starts an animated "<glyph> Thinking...(1m 5s)" line - the elapsed-time
     suffix only appears past SPINNER_ELAPSED_THRESHOLD_MS - and returns a
     function that stops it and clears the line. */
-function startSpinner(label) {
-  if(tui?.active) return tuiSpinner(label);
-
+function plainSpinner(label) {
   const t0 = Date.now();
   const seed = Math.floor(Math.random() * 1e6);
   let i = 0;
@@ -615,6 +615,13 @@ function startSpinner(label) {
     stdout.puts(`\r${' '.repeat(lastLen)}\r`);
     stdout.flush();
   };
+}
+
+/* requests that run at the same time (sub-agents, /each) share one spinner: their own timers took turns writing the one
+   status line and flickered (lib/tui/shared-spinner.js) */
+const spinners = shareSpinner(label => (tui?.active ? tuiSpinner(label) : plainSpinner(label)));
+function startSpinner(label) {
+  return spinners(label);
 }
 
 /* the TUI shows the spinner in the rule above the input, elapsed time always */
@@ -2194,6 +2201,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /verbose [on|off] - show full tool results, every request and response with all gateway headers (Ctrl-O toggles)
 /remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it. /listen is the same command
 /queue [list|clear|drop N] - the prompts waiting behind the running request (Enter queues one while the model works, Ctrl-X Ctrl-S sends the typed one now and cancels the running request); the queue is saved with the session and runs again after a restart
+/env [forget]    - the environment variables this session records (API keys, masked); forget deletes the record
 /sessions [list|prune [DAYS]] - browse the saved sessions (Enter loads one, i inspects it); list prints them, prune deletes the ones unused for DAYS (30)
 /rename [NAME]  - rename the session (ollama-repl-ctl -s NAME picks it); without NAME a funny one is made up
 /model [NAME|next|key:ID[,key:ID..]|key:off|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip; key:ID,key:ID lists the models reachable through those gateway keys (/gateway keys shows the ids) and restricts the model selection to them (list, /model NAME and patterns, skip, standby, takeover, exploration; the model in use moves to the strongest usable one of them), key:off lifts it - the gateway still picks the key of a request itself; next lists the models most likely to work now (the warm standby, then the best rated ones verified lately) and switches to the one you choose; skip (typed by you) asks the same way after skipping, a round that skips by itself takes the warm standby, else the best rated
@@ -2236,11 +2244,11 @@ const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
   ['model and gateway', ['/model', '/events', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/quota', '/last', '/requests', '/gateway', '/proxy', '/status', '/model health']],
-  ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/sessions', '/about', '/js', '/help', '/exit', '/export']],
+  ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/sessions', '/env', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each talks to the model) */
-const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/listen', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/sessions', '/usage', '/quota', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run', '/model health']);
+const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/listen', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/sessions', '/env', '/usage', '/quota', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run', '/model health']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -2810,6 +2818,8 @@ function completeArgs(cmd, args, word) {
     case '/requests':
     case '/sessions':
       return n === 0 ? ['list', 'prune'] : [];
+    case '/env':
+      return n === 0 ? ['forget'] : [];
     case '/rename':
     case '/restart':
     case '/undo':
@@ -3026,6 +3036,14 @@ async function main() {
   const cacheKey = sessionKey({ ...opts, name: givenName });
   const savedState = loadSessionState(cacheKey);
   const restored = applySettings(opts, savedState.settings, opts.given).filter(k => k !== 'verbose'); /* verbose is the UI's: below */
+
+  /* the environment the provider needs: what the shell lacks comes from the session's record (a set variable wins) */
+  const envNames = relevantEnv(opts);
+  const envRestored = restoreEnv(readEnvRecord(cacheKey), envNames);
+  if(opts.label === 'freellm' && envRestored.length) {
+    if(getenv('FREELLMAPI_URL')) opts.baseUrl = getenv('FREELLMAPI_URL');
+    if(getenv('FREELLMAPI_KEY')) opts.apiKeyEnv = 'FREELLMAPI_KEY';
+  }
 
   /* the working directory: the session goes on where it was (--root wins), and its chain of directories is kept */
   const realRoot = d => realpath(d)[0] ?? d;
@@ -4139,6 +4157,7 @@ async function main() {
 
   /* the session's metadata and settings (state.json): written whenever one of them changed, after every turn and every command */
   let stateSig = '';
+  let envSig = '';
   const persistState = () => {
     const now = Date.now();
     const skipped = [];
@@ -4147,6 +4166,15 @@ async function main() {
     const first = messages.find(m => m.role === 'user' && typeof m.content === 'string' && !m.content.startsWith('(automatic project scan'));
     const patch = { name: opts.name, provider: opts.label ?? opts.provider, model: opts.model, root: realRoot(opts.root), startRoot, roots: rootsList, messages: messages.length, settings: pickSettings(opts, { verbose: ui.verbose }), skippedModels: skipped };
     if(first) patch.title = first.content.replace(/\s+/g, ' ').trim().slice(0, 60);
+
+    /* the environment the run uses: the values go to env.json (0600), state.json only has the names */
+    const vars = captureEnv(envNames);
+    patch.env = Object.keys(vars);
+    const envNow = JSON.stringify(vars);
+    if(envNow !== envSig) {
+      envSig = envNow;
+      if(patch.env.length) writeEnvRecord(cacheKey, vars);
+    }
 
     const sig = JSON.stringify(patch);
     if(sig === stateSig) return;
@@ -4714,6 +4742,12 @@ async function main() {
       return void console.log(sessionsCommand(args[0] === 'list' ? [] : args, cacheKey));
     }
 
+    if(prompt === '/env' || prompt === '/env forget') {
+      if(prompt === '/env forget') return void console.log(note(forgetEnvRecord(cacheKey) ? 'environment record deleted (this process keeps its variables; a start that has them set records them again)' : 'nothing recorded'));
+      const inEnv = envNames.filter(n => getenv(n));
+      return void console.log(`used by ${opts.label ?? opts.provider}: ${envNames.join(', ') || '(none)'}\nset now: ${inEnv.join(', ') || '(none)'}\nrecorded for this session (${cacheKey}, values masked):\n${envText(readEnvRecord(cacheKey))}`);
+    }
+
     if(prompt === '/rename' || prompt.startsWith('/rename ')) {
       /* no argument: a new funny name */
       const name = prompt.slice('/rename'.length).trim() || funnyName(listSessions().map(s => s.name));
@@ -4743,7 +4777,10 @@ async function main() {
       return void console.log(past.summary(`last ${days} day${days > 1 ? 's' : ''}`));
     }
 
-    if(prompt === '/quota') return void console.log(quotaText(stats.records));
+    if(prompt === '/quota') {
+      const data = quotaData(stats.records);
+      return void console.log(data && tui?.active && !piped ? quotaPanel(data, tui.width) : quotaText(stats.records));
+    }
 
     if(prompt === '/last' || prompt.startsWith('/last ')) {
       const n = +prompt.slice(5).trim() || 0;
@@ -5742,6 +5779,7 @@ async function main() {
   /* the /model pattern of the last run of this session */
   const lastPattern = loadSessionState(cacheKey).modelPattern;
   if(rootNote) console.log(note(rootNote, 'warn'));
+  if(envRestored.length) console.log(note(`environment from the session (not set in this shell): ${envRestored.map(n => `${n}=${maskValue(n, getenv(n))}`).join(', ')}`, 'resume'));
   if(restored.length) console.log(note(`settings of the last run of this session: ${restored.map(k => `${k}=${k === 'verbose' ? ui.verbose : opts[k]}`).join(', ')} (the command line wins; /sessions lists the saved ones)`, 'resume'));
   if(lastPattern) console.log(dim(`last /model pattern of this session: ${lastPattern} (/model ${lastPattern} cycles it)`));
 

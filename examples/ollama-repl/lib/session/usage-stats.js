@@ -130,22 +130,46 @@ export function quotaWindows(headers = {}) {
 }
 
 /**
- * the /quota text: the limits the endpoint reported with the newest answer
- * that carried any. A remaining above its limit is shown with a "?": some
- * endpoints (Cerebras, hourly tokens) report such figures.
+ * what /quota shows: { route, at, windows } of the newest answer that carried rate-limit headers (see quotaWindows),
+ * or null when none did
+ */
+export function quotaData(records) {
+  for(let i = records.length - 1; i >= 0; i--) {
+    const windows = quotaWindows(records[i].headers);
+    if(windows.length) return { route: routeName(records[i]), at: records[i].at, windows };
+  }
+  return null;
+}
+
+/**
+ * the /quota text: the limits the endpoint reported with the newest answer that carried any. A remaining above its
+ * limit is shown with a "?": some endpoints (Cerebras, hourly tokens) report such figures.
  */
 export function quotaText(records) {
-  for(let i = records.length - 1; i >= 0; i--) {
-    const wins = quotaWindows(records[i].headers);
-    if(!wins.length) continue;
+  const data = quotaData(records);
+  if(!data) return '(no x-ratelimit-* headers seen yet in this session: send a request first)';
 
-    const exact = v => (Number.isFinite(+v) ? String(Math.trunc(+v)).replace(/\B(?=(\d{3})+$)/g, ',') : String(v ?? '-'));
-    const cell = q => (q.remaining === undefined && q.limit === undefined ? '-' : `${exact(q.remaining)} / ${exact(q.limit)}${+q.remaining > +q.limit ? ' ?' : ''}${q.reset ? ` (resets in ${q.reset})` : ''}`);
-    const rows = [['window', 'requests left / limit', 'tokens left / limit'], ...wins.map(w => [w.window || '-', cell(w.requests), cell(w.tokens)])];
-    return `${routeName(records[i])}, as of ${new Date(records[i].at).toISOString()}\n${formatTable(rows)}`;
-  }
+  const exact = v => (Number.isFinite(+v) ? String(Math.trunc(+v)).replace(/\B(?=(\d{3})+$)/g, ',') : String(v ?? '-'));
+  const cell = q => (q.remaining === undefined && q.limit === undefined ? '-' : `${exact(q.remaining)} / ${exact(q.limit)}${+q.remaining > +q.limit ? ' ?' : ''}${q.reset ? ` (resets in ${q.reset})` : ''}`);
+  const rows = [['window', 'requests left / limit', 'tokens left / limit'], ...data.windows.map(w => [w.window || '-', cell(w.requests), cell(w.tokens)])];
+  return `${data.route}, as of ${new Date(data.at).toISOString()}\n${formatTable(rows)}`;
+}
 
-  return '(no x-ratelimit-* headers seen yet in this session: send a request first)';
+/**
+ * the note for a reply that has no text and no tool call, else null: the finish reason, the tokens, and where the
+ * answer may be (a reasoning model can spend its whole budget thinking, or put the answer into the reasoning)
+ */
+export function emptyReplyNote(result) {
+  if(!result || result.content?.trim() || result.toolCalls?.length || result.meta?.error) return null;
+
+  const m = result.meta ?? {};
+  const u = m.usage ?? {};
+  const parts = [`finish=${m.finish ?? '?'}`];
+  if(u.completion != null) parts.push(`${fmtNum(u.completion)} completion tokens`);
+  if(u.reasoning) parts.push(`${fmtNum(u.reasoning)} reasoning`);
+
+  const why = m.finish === 'length' ? ': it ran into the token limit while thinking' : result.reasoning || u.reasoning ? ': the answer may be in its reasoning (Ctrl-O)' : '';
+  return `the model returned no text (${parts.join(', ')})${why}`;
 }
 
 /** fixed-width table: rows of cells, first row is the header, numbers right-aligned */
@@ -322,21 +346,4 @@ export class UsageStats {
   get(n) {
     return n ? (this.records[n - 1] ?? null) : this.last();
   }
-}
-
-/**
- * the note for a reply that has no text and no tool call, else null: the finish reason, the tokens, and where the
- * answer may be (a reasoning model can spend its whole budget thinking, or put the answer into the reasoning)
- */
-export function emptyReplyNote(result) {
-  if(!result || result.content?.trim() || result.toolCalls?.length || result.meta?.error) return null;
-
-  const m = result.meta ?? {};
-  const u = m.usage ?? {};
-  const parts = [`finish=${m.finish ?? '?'}`];
-  if(u.completion != null) parts.push(`${fmtNum(u.completion)} completion tokens`);
-  if(u.reasoning) parts.push(`${fmtNum(u.reasoning)} reasoning`);
-
-  const why = m.finish === 'length' ? ': it ran into the token limit while thinking' : result.reasoning || u.reasoning ? ': the answer may be in its reasoning (Ctrl-O)' : '';
-  return `the model returned no text (${parts.join(', ')})${why}`;
 }

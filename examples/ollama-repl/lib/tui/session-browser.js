@@ -15,11 +15,16 @@
 import { pad, stringWidth, truncate, ttyWrite, windowSize } from 'terminal';
 import * as terminal from 'terminal';
 import { Pager } from './pager.js';
+import { bgSgr } from '../ansi.js';
+import { SELECT_BG } from '../palette.js';
 
 const syncWrite = terminal.syncOutput ?? ttyWrite;
 const CSI = '\x1b[';
 const goto = row => `${CSI}${row};1H`;
-const CUR = `${CSI}48;2;30;64;60m`;
+const CUR = bgSgr(SELECT_BG);
+
+/* a symbol per detail label (single-width glyphs: the terminal and we agree on the cells they take) */
+export const LABEL_GLYPH = { session: '◈', project: '⌂', started: '⚑', moves: '↝', model: '◇', messages: '✉', updated: '◷', settings: '≡', env: '⚿', title: '❝', history: '…', 'last you': '❯', 'last model': '≋' };
 
 /** "5s", "3m", "2h", "12d" */
 export const ageText = ms => (ms < 90e3 ? `${Math.round(ms / 1e3)}s` : ms < 90 * 60e3 ? `${Math.round(ms / 60e3)}m` : ms < 36 * 3600e3 ? `${Math.round(ms / 3600e3)}h` : `${Math.round(ms / 86400e3)}d`);
@@ -46,7 +51,7 @@ export function scrollOffset(cursor, offset, height, n) {
 /** column widths for `cols` terminal columns: the project and the model go first when the title would get too little */
 export function columnWidths(cols, sessions) {
   const w = { key: Math.min(26, Math.max(4, ...sessions.map(s => s.key.length + 0))), age: 4, msgs: 5, model: 22, project: 30 };
-  const fixed = () => 2 + w.key + 1 + w.age + 1 + w.msgs + 1 + (w.model ? w.model + 1 : 0) + (w.project ? w.project + 1 : 0);
+  const fixed = () => 3 + w.key + 1 + w.age + 1 + w.msgs + 1 + (w.model ? w.model + 1 : 0) + (w.project ? w.project + 1 : 0);
   if(cols - fixed() < 14) w.project = 0;
   if(cols - fixed() < 14) w.model = 0;
   if(cols - fixed() < 8) w.key = Math.max(8, w.key - (8 - (cols - fixed())));
@@ -60,12 +65,12 @@ const cut = (s, n) => (n <= 0 ? '' : pad(truncate(plain(s), n), n));
  * the plain text of a list row: marker, key, age, messages, model, project, title
  * @param {object} s     a listSavedSessions() entry
  * @param {{key:number,age:number,msgs:number,model:number,project:number,title:number}} w
- * @param {{marker?: string, now?: number, home?: string}} [o]
+ * @param {{pointer?: string, marker?: string, now?: number, home?: string}} [o]  pointer: the cursor's arrow, marker: the state
  */
-export function rowText(s, w, { marker = ' ', now = Date.now(), home = '' } = {}) {
+export function rowText(s, w, { pointer = ' ', marker = '○', now = Date.now(), home = '' } = {}) {
   const project = (s.root ?? '').replace(home && s.root?.startsWith(home) ? home : '\0', '~');
   return [
-    marker,
+    `${pointer}${marker}`,
     cut(s.key, w.key),
     cut(ageText(now - s.at), w.age),
     cut(s.messages ?? '-', w.msgs),
@@ -117,6 +122,7 @@ export function detailLines(s, info, { ownKey, live, now = Date.now(), home = ''
     row('messages', `${st.messages ?? s.messages ?? '-'}${size ? `  (session.json ${size}${info.big ? ', too big to read here' : ''})` : ''}`),
     row('updated', `${new Date(when).toISOString().replace('T', ' ').slice(0, 16)}  (${ageText(now - when)} ago)`),
     row('settings', settings.join('  ')),
+    row('env', (st.env ?? []).join(' ')),
     row('title', oneLine(st.title ?? s.title)),
   ];
   if(msgs && !msgs.length) lines.push(row('history', '(empty conversation)'));
@@ -225,10 +231,13 @@ export class SessionBrowser {
 
       if(s) {
         const live = this.live(s.key);
-        const marker = s.key === this.ownKey ? '*' : live ? '●' : ' ';
-        const text = rowText(s, w, { marker, now, home: this.home });
-        const colored = marker === '*' ? `${CSI}1;32m${text[0]}${CSI}0m${text.slice(1)}` : marker === '●' ? `${CSI}33m${text[0]}${CSI}0m${text.slice(1)}` : text;
-        line = i === this.cursor ? `${CUR}${colored.replace(/\x1b\[0m/g, `${CSI}0m${CUR}`)}${' '.repeat(Math.max(0, this.cols - 1 - stringWidth(text)))}${CSI}0m` : colored;
+        const here = i === this.cursor;
+        const marker = s.key === this.ownKey ? '◉' : live ? '●' : '○';
+        const text = rowText(s, w, { pointer: here ? '▶' : ' ', marker, now, home: this.home });
+        const pointer = here ? `${CSI}1;93m▶${CSI}0m` : ' ';
+        const dot = marker === '◉' ? `${CSI}1;92m◉${CSI}0m` : marker === '●' ? `${CSI}1;93m●${CSI}0m` : `${CSI}2m○${CSI}0m`;
+        const colored = `${pointer}${dot}${text.slice(2)}`;
+        line = here ? `${CUR}${colored.replace(/\x1b\[0m/g, `${CSI}0m${CUR}`)}${' '.repeat(Math.max(0, this.cols - 1 - stringWidth(text)))}${CSI}0m` : colored;
       }
 
       out += `${goto(2 + k)}${CSI}2K${line}`;
@@ -241,11 +250,13 @@ export class SessionBrowser {
 
     for(let k = 0; k < detail; k++) {
       const l = lines[k];
-      const shown = l === undefined ? '' : `${CSI}2m${l.slice(0, 10)}${CSI}0m${l.slice(10)}`;
+      const label = l === undefined ? '' : l.slice(0, 10).trim();
+      const glyph = LABEL_GLYPH[label] ? `${CSI}36m${LABEL_GLYPH[label]}${CSI}0m` : ' ';
+      const shown = l === undefined ? '' : `${glyph} ${CSI}2m${l.slice(0, 10)}${CSI}0m${l.slice(10)}`;
       out += `${goto(3 + list + k)}${CSI}2K ${truncate(shown, this.cols - 2)}`;
     }
 
-    const keys = this.note ? `${CSI}33m${this.note}${CSI}0m` : `${CSI}2m ↑↓ PgUp PgDn Home End · Enter/l load · i inspect · q back${CSI}0m`;
+    const keys = this.note ? `${CSI}33m${this.note}${CSI}0m` : `${CSI}2m ↑↓ PgUp PgDn Home End · ⏎ load · i inspect · q back  ${CSI}0m${CSI}1;92m◉${CSI}0m${CSI}2m here ${CSI}0m${CSI}1;93m●${CSI}0m${CSI}2m running elsewhere ○ saved${CSI}0m`;
     out += `${goto(this.rows)}${CSI}2K${truncate(keys, this.cols)}`;
     (this.sync ? syncWrite : ttyWrite)(this.#out, out);
   }

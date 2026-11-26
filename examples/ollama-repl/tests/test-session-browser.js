@@ -28,13 +28,13 @@ const sessions = [
 ];
 for(const cols of [60, 80, 120, 200]) {
   const w = columnWidths(cols, sessions);
-  const t = rowText(sessions[0], w, { marker: '*', home: '/home/u' });
+  const t = rowText(sessions[0], w, { pointer: '▶', marker: '◉', home: '/home/u' });
   check(`row fits ${cols}`, t.length <= cols - 1);
   check(`row has the key ${cols}`, t.includes('ollama-repl-1k3f9a'.slice(0, w.key)));
 }
 check('wide shows the project', rowText(sessions[0], columnWidths(200, sessions), { home: '/home/u' }).includes('~/Sources/p'));
 check('narrow drops the project', columnWidths(60, sessions).project === 0);
-check('marker first', rowText(sessions[1], columnWidths(80, sessions), { marker: '●' }).startsWith('● x'));
+check('pointer and marker first', rowText(sessions[1], columnWidths(80, sessions), { pointer: '▶', marker: '●' }).startsWith('▶● x') && rowText(sessions[1], columnWidths(80, sessions)).startsWith(' ○ x'));
 check('missing fields', rowText(sessions[1], columnWidths(80, sessions)).includes('-'));
 
 /* details */

@@ -5,7 +5,7 @@
 # variable, since those only fail when a command runs. This script
 #
 #   1. imports every file under lib/ on its own (truncated file, missing export),
-#      and runs tests/test-rawcolor.js, test-availability.js, test-delegates.js, test-skills.js, test-provider-alias.js, test-quota.js, test-pricing.js, test-own-sockets.js, test-session-store.js, test-session-cache.js and test-session-browser.js
+#      and runs tests/test-rawcolor.js, test-availability.js, test-delegates.js, test-skills.js, test-provider-alias.js, test-quota.js, test-pricing.js, test-own-sockets.js, test-session-store.js, test-session-cache.js, test-session-browser.js, test-empty-reply.js and test-session-env.js
 #   2. starts the REPL in a pty in an empty directory, sends a fixed set of
 #      commands and fails on any error, exception or unhandled rejection
 #
@@ -49,7 +49,7 @@ OUT=$(cd "$DIR" && timeout 30 qjsm tests/test-pricing.js 2>&1) || { echo "FAIL p
 OUT=$(cd "$DIR" && timeout 30 qjsm tests/test-own-sockets.js 2>&1) || { echo "FAIL own-sockets: $OUT"; FAILED=1; }
 
 # 1g. the session files: atomic session.json, keys, saved settings, listing and pruning
-for T in session-store session-cache session-browser empty-reply; do
+for T in session-store session-cache session-browser empty-reply session-env quota-panel shared-spinner; do
   OUT=$(cd "$DIR" && timeout 30 qjsm tests/test-$T.js 2>&1) || { echo "FAIL $T: $OUT"; FAILED=1; }
 done
 

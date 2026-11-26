@@ -27,6 +27,8 @@
 import { pad, stringWidth, truncate, ttyWrite, windowSize, wrap } from 'terminal';
 import { ScrollView } from 'terminal/scrollview';
 import * as terminal from 'terminal';
+import { bgSgr } from '../ansi.js';
+import { SELECT_BG, MARK_BG } from '../palette.js';
 
 /* a frame in synchronized output (mode 2026) where the terminal has it */
 const syncWrite = terminal.syncOutput ?? ttyWrite;
@@ -150,12 +152,12 @@ export class Pager {
     const k = i - head;
     if(k < 0 || k >= this.visible.length) return `     ${l}`;
 
-    const CUR = `${CSI}48;2;30;64;60m`;
-    const MARK = `${CSI}48;2;52;40;84m`;
+    const CUR = bgSgr(SELECT_BG);
+    const MARK = bgSgr(MARK_BG);
     const here = k === this.cursor;
     const on = this.marked.has(this.visible[k]);
     const bg = here ? CUR : on ? MARK : '';
-    const line = truncate(`${here ? `${CSI}1;32m▶${CSI}0m` : ' '}${on ? `${CSI}1;35m[x]${CSI}0m` : `${CSI}2m[ ]${CSI}0m`} ${l}`, this.cols - 1);
+    const line = truncate(`${here ? `${CSI}1;93m▶${CSI}0m` : ' '} ${on ? `${CSI}1;95m◉${CSI}0m` : `${CSI}2m○${CSI}0m`}  ${l}`, this.cols - 1);
     if(!bg) return line;
     return `${bg}${line.replace(/\x1b\[0m/g, `${CSI}0m${bg}`)}${' '.repeat(Math.max(0, this.cols - 1 - stringWidth(line)))}${CSI}0m`;
   }

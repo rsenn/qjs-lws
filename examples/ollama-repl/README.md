@@ -96,6 +96,13 @@ driven in your own browser (`--provider bridge`).
   `CD: OLD -> NEW` line in `session.log`, and the browser shows `started in` and `moves`. `allowPaid` and the `--no-*`
   switches are never saved. `session.json` is written whole or not at
   all; an unreadable one is kept as `session.json.corrupt`.
+- **Environment of a session.** The variables a run reads for its provider (`CEREBRAS_API_KEY` and `CEREBRAS_API_URL`
+  for `--provider cerebras`, `OPENAI_*`, `GEMINI_API_KEY`, the `FREELLMAPI_*` ones) are recorded with the session, **values
+  included**, in `env.json` of the session's cache directory, readable by you only (mode 0600). Nothing else carries
+  them: `state.json` and the browser only have the names, and `session.log`, `/export` and the debug logs never get a
+  value. A start from a shell that lacks one of them takes it from the record (the start note names it, masked: a
+  variable that is set always wins). `/env` shows the record masked, `/env forget` deletes it. Keep in mind that the
+  cache directory then holds your keys in plain text.
 - **`/sessions` (session browser), `--sessions`.** In the TUI `/sessions` opens a full-screen browser: the saved
   sessions as a list that scrolls (the highlighted row has a background; `*` is this session, `●` one that runs in
   another process), and below it the details of the highlighted one (project, model, messages, size, last update,
@@ -303,7 +310,7 @@ Engaged at warp 9 in 3.2s - auto:fast -> kilo/nvidia/nemotron-3.5-lightning:free
 
 | Command | Shows |
 |---|---|
-| `/quota` | The rate limits the endpoint reported with its newest answer (`x-ratelimit-*` headers): requests and tokens left against the limit, per window (minute, hour, day for Cerebras). Nothing is shown before the first answer. |
+| `/quota` | The rate limits the endpoint reported with its newest answer (`x-ratelimit-*` headers). In the TUI a coloured panel: per window (`◔` minute, `◑` hour, `●` day) and kind a meter of what is left, green, amber from 60 % used, red from 85 % (the border follows the worst), with the figures; a `?` marks a figure above its limit. Elsewhere a table. Nothing is shown before the first answer. |
 | `/last [N]` | Everything about the last request, or request #N of `/requests`: requested model, served model, routed platform/model (`X-Routed-Via`), upstream provider, request id (`X-Request-ID` = `execution_id`), HTTP status, finish reason, prompt/completion/reasoning/cached tokens, cost, time to headers / first token / end, failed hops before it (`X-Fallback-Attempts`, `-Trail`, `-Detail`), compression, cache, rate limit left |
 | `/requests [N]` | The last N (10) requests of the session, one line each |
 | `/usage` | Session totals, then a table per routed model and per platform |
