@@ -1,5 +1,12 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/probe-context.js (needlesFor, buildProbe), lib/exploration.js
+	(probeUsable, run), repl.js (exploreOrder): the tier 1 probe takes a seed
+	and varies its three facts per run, against prompt caching.
+
+	* lib/exploration.js (Exploration#current, fresh, run): a passed entry
+	of the old three-prompt code (no v 3) is asked once more from scratch.
+
 	* TODO.md (A3): lists the files to delete as they are now (strace.log*,
 	perf.data).
 

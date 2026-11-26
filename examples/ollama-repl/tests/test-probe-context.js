@@ -1,5 +1,5 @@
 /* test-probe-context.js: the synthetic compacted context of the deep probe */
-import { buildProbe, grade, deepBudget, plainQuestion, NEEDLES } from '../lib/probe-context.js';
+import { buildProbe, grade, deepBudget, plainQuestion, needlesFor, NEEDLES } from '../lib/probe-context.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-probe-context: ${what}`);
@@ -26,4 +26,14 @@ check('grade: tool call with all facts', grade({ toolCalls: [{ name: 'report_fin
 check('grade: arguments as a JSON string', grade({ toolCalls: [{ name: 'report_findings', arguments: JSON.stringify(NEEDLES) }] }).recall === 3);
 check('grade: wrong values count', grade({ toolCalls: [{ name: 'report_findings', args: { codename: 'HERON-417', port: 80, owner: 'x' } }] }).recall === 1);
 check('grade: text answer', grade({ content: 'heron-417, port 8472, Ingrid Halvorsen' }).recall === 3 && !grade({ content: 'x' }).toolCall);
+/* a seed gives other facts, the same each time; grade takes the needles of the probe */
+{
+  const a = needlesFor(1), b = needlesFor(2);
+  check('no seed: the fixed needles', needlesFor() === NEEDLES);
+  check('a seed changes the facts', a.codename !== NEEDLES.codename && a.codename !== b.codename && a.port !== b.port);
+  check('same seed, same facts', JSON.stringify(needlesFor(1)) === JSON.stringify(a));
+  const p1 = buildProbe(8000, 1);
+  check('the probe holds the seeded facts', JSON.stringify(p1.messages).includes(a.codename) && !JSON.stringify(p1.messages).includes(NEEDLES.codename) && p1.needles.codename === a.codename);
+  check('grade with those needles', grade({ content: `${a.codename} ${a.port} ${a.owner}` }, p1.needles).recall === 3 && grade({ content: `${NEEDLES.codename}` }, p1.needles).recall === 0);
+}
 console.log('test-probe-context: ok');

@@ -119,8 +119,6 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 ### 8. Exploration and rating
 
 47. **F2** (H, S) show the quota cost of exploration (probes and tokens today); options for tier 0 only and the concurrency of `/model explore`.
-48. **F7** (H, S) vary the needles per probe when a suspicious pass rate shows (prompt caching).
-49. **F5** (H, S) re-probe entries written by the old three-prompt code once (mark a version on the entry).
 50. **F3** (H, M) queue limited models until their `until` instead of skipping them, report them as "waiting".
 51. **F6** (H, S) a live refresh timer and a status segment for the exploration; check the model's upstream, not only the gateway.
 52. **F4** (H, M) decide on the explored identity: tier 0/1 no longer collect it; either re-add a cheap identity field and use it for routing, or drop the idea and the stale wording.

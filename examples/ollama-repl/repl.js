@@ -2238,7 +2238,8 @@ const exploreOrder = () => {
   try {
     served = servedIds(readUsage({ origin: gatewayRef?.enabled ? gatewayRef.origin : undefined, sinceMs: Date.now() - 86400e3 }), catalogId);
   } catch(e) {}
-  return exploreOrderOf({ served, platformsOf: id => availability?.byModel.get(id)?.platforms ?? [], rateOf });
+  /* seed: other facts in every run's tier 1 probe, so a provider that caches prompts cannot answer from an earlier one */
+  return { ...exploreOrderOf({ served, platformsOf: id => availability?.byModel.get(id)?.platforms ?? [], rateOf }), seed: Date.now() };
 };
 
 const tierOf = id => modelStrength(id, availability?.byModel.get(id)?.intelligence).tier;

@@ -172,12 +172,8 @@ Harness side (H) unless marked G.
 - **F4. Use the explored identity for routing (M).** Skip models that ignore a system prompt in auto routing and show
   the identity in `/model list`. Check first whether tier 0/1 still collect identity (they do not ask for it any
   more): either re-add a cheap identity field or drop the idea and delete the stale README wording.
-- **F5. Stale old entries (S).** Entries written by the old three-prompt code count as verified as they are; re-probe
-  them once with tier 0 (mark a `v` version on `entry`, treat a missing one as stale).
 - **F6. Live refresh (S).** The live refresh runs only with `/model health`; add a status segment and a timer
   (every 2 minutes while idle), and make the TCP check connect to the model's upstream where the gateway exposes it.
-- **F7. Needles may be cached (S).** The fixed needles let a prompt-caching provider answer from cache; vary them per
-  probe when a suspicious pass rate shows (`buildProbe(seed)`, `grade` uses the same seed).
 - **F8. Rating tuning (M, needs data).** The weights (55 intelligence, +-25 learned, reliability +-10, latency, probe,
   state) are a first guess: after a week of `usage.jsonl`, fit them (does the rating order predict the success
   share and latency?), and add a term for the gateway's own usage evidence (kilo served 76M tokens of one model).

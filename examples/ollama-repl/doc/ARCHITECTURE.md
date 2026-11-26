@@ -847,6 +847,10 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   tables degrade (`gateway.dashboard`, `hasLimits` checks everywhere).
 - **Transient vs real probe failures**: a busy provider must not lower a rating;
   `isTransientProbe` and `diagnose` decide; never treat a 429 as "model bad".
+- **Exploration entries and needles.** A passed entry carries `v` 3 (tier 0 as it is now); an older pass is `verified` but not
+  `current`, so the run asks it again from scratch (`Exploration#current`). The tier 1 probe takes `seed`
+  (`needlesFor(seed)`, `lib/probe-context.js`): each run varies codename, port and owner, `grade` uses the probe's own needles;
+  without a seed the fixed `NEEDLES` stay (tests).
 - **Availability tables.** `/api/models` (the chain) and `/api/fallback/routing` change rarely and are asked once a minute
   (`SLOW_TABLES`, `lastTables`), the other five tables (usage, limits, penalties, keys with their cooldowns) every load;
   `{ fresh: true }` asks all of them. `av.keyCounts` (platform to enabled keys) lets `spentPlatforms` (`lib/fallback-trail.js`)

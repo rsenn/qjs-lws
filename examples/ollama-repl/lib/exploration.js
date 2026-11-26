@@ -55,10 +55,11 @@ const DEEP_RETRY_MS = 6 * 3600e3;
  *
  * @param {object} client  a client pinned to the model
  * @param {{toolsKnown?: boolean, onStep?: Function, deep?: number, base?: object}} o
+ *   seed: other needles per seed (lib/probe-context.js needlesFor), against a provider that caches prompts;
  *   deep: send a synthetic context of about this many tokens; base: an earlier passed tier 0 result to build on
  * @returns {Promise<{ok: boolean, toolOk: boolean, ms: number, latencyMs?: number, servedBy?: string, deep?: object, error?: string}>}
  */
-export async function probeUsable(client, id, { toolsKnown, onStep, deep = 0, base } = {}) {
+export async function probeUsable(client, id, { toolsKnown, onStep, deep = 0, base, seed } = {}) {
   const t0 = Date.now();
   const out = base?.ok ? { ...base } : { ok: false, toolOk: false, ms: 0, v: 3 };
 
@@ -76,7 +77,7 @@ export async function probeUsable(client, id, { toolsKnown, onStep, deep = 0, ba
       out.ok = true;
     }
 
-    if(deep > 0 && !out.deep) out.deep = await probeDeep(client, deep, out.toolOk && toolsKnown !== false, onStep);
+    if(deep > 0 && !out.deep) out.deep = await probeDeep(client, deep, out.toolOk && toolsKnown !== false, onStep, seed);
   } catch(e) {
     out.error = (e.detail ?? e.message ?? String(e)).split('\n')[0].slice(0, 160);
     out.transient = TRANSIENT.test(out.error);
@@ -92,8 +93,8 @@ const DEEP_TOKENS = 1500;
 const DEEP_RETRY_TOKENS = 3000;
 
 /** tier 1: the synthetic compacted context; the result is `{ ok, tokens, recall, toolCall, ms, tps?, finish?, error?, transient? }` */
-async function probeDeep(client, tokens, withTools, onStep) {
-  const p = buildProbe(tokens);
+async function probeDeep(client, tokens, withTools, onStep, seed) {
+  const p = buildProbe(tokens, seed);
   const t = Date.now();
   onStep?.({ step: 'tier 1', kind: 'ask', text: `a compacted context of ~${p.approxTokens} tokens, ${withTools ? 'asks for one tool call that reports three facts from it' : 'asks for three facts from it'}` });
 
@@ -103,7 +104,7 @@ async function probeDeep(client, tokens, withTools, onStep) {
        recalled the facts but made no tool call is asked once more with a larger budget before it counts as failed */
     const ask1 = async max => {
       const r = await client.chat(withTools ? p.messages : plainQuestion(p), { ...(withTools ? { tools: p.tools, toolChoice: 'auto' } : {}), max_tokens: max });
-      return [r, grade({ content: String(r.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''), toolCalls: r.toolCalls })];
+      return [r, grade({ content: String(r.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''), toolCalls: r.toolCalls }, p.needles)];
     };
 
     let [r, g] = await ask1(DEEP_TOKENS);
@@ -176,11 +177,17 @@ export class Exploration {
     return out;
   }
 
+  /** whether the entry was written by the present tier 0 (`v` 3); an older pass (the three-prompt code) is asked once more, from scratch */
+  current(id) {
+    const e = this.get(id);
+    return !!e && (e.v ?? 1) >= 3;
+  }
+
   /** a model that passed its prompts is never prompted again, one that failed is asked again after an hour */
   fresh(id, now = Date.now()) {
     const e = this.get(id);
     if(!e) return false;
-    if(e.ok) return true;
+    if(e.ok) return this.current(id);
     /* a failure of the old system-prompt test (before tier 0/1) is asked again */
     if((e.v ?? 1) < 3 && /system prompt/.test(e.error ?? '')) return false;
     /* a diagnosed failure says when it is worth asking again */
@@ -233,7 +240,7 @@ export class Exploration {
    *   tools: model id -> whether the catalog says it takes tools
    * @returns {number} how many were queued
    */
-  run(ids, makeClient, { concurrency = 2, tools = {}, onResult, onDone, onEvent, diagnose, deep = () => 0, force = false, platformsOf = () => [], priority = () => 0 } = {}) {
+  run(ids, makeClient, { concurrency = 2, seed, tools = {}, onResult, onDone, onEvent, diagnose, deep = () => 0, force = false, platformsOf = () => [], priority = () => 0 } = {}) {
     /* force: probe again whatever is cached (a sweep the user asked for) */
     const todo = ids.filter(id => !this.pending.has(id) && (force || !this.fresh(id) || (deep(id) > 0 && this.needsDeep(id))));
     if(!todo.length) return 0;
@@ -266,7 +273,7 @@ export class Exploration {
         onEvent?.(n, id, { type: 'start', queued: queue.length });
 
         try {
-          result = await probeUsable(c, id, { toolsKnown: tools[id], deep: deep(id), base: force ? undefined : this.get(id), onStep: s => onEvent?.(n, id, { type: 'step', ...s }) });
+          result = await probeUsable(c, id, { toolsKnown: tools[id], deep: deep(id), seed, base: force || !this.current(id) ? undefined : this.get(id), onStep: s => onEvent?.(n, id, { type: 'step', ...s }) });
         } catch(e) {
           result = { ok: false, toolOk: false, ms: 0, error: String(e.message).slice(0, 160) };
         } finally {
@@ -288,7 +295,7 @@ export class Exploration {
               onEvent?.(n, id, { type: 'step', step: 'diagnosis', kind: 'ask', text: 'running the probe again' });
               const c2 = makeClient(id);
               try {
-                const again = await probeUsable(c2, id, { toolsKnown: tools[id], deep: deep(id), onStep: s => onEvent?.(n, id, { type: 'step', ...s }) });
+                const again = await probeUsable(c2, id, { toolsKnown: tools[id], deep: deep(id), seed, onStep: s => onEvent?.(n, id, { type: 'step', ...s }) });
                 result = again.ok ? { ...again, recovered: true } : { ...again, diagnosis: d, transient: true, retryAt: Date.now() + BUSY_TTL_MS };
               } catch(e) {
                 /* the first failure stands, as diagnosed */

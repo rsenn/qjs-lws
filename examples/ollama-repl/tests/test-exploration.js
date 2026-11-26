@@ -12,9 +12,10 @@ const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '');
 const now = Date.now();
 
 writeConfigFile(explorationPath(), JSON.stringify({
-  'http://g|good': { ok: true, ms: 3000, latencyMs: 900, toolOk: true, at: now - 40 * 86400e3 },
+  'http://g|good': { v: 3, ok: true, ms: 3000, latencyMs: 900, toolOk: true, at: now - 40 * 86400e3 },
   'http://g|oldfail': { ok: false, error: 'boom', at: now - 2 * 3600e3 },
   'http://g|newfail': { ok: false, error: 'boom', at: now - 60e3 },
+  'http://g|legacy': { ok: true, ms: 800, at: now },
   'http://other|good': { ok: true, ms: 1, at: now },
 }));
 
@@ -22,6 +23,7 @@ const ex = new Exploration('http://g');
 check('a verified model needs no prompt, however old', ex.fresh('good') && ex.verified('good'));
 check('a failure older than an hour is asked again', !ex.fresh('oldfail'));
 check('a recent failure waits', ex.fresh('newfail') && !ex.verified('newfail'));
+check('a pass of the old three-prompt code is asked once more', !ex.fresh('legacy') && ex.verified('legacy') && !ex.current('legacy') && ex.current('good'));
 check('an unknown model is asked', !ex.fresh('nothing'));
 check('run queues nothing for known models', ex.run(['good', 'newfail'], {}) === 0);
 

@@ -15,6 +15,22 @@
 
 export const NEEDLES = { codename: 'HERON-417', port: 8472, owner: 'Ingrid Halvorsen' };
 
+const BIRDS = ['HERON', 'FALCON', 'OSPREY', 'KESTREL', 'PLOVER', 'CURLEW', 'TERN', 'WIGEON'];
+const NAMES = ['Ingrid Halvorsen', 'Tomas Brandt', 'Mirela Costa', 'Kaito Ferreira', 'Odile Santoro', 'Henrik Valdes', 'Nadia Okonkwo', 'Per Lindqvist'];
+
+/**
+ * the three facts of a probe: the fixed NEEDLES without a seed, else other values worked out from the seed, so a provider
+ * that caches prompts cannot answer from an earlier probe (the same seed gives the same facts)
+ *
+ *   needlesFor()       // { codename: 'HERON-417', port: 8472, owner: 'Ingrid Halvorsen' }
+ *   needlesFor(12345)  // other facts, always the same for 12345
+ */
+export function needlesFor(seed) {
+  if(seed === undefined || seed === null) return NEEDLES;
+  const n = Math.abs(Math.floor(+seed)) || 1;
+  return { codename: `${BIRDS[n % BIRDS.length]}-${100 + (n * 7919) % 900}`, port: 1024 + ((n * 104729) % 60000), owner: NAMES[Math.floor(n / 7) % NAMES.length] };
+}
+
 const CHARS_PER_TOKEN = 4;
 export const DEEP_MAX = 12000;
 export const DEEP_MIN = 1500;
@@ -43,7 +59,8 @@ function filler(n) {
  * @param {number} tokens  about how many tokens the whole request should have (tool schemas included)
  * @returns {{messages: object[], tools: object[], needles: object, approxTokens: number}}
  */
-export function buildProbe(tokens) {
+export function buildProbe(tokens, seed) {
+  const NEEDLES = needlesFor(seed);
   const system = 'You are a coding assistant continuing the work of an earlier session. Use the summary below as your memory. When the user asks for facts from it, call the matching tool with exact values.';
   const toolChars = JSON.stringify(TOOLS).length;
   const budget = Math.max(400, tokens * CHARS_PER_TOKEN - toolChars - system.length - 300);
