@@ -79,7 +79,7 @@ import { Gateway, FREELLM_URL } from './lib/freellm.js';
 import { pickNext, probeModel, isTransient } from './lib/standby.js';
 import { diagnose } from './lib/diagnose.js';
 import { deepBudget } from './lib/probe-context.js';
-import { Exploration, isTransientProbe, probeBrief, probeCells } from './lib/exploration.js';
+import { costText, Exploration, isTransientProbe, probeBrief, probeCells } from './lib/exploration.js';
 import { funnyName } from './lib/session-name.js';
 import { NetActivity } from './lib/net-activity.js';
 import { traceChat } from './lib/trace-chat.js';
@@ -110,7 +110,7 @@ import { noteIpChange, saveCooldowns, loadCooldowns, loadAvailability, kindsText
 import { modelStatusTable } from './lib/model-status.js';
 import { recordLatency } from './lib/latency.js';
 import { Tui } from './lib/tui.js';
-import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled, torHost } from './lib/proxy-probe.js';
+import { exitAfterNewnym, exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled, torHost } from './lib/proxy-probe.js';
 import { PORT_NAMES, ownSockets, pollDelay, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { isHarnessError } from './lib/harness-error.js';
@@ -3326,12 +3326,7 @@ async function main() {
       }
 
       /* a circuit takes a moment to build; Tor answers NEWNYM at most every 10 s */
-      let after = null;
-      for(let i = 0; i < 6; i++) {
-        await new Promise(res => setTimeout(res, i ? 4000 : 3000));
-        after = await probe(socks);
-        if(after && after !== before) break;
-      }
+      const after = await exitAfterNewnym(() => probe(socks), before);
 
       const direct = await probe(null);
       if(pane) pane.update(...ipChangeParts({ before, after, direct, groups }));
@@ -3540,12 +3535,7 @@ async function main() {
       }
 
       /* a circuit takes a moment to build; Tor answers NEWNYM at most every 10 s */
-      let after = null;
-      for(let i = 0; i < 6; i++) {
-        await new Promise(res => setTimeout(res, i ? 4000 : 3000));
-        after = await probe(socks);
-        if(after && after !== before) break;
-      }
+      const after = await exitAfterNewnym(() => probe(socks), before);
 
       const changed = !!after && after !== before;
       if(changed) {
@@ -4364,7 +4354,7 @@ async function main() {
         } catch(e) {
           return void PrintError(e);
         }
-        const after = await exitIp(url);
+        const after = await exitAfterNewnym(() => exitIp(url), before);
         proxyInfo.exits = [before ?? '?', after ?? '?'];
         emit('proxy', `exit address ${before ?? '?'} -> ${after ?? '?'}`, before !== after ? 'good' : 'warn');
         console.log(ipChangePanel({ before, after, direct: (await externalIp({ proxy: null }).catch(() => null))?.ip ?? null, groups: ipGroups(avBefore, keys) }, tui?.width ?? 100));
@@ -4646,7 +4636,7 @@ async function main() {
           onDone: ({ explored: n, usable }) => {
             exploreLanes = [];
             tui?.drawStatus();
-            emit('explore', `sweep finished: ${usable} of ${n} models usable`, usable ? 'good' : 'warn');
+            emit('explore', `sweep finished: ${usable} of ${n} models usable${costText(exploration.cost()) ? ` (${costText(exploration.cost())})` : ''}`, usable ? 'good' : 'warn');
             const rows = ready.slice().sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1) || a.localeCompare(b));
             const table = fitTable(panelInner(), () => [['rate', 'model', 'probe', 'says'].map(h => `\x1b[1m${h}\x1b[0m`), ...rows.map(id => { const [pr, says] = probeCells(exploration, id); return [ratingCell(rateOf(id)), `\x1b[1m${fgHex(strengthColor(tierOf(id)), id)}\x1b[0m`, pr, says]; })], [1, 3], [3]);
             backgroundReport('/model explore', async () => `${note(`sweep finished: ${usable} of ${n} usable, best rated first - /model next chooses among them`)}\n${table}${(() => {
@@ -4676,6 +4666,7 @@ async function main() {
         const queued = exploration.run(ready, makeExploreClient, { ...exploreOrder(), tools, deep: deepFor(ready), diagnose: diagnoseModel, onEvent: exploreEvent, onResult: explored, onDone: ({ explored: n, usable }) => { exploreLanes = []; emit('explore', `exploration finished: ${usable} of ${n} models usable`, usable ? 'good' : 'warn'); tui?.drawStatus(); console.log(note(`async exploration: ${usable} of ${n} models usable (/model health shows them)`)); } });
         if(queued) emit('explore', `${queued} ready models are explored in the background`);
         if(queued) console.log(dim(`probe: ${queued} ready models are being explored in the background, /model health again shows the results`));
+        if(costText(exploration.cost())) console.log(dim(costText(exploration.cost())));
         const { rows, header } = modelStatusTable(av, exploration, modelInfo, rateOf);
         const width = repl.tui ? repl.tui.cols : (ttyGetWinSize(1)?.[0] ?? 100);
         /* fits the terminal: Model never truncates; Says/Probe give up width first;

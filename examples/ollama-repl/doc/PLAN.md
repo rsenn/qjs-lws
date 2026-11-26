@@ -140,12 +140,6 @@ Harness side (H) unless marked G.
 
 ## E. Proxy and exit address
 
-- **E1. Tor cookie authentication (S).** `lib/proxy-probe.js newExit`: support `CookieAuthentication` by reading the
-  cookie file (`/run/tor/control.authcookie`, hex) for a local Tor; a remote Tor keeps the password or the ssh
-  tunnel. Test with a fake control port (the test already has one).
-- **E2. NEWNYM throttling (S).** Tor answers 250 OK to a second NEWNYM within 10 s without a new circuit: `newExit`
-  should wait out the 10 s (`SIGNAL NEWNYM` then check `GETINFO newnym-wait`) or the callers probe again (the
-  `fixKeyless` round does; `autoExit` and `/proxy exit` do not verify the address changed).
 - **E3. Keyless platform without a key row (M).** A platform the gateway lists only as a provider cannot get a proxy:
   the dashboard keeps the sentinel row. Needs the gateway to create the row; until then the pane says so.
 - **E4. What an address change lifts (S).** The set (windows, cooldown, exhaustion, IP errors; not credit, tier, key
@@ -166,7 +160,7 @@ Harness side (H) unless marked G.
   with the same tier 0 (ping tool) when selected; low value, do after C7.
 - **F2. Quota cost of exploration (S).** Each model costs 2 requests of free quota (tier 0) and the top 30 a tier 1 of
   3 to 12k tokens, once. Add a counter (probes sent today, tokens) to `/events` or `/model health` so the cost is
-  visible, and an option for tier 0 only and for the concurrency of `/model explore`.
+  visible (done: `Exploration#cost`, `costText`), and an option for tier 0 only and for the concurrency of `/model explore` (open).
 - **F3. Queue limited models (M).** `/model explore` skips limited models; queue them until their `until` instead and
   report them as "waiting" (3.1 skips providers within one run; this is the same idea across runs).
 - **F4. Use the explored identity for routing (M).** Skip models that ignore a system prompt in auto routing and show

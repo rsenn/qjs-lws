@@ -105,7 +105,7 @@ export async function exitIp(proxyUrl) {
 /**
  * asks the proxy for a new circuit: NEWNYM on Tor's control port, over a TCP connection of our own (what
  * tor-change-exitnode.sh does with nc). Host, port and password default to the script's: TORHOST (127.0.0.1),
- * CTRLPORT (9051) and CTRLPASS (empty). A Tor set up with cookie authentication refuses the empty password.
+ * CTRLPORT (9051) and CTRLPASS (empty). Without a password, a local Tor's control cookie (torCookie) is used; a remote Tor needs CTRLPASS.
  *
  * @throws {Error} when the control port does not answer, the password is refused or Tor says no
  */
@@ -122,6 +122,51 @@ export function torHost(proxyUrl) {
 
   const m = /^[a-z0-9+.-]+:\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:]+)/i.exec(String(proxyUrl ?? ''));
   return m ? m[1].replace(/^\[|\]$/g, '') : '127.0.0.1';
+}
+
+const LOCAL = new Set(['127.0.0.1', '::1', 'localhost']);
+
+/** where a local Tor keeps its control cookie (CTRLCOOKIE overrides); the hex of the first file that reads, null when none does */
+export async function torCookie(paths = [getenv('CTRLCOOKIE'), '/run/tor/control.authcookie', '/var/lib/tor/control_auth_cookie'].filter(Boolean)) {
+  for(const path of paths) {
+    const r = await runCommand(`od -An -tx1 -v '${path.replace(/'/g, "'\\''")}' 2>/dev/null | tr -d ' \\n'`, { timeoutMs: 3000 }).catch(() => null);
+    const hex = r?.output?.trim();
+    if(r?.status === 0 && /^[0-9a-f]{64}$/i.test(hex ?? '')) return hex;
+  }
+  return null;
+}
+
+/**
+ * SIGNAL NEWNYM that Tor really acts on: it answers 250 OK to a second NEWNYM within 10 s but builds no new circuit, so the
+ * wait that GETINFO newnym-wait reports is waited out first
+ *
+ * @param {(line: string, what: string) => Promise<{lines?: string[]}>} send  sends a control command, resolves with its 250 reply
+ * @param {(ms: number) => Promise<void>} [sleep]
+ * @returns {Promise<number>} how long it waited, ms
+ */
+export async function newnym(send, sleep = ms => new Promise(r => setTimeout(r, ms)), maxWaitMs = 12000) {
+  const info = await send('GETINFO newnym-wait', 'GETINFO').catch(() => null);
+  const secs = +(/newnym-wait=(\d+)/.exec((info?.lines ?? []).join('\n'))?.[1] ?? 0);
+  const wait = secs > 0 ? Math.min(maxWaitMs, secs * 1000 + 200) : 0;
+  if(wait) await sleep(wait);
+  await send('SIGNAL NEWNYM', 'NEWNYM');
+  return wait;
+}
+
+/**
+ * the exit address after a NEWNYM: asks again until it differs from `before` (a circuit takes a moment to build), at most
+ * `tries` times; the last answer when it never changed (null when the proxy did not answer)
+ *
+ * @param {() => Promise<string|null>} probe  the address now
+ */
+export async function exitAfterNewnym(probe, before, { tries = 6, firstMs = 3000, nextMs = 4000, sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  let after = null;
+  for(let i = 0; i < tries; i++) {
+    await sleep(i ? nextMs : firstMs);
+    after = await probe();
+    if(after && after !== before) break;
+  }
+  return after;
 }
 
 export async function newExit({ host = getenv('TORHOST') || '127.0.0.1', port = +(getenv('CTRLPORT') || 9051), password = getenv('CTRLPASS') ?? '', timeoutMs = 8000 } = {}) {
@@ -150,10 +195,12 @@ export async function newExit({ host = getenv('TORHOST') || '127.0.0.1', port = 
         const m = /^(\d{3}) ([^\r\n]*)\r?\n/m.exec(buf);
         if(!m) return false;
 
+        /* the "250-key=value" lines before the final one carry the answer of GETINFO */
+        const lines = buf.slice(0, m.index).split(/\r?\n/).filter(Boolean).map(l => l.replace(/^\d{3}[- ]/, ''));
         buf = buf.slice(m.index + m[0].length);
         clearTimeout(timer);
         wake = null;
-        resolve({ code: +m[1], text: m[2] });
+        resolve({ code: +m[1], text: m[2], lines });
         return true;
       };
 
@@ -164,11 +211,13 @@ export async function newExit({ host = getenv('TORHOST') || '127.0.0.1', port = 
     sock.write(`${line}\r\n`);
     const r = await reply();
     if(r.code !== 250) throw new Error(`Tor control port refused ${what}: ${r.code} ${r.text}`);
+    return r;
   };
 
   try {
-    await command(`AUTHENTICATE "${password.replace(/["\\]/g, '\\$&')}"`, 'the password');
-    await command('SIGNAL NEWNYM', 'NEWNYM');
+    const cookie = !password && LOCAL.has(host) ? await torCookie() : null;
+    await command(cookie ? `AUTHENTICATE ${cookie}` : `AUTHENTICATE "${password.replace(/["\\]/g, '\\$&')}"`, cookie ? 'the cookie' : 'the password');
+    await newnym(command);
     sock.write('QUIT\r\n');
   } finally {
     sock.close();

@@ -177,6 +177,26 @@ export class Exploration {
     return out;
   }
 
+  /**
+   * what the probes cost the free quota since `sinceMs`: tier 0 is 2 requests per model (and a tier 1 one more), the tier 1
+   * context is `deep.tokens` tokens of the prompt
+   *
+   * @returns {{models: number, requests: number, tokens: number}}
+   */
+  cost(sinceMs = Date.now() - 86400e3) {
+    const out = { models: 0, requests: 0, tokens: 0 };
+    for(const [k, e] of Object.entries(this.#load())) {
+      if(!k.startsWith(`${this.#origin}|`)) continue;
+      const t0 = (e.at ?? 0) >= sinceMs;
+      const t1 = e.deep && (e.deep.at ?? e.at ?? 0) >= sinceMs;
+      if(!t0 && !t1) continue;
+      out.models++;
+      if(t0) out.requests += 2;
+      if(t1) (out.requests++, (out.tokens += e.deep.tokens ?? 0));
+    }
+    return out;
+  }
+
   /** whether the entry was written by the present tier 0 (`v` 3); an older pass (the three-prompt code) is asked once more, from scratch */
   current(id) {
     const e = this.get(id);
@@ -376,4 +396,9 @@ export function probeBrief(ex, key) {
 
   const ms = e.latencyMs ?? e.ms;
   return `\x1b[32m✔\x1b[0m ${ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`}${e.toolOk ? ' T' : ''}${e.deep ? (e.deep.ok ? ` \x1b[32m${Math.round(e.deep.tokens / 1000)}k\x1b[0m` : ` ${e.deep.transient ? '\x1b[2m' : '\x1b[33m'}${Math.round(e.deep.tokens / 1000)}k${e.deep.transient ? '?' : '✗'}\x1b[0m`) : ''}`;
+}
+
+/** "probes in the last 24 h: 40 models, 83 requests, ~96k prompt tokens", '' when there were none */
+export function costText(c) {
+  return c?.requests ? `probes in the last 24 h: ${c.models} models, ${c.requests} requests${c.tokens ? `, ~${c.tokens >= 1000 ? `${Math.round(c.tokens / 1000)}k` : c.tokens} prompt tokens` : ''} of free quota` : '';
 }

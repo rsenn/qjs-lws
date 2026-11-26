@@ -851,6 +851,11 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   `current`, so the run asks it again from scratch (`Exploration#current`). The tier 1 probe takes `seed`
   (`needlesFor(seed)`, `lib/probe-context.js`): each run varies codename, port and owner, `grade` uses the probe's own needles;
   without a seed the fixed `NEEDLES` stay (tests).
+- **Tor control.** `newExit` authenticates with `CTRLPASS`, else (a local Tor) with the control cookie (`torCookie`: `CTRLCOOKIE`,
+  `/run/tor/control.authcookie`, `/var/lib/tor/control_auth_cookie`); `newnym` asks `GETINFO newnym-wait` and waits it out (at
+  most 12 s) before `SIGNAL NEWNYM`, since Tor answers a throttled NEWNYM with 250 OK and builds no circuit; callers ask for the
+  address again until it differs (`exitAfterNewnym`, `autoExit`, `/proxy exit`, the keyless fix). `/model health` and the sweep
+  event show what the probes cost (`Exploration#cost`).
 - **Availability tables.** `/api/models` (the chain) and `/api/fallback/routing` change rarely and are asked once a minute
   (`SLOW_TABLES`, `lastTables`), the other five tables (usage, limits, penalties, keys with their cooldowns) every load;
   `{ fresh: true }` asks all of them. `av.keyCounts` (platform to enabled keys) lets `spentPlatforms` (`lib/fallback-trail.js`)

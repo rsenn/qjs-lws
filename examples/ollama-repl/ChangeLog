@@ -1,5 +1,12 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/proxy-probe.js (torCookie, newnym, exitAfterNewnym, newExit),
+	repl.js: cookie authentication for a local Tor, NEWNYM waits out
+	newnym-wait, /proxy exit asks for the new address until it changes.
+
+	* lib/exploration.js (Exploration#cost, costText), repl.js: /model health
+	and the sweep event show the probes sent in 24 h and their tokens.
+
 	* lib/probe-context.js (needlesFor, buildProbe), lib/exploration.js
 	(probeUsable, run), repl.js (exploreOrder): the tier 1 probe takes a seed
 	and varies its three facts per run, against prompt caching.

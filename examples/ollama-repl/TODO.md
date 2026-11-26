@@ -109,8 +109,6 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 ### 7. Proxy and exit address (after C4)
 
 40. **E4** (H, S) which limits an address change really lifts: count the cooldowns that came back, adjust `ipLimitedPlatforms`/`clearCooldowns`.
-41. **E2** (H, S) NEWNYM throttling: wait out Tor's 10 s (`GETINFO newnym-wait`) and verify the address changed in `autoExit` and `/proxy exit`.
-42. **E1** (H, S) Tor cookie authentication for a local Tor.
 43. **E6** (H, S) show the latency a proxy adds per platform and take a key off the proxy again when its limit is gone.
 44. **E5** (H, M) `/proxy keyless fix` tests a second model of a provider and turns its steps into `proxy` events.
 45. **E7** (H, M) classify transient vs real failures by the gateway's error code and status, not by a regex over the text.
@@ -118,7 +116,8 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 
 ### 8. Exploration and rating
 
-47. **F2** (H, S) show the quota cost of exploration (probes and tokens today); options for tier 0 only and the concurrency of `/model explore`.
+47. **F2 rest** (H, S) the probe cost is shown (`/model health`, the sweep event); what is left: an option for tier 0 only and one for the
+   concurrency of `/model explore`.
 50. **F3** (H, M) queue limited models until their `until` instead of skipping them, report them as "waiting".
 51. **F6** (H, S) a live refresh timer and a status segment for the exploration; check the model's upstream, not only the gateway.
 52. **F4** (H, M) decide on the explored identity: tier 0/1 no longer collect it; either re-add a cheap identity field and use it for routing, or drop the idea and the stale wording.

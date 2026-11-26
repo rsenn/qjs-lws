@@ -24,6 +24,11 @@ check('a verified model needs no prompt, however old', ex.fresh('good') && ex.ve
 check('a failure older than an hour is asked again', !ex.fresh('oldfail'));
 check('a recent failure waits', ex.fresh('newfail') && !ex.verified('newfail'));
 check('a pass of the old three-prompt code is asked once more', !ex.fresh('legacy') && ex.verified('legacy') && !ex.current('legacy') && ex.current('good'));
+{
+  const c = ex.cost(now - 3600e3);
+  check('cost: the models probed in the window', c.models === 2 && c.requests === 4 && c.tokens === 0);
+  check('cost text', costText({ models: 3, requests: 7, tokens: 24000 }) === 'probes in the last 24 h: 3 models, 7 requests, ~24k prompt tokens of free quota' && costText({ requests: 0 }) === '');
+}
 check('an unknown model is asked', !ex.fresh('nothing'));
 check('run queues nothing for known models', ex.run(['good', 'newfail'], {}) === 0);
 
@@ -49,7 +54,7 @@ import { isTransientProbe, probeBrief } from '../lib/exploration.js';
   chk('busy is shown as a warning, not a cross', /busy/.test(probeBrief(ex, 'm')) && !/✗/.test(probeBrief(ex, 'm')));
 }
 
-import { probeCells } from '../lib/exploration.js';
+import { probeCells, costText } from '../lib/exploration.js';
 {
   const chk = (w, ok) => { if(!ok) throw new Error(`test-exploration: ${w}`); };
   const plain = s => s.replace(/\x1b\[[0-9;]*m/g, '');
