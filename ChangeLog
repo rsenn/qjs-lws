@@ -1,5 +1,29 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lws-spa.c (lwsjs_spa_get, lwsjs_spa_get_property): LWSSPA.length and the
+	name lookup use lws_spa_get_name(), which also gives the names lws
+	discovers for open param slots (they are no longer written into the
+	caller's param_names); length stayed 0 without paramNames.
+
+	* tests/unittests/test-rawcolor.js: the import points at
+	examples/ollama-repl/lib/tui/rawcolor.js and the checks follow the
+	palette colouring of today, in a tinytest suite (it crashed on load).
+
+	* tests/unittests/test-crypto.js: imports from 'lws.so'.
+	tests/unittests/test-imports.js: the 'blob' import of
+	test-serve-bun-compat.js is listed as optional.
+
+	* tests/unittests/test-ws.js: the close tests reject through a captured
+	rejectClosed/rejectAll instead of resolve(Promise.reject(...)), whose
+	promise nobody handled after the client was destroyed (qjsm exited 1).
+
+	* tests/unittests/run-all.sh: a suite without a tinytest summary line
+	passes when it exits 0 and printed something.
+
+	* BUGS: h1-late-queued-pipeline-never-promoted removed: fetch() with
+	LCCSCF_PIPELINE against the real Ollama (POST /api/show and streamed
+	/api/chat, gaps of 0 to 30 s) answers every request.
+
 	* tests/unittests/test-ws.js: The close tests reject through the
 	reject function of their promise instead of resolving it with a
 	rejected promise, so client.destroy() firing onClientConnectionError

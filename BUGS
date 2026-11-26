@@ -1,28 +1,3 @@
-- h1-late-queued-pipeline-never-promoted (libwebsockets/lib/sansio/vhost.c:927-960, lws_client_connect_4 queueing;
-  libwebsockets/lib/sansio/wsi.c:2030-2135, _lws_generic_transaction_completed_active_conn): a second
-  HTTP/1.1 client request queued with LCCSCF_PIPELINE onto a connection whose first transaction had
-  already completed (idle) was never sent in the old lws (ollama-repl "only the first prompt works").
-  The vendored lws no longer has the old layout: vhost.c now hands an idle LRS_IDLING h1 leader's
-  connection to the queued request right away, and I could not reproduce the symptom here.
-
-    2026-11-25: checked with lib/fetch.js (keepAlive, LCCSCF_PIPELINE) against a python HTTP/1.1
-    keep-alive server, 3 POSTs per run, gaps of 0, 2, 4.5, 5.5, 8 and 30 s: all succeed, the
-    connection is reused up to the 5 s keep_warm_secs default (io/client/connect.c:219) and a fresh
-    one is opened after it, so a 90 s idle connection is never reused anyway. Not tested: the real Ollama server and a
-    black-holed connection (no FIN or RST ever arrives). Left open until someone confirms it
-    against the real Ollama server (qjsm examples/ollama-repl/repl.js --provider ollama, with the
-    PIPELINE-less workaround in examples/ollama-repl/lib/*-client.js reverted); remove the entry if
-    that works. tests/unittests/test-fetch-idle-gap.js covers the idle-gap case. lib/fetch.js:139 still enables LCCSCF_PIPELINE by default, so ordinary fetch()
-    users would be exposed if the bug were real.
-
-- test-rawcolor-missing-module (tests/unittests/test-rawcolor.js:4): the suite imports ../examples/ollama-repl/lib/rawcolor.js, which resolves to tests/examples/... (one level short) and, even with the right depth, the module now lives at examples/ollama-repl/lib/tui/rawcolor.js, so run-all.sh reports the suite as crashed with "could not load module". Confirmed by running the suite with qjsm.
-
-    qjsm tests/unittests/test-rawcolor.js
-
 - crypto-compiled-against-libressl-headers (lws-crypto.c:11, build/x86_64-linux-gnu): the lws-crypto.c object is compiled against /usr/local/include/openssl (LibreSSL 4.3.3, OPENSSL_VERSION_NUMBER 0x20000000L; gcc searches /usr/local/include before /usr/include and cmake drops the implicit /usr/include) while lws.so links the system libssl.so.3, so the OpenSSL 3 guard is false and the lws crypto object is empty: test-crypto.js fails 14 of 15 tests with "not a function". Compiling with /usr/include first fails in libwebsockets' own headers (unknown type RSA), so the whole tree is configured for the LibreSSL headers. Confirmed with gcc -E -dM on the compile_commands.json command and ldd on lws.so.
 
     import { crypto } from 'lws.so'; typeof crypto.digest
-
-- lwsspa-length-open-slots (lws-spa.c:234): LWSSPA.length and the name lookup read info.param_names, but the vendored lws (commit 06fdd8cad, lws_spa open param slots) now keeps the names it discovers for NULL slots in its own dyn_names and never in the caller's array, so with no paramNames given length stays 0 (test-lwsspa.js "fields are discovered dynamically" expects 2). Confirmed by reading lws-spa.c and by the test.
-
-    new LWSSPA({}) after parsing a=1&b=2, then spa.length

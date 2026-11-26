@@ -234,8 +234,9 @@ lwsjs_spa_get(JSContext* ctx, JSValueConst this_val, int magic) {
     case PROP_LENGTH: {
       uint32_t i;
 
+      /* lws_spa_get_name() also gives the names lws discovered for open (NULL) slots */
       for(i = 0; i < s->info.count_params; i++)
-        if(s->info.param_names[i] == NULL)
+        if(lws_spa_get_name(s->spa, i) == NULL)
           break;
 
       ret = JS_NewUint32(ctx, i);
@@ -268,20 +269,21 @@ lwsjs_spa_get_property(JSContext* ctx, JSValueConst this_val, JSAtom prop, JSVal
       return JS_EXCEPTION;
 
     if((name = JS_AtomToCString(ctx, prop))) {
-      if(strcmp(name, "length"))
-        if(s->info.param_names) {
-          for(int i = 0; i < s->info.count_params; i++) {
-            if(s->info.param_names[i] && !strcmp(s->info.param_names[i], name)) {
-              const char* str = lws_spa_get_string(s->spa, i);
+      if(strcmp(name, "length")) {
+        for(int i = 0; i < s->info.count_params; i++) {
+          const char* pn = lws_spa_get_name(s->spa, i); /* declared, or discovered for an open slot */
 
-              if(str)
-                value = JS_NewStringLen(ctx, str, lws_spa_get_length(s->spa, i));
+          if(pn && !strcmp(pn, name)) {
+            const char* str = lws_spa_get_string(s->spa, i);
 
-              found = TRUE;
-              break;
-            }
+            if(str)
+              value = JS_NewStringLen(ctx, str, lws_spa_get_length(s->spa, i));
+
+            found = TRUE;
+            break;
           }
         }
+      }
 
       JS_FreeCString(ctx, name);
     } else {

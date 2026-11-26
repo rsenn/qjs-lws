@@ -1,55 +1,35 @@
-// QuickJS unit test for colorReasoning from rawcolor.js
-// Tests the structured ANSI highlighting for reasoning text
+// QuickJS unit test for colorReasoning from examples/ollama-repl/lib/tui/rawcolor.js:
+// the colouring only adds colour, whatever the text holds.
+import { tests, assert } from './tinytest.js';
+import { colorReasoning } from '../../examples/ollama-repl/lib/tui/rawcolor.js';
 
-import { colorReasoning } from '../examples/ollama-repl/lib/rawcolor.js';
+const BASE = '\x1b[38;2;153;153;153m';
+const RESET = '\x1b[0m';
+const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '');
 
-// Test 1: Basic text without special formatting
-const basic = colorReasoning("Hello world");
-assert(basic.includes('\x1b[3;38;2;125;211;252m'), "Basic text should have base SGR");
-assert(basic.includes('\x1b[0m'), "Basic text should have RESET");
-assert(basic.replace(/\x1b\[[0-9;]*m/g, '') === 'Hello world', "Basic text content preserved");
+await tests({
+  'plain text gets the base colour and a reset'() {
+    const out = colorReasoning('Hello world');
+    assert(out.startsWith(BASE), 'starts with the base colour');
+    assert(out.endsWith(RESET), 'ends with a reset');
+    assert(strip(out) === 'Hello world', 'text preserved');
+  },
 
-// Test 2: Inline backtick spans
-const withBacktick = colorReasoning("Hello \`code\` world");
-assert(withBacktick.includes('\x1b[38;2;163;230;53m'), "Inline backtick should have lime color");
-assert(withBacktick.includes('\x1b[0m'), "Inline backtick should have RESET");
+  'inline code, numbers and quotes get their own colour'() {
+    assert(colorReasoning('use `x` here').includes('\x1b[38;2;80;128;255m`x`'), 'inline code is coloured');
+    assert(colorReasoning('got 12 items').includes('\x1b[38;2;242;204;143m12'), 'a number is coloured');
+    assert(colorReasoning('say "hi"').includes('\x1b[38;2;80;128;255m"hi"'), 'a quoted string is coloured');
+  },
 
-// Test 3: List markers
-const withList = colorReasoning("- item 1\n* item 2\n1. item 3");
-assert(withList.includes('\x1b[38;2;45;212;191m'), "List markers should have teal color");
-assert(withList.includes('\x1b[38;2;163;230;53m'), "List markers should have lime color for -");
+  'list markers and headings are coloured, the rest stays base'() {
+    assert(colorReasoning('- item').includes('\x1b[38;2;80;128;255m-'), 'a list marker is coloured');
+    assert(colorReasoning('# Head').includes('\x1b[38;2;255;204;0m#'), 'a heading marker is coloured');
+  },
 
-const withoutList = colorReasoning("no marker here");
-assert(withoutList.includes('\x1b[3;38;2;125;211;252m'), "No list should have base SGR");
-
-// Test 4: Bold emphasis
-const withBold = colorReasoning("Hello **bold** world");
-assert(withBold.includes('\x1b[1m'), "Bold should have BOLD SGR");
-assert(withBold.includes('\x1b[3;38;2;125;211;252m'), "After bold should restore base SGR");
-
-// Test 5: Numbers (amber)
-const withNumbers = colorReasoning("The value is 42 and 3.14");
-assert(withNumbers.includes('\x1b[38;2;251;191;36m'), "Numbers should have amber color");
-
-// Test 6: Each line ends with RESET
-const multiLine = colorReasoning("line1\nline2\nline3");
-const lines = multiLine.split('\n');
-lines.forEach((line, i) => {
-  assert(line.endsWith('\x1b[0m'), `Line ${i} should end with RESET`);
+  'every line ends with a reset and the text is untouched'() {
+    const text = '# Title\n- one `two` 3\n"four" and **five**\n\nlast';
+    const out = colorReasoning(text);
+    assert(strip(out) === text, 'stripping the colour gives the text back');
+    out.split('\n').forEach((line, i) => line === '' || assert(line.endsWith(RESET), `line ${i} ends with a reset`));
+  },
 });
-
-// Test 7: stripAnsi invariant - only ANSI added, chars intact
-const testStr = "Hello \`test\` 42 world";
-const colored = colorReasoning(testStr);
-const stripped = colored.replace(/\x1b\[[0-9;]*m/g, '');
-assert(stripped === testStr, `stripAnsi invariant failed: "${stripped}" !== "${testStr}"`);
-
-// Test 8: Heading markers
-const withHeading = colorReasoning("# Title\n## Subtitle");
-assert(withHeading.includes('\x1b[38;2;45;212;191m'), "Headings should have teal color");
-
-// Test 9: Quoted strings (lime placeholder)
-const withQuotes = colorReasoning('He said "hello"');
-assert(withQuotes.includes('\x1b[38;2;163;230;53m'), "Quoted strings should have lime color");
-
-print("All colorReasoning tests passed!");
