@@ -9,3 +9,5 @@
     note: a drop in the middle of a body now fails with "dropped after N ms, B bytes received" (lib/lws/protocols.js:onClientHttpDropProtocol), which tells a server cut from a stall of the loop on the next occurrence; the cause is still not known
 
     note: tried 2026-11-26 with a local server (no TLS): 100 SSE chunks of 2 KB at 100 ms, the client blocking its loop 400 ms per chunk (59 s) and a plain 250-chunk 25 s stream; neither dropped, so a blocked loop alone does not explain it, a cut by the server, the TLS path or a proxy is more likely
+
+    note: a cut mid-body is now retried once on the same route (repl.js:chatRound), which hides the symptom, not the cause; the "asking once more" line in the transcript marks each occurrence

@@ -1178,6 +1178,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   let skips = 0;
   let backoffs = 0;
   let pass = 0;
+  let dropRetried = false;
 
   for(;;) {
     checkStop();
@@ -1197,6 +1198,14 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
       return await chatRoundOnce(client, messages, opts, abortRef, chatOptions);
     } catch(e) {
       if(stopRequested) throw e; /* no failover, no wait, no retry */
+
+      /* the connection was cut in the middle of the reply (lib/lws/protocols.js "dropped after N ms"): the same route is
+         asked once more, the partial reply is discarded; not past the token budget, a second cut falls through to the failover */
+      if(!dropRetried && /^dropped after \d+ ms/.test(String(e?.message ?? '')) && !(opts.tokenBudget > 0 && spentTokens() >= opts.tokenBudget)) {
+        dropRetried = true;
+        if(!opts.quiet) console.log(note(`${client.model}: ${e.message}, asking once more (the partial reply is dropped)`, 'skip'));
+        continue;
+      }
       if(ui.verbose && e.headers && !opts.quiet) console.log(dim(`${e.message}\nheaders: ${JSON.stringify(e.headers, null, 2)}\nbody: ${e.body ?? ''}`));
 
       /* nothing can serve the request on this route: skip the spent model(s), switch to the next ready one, retry */
