@@ -51,19 +51,18 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
 
 ### 2. Bugs and enablers (small, they unblock later work)
 
-6. **N1** (H, S to M) `loadavailability-stalls-the-loop`: one availability load blocks the loop 0.5 to 1.1 s; the other session is
-   on it (`lib/lag.js`). Left over: a load still costs 7 requests, a per-table TTL (the key table changes rarely) would cut it.
-   Blocks D3. Also from the hiccup section above: slow `/split status|net` polling of `ss`, confirm the sort fixes after a restart.
+6. **N1 rest** (H, S) the availability load is cheaper (shared loads, the chain and routing tables once a minute) but still blocks the loop
+   0.3 to 1 s; confirm after a restart with `/events lag` that no section is left (`loadAvailability compute`, `JSON.parse`).
 7. **H3 rest** (H, S) the context subcommands (`/context`, `/log`), the dialog state of `ChatREPL` and the remaining wiring of
    `repl.js` are only testable inside `main()`: move the pure parts into `lib/` as they are touched; prerequisite for H1, H2, J1.
 ### 3. Small failover and display fixes (each with a test)
 
 12. **D11 rest** (H, S) the local client now reports to the status line (`onMeta`); what is left: the next round still starts on the
     failed client until its cool-down routes it away (decide whether the switch should stick).
-16. **D2** (H, M) platform-wide soft-skip from the fallback trail (skip every model of a platform when all its keys appear in it).
 17. **D9** (H, M) a limit in the middle of a streamed reply: keep what was printed, drop the spent model, continue; design first.
 18. **D14** (H, M) fold the provider fallback and `/handoff-model` into the one next-model order, or document why they stay apart.
-19. **D3** (H, S) a low-rate availability refresh while a request runs or the session is idle; after N1.
+19. **D3** (H, S) a low-rate availability refresh while a request runs or the session is idle; not before N1 rest says what a load costs (a load every
+    minute is a 0.3 to 1 s freeze every minute).
 
 ### 4. Live verification (one real session each, before building more on top)
 

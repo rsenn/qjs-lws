@@ -104,7 +104,7 @@ import { gatewayReport, reportText } from './lib/gateway-report.js';
 import { releaseRecovered } from './lib/skips.js';
 import { routingHealth } from './lib/routing-health.js';
 import { repairTurn } from './lib/turn-repair.js';
-import { spentModels, TRAIL_SKIP_MS } from './lib/fallback-trail.js';
+import { spentModels, spentPlatforms, TRAIL_SKIP_MS } from './lib/fallback-trail.js';
 import { noteIpChange, saveCooldowns, loadCooldowns, loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure, groupId } from './lib/availability.js';
 import { modelStatusTable } from './lib/model-status.js';
 import { recordLatency } from './lib/latency.js';
@@ -2991,6 +2991,9 @@ async function main() {
       meta.attempt = usageAttempt;
       /* the hops that ran out before this answer: the client's own picks (standby, /model skip) leave them alone for a while */
       for(const m of spentModels(meta.trail, meta.routedVia)) skipModel(m, 'ran out in the gateway chain', TRAIL_SKIP_MS);
+      /* a platform whose every key ran out for one model: its models that no other platform serves go too, not one by one */
+      const dry = spentPlatforms(meta.trail, meta.routedVia, p => availability?.keyCounts?.get(p) ?? 0);
+      if(dry.length) for(const [m, e] of availability?.byModel ?? []) if(e.platforms?.length && e.platforms.every(p => dry.includes(p))) skipModel(m, `every key of ${dry.join(', ')} ran out`, TRAIL_SKIP_MS);
       stats.add(meta);
       if(gatewayRef?.enabled) appendUsage(gatewayRef.origin, cacheKey, stats.last());
       /* a failure that no route answered (no routedVia: the gateway had nothing to try, so auto or the pinned name would take the blame

@@ -330,7 +330,9 @@ export function reportChanges(av) {
 const loading = new Map(); /* gateway -> the load in flight */
 
 /** the last answer of each dashboard table, by origin and path: stands in when a later call fails */
-const lastTables = new Map();
+const lastTables = new Map(); /* origin+path -> { r, at }: the last answer of a dashboard table */
+/** the dashboard tables that change rarely (the fallback chain and its routing scores), with how long an answer stands; usage, limits, penalties and keys (cooldowns) are read every load */
+const SLOW_TABLES = { '/api/models': 60e3, '/api/fallback/routing': 60e3 };
 
 let missingAt = 0;
 
@@ -348,7 +350,7 @@ export function loadAvailability(gateway, { fresh = false } = {}) {
 
   const run = async () => {
     if(running) await running.catch(() => {});
-    const av = await loadAvailabilityNow(gateway);
+    const av = await loadAvailabilityNow(gateway, fresh);
     try {
       timed('reportChanges', () => reportChanges(av));
     } catch(e) {}
@@ -360,18 +362,23 @@ export function loadAvailability(gateway, { fresh = false } = {}) {
   return p;
 }
 
-async function loadAvailabilityNow(gateway) {
+async function loadAvailabilityNow(gateway, fresh = false) {
   if(gateway.isBridge) return loadBridgeAvailability(gateway);
 
   const now = Date.now();
   /* a dashboard table that does not answer (the gateway allows 120 requests a minute, so a 429 is likely) is not
      silently dropped: the previous answer stands in for it and the load says which tables are missing */
   const missing = [];
-  const get = p =>
-    gateway.api(p).then(
-      r => (lastTables.set(`${gateway.origin}${p}`, r), r),
-      e => (missing.push(`${p.replace(/^\/api\//, '')} (${e?.status ?? String(e?.message ?? e).split('\n')[0].slice(0, 40)})`), lastTables.get(`${gateway.origin}${p}`) ?? null),
+  const get = p => {
+    const k = `${gateway.origin}${p}`;
+    const last = lastTables.get(k);
+    /* the tables that change rarely are asked once a minute, unless the caller changed gateway state */
+    if(!fresh && SLOW_TABLES[p] && last && now - last.at < SLOW_TABLES[p]) return Promise.resolve(last.r);
+    return gateway.api(p).then(
+      r => (lastTables.set(k, { r, at: now }), r),
+      e => (missing.push(`${p.replace(/^\/api\//, '')} (${e?.status ?? String(e?.message ?? e).split('\n')[0].slice(0, 40)})`), last?.r ?? null),
     );
+  };
 
   const [models, chain, rateRes, tokenRes, penRes, keyRes, routing] = await Promise.all([gateway.models(true), get('/api/models'), get('/api/fallback/rate-limit-usage'), get('/api/fallback/token-usage'), get('/api/fallback/penalty-inspector'), get('/api/keys'), get('/api/fallback/routing')]);
 
@@ -459,7 +466,7 @@ function availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRe
   }
 
   applyShadowBlocks(byModel, now);
-  return { at: now, byModel, byRow, rate, budget };
+  return { at: now, byModel, byRow, rate, budget, keyCounts: new Map([...keysOf].map(([p, ks]) => [p, ks.filter(k => k.enabled !== false).length])) };
 }
 
 /**

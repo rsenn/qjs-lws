@@ -46,6 +46,19 @@ check('one free key keeps the model ready', !m('eps').blocked && m('eps').platfo
 check('key cap ends at its reset', m('zeta').kinds[0] === 'cap' && m('zeta').until === now + 5 * 86400_000 || Math.abs(m('zeta').until - (now + 5 * 86400_000)) < 2000);
 check('providers come from the rows', m('alpha').platforms.join() === 'p1');
 
+/* the tables that change rarely are asked once a minute; fresh asks them all */
+{
+  const asked = [];
+  const slow = { origin: 'http://fake-ttl', models: async () => ids.map(id => ({ id, execution_status: 'ready' })), api: async p => (asked.push(p), data[p]) };
+  await loadAvailability(slow);
+  asked.length = 0;
+  await loadAvailability(slow);
+  check('the rarely changing tables are not asked again', !asked.includes('/api/models') && !asked.includes('/api/fallback/routing') && asked.includes('/api/keys') && asked.includes('/api/fallback/rate-limit-usage'));
+  asked.length = 0;
+  await loadAvailability(slow, { fresh: true });
+  check('fresh asks every table', asked.includes('/api/models') && asked.includes('/api/fallback/routing'));
+}
+
 /* /gateway limits: limited rows first, the earliest end first (the order is decided once per row, not by formatting rows in the comparator) */
 {
   const lines = limitsText(av, 'p', 200).replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter(l => /^p\d\//.test(l));

@@ -846,6 +846,11 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   tables degrade (`gateway.dashboard`, `hasLimits` checks everywhere).
 - **Transient vs real probe failures**: a busy provider must not lower a rating;
   `isTransientProbe` and `diagnose` decide; never treat a 429 as "model bad".
+- **Availability tables.** `/api/models` (the chain) and `/api/fallback/routing` change rarely and are asked once a minute
+  (`SLOW_TABLES`, `lastTables`), the other five tables (usage, limits, penalties, keys with their cooldowns) every load;
+  `{ fresh: true }` asks all of them. `av.keyCounts` (platform to enabled keys) lets `spentPlatforms` (`lib/fallback-trail.js`)
+  say that every key of a platform ran out in the trail of an answer: the models only that platform serves are skipped
+  for `TRAIL_SKIP_MS` at once.
 - **No per-item call that re-derives the whole catalog** (found 2026-11-25 in the real
   lag.jsonl: 31 `getFilteredModels` calls of 100-150 ms inside one 6.8 s stall, and the
   4.8 s stall of strace.log.txt, which sits between the end of a /v1/models download and the

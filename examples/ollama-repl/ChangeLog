@@ -1,5 +1,12 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/availability.js (loadAvailabilityNow, SLOW_TABLES): the chain and
+	routing tables are asked once a minute, { fresh: true } asks all; the
+	result has keyCounts.
+
+	* lib/fallback-trail.js (spentPlatforms), repl.js (onMeta): when every key
+	of a platform ran out in the trail, its models are skipped together.
+
 	* lib/persist.js (usageRow, appendUsage), lib/usage-baseline.js (baseline),
 	repl.js (watchNet): the explore, standby and sub-agent clients log their
 	requests in usage.jsonl with a label; the baseline counts turns from the

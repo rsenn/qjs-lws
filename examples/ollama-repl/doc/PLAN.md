@@ -115,9 +115,6 @@ One real session each; the unit tests only cover the helpers. Do these in a live
 
 Harness side (H) unless marked G.
 
-- **D2. Platform-wide soft-skip (M).** The trail soft-skip is per model. The header gives the key outcome only as an
-  ordinal (`key2`), so a platform-wide skip needs `diagnose`'s `parseTrail` plus availability: skip every model of a
-  platform when all its keys appear in the trail. Test with a trail fixture.
 - **D3. Availability on a timer (S).** Skips are released and routing-health numbers move only when `/model list`,
   `/model skip` or another refresh runs. Add a low-rate refresh (every 60 s while a request is running or the
   session is idle, never in a hot path; coalesce with BUGS `availability-load-uncoalesced-and-429-swallowed`, N1).
