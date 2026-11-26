@@ -1,5 +1,14 @@
 # TODO
 
+## Open threads
+
+- DONE: per-context socket registry (doc/DESIGN.md "Socket and
+  context registries"): LWSContext `sockets` list, `ctx.sockets()`, static
+  `LWSContext.sockets()` / `.contexts`; examples/ollama-repl/lib/project/resources.js
+  uses it, with `ss` kept for the byte counters, rtt, kernel state and unix
+  sockets. Postponed: bytes sent/received counted on LWSSocket (to drop `ss`
+  from the status pane), a `{ vhost }` filter, a per-runtime context registry.
+
 ## Main quest: public API spec compliance
 
 Every class and function in `lib/**/*.js` that corresponds to a WHATWG spec or

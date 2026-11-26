@@ -105,6 +105,20 @@ Built only with `LWS_WITH_SOCKS5`:
 | `wsiFromFd(fd)`                     | Looks up the `LWSSocket` for an OS fd, or `undefined`. |
 | `createUdp(options)`                | Creates (and, unless `bind` is set, connects) a UDP socket via `lws_create_adopt_udp()`. Built only with `LWS_WITH_UDP`. See below. |
 
+### Inspecting sockets: `sockets()`, `LWSContext.contexts`
+
+| Member | Returns |
+|--------|---------|
+| `ctx.sockets()`          | Array of the live `LWSSocket`s of this context |
+| `LWSContext.sockets()`   | Array of the live `LWSSocket`s of every context of the calling runtime |
+| `LWSContext.contexts`    | Static getter: array of the live `LWSContext`s of the calling runtime |
+
+The statics exist for code that has no reference to the context, such
+as the Bun-style wrappers (`TCPSocket`, `Bun.serve()`, `fetch()`) that
+create their own. Only sockets that have an `LWSSocket` wrapper are
+listed: lws-internal fds (netlink, unwrapped listen sockets) are not.
+See [../DESIGN.md](../DESIGN.md) for the registry layout.
+
 ### `clientConnect`
 
 Two call styles:

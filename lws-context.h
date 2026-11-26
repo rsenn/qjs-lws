@@ -3,6 +3,7 @@
 
 #include <quickjs.h>
 #include <list.h>
+#include "lws-socket.h"
 #include <libwebsockets.h>
 
 #ifdef USE_EPOLL
@@ -10,6 +11,9 @@ typedef struct LWSEpoll LWSEpoll;
 #endif
 
 typedef struct LWSContext {
+  struct list_head link; /* process-wide context_list, lws-context.c */
+  JSRuntime* rt;
+  struct list_head sockets; /* live LWSSockets of this context */
   struct lws_context* ctx;
   struct lws_context_creation_info info;
   JSContext* js;
@@ -30,6 +34,9 @@ typedef struct LWSContext {
   LWSEpoll* epoll;
 #endif
 } LWSContext;
+
+LWSSocket* lwsjs_context_socket_by_id(JSRuntime*, int);
+JSValue lwsjs_context_sockets(JSContext*, LWSContext*);
 
 typedef struct LWSHandlers {
   JSContext* ctx;

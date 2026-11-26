@@ -63,7 +63,6 @@ lwsjs_fix_reason_phrase(uint8_t* start, uint8_t** pp, uint8_t* end, unsigned cod
 }
 
 
-static struct list_head socket_list;
 static uint32_t socket_id;
 
 /* Per-write queue entry. The payload sits at buf + LWS_PRE so libwebsockets
@@ -438,16 +437,14 @@ socket_dup(LWSSocket* s) {
 }
 
 LWSSocket*
-socket_alloc(JSContext* ctx) {
+socket_alloc(JSContext* ctx, LWSContext* lws) {
   LWSSocket* sock;
 
   if(!(sock = js_mallocz(ctx, sizeof(LWSSocket))))
     return 0;
 
-  assert(socket_list.next);
-  assert(socket_list.prev);
-
-  list_add(&sock->link, &socket_list);
+  if(lws)
+    list_add(&sock->link, &lws->sockets);
 
   sock->ref_count = 1;
   sock->headers = JS_UNDEFINED;
@@ -496,17 +493,8 @@ socket_get(struct lws* wsi) {
 }
 
 static LWSSocket*
-socket_get_by_id(int id) {
-  struct list_head* n;
-
-  list_for_each(n, &socket_list) {
-    LWSSocket* sock = list_entry(n, LWSSocket, link);
-
-    if(sock->id == id)
-      return sock;
-  }
-
-  return 0;
+socket_get_by_id(JSContext* ctx, int id) {
+  return lwsjs_context_socket_by_id(JS_GetRuntime(ctx), id);
 }
 
 static void
@@ -551,13 +539,10 @@ socket_free(LWSSocket* sock, JSRuntime* rt) {
 
 static void
 socket_delete(LWSSocket* sock, JSRuntime* rt) {
-  assert(socket_list.next);
-  assert(socket_list.prev);
-
   if(sock->link.next)
     list_del(&sock->link);
 
-  DEBUG("delete LWSSocket: %p (wsi = %p, n = %d, ref_count = %d)", sock, sock->wsi, list_size(&socket_list), sock->ref_count);
+  DEBUG("delete LWSSocket: %p (wsi = %p, n = %d, ref_count = %d)", sock, sock->wsi, 0, sock->ref_count);
 
   if(sock->obj) {
     obj_free(rt, sock->obj);
@@ -610,7 +595,9 @@ lwsjs_socket_create(JSContext* ctx, struct lws* wsi) {
   JSValue ret = JS_UNDEFINED;
   LWSSocket* sock;
 
-  if((sock = socket_alloc(ctx))) {
+  struct lws_context* lc = lws_get_context(wsi);
+
+  if((sock = socket_alloc(ctx, lc ? lwsjs_context_fromlws(lc) : NULL))) {
     sock->wsi = wsi;
     ret = lwsjs_socket_wrap(ctx, sock);
 
@@ -1594,27 +1581,12 @@ lwsjs_socket_functions(JSContext* ctx, JSValueConst this_val, int argc, JSValueC
 
   switch(magic) {
     case FUNCTION_LIST: {
-      if(socket_list.next != 0) {
-        uint32_t i = 0;
-        struct list_head* el;
-
-        ret = JS_NewArray(ctx);
-
-        list_for_each(el, &socket_list) {
-          LWSSocket* sock = list_entry(el, LWSSocket, link);
-
-          if(sock == (LWSSocket*)(uintptr_t)(intptr_t)-1)
-            continue;
-
-          JS_SetPropertyUint32(ctx, ret, i++, socket_obj2(sock, ctx));
-        }
-      }
-
+      ret = lwsjs_context_sockets(ctx, NULL);
       break;
     }
 
     case FUNCTION_GET: {
-      ret = socket_obj2(socket_get_by_id(to_int32(ctx, argv[0])), ctx);
+      ret = socket_obj2(socket_get_by_id(ctx, to_int32(ctx, argv[0])), ctx);
       break;
     }
   }
@@ -1835,10 +1807,11 @@ lwsjs_socket_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
       if(getpeername(fd, (struct sockaddr*)sa, &len) == -1) {
         JS_FreeValue(ctx, ret);
-        if(errno == EBADF)
+        /* a listening or not yet connected socket has no peer */
+        if(errno == EBADF || errno == ENOTCONN)
           ret = JS_NULL;
         else
-          ret = JS_ThrowInternalError(ctx, "geetpeername(%d) returned -1: %s", (int)fd, strerror(errno));
+          ret = JS_ThrowInternalError(ctx, "getpeername(%d) returned -1: %s", (int)fd, strerror(errno));
       }
 
       break;
@@ -2114,10 +2087,6 @@ static const JSCFunctionListEntry lws_socket_static_funcs[] = {
 
 int
 lwsjs_socket_init(JSContext* ctx, JSModuleDef* m) {
-  /* the list is process-wide: a second runtime must not reset it */
-  if(!socket_list.next)
-    init_list_head(&socket_list);
-
   JS_NewClassID(&lwsjs_socket_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lwsjs_socket_class_id, &lws_socket_class);
   /* the prototype lives in the runtime (class proto), not in a static, so

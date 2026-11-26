@@ -1,3 +1,32 @@
+2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
+
+	* lws-socket.c (lwsjs_socket_get): LWSSocket.peer is null for a
+	listening or not yet connected socket (ENOTCONN) instead of throwing,
+	so every socket can be inspected; fixed the "getpeername" typo in the
+	error message.
+
+	* tests/unittests/test-context-sockets.js, doc/native/LWSSocket.md: Cover
+	peer and local on every listed socket; document the null cases.
+
+	* lws-context.h (LWSContext), lws-context.c (context_new, context_free,
+	lwsjs_context_sockets, lwsjs_context_socket_by_id, lwsjs_context_contexts):
+	Each context keeps the list of its own sockets and sits in a process-wide
+	context list tagged with its runtime. New: ctx.sockets(), static
+	LWSContext.sockets() and static getter LWSContext.contexts, so code
+	without a context reference (the Bun-style wrappers) can enumerate
+	sockets, and a runtime only sees its own.
+
+	* lws-socket.c (socket_alloc, socket_get_by_id, lwsjs_socket_functions),
+	lws-socket.h: The global socket list is gone; socket_alloc() links the
+	socket into the list of the context it is created for.
+	LWSSocket.list() and LWSSocket.get() go through the context registry.
+
+	* tests/unittests/test-context-sockets.js: New.
+
+	* doc/DESIGN.md: New. doc/native/LWSContext.md, doc/native/LWSSocket.md,
+	doc/native/examples.md, doc/building.md, doc/README.md, TODO.md:
+	Document the registry and the new API.
+
 2026-11-25  Roman Senn  <roman.l.senn@gmail.com>
 
 	* examples/ollama-repl/lib/rawcolor.js (colorReasoning): Rewritten

@@ -156,5 +156,5 @@ qjs -I ./build/release  ./tests/unittests/test-lwscontext.js
   print every callback invocation prefixed with the wsi id.
 - `logLevel(LLL_USER | LLL_INFO | LLL_DEBUG)` shows libwebsockets's
   own logs.
-- `LWSSocket.list()` enumerates every live wsi the binding knows
+- `LWSContext.sockets()` enumerates every live wsi the binding knows
   about — useful for leak hunts.

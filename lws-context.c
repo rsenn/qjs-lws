@@ -704,6 +704,18 @@ lwsjs_context_creation_info_free(JSRuntime* rt, struct lws_context_creation_info
     js_free_rt(rt, (char*)ci->listen_accept_protocol);
 }
 
+static struct list_head context_list;
+
+#ifdef _WIN32
+#define CONTEXT_LIST_LOCK()
+#define CONTEXT_LIST_UNLOCK()
+#else
+#include <pthread.h>
+static pthread_mutex_t context_list_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define CONTEXT_LIST_LOCK() pthread_mutex_lock(&context_list_mutex)
+#define CONTEXT_LIST_UNLOCK() pthread_mutex_unlock(&context_list_mutex)
+#endif
+
 static LWSContext*
 context_new(JSContext* ctx) {
   LWSContext* lws;
@@ -711,6 +723,12 @@ context_new(JSContext* ctx) {
   if((lws = js_mallocz(ctx, sizeof(LWSContext)))) {
     init_list_head(&lws->handlers);
     init_list_head(&lws->timers);
+    init_list_head(&lws->sockets);
+    lws->rt = JS_GetRuntime(ctx);
+
+    CONTEXT_LIST_LOCK();
+    list_add_tail(&lws->link, &context_list);
+    CONTEXT_LIST_UNLOCK();
 
     /* js_mallocz() zero-fills, which isn't guaranteed to be JS_UNDEFINED's
        actual bit pattern - set it explicitly rather than relying on that. */
@@ -751,7 +769,95 @@ context_free(JSRuntime* rt, LWSContext* lws) {
 
   lwsjs_context_creation_info_free(rt, &lws->info);
 
+  /* sockets still listed must not point into the freed context */
+  while(!list_empty(&lws->sockets))
+    list_del(lws->sockets.next);
+
+  CONTEXT_LIST_LOCK();
+  list_del(&lws->link);
+  CONTEXT_LIST_UNLOCK();
+
   js_free_rt(rt, lws);
+}
+
+/* Looks a socket up by id over the contexts of one runtime. */
+LWSSocket*
+lwsjs_context_socket_by_id(JSRuntime* rt, int id) {
+  struct list_head *c, *s;
+
+  list_for_each(c, &context_list) {
+    LWSContext* lws = list_entry(c, LWSContext, link);
+
+    if(lws->rt != rt)
+      continue;
+
+    list_for_each(s, &lws->sockets) {
+      LWSSocket* sock = list_entry(s, LWSSocket, link);
+
+      if(sock->id == id)
+        return sock;
+    }
+  }
+
+  return 0;
+}
+
+/* Array of the live sockets of one context, or of every context of the
+   calling runtime when lws is NULL. */
+JSValue
+lwsjs_context_sockets(JSContext* ctx, LWSContext* lws) {
+  JSRuntime* rt = JS_GetRuntime(ctx);
+  JSValue ret = JS_NewArray(ctx);
+  uint32_t i = 0;
+  struct list_head *c, *s;
+
+  list_for_each(c, &context_list) {
+    LWSContext* l = list_entry(c, LWSContext, link);
+
+    if(l->rt != rt || (lws && l != lws))
+      continue;
+
+    list_for_each(s, &l->sockets) {
+      LWSSocket* sock = list_entry(s, LWSSocket, link);
+
+      if(sock->obj)
+        JS_SetPropertyUint32(ctx, ret, i++, JS_DupValue(ctx, ptr_obj(ctx, sock->obj)));
+    }
+  }
+
+  return ret;
+}
+
+static JSValue
+lwsjs_context_sockets_method(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  LWSContext* lws;
+
+  if(!(lws = lwsjs_context_data(this_val)))
+    return JS_EXCEPTION;
+
+  return lwsjs_context_sockets(ctx, lws);
+}
+
+static JSValue
+lwsjs_context_sockets_static(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst argv[]) {
+  return lwsjs_context_sockets(ctx, NULL);
+}
+
+static JSValue
+lwsjs_context_contexts(JSContext* ctx, JSValueConst this_val) {
+  JSRuntime* rt = JS_GetRuntime(ctx);
+  JSValue ret = JS_NewArray(ctx);
+  uint32_t i = 0;
+  struct list_head* c;
+
+  list_for_each(c, &context_list) {
+    LWSContext* lws = list_entry(c, LWSContext, link);
+
+    if(lws->rt == rt && lws->info.user)
+      JS_SetPropertyUint32(ctx, ret, i++, JS_DupValue(ctx, ptr_obj(ctx, lws->info.user)));
+  }
+
+  return ret;
 }
 
 static JSValue
@@ -781,7 +887,7 @@ lwsjs_client_connect(JSContext* ctx, JSValueConst this_val, int argc, JSValueCon
 
   client_connect_info_fromobj(ctx, obj, &info);
 
-  LWSSocket* sock = socket_alloc(ctx);
+  LWSSocket* sock = socket_alloc(ctx, lws);
 
   sock->client = TRUE;
   sock->type = info.method ? SOCKET_HTTP : SOCKET_WS;
@@ -1139,7 +1245,7 @@ lwsjs_context_methods(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
 
       {
         int flags = ((bind || !address) ? LWS_CAUDP_BIND : 0) | (broadcast ? LWS_CAUDP_BROADCAST : 0);
-        LWSSocket* sock = socket_alloc(ctx);
+        LWSSocket* sock = socket_alloc(ctx, lws);
 
         sock->type = SOCKET_RAW;
         ret = lwsjs_socket_wrap(ctx, sock);
@@ -1261,6 +1367,7 @@ static const JSCFunctionListEntry lws_context_proto_funcs[] = {
     JS_CFUNC_MAGIC_DEF("adoptSocketReadbuf", 2, lwsjs_context_methods, METHOD_ADOPTSOCKET_READBUF),
     JS_CFUNC_MAGIC_DEF("cancelService", 0, lwsjs_context_methods, METHOD_CANCELSERVICE),
     JS_CFUNC_DEF("clientConnect", 1, lwsjs_client_connect),
+    JS_CFUNC_DEF("sockets", 0, lwsjs_context_sockets_method),
     JS_CFUNC_MAGIC_DEF("getRandom", 1, lwsjs_context_methods, METHOD_GETRANDOM),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerAdd", 1, lwsjs_context_methods, METHOD_ASYNCDNSSERVER_ADD),
     JS_CFUNC_MAGIC_DEF("asyncDnsServerRemove", 1, lwsjs_context_methods, METHOD_ASYNCDNSSERVER_REMOVE),
@@ -1296,8 +1403,17 @@ static const JSCFunctionListEntry lws_context_funcs[] = {
     JS_CFUNC_DEF("createServer", 1, lwsjs_create_server),
 };
 
+static const JSCFunctionListEntry lws_context_static_funcs[] = {
+    JS_CFUNC_DEF("sockets", 0, lwsjs_context_sockets_static),
+    JS_CGETSET_DEF("contexts", lwsjs_context_contexts, 0),
+};
+
 int
 lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
+  /* the list is process-wide: a second runtime must not reset it */
+  if(!context_list.next)
+    init_list_head(&context_list);
+
   JS_NewClassID(&lwsjs_context_class_id);
   JS_NewClass(JS_GetRuntime(ctx), lwsjs_context_class_id, &lws_context_class);
   JSValue proto = JS_NewObjectProto(ctx, JS_NULL);
@@ -1305,6 +1421,7 @@ lwsjs_context_init(JSContext* ctx, JSModuleDef* m) {
 
   JSValue ctor = JS_NewCFunction2(ctx, lwsjs_context_constructor, "LWSContext", 1, JS_CFUNC_constructor, 0);
   JS_SetConstructor(ctx, ctor, proto);
+  JS_SetPropertyFunctionList(ctx, ctor, lws_context_static_funcs, countof(lws_context_static_funcs));
   JS_SetClassProto(ctx, lwsjs_context_class_id, proto);
 
   if(m) {

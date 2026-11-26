@@ -45,11 +45,13 @@ typedef struct {
   size_t write_buffered;        /* bytes still queued at our layer */
 } LWSSocket;
 
+struct LWSContext;
+
 extern JSClassID lwsjs_socket_class_id;
 
 int socket_getid(struct lws* wsi);
 LWSSocket* socket_get(struct lws* wsi);
-LWSSocket* socket_alloc(JSContext* ctx);
+LWSSocket* socket_alloc(JSContext* ctx, struct LWSContext* lws);
 int socket_flush(LWSSocket* s);
 BOOL socket_write_queue_front_is_callback(LWSSocket* s);
 JSValue socket_pop_callback(LWSSocket* s, JSContext** pctx);

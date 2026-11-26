@@ -256,10 +256,10 @@ logLevel(LLL_USER | LLL_WARN | LLL_ERR, (level, line) => {
 ## 12. Inspecting live sockets
 
 ```js
-import { LWSSocket } from 'lws';
+import { LWSContext } from 'lws';
 
 setInterval(() => {
-  for(const s of LWSSocket.list())
+  for(const s of LWSContext.sockets())
     console.error(s.id, s.protocol, s.peer?.host);
 }, 5000);
 ```

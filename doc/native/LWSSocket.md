@@ -12,8 +12,8 @@ The `LWSSocket` constructor itself only carries the static helpers
 
 | Method | Returns |
 |--------|---------|
-| `LWSSocket.list()`   | Array of every live `LWSSocket` |
-| `LWSSocket.get(id)`  | The socket whose `id` matches (see `id` property), or `null` |
+| `LWSSocket.list()`   | Deprecated alias of `LWSContext.sockets()`: every live `LWSSocket` of the calling runtime |
+| `LWSSocket.get(id)`  | The socket whose `id` matches (see `id` property), searched over the contexts of the calling runtime, or `null` |
 
 ## Instance methods
 
@@ -186,7 +186,7 @@ Throws `RangeError` when the buffer is too small.
 | `context`      | `LWSContext` for this connection |
 | `headers`      | Object of received HTTP headers (lowercased keys), populated lazily after `HTTP` / `CLIENT_FILTER_PRE_ESTABLISH` |
 | `tls`          | Boolean — whether the connection is over SSL |
-| `peer`         | `LWSSockAddr46` of `getpeername()` or `null` |
+| `peer`         | `LWSSockAddr46` of `getpeername()`, or `null` (no fd, or a listening / not yet connected socket) |
 | `local`        | `LWSSockAddr46` of `getsockname()` or `null` |
 | `fd`           | Underlying OS file descriptor |
 | `parent`       | Parent wsi (mux / proxied) — `LWSSocket` or `undefined` |

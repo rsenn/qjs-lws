@@ -37,6 +37,7 @@ import { LWSContext /* … */ } from 'lws';
 | [js/bun.md](js/bun.md)               | `serve()`'s Bun-compatible API surface in detail: `server.upgrade()`, WS pub/sub, chunked streaming, and their real constraints |
 | [native/examples.md](native/examples.md)     | Twelve copy-paste examples covering every role |
 | [building.md](building.md)     | Build instructions and CMake options |
+| [DESIGN.md](DESIGN.md)         | Cross-cutting design decisions |
 
 ## Architecture overview
 
