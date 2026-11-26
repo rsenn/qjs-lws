@@ -339,6 +339,14 @@ One file, in this order (use the names to navigate):
 
 ## 7. The life of a prompt
 
+**Interrupting (decided 2026-11-26).** A lone Esc while the harness works aborts the step that is running (the request,
+a wait, a tool) and the loop around it decides what comes next; a `/each` or `for_each` batch goes on with the next
+item. **Esc three times within 2 seconds stops the whole turn**: `stopRequested` is set, the running step is aborted, the
+prompt queue is cleared, and every loop looks at the flag and ends (the tool rounds of `runToolLoop`, the retries and
+waits of `chatRound`, the items of a batch and the retry of an item, the turns of a sub-agent); the turn says
+"stopped" instead of printing an error, and keeps its finished rounds as any interrupted turn does. The flag is cleared
+when the next turn starts and when this one ends. Slash commands that only show something do not touch it.
+
 ```
 user line ─► ChatREPL.handleCmd ─► (busy? queue / immediate command / steer)
           ─► ChatREPL#run ─► onLine = reportLine ─► runLine(line)

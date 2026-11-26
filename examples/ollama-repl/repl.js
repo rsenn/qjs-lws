@@ -719,6 +719,15 @@ let skipError = null;
 let skipRetryMs = null; /* how long the gateway says it stays dry, from skipError's Retry-After / retryAtMs */
 const AUTO_SKIPS = 8;
 
+/* Esc three times (lib/tui/chat-repl.js): the whole turn stops. Every loop of the turn looks at this and ends; it is
+   cleared when a turn starts and when it ends (doc/ARCHITECTURE.md, "Interrupting") */
+let stopRequested = false;
+
+/** throws the interrupt that ends a stopped turn (the turn says "stopped", not an error) */
+function checkStop() {
+  if(stopRequested) throw Object.assign(new Error('interrupted'), { stopped: true });
+}
+
 /* which try of its round the request now being made is (chatRound), written into the usage row by the main client's onMeta */
 let usageAttempt = 0;
 
@@ -1152,6 +1161,8 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
   let pass = 0;
 
   for(;;) {
+    checkStop();
+
     /* a route that is cooling down is not asked again: go straight to the next one */
     if(providerHook && providerHook.keys(client).some(k => providerHook.pf.cooling(k))) {
       const to = await providerHook.next(new Set(providerHook.keys(client)));
@@ -1166,6 +1177,7 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
     try {
       return await chatRoundOnce(client, messages, opts, abortRef, chatOptions);
     } catch(e) {
+      if(stopRequested) throw e; /* no failover, no wait, no retry */
       if(ui.verbose && e.headers && !opts.quiet) console.log(dim(`${e.message}\nheaders: ${JSON.stringify(e.headers, null, 2)}\nbody: ${e.body ?? ''}`));
 
       /* nothing can serve the request on this route: skip the spent model(s), switch to the next ready one, retry */
@@ -1911,6 +1923,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
   const writesAtStart = writeCount; // this loop's own changes, not an earlier item's
 
   for(let round = 0; ; round++) {
+    checkStop();
     /* a takeover candidate is being assessed (considerTakeover): the running model pauses at this step */
     await takeoverHook?.hold(messages);
     const final = round >= opts.maxRounds - 1 || repeatRounds >= MAX_REPEAT_ROUNDS;
@@ -4349,6 +4362,11 @@ async function main() {
     const results = [];
 
     for(const [i, item] of items.entries()) {
+      if(stopRequested) {
+        results.push(`(stopped before item ${i + 1} of ${items.length})`);
+        break;
+      }
+
       console.log(`[${i + 1}/${items.length}] ${item}`);
 
       const text = hasSlot ? task.replaceAll('{item}', item).replaceAll('{}', item) : `${task}\n\nItem: ${item}`;
@@ -4363,7 +4381,7 @@ async function main() {
 
         /* nothing was written: a fresh conversation gets a second try (a
            small model's failures here are mostly one-off, not systematic) */
-        if(writeCount === writes && asksForChange(subMessages)) {
+        if(!stopRequested && writeCount === writes && asksForChange(subMessages)) {
           console.log(dim('  (no change made - retrying once)'));
           subMessages.length = 2;
           reply = await runToolLoop(client, subMessages, sub, log, confirmRun, askUser, abortRef);
@@ -4373,8 +4391,9 @@ async function main() {
         console.log(dim(`  ${summary}`));
         results.push(`${item}: ${summary}`);
       } catch(e) {
-        PrintError(e);
-        results.push(`${item}: error: ${e.message}`);
+        if(!e.stopped) PrintError(e);
+        results.push(`${item}: ${e.stopped ? 'stopped' : `error: ${e.message}`}`);
+        if(stopRequested) break;
       }
     }
 
@@ -4426,9 +4445,15 @@ async function main() {
   }
 
   const runLine = async line => {
+    /* a turn (a prompt, /each) starts with a clear stop flag and leaves with one; a command that only shows something leaves it alone */
+    const text = line.trim();
+    const turn = !!text && (!text.startsWith('/') || text.startsWith('/each '));
+    if(turn) stopRequested = false;
+
     try {
       return await runLineNow(line);
     } finally {
+      if(turn) stopRequested = false;
       persistState();
     }
   };
@@ -5713,7 +5738,8 @@ async function main() {
     try {
       reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
     } catch(e) {
-      PrintError(e);
+      if(e.stopped) console.log(note('stopped (Esc ×3): the loop was interrupted', 'warn'));
+      else PrintError(e);
       /* a turn that changed files or ran commands keeps its finished rounds (the model must know), anything else goes whole */
       const ran = messages.slice(Math.max(0, messages.indexOf(turnMsg))).some(m => m.role === 'tool' && m.name === 'run_command');
       if(repairTurn(messages, turnMsg, { sideEffects: writeCount > writesBefore || ran, reason: e.message }) === 'kept') console.log(dim('the finished tool rounds of this turn stay in the conversation'));

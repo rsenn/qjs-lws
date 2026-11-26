@@ -25,6 +25,7 @@ import { stringWidth, stripAnsi, ttyRead, EAGAIN } from 'terminal';
 import { gradient } from 'terminal/style';
 import { Pager } from './pager.js';
 import { SessionBrowser } from './session-browser.js';
+import { PressCounter } from './press-counter.js';
 import { STOPS, remoteMark, remoteText, note } from '../look.js';
 import { red, yellow, bgSgr } from '../ansi.js';
 import { SELECT_BG } from '../palette.js';
@@ -92,6 +93,10 @@ export class ChatREPL extends REPL {
   #root;
 
   #onAbort;
+  /** Esc three times within 2 s: stop the whole turn, not just the running step */
+  #escRun = new PressCounter(3, 2000);
+  /** called when the whole turn is to stop (repl.js sets its stop flag and aborts what runs) */
+  onStop = null;
 
   /* hooks for lib/agent/control-socket.js: onIdle() once every submitted line
      has been handled, onPrompt(kind, text) when a question is put to the
@@ -332,7 +337,15 @@ export class ChatREPL extends REPL {
 
     if(l === 1 && this.readBuf[0] === 0x1b && !this.#dialog) {
       /* idle, a lone Esc is dropped: handed to the editor it would swallow the next key as an Alt chord */
-      if(this.#busy && this.#onAbort?.()) this.tui?.write('\n(interrupted)\n');
+      if(!this.#busy) return void this.#escRun.reset();
+
+      if(this.#escRun.press()) {
+        /* the whole loop: nothing queued runs after it, every loop of the turn ends */
+        this.clearQueue();
+        this.onStop?.();
+        this.#onAbort?.();
+        this.tui?.write('\n\x1b[1;31m■ stopped\x1b[0m\x1b[2m - Esc ×3: the whole loop is interrupted\x1b[0m\n');
+      } else if(this.#onAbort?.()) this.tui?.write('\n(interrupted)\n');
       return;
     }
 
