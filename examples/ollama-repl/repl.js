@@ -88,6 +88,7 @@ import { loadKeyData, parseKeyScope, modelsOfKeys } from './lib/key-models.js';
 import { externalIp } from './lib/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
 import { startLagWatch, timed } from './lib/lag.js';
+import { messageText, messageSelection, summarizeMessages, parseContextArgs } from './lib/context-view.js';
 import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
 import { hopLine, hopStyle } from './lib/hop-line.js';
 import { exploreOrder as exploreOrderOf, earliestReset, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/transcript-text.js';
@@ -2067,43 +2068,6 @@ async function gatherProjectContext(root) {
   }
 
   return `Project layout (top-level only):\n${layout || '(empty)'}${reads.length ? `\n\n${reads.join('\n\n')}` : ''}`;
-}
-
-/** one message in full: index, role, char count, then the content and its tool calls, nothing cut */
-function messageText(m, i) {
-  const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
-  const calls = (m.toolCalls ?? []).map(tc => `[called ${tc.name} ${JSON.stringify(tc.args ?? {})}]`);
-  return `[${i}] ${m.role}${m.name ? ` ${m.name}` : ''} (${content.length} chars)\n${content}${calls.length ? `\n${calls.join('\n')}` : ''}`;
-}
-
-/** message numbers from "3", "#3", "1-4", "1,3,5" or "all" (whole list `n` long); null when one is not a message */
-function messageSelection(text, n) {
-  if(/^all$/i.test(text)) return Array.from({ length: n }, (_, i) => i);
-
-  const out = [];
-
-  for(const part of text.split(/[\s,]+/).filter(Boolean)) {
-    const m = /^#?(\d+)(?:-#?(\d+))?$/.exec(part);
-    if(!m) return null;
-
-    const [a, b] = [+m[1], m[2] === undefined ? +m[1] : +m[2]];
-    if(a > b || b >= n) return null;
-    for(let i = a; i <= b; i++) if(!out.includes(i)) out.push(i);
-  }
-
-  return out.length ? out : null;
-}
-
-/** One line per message: index, role, char count, and a truncated preview - the
-    non-debug ("summary") view for /context and /log below. */
-function summarizeMessages(msgs) {
-  return msgs
-    .map((m, i) => {
-      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-      const preview = content.replaceAll('\n', ' ').slice(0, 80);
-      return `[${i}] ${m.role} (${content.length} chars): ${preview}${content.length > 80 ? '...' : ''}`;
-    })
-    .join('\n');
 }
 
 /* A clean, plain-text full transcript of the conversation for /export -
@@ -5305,16 +5269,13 @@ async function main() {
 
     /* /context show|save|copy SELECTION [FILE]: messages of the context in full (SELECTION: 1, #1, 1-3, 1,4 or all) */
     if(/^\/context\s+\S/.test(prompt)) {
-      const [first, ...rest] = prompt.slice('/context'.length).trim().split(/\s+/);
-      const verb = /^(show|save|copy)$/i.test(first) ? first.toLowerCase() : /^(#?\d|all$)/i.test(first) ? 'show' : null;
-      const args = verb === 'show' && first.toLowerCase() !== 'show' ? [first, ...rest] : rest;
+      const { verb, sel, rest: args } = parseContextArgs(prompt);
 
       if(!verb) {
         console.log(note('/context [show|save|copy] SELECTION [FILE] - SELECTION is a message number as in /context (1, #1, 1-3, 1,4, all); show opens the full text, save writes it to FILE (default <YYYY-MM-DD-HHMMSS>-context.txt in the working directory), copy puts it on the clipboard', 'info'));
         return;
       }
 
-      const sel = args.length && /^(#?\d+([-,]#?\d+)*|all)$/i.test(args[0]) ? args.shift() : verb === 'show' ? null : 'all';
       const picked = sel === null ? null : messageSelection(sel, messages.length);
 
       if(!picked) return void console.log(note(`no such message: ${sel ?? args.join(' ')} (the context has ${messages.length}, numbered 0-${messages.length - 1}; /context lists them)`, 'warn'));

@@ -207,6 +207,7 @@ place that knows about all subsystems.
 | `lib/pager.js` | `Pager`: full-screen scrolling view, optionally a selectable list with column filters. |
 | `lib/palette.js` | Every colour of the TUI as a `#rrggbb` string (`STOPS`, `ACCENT`, `REPLY`, `TOOL_COLORS`, the raw-content colours, ...); `look.js` and `rawcolor.js` take their colours from here. |
 | `lib/look.js` | `note`, `card`, `banner`, `quotaCell`, `pctCell`, `toolLine`, `toolResult`, `highlight`, ...; `panel`, `meter`, `gradientRule`, `sideBySide`, `shortPath` are thin wrappers over `terminal/widgets` that pass the palette. |
+| `lib/context-view.js` | `/context` and `/log` helpers: `messageText`, `messageSelection`, `summarizeMessages`, `parseContextArgs`. |
 | `lib/hop-line.js` | `hopLine`: the one transcript line of an automatic model switch (§10). |
 | `lib/ip-pane.js` | `ipGroups`, `ipChangeParts`, `ipChangePanel`: the old/new exit address pane with the models that could work again (§14). |
 | `lib/ansi.js` | `piped` (stdout is not a tty), `red`, `yellow`, ... |

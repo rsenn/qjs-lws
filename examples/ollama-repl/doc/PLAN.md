@@ -228,8 +228,8 @@ Harness side (H) unless marked G.
   leaves its panel on the failure line only when `runToolLoop` catches it (make every path close its panel).
 - **H3. Testability of `repl.js` (rest, S).** Done 2026-11-25: `hopStyle` (`lib/hop-line.js`), `makeModelName`,
   `routeFailure`, `soonestReset`, `servedIds`, `exploreOrder` (`lib/transcript-text.js`) and `Tui#inKind` have tests.
-  Still only in `repl.js`: the context subcommands (`/context`, `/log`), the dialog state of `ChatREPL`, and the
-  rest of the wiring; move pure parts out as they are touched.
+  Done 2026-11-26: the `/context` and `/log` helpers and the `/context` argument parsing (`lib/context-view.js`).
+  Still only in `repl.js`: the dialog state of `ChatREPL` and the rest of the wiring; move pure parts out as they are touched.
 - **H4. Kitty keyboard and focus events (L).** Off today. `ChatREPL#termReadHandler` needs a layer that runs
   `decodeKeys()` and hands `handleKey()` the legacy string of each key (press events only); focus events could pause
   repaints. Needs a kitty terminal.

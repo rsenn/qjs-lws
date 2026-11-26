@@ -53,7 +53,7 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
 
 6. **N1 rest** (H, S) the availability load is cheaper (shared loads, the chain and routing tables once a minute) but still blocks the loop
    0.3 to 1 s; confirm after a restart with `/events lag` that no section is left (`loadAvailability compute`, `JSON.parse`).
-7. **H3 rest** (H, S) the context subcommands (`/context`, `/log`), the dialog state of `ChatREPL` and the remaining wiring of
+7. **H3 rest** (H, S) the dialog state of `ChatREPL` and the remaining wiring of
    `repl.js` are only testable inside `main()`: move the pure parts into `lib/` as they are touched; prerequisite for H1, H2, J1.
 ### 3. Small failover and display fixes (each with a test)
 

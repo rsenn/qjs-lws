@@ -1,5 +1,9 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/context-view.js (messageText, messageSelection, summarizeMessages,
+	parseContextArgs), repl.js (main): New. The pure parts of /context and
+	/log moved out of repl.js, with tests.
+
 	* lib/availability.js (loadAvailabilityNow, SLOW_TABLES): the chain and
 	routing tables are asked once a minute, { fresh: true } asks all; the
 	result has keyCounts.
