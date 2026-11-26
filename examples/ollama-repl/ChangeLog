@@ -1,5 +1,10 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/ip-fix.js (ipProxyTargets, ipProxyReleases), repl.js (autoProxy):
+	proxy policy: a keyed provider goes direct, its keys use the proxy only
+	while it is limited per IP address and come off it 30 minutes after the
+	limit (the 22 kilo keys of the old policy at startup).
+
 	* lib/key-events.js (reportKeys): New. Key status changes as events,
 	seen at every availability load; lib/freellm.js, lib/availability.js use it.
 

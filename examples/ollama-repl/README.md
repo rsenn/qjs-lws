@@ -571,8 +571,9 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   The keys that profit from another exit address go through the socks proxy
   (`socks5h://127.0.0.1:9050`, or the gateway's own socks URL) by
   themselves: every enabled keyless key (its quotas count per IP address) and
-  the keys of a provider that has several keys (spread over addresses); a
-  provider's only key goes direct. A provider that is exhausted or limited per IP
+  the keys of a provider that has several keys only while one of its models is
+  limited per IP address (they go direct again 30 minutes after the limit is gone);
+  a provider's only key goes direct. A provider that is exhausted or limited per IP
   address gets its keys on the proxy at once. A key with a proxy already, or
   whose provider the gateway proxies globally, is left alone. It runs a few seconds
   after startup, when a provider turns out to be limited or exhausted, and every

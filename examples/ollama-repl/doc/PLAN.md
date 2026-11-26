@@ -37,7 +37,6 @@ Contents
 
 | # | Task | Owner | Size |
 |---|---|---|---|
-| A1 | **Kilo behind Tor?** (data side done 2026-11-26: usage rows carry `proxied`, the baseline splits `kilo` / `kilo +socks`, see `HEALTH-EXPERIMENTS.md`; the decision needs a day of rows.) Since 2026-11-25 the proxy policy has 22 keys on `socks5://192.168.178.52:9050`, `kilo` (67 to 77 % of the traffic) among them. It is gateway key state and outlives the harness. Compare before/after per platform (latency, ttfb, errors; split `usage.jsonl` at that time) and decide: keep, take kilo off (`/proxy keyless clear` for it), or keep only the keyless ones. Record the decision in `doc/HEALTH-EXPERIMENTS.md`. | U | S |
 | A2 | **Who takes the gateway proposals** (D4 to D8 below, `doc/GATEWAY-PROPOSALS.md`)? Options: the user changes freellmapi, a patch is prepared here against `~/Sources/freellmapi`, or the harness keeps working around them. | U | S |
 | A3 | **Delete the strace logs** (`strace.log`, `strace.log.copy.txt`, `strace.log.txt`, 110 MB, untracked or ignored). `harness.mp4` (14 MB) is also in the directory: keep or move out. | U | S |
 | A4 | **Restart the running sessions** (`auto`, `worker-freellm`, `qjs-modules`) so they use the code of Phases 1 to 3: attempt rows, probe budget, rating reliability, exploration order, Tor host. Without it the 4.2 "after" numbers stay the old code. `ollama-repl-ctl -s NAME restart` after `smoke.sh` passes. | U / H | S |
@@ -150,7 +149,7 @@ Harness side (H) unless marked G.
   turn its steps into `proxy` events (they are printed only).
 - **E6. Latency of proxied keyed providers (S).** A keyed provider limited per IP gets a proxy for its key, adding the
   proxy's latency to every request of that key: show the added latency per platform in `/proxy` (exists:
-  `measure`), and take the key off the proxy again when the limit is gone (`autoProxy` only adds).
+  `measure`), (the take-off when the limit is gone is done: `ipProxyReleases`, `autoProxy`).
 - **E7. Transient/real split without a regex (M).** `isTransientProbe` and `diagnose` classify by regex over the error
   text; use the gateway's error code and status where the gateway gives them (`upstream_error`, `rate_limited`).
 

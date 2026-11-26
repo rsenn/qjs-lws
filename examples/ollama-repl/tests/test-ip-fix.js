@@ -41,7 +41,7 @@ check('routedKeys finds those on the proxy', routedKeys(keys, ANON_PROXY).map(k 
 check('routedKeys by host and port, not scheme', routedKeys([{ keyless: true, maskedProxyUrl: 'socks5://127.0.0.1:9050' }], ANON_PROXY).length === 1);
 
 /* automatic routing: keyless keys and keys of IP-limited providers that have no proxy yet */
-import { ipProxyTargets, ipLimitedPlatforms, routedAll, exhaustedPlatforms } from '../lib/ip-fix.js';
+import { ipProxyTargets, ipProxyReleases, RELEASE_AFTER_MS, ipLimitedPlatforms, routedAll, exhaustedPlatforms } from '../lib/ip-fix.js';
 {
   const keys2 = [
     { id: 1, platform: 'kilo', keyless: true, enabled: true },
@@ -58,6 +58,18 @@ import { ipProxyTargets, ipLimitedPlatforms, routedAll, exhaustedPlatforms } fro
   check('auto: a key of a provider with several keys', t.some(x => x.id === 3 && x.why === 'multi-key'));
   check('auto: the only key of a provider goes direct, limited by IP or not', !t.some(x => x.id === 4) && !ipProxyTargets([{ id: 9, platform: 'solo', keyless: false, enabled: true }], { byModel: new Map([['s', { blocked: true, kinds: ['ip'], platforms: ['solo'] }]]) }).length);
   check('auto: routed, disabled, other-proxy and globally proxied keys are left alone', !t.some(x => [2, 5, 6, 7].includes(x.id)));
+  const calm = { byModel: new Map() };
+  check('auto: a multi-key provider that is not IP-limited goes direct', !ipProxyTargets(keys2, calm, ANON_PROXY, p => p === 'free').some(x => x.id === 3) && ipProxyTargets(keys2, calm, ANON_PROXY, p => p === 'free').some(x => x.id === 1));
+
+  /* the old policy's keys: kilo with several keys, all on the proxy */
+  const onProxy = [1, 2, 3].map(id => ({ id, platform: 'kilo', keyless: false, enabled: true, maskedProxyUrl: 'socks5h://127.0.0.1:9050' }));
+  const now = Date.now();
+  check('release: at once at startup when there was no IP limit', ipProxyReleases(onProxy, calm, ANON_PROXY, new Map(), now).map(k => k.id).join() === '1,2,3');
+  check('release: not while the provider is IP-limited', ipProxyReleases(onProxy, { byModel: new Map([['k', { blocked: true, kinds: ['ip'], platforms: ['kilo'] }]]) }, ANON_PROXY, new Map(), now).length === 0);
+  check('release: not within 30 minutes of the last IP limit', ipProxyReleases(onProxy, calm, ANON_PROXY, new Map([['kilo', now - 10 * 60e3]]), now).length === 0);
+  check('release: after them', ipProxyReleases(onProxy, calm, ANON_PROXY, new Map([['kilo', now - RELEASE_AFTER_MS - 1]]), now).length === 3);
+  check('release: keyless keys and a provider with one key are left', ipProxyReleases([{ id: 1, platform: 'ovh', keyless: true, enabled: true, maskedProxyUrl: 'socks5h://127.0.0.1:9050' }, { id: 2, platform: 'solo', keyless: false, enabled: true, maskedProxyUrl: 'socks5h://127.0.0.1:9050' }], calm, ANON_PROXY, new Map(), now).length === 0);
+  check('release: another proxy is left', ipProxyReleases([{ id: 1, platform: 'kilo', enabled: true, maskedProxyUrl: 'http://other:3128' }, { id: 2, platform: 'kilo', enabled: true }], calm, ANON_PROXY, new Map(), now).length === 0);
   check('auto: platforms limited per IP', [...ipLimitedPlatforms(av2)].join() === 'groq');
   const av3 = { byModel: new Map([['a', { blocked: true, kinds: ['rpd'], platforms: ['kilo'] }], ['b', { blocked: true, kinds: ['cooldown'], platforms: ['kilo'] }], ['c', { blocked: true, kinds: ['rpd'], platforms: ['ovh'] }], ['d', { blocked: false, kinds: [], platforms: ['ovh'] }], ['e', { blocked: true, kinds: ['credit'], platforms: ['zai'] }]]) };
   check('exhausted platforms: all models limited by an address-lifted limit', [...exhaustedPlatforms(av3)].join() === 'kilo');

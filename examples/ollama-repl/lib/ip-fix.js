@@ -125,24 +125,45 @@ export async function clearCooldowns(gateway, ids) {
 
 /**
  * the keys that go through the anonymizing proxy by themselves, and have no proxy yet: every enabled keyless key (its
- * quotas are counted per IP address) and every enabled key of a provider that has several enabled keys (they share one
- * address, so a second address helps). The only key of a provider goes direct. A key that is sent through some proxy
- * already, or whose provider is, is left alone.
+ * quotas are counted per IP address), and every enabled key of a provider that has several enabled keys, but only while
+ * a model of that provider is limited per IP address (a second address helps then). A keyed provider that is not IP-limited
+ * goes direct: the proxy only adds latency. A key that is sent through some proxy already, or whose provider is, is left alone.
  *
  * @returns {{id: number, platform: string, label: string, why: 'keyless'|'multi-key'}[]}
  */
 export function ipProxyTargets(keys, av, proxyUrl = ANON_PROXY, isProxied = () => false) {
   const count = new Map();
   for(const k of keys ?? []) if(k.enabled && !k.keyless) count.set(k.platform, (count.get(k.platform) ?? 0) + 1);
+  const limited = ipLimitedPlatforms(av);
 
   const out = [];
   for(const k of keys ?? []) {
     if(!k.enabled || k.maskedProxyUrl || isProxied(k.platform)) continue;
     if(k.keyless) out.push({ id: k.id, platform: k.platform, label: k.label ?? '', why: 'keyless' });
-    else if(count.get(k.platform) > 1) out.push({ id: k.id, platform: k.platform, label: k.label ?? '', why: 'multi-key' });
+    else if(count.get(k.platform) > 1 && limited.has(k.platform)) out.push({ id: k.id, platform: k.platform, label: k.label ?? '', why: 'multi-key' });
   }
 
   return out;
+}
+
+/** how long a keyed provider's keys stay on the proxy after its last IP limit */
+export const RELEASE_AFTER_MS = 30 * 60e3;
+
+/**
+ * the keyed keys of a provider with several keys that go through `proxyUrl` although the provider has not been limited per IP
+ * address for RELEASE_AFTER_MS: they go direct again. `limitedAt` maps a platform to when it was last seen IP-limited
+ * (absent: not in this session, so the keys the old policy put on the proxy are released at once).
+ *
+ * @returns {{id: number, platform: string, label: string}[]}
+ */
+export function ipProxyReleases(keys, av, proxyUrl = ANON_PROXY, limitedAt = new Map(), now = Date.now()) {
+  const count = new Map();
+  for(const k of keys ?? []) if(k.enabled && !k.keyless) count.set(k.platform, (count.get(k.platform) ?? 0) + 1);
+  const limited = ipLimitedPlatforms(av);
+
+  return routedAll(keys, proxyUrl)
+    .filter(k => k.enabled && !k.keyless && count.get(k.platform) > 1 && !limited.has(k.platform) && now - (limitedAt.get(k.platform) ?? 0) >= RELEASE_AFTER_MS)
+    .map(k => ({ id: k.id, platform: k.platform, label: k.label ?? '' }));
 }
 
 /** the platforms whose models are all blocked by a limit a new IP address can lift (exhausted, as far as an address goes) */

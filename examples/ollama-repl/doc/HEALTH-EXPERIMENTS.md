@@ -126,4 +126,6 @@ Every item had a test and closed its `BUGS` entry; tests are in `tests/`.
    requests cannot be told apart, and the drop in kilo traffic cannot be attributed to the proxy (the session
    may simply have pinned another model). Since 2026-11-26 each row carries `proxied`, and
    `qjsm usage-baseline.js` shows `kilo` and `kilo +socks` as separate rows: decide from those after a day.
+   DECIDED 2026-11-26: kilo goes direct; its keys use the proxy only while the provider's IP limit hits
+   (`ARCHITECTURE.md`, proxy policy).
 2. Who takes the gateway proposals 3.6 to 3.9?

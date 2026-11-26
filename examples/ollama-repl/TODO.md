@@ -46,9 +46,6 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
    under `sudo ptrace.sh -f ollama-repl` (the stall investigation of the other session) and a restart ends that trace;
    do it when that is finished (`ollama-repl-ctl` does not see it, its socket is under `/run/user/1000/ollama-repl/snap-*`).
    It starts the clock for B1.
-5. **A1** (U, S) keep kilo behind Tor? The data side is done (usage rows carry `proxied`, the baseline splits `kilo` and
-   `kilo +socks`); decide from a day of rows after A4 (`doc/HEALTH-EXPERIMENTS.md`, last section).
-
 ### 2. Bugs and enablers (small, they unblock later work)
 
 6. **N1 rest** (H, S) the availability load is cheaper (shared loads, the chain and routing tables once a minute) but still blocks the loop
@@ -89,7 +86,7 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 
 29. **B1** (H, S, needs A4 and a day of traffic) fill the "after" column of the 4.2 table: failed turns, failed hops (harness exceptions
     should be 0), time to next success, kilo share, retries, rating ties, transient verdict share, used share of verified models.
-    Settles A1.
+
 30. **B2** (H, M) 3.5 faster switch on "All models exhausted" for a pinned model: first list the runs with `attempt` >= 2 from the new
     rows, write the rule into `ARCHITECTURE.md` section 10, change `chatRound`, put the choice in a testable `lib/` function.
 31. **B3** (H, M) 3.4 failover headroom: prefer a provider with quota left over the biggest one (a headroom term in `score()` or `pickNext`).
@@ -109,7 +106,7 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 ### 7. Proxy and exit address (after C4)
 
 40. **E4** (H, S) which limits an address change really lifts: count the cooldowns that came back, adjust `ipLimitedPlatforms`/`clearCooldowns`.
-43. **E6** (H, S) show the latency a proxy adds per platform and take a key off the proxy again when its limit is gone.
+43. **E6** (H, S) show the latency a proxy adds per platform (the take-off when the limit is gone is done: `ipProxyReleases`).
 44. **E5** (H, M) `/proxy keyless fix` tests a second model of a provider and turns its steps into `proxy` events.
 45. **E7** (H, M) classify transient vs real failures by the gateway's error code and status, not by a regex over the text.
 46. **E3** (H/G, M) a keyless platform without a key row cannot get a proxy: needs the gateway to create the row; until then the pane says so.

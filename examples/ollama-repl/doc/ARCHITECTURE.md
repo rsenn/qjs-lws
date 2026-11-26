@@ -600,12 +600,12 @@ Why: keyless providers and some keyed ones limit per IP address.
   Tor control port itself (`AUTHENTICATE`, `SIGNAL NEWNYM`, `QUIT`; no script).
 - `lib/ip-check.js` `externalIp`: direct or via SOCKS, several "what is my IP" hosts.
 - `lib/ip-fix.js`: `ipCandidates` (keyless keys with limited models),
-  `ipProxyTargets` (keyless keys + the keys of providers with several keys that have no proxy; a provider's only key goes direct),
+  `ipProxyTargets` (keyless keys, and the keys of a provider with several keys only while it is IP-limited), `ipProxyReleases` (those keys back to direct),
   `setKeyProxy`, `clearCooldowns`.
 - `main()`: `/proxy [on|off|exit|keyless [apply|clear|fix]|auto]`; `fixKeyless`
   (route keys through the proxy, NEWNYM, probe the new address, clear cooldowns,
   test one request per provider, a second round if needed); **`autoProxy`** (default
-  on; startup + when a platform turns IP-limited + every 5 min; targets: keyless keys and keys of providers with several keys; only if the proxy
+  on; startup + when a platform turns IP-limited + every 5 min; targets: keyless keys, keys of an IP-limited multi-key provider, releases of the latter 30 min after the limit; only if the proxy
   answers; `--no-auto-proxy`); `watchPace` (every 10 s, "pace time ran out" events)
   and `recheckAfterIpChange`.
 - **Automatic exit change**: `autoExit` (called by `watchPace`) asks Tor for a new exit when every
@@ -858,6 +858,12 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   most 12 s) before `SIGNAL NEWNYM`, since Tor answers a throttled NEWNYM with 250 OK and builds no circuit; callers ask for the
   address again until it differs (`exitAfterNewnym`, `autoExit`, `/proxy exit`, the keyless fix). `/model health` and the sweep
   event show what the probes cost (`Exploration#cost`).
+- **Proxy policy (decided 2026-11-26, A1).** A keyed provider goes direct, kilo included: the proxy adds latency to every
+  request (about +0.5 s on kilo) and the usage data cannot show a gain. Only a keyless key (its quota counts per address) is
+  sent through the proxy by itself. A keyed provider with several keys gets its keys on the proxy **only while one of its
+  models is limited per IP address** (`ipLimitedPlatforms`, kind `ip`), and loses them again once no model of it has been
+  IP-limited for 30 minutes (`ipProxyReleases`; hysteresis, so a limit that returns is not chased on and off); the release also
+  runs at startup, which takes the keys the old policy put on the proxy (22 of kilo) off it. `autoProxy` does both.
 - **Availability tables.** `/api/models` (the chain) and `/api/fallback/routing` change rarely and are asked once a minute
   (`SLOW_TABLES`, `lastTables`), the other five tables (usage, limits, penalties, keys with their cooldowns) every load;
   `{ fresh: true }` asks all of them. `av.keyCounts` (platform to enabled keys) lets `spentPlatforms` (`lib/fallback-trail.js`)
