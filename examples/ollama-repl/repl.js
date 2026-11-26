@@ -6174,6 +6174,9 @@ async function main() {
 
   queuedPrompts = () => repl.queue;
   repl.onQueue = () => saveSession();
+  repl.onStop = () => {
+    stopRequested = true;
+  };
 
   /* the prompts that were still waiting when the session was saved run again, in their order */
   if(pendingQueue.length)
