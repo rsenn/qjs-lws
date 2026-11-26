@@ -86,6 +86,17 @@ external library dependency and off by default).
 - libwebsockets (optionally vendored; `BUILD_LIBWEBSOCKETS=ON` will
   build the submodule under `libwebsockets/`).
 - zlib (only when not using the in-tree libwebsockets).
+- OpenSSL 3 (headers and libssl/libcrypto). A LibreSSL or another OpenSSL
+  under `/usr/local/include` does not shadow it: when the headers come from
+  a system directory, the build puts links to them in
+  `build/<target>/openssl-include/openssl` ahead of `/usr/local/include`
+  (`cmake/BuildLibwebsockets.cmake`), so `lws-crypto.c` and libwebsockets see
+  the headers of the libssl that `lws.so` links.
+  LibreSSL is not supported (`lws-crypto.c` needs OpenSSL 3, under LibreSSL
+  `lws.crypto` would be empty). When the toolchain has no working OpenSSL
+  (a musl or dietlibc libc tree without one, a failing link test) or with
+  `-DBUILD_OPENSSL=ON`, `cmake/BuildOpenSSL.cmake` builds the newest OpenSSL
+  release from source as static libraries (`-fPIC` for `lws.so`).
 
 ## Configuration options
 

@@ -1,5 +1,33 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* cmake/BuildLibreSSL.cmake, cmake/FindLibreSSL.cmake,
+	cmake/diet-endian-compat.h: Removed. LibreSSL is no longer supported:
+	lws-crypto.c needs OpenSSL 3 and is empty under LibreSSL;
+	FindLibreSSL.cmake was unused, diet-endian-compat.h served only
+	BuildLibreSSL.cmake.
+
+	* cmake/BuildLibwebsockets.cmake, CMakeLists.txt: BUILD_LIBRESSL is
+	BUILD_OPENSSL; a toolchain without a working OpenSSL (or
+	BUILD_OPENSSL=ON) builds OpenSSL, never LibreSSL. The musl/dietlibc
+	libc-tree check looks for OpenSSL (LIBC_HAS_OPENSSL).
+
+	* cmake/BuildOpenSSL.cmake (build_openssl), cmake/diet-compat.h: For
+	dietlibc configure with --with-rand-seed=devrandom and include
+	diet-compat.h (copy of qjs-modules cmake/deps/diet-compat.h), as the
+	modules' BuildOpenSSL.cmake does; not tested here.
+
+	* doc/building.md: LibreSSL is not supported, BUILD_OPENSSL.
+
+	* cmake/BuildLibwebsockets.cmake (build_libwebsockets): when the
+	toolchain's OpenSSL headers are in a system directory (/usr/include), a
+	directory build/<target>/openssl-include/openssl of links to its files
+	comes first on the command lines of lws.so and of the vendored
+	libwebsockets; gcc searched /usr/local/include before /usr/include and
+	cmake drops an explicit -I of a system directory, so a LibreSSL there
+	shadowed the OpenSSL 3 that lws.so links and lws-crypto.c compiled to
+	nothing (test-crypto.js: 15 of 15 pass on x86_64-linux-gnu, -debug and
+	-profile). BUGS: crypto-compiled-against-libressl-headers removed.
+
 	* lws-spa.c (lwsjs_spa_get, lwsjs_spa_get_property): LWSSPA.length and the
 	name lookup use lws_spa_get_name(), which also gives the names lws
 	discovers for open param slots (they are no longer written into the

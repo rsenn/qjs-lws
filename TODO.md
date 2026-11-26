@@ -9,6 +9,27 @@
   sockets. Postponed: bytes sent/received counted on LWSSocket (to drop `ss`
   from the status pane), a `{ vhost }` filter, a per-runtime context registry.
 
+- DONE: SSL wiring (user decisions 2026-11-26): LibreSSL dropped entirely
+  (BuildLibreSSL.cmake, FindLibreSSL.cmake removed, BUILD_LIBRESSL became
+  BUILD_OPENSSL), headers and libs of the OpenSSL in use pinned by the
+  openssl-include overlay (BuildLibwebsockets.cmake). Verified: glibc tree
+  test-crypto.js 15 of 15, musl tree builds with /opt/musl's OpenSSL 3, and
+  with a LibreSSL forced onto the compiler's path (C_INCLUDE_PATH) lws-crypto.c
+  still sees OpenSSL 3.0.13 with the overlay and LibreSSL without it.
+  Postponed: the Deps.cmake based port of qjs-modules' Find/Build OpenSSL
+  (TLS_LIBRARY, dep_resolve) was not done, since there is no second library
+  to choose from; the dietlibc OpenSSL build (BuildOpenSSL.cmake, diet-compat.h)
+  is untested; test-crypto.js has no skip for a build without OpenSSL 3;
+  stale BUILD_LIBRESSL entries sit in old CMakeCaches.
+- OPEN, other session (qjs-lws [5e1aaa]): LWSSPA open param slots (BUGS:
+  lwsspa-length-open-slots, lws-spa.c) and test-rawcolor.js import path; both
+  uncommitted in the working tree, do not commit them from here.
+- DONE: test-ws / test-crypto import / test-imports / run-all.sh fixes
+  (commit 421344d); test-socket-dangling-wsi.js and the dangling s->wsi and
+  peerWriteAllowance fixes (77e5e21, 8ab64c2). Postponed: wire a valgrind run
+  into run-all.sh (valgrind also reports unrelated realloc(0) noise from
+  qjs-modules).
+
 ## Main quest: public API spec compliance
 
 Every class and function in `lib/**/*.js` that corresponds to a WHATWG spec or
@@ -127,9 +148,6 @@ gaps.
 - The musl build (`build/x86_64-linux-musl/`) still links the host's
   `libgnutls.so` and `libquickjs.so`; only zlib, libcap, LibreSSL and brotli
   are found-or-built per toolchain (`BuildLibwebsockets.cmake`).
-- `FindLibreSSL.cmake` is unused and broken (refers to a `libressl` target that
-  never exists, calls `rpath_append`); a system LibreSSL is only picked up when
-  it is the OpenSSL that `CMakeLists.txt` finds.
 
 ## Thin Layer Compatibility Strategy
 

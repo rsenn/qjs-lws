@@ -6,7 +6,6 @@ include(cmake/FindLibCap.cmake)
 include(cmake/BuildLibCap.cmake)
 include(cmake/FindBrotli.cmake)
 include(cmake/BuildBrotli.cmake)
-include(cmake/BuildLibreSSL.cmake)
 include(cmake/BuildOpenSSL.cmake)
 
 # ON: always build libcap from source; AUTO: use the system libcap if there is
@@ -38,11 +37,12 @@ if(NOT BUILD_BROTLI MATCHES "^(AUTO|ON|OFF)$")
   message(FATAL_ERROR "BUILD_BROTLI must be AUTO, ON or OFF (is '${BUILD_BROTLI}')")
 endif()
 
-# ON: always build LibreSSL from source (cmake/BuildLibreSSL.cmake, static
+# ON: always build OpenSSL from source (cmake/BuildOpenSSL.cmake, static
 # archives, -fPIC when the libwebsockets build feeds a shared module) and
 # build libwebsockets against it; OFF: use the toolchain's OpenSSL and build
-# LibreSSL only if that one does not work.
-option(BUILD_LIBRESSL "Build LibreSSL from source for libwebsockets" OFF)
+# OpenSSL only if that one does not work. LibreSSL is not supported:
+# lws-crypto.c needs OpenSSL 3.
+option(BUILD_OPENSSL "Build OpenSSL from source for libwebsockets" OFF)
 
 macro(build_libwebsockets)
   # Accepts either the legacy positional form build_libwebsockets(<target>)
@@ -200,8 +200,8 @@ macro(build_libwebsockets)
     set(LWS_KERNEL_INCLUDES_ADDED TRUE)
   endif(NOT LWS_HAVE_KERNEL_HEADERS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
-  # A TLS library the toolchain can use, else build LibreSSL (always, when
-  # BUILD_LIBRESSL is ON).
+  # A TLS library the toolchain can use, else build OpenSSL (always, when
+  # BUILD_OPENSSL is ON).
   if(WITH_SSL AND NOT WITH_MBEDTLS AND NOT WITH_WOLFSSL)
     include(CheckCSourceCompiles)
     set(old_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES}")
@@ -213,9 +213,9 @@ macro(build_libwebsockets)
       set(CMAKE_REQUIRED_LINK_OPTIONS "-L${OPENSSL_LIBRARY_DIR}")
     endif(OPENSSL_LIBRARY_DIR)
     unset(LWS_OPENSSL_WORKS CACHE)
-    if(BUILD_LIBRESSL)
+    if(BUILD_OPENSSL)
       set(LWS_OPENSSL_WORKS FALSE)
-    else(BUILD_LIBRESSL)
+    else(BUILD_OPENSSL)
     # Linking alone can't tell a glibc libssl.so from one the toolchain's libc
     # can load (e.g. musl-gcc against the host's), so run it when possible.
     set(LWS_OPENSSL_TEST_SOURCE
@@ -227,7 +227,7 @@ macro(build_libwebsockets)
       include(CheckCSourceRuns)
       check_c_source_runs("${LWS_OPENSSL_TEST_SOURCE}" LWS_OPENSSL_WORKS)
     endif(CMAKE_CROSSCOMPILING)
-    endif(BUILD_LIBRESSL)
+    endif(BUILD_OPENSSL)
     set(CMAKE_REQUIRED_INCLUDES "${old_REQUIRED_INCLUDES}")
     set(CMAKE_REQUIRED_LIBRARIES "${old_REQUIRED_LIBRARIES}")
     set(CMAKE_REQUIRED_LINK_OPTIONS "${old_REQUIRED_LINK_OPTIONS}")
@@ -235,32 +235,60 @@ macro(build_libwebsockets)
     if(NOT LWS_OPENSSL_WORKS AND (MINGW OR MSYS OR CYGWIN OR CMAKE_SYSTEM_NAME MATCHES "MSYS|CYGWIN"))
       message(FATAL_ERROR "no usable OpenSSL for ${CMAKE_C_COMPILER}: install the msys2 "
         "openssl package into the sysroot (msys2-get.sh -s <triplet> openssl), "
-        "LibreSSL is not built for MinGW/MSYS")
+        "OpenSSL is not built for MinGW/MSYS")
     endif()
 
     if(NOT LWS_OPENSSL_WORKS)
       # One build per libwebsockets target, since PIC may differ between them.
-      if(BUILD_LIBRESSL)
-        build_libressl(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
-        set(SSL_DEPS libressl_${TARGET})
-        set(OPENSSL_LIBRARIES "${LIBRESSL_LIBRARIES_${TARGET}}")
-        set(OPENSSL_INCLUDE_DIR "${LIBRESSL_INCLUDE_DIR_${TARGET}}")
-        set(OPENSSL_INCLUDE_DIRS "${LIBRESSL_INCLUDE_DIR_${TARGET}}")
-        set(OPENSSL_LIBRARY_DIR "${LIBRESSL_LIBRARY_DIR_${TARGET}}")
-        set(OPENSSL_ROOT_DIR "${LIBRESSL_PREFIX_${TARGET}}")
-      else(BUILD_LIBRESSL)
-        # the newest OpenSSL release, never an old version
-        build_openssl(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
-        set(SSL_DEPS openssl_${TARGET})
-        set(OPENSSL_LIBRARIES "${OPENSSL_LIBRARIES_${TARGET}}")
-        set(OPENSSL_INCLUDE_DIR "${OPENSSL_INCLUDE_DIR_${TARGET}}")
-        set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR_${TARGET}}")
-        set(OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARY_DIR_${TARGET}}")
-        set(OPENSSL_ROOT_DIR "${OPENSSL_PREFIX_${TARGET}}")
-      endif(BUILD_LIBRESSL)
+      # the newest OpenSSL release, never an old version
+      build_openssl(${CMAKE_CURRENT_BINARY_DIR} ${TARGET} ${LWS_BUILD_PIC})
+      set(SSL_DEPS openssl_${TARGET})
+      set(OPENSSL_LIBRARIES "${OPENSSL_LIBRARIES_${TARGET}}")
+      set(OPENSSL_INCLUDE_DIR "${OPENSSL_INCLUDE_DIR_${TARGET}}")
+      set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR_${TARGET}}")
+      set(OPENSSL_LIBRARY_DIR "${OPENSSL_LIBRARY_DIR_${TARGET}}")
+      set(OPENSSL_ROOT_DIR "${OPENSSL_PREFIX_${TARGET}}")
       set(OPENSSL_LIBRARY "")
     endif(NOT LWS_OPENSSL_WORKS)
   endif(WITH_SSL AND NOT WITH_MBEDTLS AND NOT WITH_WOLFSSL)
+
+  # The toolchain's OpenSSL is found in a system directory (/usr/include), and
+  # gcc searches /usr/local/include first while cmake leaves an explicit -I of
+  # a system directory out: a LibreSSL (or another OpenSSL) under
+  # /usr/local/include shadowed the headers of the libssl that is linked, and
+  # lws-crypto.c compiled to nothing. A directory of our own holding only a
+  # link to the right openssl/ goes first on every command line instead.
+  unset(OPENSSL_OVERLAY_DIR)
+  if(WITH_SSL AND NOT WITH_MBEDTLS AND NOT WITH_WOLFSSL
+     AND LWS_OPENSSL_WORKS AND OPENSSL_INCLUDE_DIR
+     AND IS_DIRECTORY "${OPENSSL_INCLUDE_DIR}/openssl")
+    list(FIND CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}" _ossl_implicit)
+    if(NOT _ossl_implicit EQUAL -1)
+      set(OPENSSL_OVERLAY_DIR "${CMAKE_BINARY_DIR}/openssl-include")
+      # openssl/ is one directory of links to the files of every system
+      # include directory under OPENSSL_INCLUDE_DIR that has one (Debian keeps configuration.h and
+      # opensslconf.h under /usr/include/<multiarch>/openssl)
+      file(REMOVE_RECURSE "${OPENSSL_OVERLAY_DIR}")
+      file(MAKE_DIRECTORY "${OPENSSL_OVERLAY_DIR}/openssl")
+      foreach(_d "${OPENSSL_INCLUDE_DIR}" ${CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES})
+        string(FIND "${_d}" "${OPENSSL_INCLUDE_DIR}" _under)
+        if(NOT _under EQUAL 0) # /usr/local/include is what the overlay is there to get ahead of
+          continue()
+        endif()
+        file(GLOB _ossl_files "${_d}/openssl/*")
+        foreach(_f ${_ossl_files})
+          get_filename_component(_n "${_f}" NAME)
+          if(NOT EXISTS "${OPENSSL_OVERLAY_DIR}/openssl/${_n}")
+            file(CREATE_LINK "${_f}" "${OPENSSL_OVERLAY_DIR}/openssl/${_n}" SYMBOLIC)
+          endif()
+        endforeach()
+      endforeach()
+      string(PREPEND LWS_C_FLAGS_FULL "-I${OPENSSL_OVERLAY_DIR} ")
+      # the modules include libwebsockets' private headers too; compile
+      # options come before the include directories on the command line
+      add_compile_options("SHELL:-I${OPENSSL_OVERLAY_DIR}")
+    endif()
+  endif()
 
   if(WITH_BROTLI)
     set(BROTLI_FOUND FALSE)

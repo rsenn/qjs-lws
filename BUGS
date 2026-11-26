@@ -1,3 +1,0 @@
-- crypto-compiled-against-libressl-headers (lws-crypto.c:11, build/x86_64-linux-gnu): the lws-crypto.c object is compiled against /usr/local/include/openssl (LibreSSL 4.3.3, OPENSSL_VERSION_NUMBER 0x20000000L; gcc searches /usr/local/include before /usr/include and cmake drops the implicit /usr/include) while lws.so links the system libssl.so.3, so the OpenSSL 3 guard is false and the lws crypto object is empty: test-crypto.js fails 14 of 15 tests with "not a function". Compiling with /usr/include first fails in libwebsockets' own headers (unknown type RSA), so the whole tree is configured for the LibreSSL headers. Confirmed with gcc -E -dM on the compile_commands.json command and ldd on lws.so.
-
-    import { crypto } from 'lws.so'; typeof crypto.digest

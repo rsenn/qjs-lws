@@ -31,9 +31,13 @@ macro(build_openssl BINARY SUFFIX PIC)
   if(${PIC})
     list(APPEND OPENSSL_CONFIGURE_FLAGS_${SUFFIX} -fPIC)
   endif()
-  # dietlibc: no <sys/syscall.h>-style extras, no threads library worth using
+  # dietlibc: no <sys/syscall.h>-style extras, no threads library worth using,
+  # no syscall() to seed from (/dev/urandom instead) and the byte order macros
+  # of cmake/diet-compat.h. Not tested here: the modules' copy of this recipe
+  # (qjs-modules cmake/deps/BuildOpenSSL.cmake) is what it follows.
   if(DIET OR HAVE_DIETLIBC OR CMAKE_C_COMPILER MATCHES "diet")
-    list(APPEND OPENSSL_CONFIGURE_FLAGS_${SUFFIX} no-threads no-secure-memory no-async no-ml-kem no-ml-dsa no-slh-dsa)
+    list(APPEND OPENSSL_CONFIGURE_FLAGS_${SUFFIX} --with-rand-seed=devrandom no-threads no-secure-memory no-async no-ml-kem no-ml-dsa no-slh-dsa
+         "-include" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/diet-compat.h")
   endif()
 
   ExternalProject_Add(

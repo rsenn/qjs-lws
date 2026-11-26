@@ -45,7 +45,7 @@ endmacro()
 # musl and dietlibc builds can't use the host's (glibc) libraries, so every
 # dependency that is missing from the toolchain's own tree (/opt/musl,
 # /opt/diet, or CMAKE_PREFIX_PATH) is built from source: BUILD_BROTLI,
-# BUILD_LIBRESSL and BUILD_LIBWEBSOCKETS default to ON for each of them.
+# BUILD_OPENSSL and BUILD_LIBWEBSOCKETS default to ON for each of them.
 # A value given on the command line is left alone.
 set(LIBC_TREE "")
 if(CMAKE_C_COMPILER MATCHES "diet")
@@ -90,10 +90,10 @@ if(LIBC_TREE)
   endfunction()
 
   libc_tree_has(LIBC_HAS_BROTLI brotli/encode.h brotlienc brotlidec brotlicommon)
-  libc_tree_has(LIBC_HAS_LIBRESSL openssl/ssl.h ssl crypto)
+  libc_tree_has(LIBC_HAS_OPENSSL openssl/ssl.h ssl crypto)
   libc_tree_has(LIBC_HAS_LWS libwebsockets.h websockets)
 
-  foreach(dep BROTLI:HAS_BROTLI LIBRESSL:HAS_LIBRESSL LIBWEBSOCKETS:HAS_LWS)
+  foreach(dep BROTLI:HAS_BROTLI OPENSSL:HAS_OPENSSL LIBWEBSOCKETS:HAS_LWS)
     string(REPLACE ":" ";" dep ${dep})
     list(GET dep 0 name)
     list(GET dep 1 has)
