@@ -6,24 +6,25 @@
  * captures its combined stdout+stderr, for the `run_command` tool (see
  * lib/tool-requests.js).
  *
- * Polls the child's exit with os.waitpid(pid, os.WNOHANG) on a short
- * timer instead of os.setReadHandler() on the output pipe - confirmed by
- * direct testing that the latter is unreliable here: the handler fires
- * once when the first output arrives, but never fires again for EOF even
- * after the child has long since exited, hanging forever. waitpid(WNOHANG)
- * has no such issue. The output itself is only read once the child has
- * exited (so the pipe's write end is closed and read() reaches real EOF
- * without blocking) - fine for this channel's actual use (short-lived
- * dev commands with bounded output), at the cost of a small deadlock risk
- * if a command emits more than the OS pipe buffer (~64KB, comfortably
- * above MAX_OUTPUT_BYTES below) *before* exiting.
+ * The output goes to an unlinked temporary file, not to a pipe. Reading a
+ * pipe to EOF blocks while any descendant of the shell still holds its write
+ * end (`ss ... | grep` after the shell was killed on a timeout, `cmd &`), and
+ * a blocking read stops the whole single-threaded REPL; a file is read to its
+ * end at once whatever is still running. A pipe also stopped a command that
+ * wrote more than its buffer (~64KB) before exiting. The child's exit is
+ * polled with os.waitpid(pid, os.WNOHANG) on a short timer.
  */
-import { close, exec, kill, pipe, read, setReadHandler, setTimeout, waitpid, WNOHANG } from 'os';
+import { close, exec, kill, open, read, remove, seek, setTimeout, waitpid, WNOHANG, O_CREAT, O_EXCL, O_RDWR } from 'os';
+import { getenv } from 'std';
 import { toString } from 'lws.so';
 
 const MAX_OUTPUT_BYTES = 32 * 1024;
+/* a command that writes more than this is killed: the file would fill the disk */
+const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const POLL_MS = 40;
 const SIGKILL = 9;
+const SEEK_SET = 0;
+const SEEK_END = 2;
 
 /* Resolved once, lazily, and cached: `['shish', '-c']` if a `shish`
    binary is reachable via PATH, else `['/bin/sh', '-c']`. `exec()` with
@@ -43,6 +44,20 @@ function resolveShell() {
   return shellArgv;
 }
 
+let counter = 0;
+
+/** a read-write file that is already unlinked: gone when the last holder closes it */
+function scratchFile() {
+  const dir = getenv('XDG_RUNTIME_DIR') || getenv('TMPDIR') || '/tmp';
+  const path = `${dir}/ollama-repl-cmd-${Date.now()}-${counter++}`;
+  const fd = open(path, O_RDWR | O_CREAT | O_EXCL, 0o600);
+
+  if(fd < 0) throw new Error(`cannot create ${path}`);
+
+  remove(path);
+  return fd;
+}
+
 /**
  * @param {string} cmd
  * @param {object} [opts]
@@ -51,27 +66,31 @@ function resolveShell() {
  * @returns {Promise<{ output: string, status: number|null, timedOut: boolean }>}
  */
 export async function runCommand(cmd, { cwd = '.', timeoutMs = 20000 } = {}) {
-  const [rfd, wfd] = pipe();
-  const pid = exec([...resolveShell(), cmd], { block: false, stdout: wfd, stderr: wfd, cwd });
-
-  close(wfd);
+  const fd = scratchFile();
+  const pid = exec([...resolveShell(), cmd], { block: false, stdout: fd, stderr: fd, cwd });
 
   const deadline = Date.now() + timeoutMs;
   let timedOut = false;
+  let tooBig = false;
   let status = null;
 
   for(;;) {
-    if(!timedOut && Date.now() > deadline) {
-      timedOut = true;
+    if(!timedOut && !tooBig) {
+      const over = Date.now() > deadline;
+      tooBig = !over && seek(fd, 0, SEEK_END) > MAX_FILE_BYTES;
 
-      try {
-        kill(pid, SIGKILL);
-      } catch(e) {
-        /* already exited */
+      if(over || tooBig) {
+        timedOut = over;
+
+        try {
+          kill(pid, SIGKILL);
+        } catch(e) {
+          /* already exited */
+        }
       }
     }
 
-    const [rpid, st] = waitpid(pid, timedOut ? 0 : WNOHANG);
+    const [rpid, st] = waitpid(pid, timedOut || tooBig ? 0 : WNOHANG);
 
     if(rpid === pid) {
       status = st;
@@ -84,8 +103,10 @@ export async function runCommand(cmd, { cwd = '.', timeoutMs = 20000 } = {}) {
   let out = '';
   const buf = new Uint8Array(4096);
 
+  seek(fd, 0, SEEK_SET);
+
   for(;;) {
-    const n = read(rfd, buf.buffer, 0, buf.length);
+    const n = read(fd, buf.buffer, 0, buf.length);
     if(n <= 0) break;
 
     out += toString(buf.buffer.slice(0, n));
@@ -96,7 +117,7 @@ export async function runCommand(cmd, { cwd = '.', timeoutMs = 20000 } = {}) {
     }
   }
 
-  close(rfd);
+  close(fd);
 
-  return { output: timedOut ? `${out}\n... (timed out after ${timeoutMs}ms, process killed)` : out, status, timedOut };
+  return { output: timedOut ? `${out}\n... (timed out after ${timeoutMs}ms, process killed)` : tooBig ? `${out}\n... (more than ${MAX_FILE_BYTES >> 20} MB of output, process killed)` : out, status, timedOut };
 }

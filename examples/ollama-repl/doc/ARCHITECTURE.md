@@ -79,6 +79,17 @@ program that talks to a running session over its control socket).
   handler or timer makes the TUI feel dead. Shell commands go through
   `lib/run-command.js` (`runCommand`, async, uses `shish -c` when available).
   Synchronous work is only for small files (`std.loadFile`, `writeConfigFile`).
+
+- **Finding a stall (2026-11-25, `lib/lag.js`).** Two instruments, always on, no option.
+  `startLagWatch()` is a 100 ms timer that measures how late it fires; a lag of 150 ms or
+  more is one `lag` event (`/events lag`, verbose view) and one line of
+  `~/.cache/ollama-repl/lag.jsonl` (`at`, `lagMs`, `phase`, the slow sections that ended
+  inside the stall). `timed(name, fn)` wraps a synchronous section that may be heavy
+  (`getFilteredModels`, `likelyModels`, `statusLines`, `paneLines`, the compute part of
+  `loadAvailability`, `reportChanges`, `saveQuota`); a section of 100 ms or more is a `lag`
+  event naming it and its duration. The watch says *that* and *when* the loop was
+  blocked, the sections say *where*; a stall with no slow section was spent in code that is
+  not wrapped yet (add a `timed`) or in a blocking syscall (strace). Cost: ten wake-ups a second.
 - **Native modules used**: `lws.so` (via `lib/lws/*` wrappers `fetch`-like
   `httpClient` protocol adapter, `lib/lws/protocols.js`), `terminal` (qjs-modules
   `lib/terminal*`: the facade `terminal` and the parts `terminal/style`, `screen`, `widgets`,
@@ -497,6 +508,17 @@ cooldown as `ip`. Learned cooldowns and local shadow blocks are persisted
 "limited / usable again (pace time over / accessible after IP change)"
 events; `noteIpChange()` marks an exit-address change for 15 min.
 
+**Load rules (2026-11-25, measured with a fake gateway of the live size: 699 models, 1500
+rows, 83 keys, `/v1/models` 359 KB).** One `loadAvailability()` blocks the loop for 0.5-1 s
+(compute 250 ms, the rest decoding and `JSON.parse` of 7 responses). Callers that finish
+together run their continuations back to back in one pass of the loop, so a few
+concurrent loads are one multi-second freeze (the 4.8 s and 9 s stalls in the strace logs).
+Rules: (1) a load that is in flight is shared by every caller (`loadAvailability(gateway)`
+returns the same promise); `{ fresh: true }` is for a caller that just changed gateway
+state (proxy, cooldowns): it waits for the running load, then runs its own; (2) `groupId`
+is memoised per display name; (3) the IP-error regex runs once per provider row, not per
+cooldown of each key. `lib/lag.js` (section 2) shows what is left.
+
 ### Rating (`lib/rating.js`)
 
 `score(rec, inputs)` → 0..100: intelligence (gateway score or name tier, up to
@@ -614,6 +636,13 @@ input rows (grow with text); status rows (3). Everything printed with
   `/split [diff|git|status|net|off|next|prev]`; keys in `ChatREPL`:
   F2/Shift-F2, Alt-1..4, Alt-0, Alt-\\, Ctrl-X d/g/s/n/o/Tab (`SPLIT_CHORD`).
   `tui.width` excludes the pane; use `panelInner()` for table widths.
+  `status` and `net` read the process's sockets with `ss` (`ownSockets`, a shell pipeline
+  per poll, 80 ms of kernel time on this host, much more on a host with thousands of
+  sockets). Polling rule (`pollDelay`, `lib/resources.js`, 2026-11-25): 1 s while a request
+  is in flight (the panes show live traffic), 3 s while idle, and never sooner than 5 times
+  the duration of the last poll, so `ss` takes at most about a fifth of one core however
+  slow it is. Rates are computed from the time between polls, so the interval does not
+  change their meaning.
 - Drawing: `drawRule`, `drawStatus`, `drawInput`/`drawEditor`, `ensureInputRows`,
   `suspend()`/`resume()` around the pager (alternate screen).
 
@@ -714,7 +743,7 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
 | `.../session.log`, `history`, `state.json`, `diffs/` | `SessionLog`, `ChatREPL`, `session-cache.js`, `FileExchange` | transcript, input history, `/model` pattern and picked model, file diffs |
 | `~/.cache/ollama-repl/exploration.json` | `Exploration` | per-model probe results (`ORIGIN\|MODEL`) |
 | `~/.cache/ollama-repl/ratings.json` | `Ratings` | per-model rating state |
-| `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per main-client request (trimmed to 90 days); `attempt` = n-th automatic skip retry of its round (0, the first try, is not written) |
+| `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per main-client request (trimmed to 90 days); `attempt` = n-th automatic skip retry of its round (0, the first try, is not written); `proxied` = upstream went through the gateway's socks proxy (true/false, absent if unknown), the baseline lists a proxied platform as its own row (`kilo +socks`) |
 | `~/.cache/ollama-repl/quota.json`, `quota.jsonl` | `saveQuota` | last gateway snapshot; 15-minute history (180 days) |
 | `~/.cache/ollama-repl/cooldowns.json` | `availability.js` | learned cooldowns, shadow blocks |
 | `~/.cache/ollama-repl/logs/` | `session-cache.js` `debugLogPath` | `-x` debug logs |
@@ -773,8 +802,8 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
 - **Surgical changes**; match the surrounding style (2-space indent, single
   quotes, `if(` without a space).
 - **Commits**: stage files by name; no `Co-Authored-By` trailers in this project;
-  changes under `examples/` are not logged in the repo-root `ChangeLog` (they
-  keep `TODO.md`).
+  every change of the harness is logged in `ChangeLog` in this directory (GNU
+  style, format in the repo-root `CLAUDE.md`), not in the repo-root `ChangeLog`.
 - **`TODO.md`** is the project's task list: every feature gets a "Done / Open"
   section; update it in the same change.
 - **One entry per line in every table** (`fitTable`), colours via the shared
@@ -817,6 +846,21 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   tables degrade (`gateway.dashboard`, `hasLimits` checks everywhere).
 - **Transient vs real probe failures**: a busy provider must not lower a rating;
   `isTransientProbe` and `diagnose` decide; never treat a 429 as "model bad".
+- **No per-item call that re-derives the whole catalog** (found 2026-11-25 in the real
+  lag.jsonl: 31 `getFilteredModels` calls of 100-150 ms inside one 6.8 s stall, and the
+  4.8 s stall of strace.log.txt, which sits between the end of a /v1/models download and the
+  seven requests of the next load). `/model skip` of a spent provider called `skipModels(name)`
+  once per model of that provider, and each call built `allModelNames()`, which filtered and
+  sorted the whole catalog (699 names, rated) just to learn the names. Now `allModelNames`
+  copies the names (O(n)), and the provider loop calls `skipModel` directly: the names come
+  from the catalog already. `timed` rows in lag.jsonl carry `where`, the callers, so the next
+  one is found without a perf recording.
+- **No formatting or regex work inside a sort comparator** (found 2026-11-25 in a perf
+  recording of a 6 s freeze: 61 % of the time inside `Array.prototype.sort`, 27 % in regex
+  tests). `limitsText` formatted two table rows per comparison to read a flag that was
+  known up front (570 ms for 1500 rows, 100 ms after), and `modelStatusTable` stripped
+  colours with a regex per comparison. Work out the sort keys once per row (a `Map` or a
+  field) and sort on those; `limitsText`, `limitedText` and `modelStatusTable` are `timed`.
 - **Reasoning models** write their thinking into the content: the old
   system-prompt probe called them disobedient (16 of 276 models); tier 0/1 grade
   tool calls and recalled facts, not style.
@@ -825,6 +869,14 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   `lib/ip-fix.js` inert). `check-names.cjs` parses with acorn, which rejects such a redeclaration, and
   also lists undeclared names (a missing import such as `fg` only throws when the path runs); run it
   before a commit.
+- **`runCommand` must never read a pipe that a descendant may hold open** (found
+  2026-11-25 in an strace of a 31 s freeze of the whole REPL: the `ss ... | grep`
+  of `/split status` timed out after 3 s, the shell got SIGKILL, but `ss` kept the
+  pipe's write end and the blocking `read()` on it hung the single thread until the
+  user pressed Ctrl-C). Design: the command writes to an unlinked temporary file,
+  not a pipe; after the shell exits (or is killed) the file is read, which never
+  blocks, whatever a leftover background process does. Output is capped (4 MB: the
+  command is killed beyond that). A pipe also deadlocked past its 64 KB buffer.
 - **Restart safety**: anything the restart check imports must load without a
   network and without `~/.cache` state; keep `lib/*.js` import-clean.
 

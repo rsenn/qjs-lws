@@ -7,6 +7,7 @@ import { probeCells } from './exploration.js';
 import { quotaCell as quotaMeter } from './look.js';
 import { fmtNum } from './usage-stats.js';
 import { ratingCell } from './rating.js';
+import { timed } from './lag.js';
 
 /**
  * @param {object} av  loadAvailability() result
@@ -14,7 +15,8 @@ import { ratingCell } from './rating.js';
  * @param {(id: string) => {ctx?: number, used?: number, budget?: number}|undefined} [info]  context window and monthly token budget of a model id
  * @param {(id: string) => number|null} [rate]  rating 0..100 (lib/rating.js)
  */
-export function modelStatusTable(av, exploration = null, info = () => undefined, rate = () => null) {
+export const modelStatusTable = (...args) => timed('modelStatusTable', () => modelStatusTableNow(...args));
+function modelStatusTableNow(av, exploration = null, info = () => undefined, rate = () => null) {
   const now = av?.at ?? Date.now();
   const rows = [];
 
@@ -78,7 +80,10 @@ export function modelStatusTable(av, exploration = null, info = () => undefined,
   /* READY models on top, the strongest first (the gateway's intelligence score), then what is waiting, then what is not usable */
   const rank = { READY: 0, COOLDOWN: 1, RATE_LIMITED: 2, OUT_OF_QUOTA: 3, NEEDS_KEY: 4, OFFLINE: 5 };
   const stat = r => rank[r[2].replace(/\x1b\[[0-9;]*m/g, '')] ?? 4;
-  rows.sort((a, b) => stat(a) - stat(b) || (rate(b[0]) ?? -1) - (rate(a[0]) ?? -1) || b[b.length - 1] - a[a.length - 1] || a[0].localeCompare(b[0]));
+  /* worked out once per row: the comparator runs n log n times, and stat() strips colours with a regex */
+  const stats = new Map(rows.map(r => [r, stat(r)]));
+  const rates = new Map(rows.map(r => [r, rate(r[0]) ?? -1]));
+  rows.sort((a, b) => stats.get(a) - stats.get(b) || rates.get(b) - rates.get(a) || b[b.length - 1] - a[a.length - 1] || a[0].localeCompare(b[0]));
   for(const r of rows) r.pop();
 
   const header = ['Model', 'Rate', 'Status', 'Context', 'Tokens/month', 'Quota / Reset', 'Providers', ...(exploration ? ['Probe', 'Says'] : [])];

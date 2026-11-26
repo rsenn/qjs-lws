@@ -25,6 +25,9 @@ const num = (info, key) => {
   return m ? +m[1] : undefined;
 };
 
+/** ms until the next ss poll of a split pane: 1 s with a request in flight, else 3 s, never under 5 times the last poll's duration */
+export const pollDelay = (activeRequests, lastMs = 0) => Math.max(activeRequests ? 1000 : 3000, 5 * lastMs);
+
 /** TCP and unix sockets of pid, with traffic where the kernel counts it */
 export async function ownSockets(pid) {
   /* filtered in the shell: a busy host (a tor relay) has thousands of sockets */

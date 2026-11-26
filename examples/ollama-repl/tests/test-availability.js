@@ -1,5 +1,5 @@
 /* test-availability.js: loadAvailability() against a fake gateway: every kind of limit, its end, the provider column */
-import { loadAvailability, backText } from '../lib/availability.js';
+import { loadAvailability, backText, limitsText } from '../lib/availability.js';
 
 const now = Date.now();
 const rows = [
@@ -46,6 +46,12 @@ check('one free key keeps the model ready', !m('eps').blocked && m('eps').platfo
 check('key cap ends at its reset', m('zeta').kinds[0] === 'cap' && m('zeta').until === now + 5 * 86400_000 || Math.abs(m('zeta').until - (now + 5 * 86400_000)) < 2000);
 check('providers come from the rows', m('alpha').platforms.join() === 'p1');
 
+/* /gateway limits: limited rows first, the earliest end first (the order is decided once per row, not by formatting rows in the comparator) */
+{
+  const lines = limitsText(av, 'p', 200).replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter(l => /^p\d\//.test(l));
+  check('limits lists the limited rows, the rpm window ending first', lines.length === 2 && lines[0].startsWith('p1/a') && lines[1].startsWith('p2/b'));
+}
+
 /* a chat-bridge: the sites are the models, limits come from its own endpoints */
 const until = new Date(now + 3 * 3600_000).toISOString();
 const bridge = {
@@ -68,3 +74,20 @@ check('bridge: the site is its own provider', b('qwen').platforms.join() === 'qw
 check('bridge: the learned budget shows as the day window', bv.rate.get('qwen').rpd.limit === 30 && bv.budget.get('qwen').used === 12000);
 
 console.log('test-availability ok');
+
+/* concurrent loads share one load; a caller that changed gateway state asks for a fresh one after it */
+{
+  let calls = 0;
+  const counting = { models: async () => (calls++, ids.map(id => ({ id, execution_status: 'ready' }))), api: async p => data[p] };
+  const [a, b, c] = await Promise.all([loadAvailability(counting), loadAvailability(counting), loadAvailability(counting)]);
+  check('three concurrent loads are one', calls === 1 && a === b && b === c);
+
+  calls = 0;
+  const [x, y] = await Promise.all([loadAvailability(counting), loadAvailability(counting, { fresh: true })]);
+  check('fresh waits for the running load and runs its own', calls === 2 && x !== y);
+
+  calls = 0;
+  await loadAvailability(counting);
+  await loadAvailability(counting);
+  check('sequential loads each run', calls === 2);
+}

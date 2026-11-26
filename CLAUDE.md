@@ -703,8 +703,40 @@ entry first; the user commits it together with the change.
 - Say what the change does and why in the code, not how you found it; one
   entry per logical change, entries separated by a blank line. The
   description is wrapped at 75 columns.
-- **Changes under `examples/` are exempt** from this ChangeLog (they keep
-  their own `TODO.md`, see above). Everything else - `lib/`, the C files,
+- **Changes under `examples/` are exempt** from this root ChangeLog (they keep
+  their own `TODO.md`, see above), with one exception: `examples/ollama-repl/`
+  has its own `ChangeLog` (see below). Everything else - `lib/`, the C files,
   `cmake/`, `tests/`, `doc/`, `BUGS` - is logged.
+- **`examples/ollama-repl/ChangeLog`** is a GNU-style ChangeLog in exactly the
+  format above (dated header, TAB entries, 75 columns, newest first), paths
+  relative to `examples/ollama-repl/`. It is updated for **every change of the
+  ollama-repl harness** (`repl.js`, `ctl.js`, `smoke.sh`, `lib/`, `tests/`,
+  `doc/`, `README.md`, `BUGS`, `TODO.md`), in the same task as the change; the
+  user commits it together with the change. Create the file with the first
+  entry if it does not exist yet. A change under `examples/ollama-repl/` is not
+  logged in the root `ChangeLog`.
 - `ChangeLog.md` (Keep a Changelog format) predates this file and is no
   longer maintained.
+
+## Track detours in TODO.md
+
+The global rule "Track detours" applies. Here the task list is `TODO.md`: put the entries under "Open threads", mark the one in progress, and say what is postponed.
+
+## Record design decisions BEFORE implementing them
+
+Every design decision or spec that is about to be implemented is written down in the project first,
+and only then built. This covers behaviour, UX rules, data shapes, URLs, limits and defaults that the
+user states or that we agree on in conversation (for example "buttons and keys change the slide at
+once, only a touch drag slides it").
+
+- Put it where it belongs: the spec doc of the feature (`docs/EDITOR.md`, `docs/GALLERY.md`,
+  `docs/GRAPH.md`, `docs/WAND.md`, ...), or `docs/DESIGN.md` for cross-cutting choices. State the rule
+  and the reason in a few lines, and mark open questions as open.
+- If it is not clear which document it belongs to, ask, or suggest creating a new doc file under
+  `docs/` (and list it in the doc overview above). Do not skip the record because no place exists.
+- A decision that changes during the work is corrected in the doc in the same change; the doc must
+  never describe something other than what the code does.
+- Tests and `docs/DEVELOPER.md` follow the usual rules; this rule is about the decision itself, not
+  only its description afterwards.
+
+

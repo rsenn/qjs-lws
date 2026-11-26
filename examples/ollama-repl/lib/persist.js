@@ -24,6 +24,7 @@ import { loadFile, open as fopen } from 'std';
 import { setTimeout, clearTimeout } from 'os';
 import { writeConfigFile } from './config.js';
 import { cacheDir } from './session-cache.js';
+import { timed } from './lag.js';
 
 export const usagePath = () => `${cacheDir()}/usage.jsonl`;
 export const quotaPath = () => `${cacheDir()}/quota.json`;
@@ -75,8 +76,8 @@ export function usageRow(origin, session, r) {
     ttfbMs: r.ttfbMs,
     fallbacks: r.fallbacks,
     status: r.status,
-    attempt: r.attempt || undefined, /* 0 (the first try) is the default, not written */
     proxied: r.proxied ?? undefined, /* true: upstream went through the gateway's socks proxy, false: direct, absent: not known */
+    attempt: r.attempt || undefined, /* 0 (the first try) is the default, not written */
     error: r.error ? String(r.error.message ?? r.error).split('\n')[0].slice(0, 160) : undefined,
   };
 }
@@ -94,7 +95,7 @@ const lastLogged = new Map();
 export function saveQuota(origin, snap) {
   snaps.set(origin, snap);
   if(timers.has(origin)) return;
-  timers.set(origin, setTimeout(() => writeQuota(origin), 20000));
+  timers.set(origin, setTimeout(() => timed('writeQuota', () => writeQuota(origin)), 20000));
 }
 
 function writeQuota(origin) {

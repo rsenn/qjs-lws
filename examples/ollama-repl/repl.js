@@ -87,6 +87,7 @@ import { betterReason, stepText } from './lib/takeover.js';
 import { loadKeyData, parseKeyScope, modelsOfKeys } from './lib/key-models.js';
 import { externalIp } from './lib/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
+import { startLagWatch, timed } from './lib/lag.js';
 import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
 import { hopLine, hopStyle } from './lib/hop-line.js';
 import { exploreOrder as exploreOrderOf, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/transcript-text.js';
@@ -109,7 +110,7 @@ import { modelStatusTable } from './lib/model-status.js';
 import { recordLatency } from './lib/latency.js';
 import { Tui } from './lib/tui.js';
 import { exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled, torHost } from './lib/proxy-probe.js';
-import { PORT_NAMES, ownSockets, processInfo } from './lib/resources.js';
+import { PORT_NAMES, ownSockets, pollDelay, processInfo } from './lib/resources.js';
 import { MarkdownStream } from './lib/markdown.js';
 import { isHarnessError } from './lib/harness-error.js';
 import { done as doneQuip, quip } from './lib/quips.js';
@@ -830,7 +831,8 @@ function netRoute(sock, rec) {
 }
 
 /** lines of the pane, width cells wide (Tui clips them) */
-function paneLines(width, height) {
+const paneLines = (...args) => timed('paneLines', () => paneLinesNow(...args));
+function paneLinesNow(width, height) {
   const head = t => `\x1b[1;38;2;45;212;191m${t}\x1b[0m`;
 
   if(split.mode === 'diff') {
@@ -915,7 +917,8 @@ function leftCell(id, now = Date.now()) {
  * the picks of /model next and /model skip: warm standby first, then by rating; the short list (default) holds the
  * models rated well or verified lately, `all` every candidate (the chooser scrolls)
  */
-function likelyModels(list, limit = 8, now = Date.now(), all = false) {
+const likelyModels = (...args) => timed('likelyModels', () => likelyModelsNow(...args));
+function likelyModelsNow(list, limit = 8, now = Date.now(), all = false) {
   return list
     .map(m => {
       const e = exploration?.get(m.name);
@@ -2451,7 +2454,8 @@ function providerText(m, avail) {
 }
 
 /** Returns all available models with metadata, filtering out skipped ones. */
-function getFilteredModels(known, remote, avail = availability) {
+const getFilteredModels = (...args) => timed('getFilteredModels', () => getFilteredModelsNow(...args));
+function getFilteredModelsNow(known, remote, avail = availability) {
   const now = Date.now();
   const models = [];
   
@@ -2587,7 +2591,7 @@ function unskipModels(pattern) {
     filtered list) */
 function allModelNames(known = null) {
   const names = new Set(skippedModels.keys());
-  for(const m of getFilteredModels(known ?? ollamaModels() ?? null, null)) names.add(m.name);
+  for(const name of known ?? ollamaModels() ?? []) names.add(name); /* the names only: the filtered, rated list of the whole catalog is not needed for them */
   return names;
 }
 
@@ -2857,7 +2861,8 @@ async function thinkNote(client) {
  *    edits  ~/src/x          qwen3-coder via Cerebras        ctx ███····· 34% 44k/128k
  *   last 1.2k+300 · session 5 req 20k tok · req/min ██·· 3/10 · ... · Shift-Tab mode
  */
-function statusLines(opts, stats, messages, ctxWindow, busy, gateway, remote, cols, queued = 0) {
+const statusLines = (...args) => timed('statusLines', () => statusLinesNow(...args));
+function statusLinesNow(opts, stats, messages, ctxWindow, busy, gateway, remote, cols, queued = 0) {
   const t = stats.totals();
   const last = stats.last();
   const effective = last && !last.error ? routeName(last) : null;
@@ -3227,7 +3232,7 @@ async function main() {
     if(!gateway?.enabled || !gateway.hasLimits) return;
     for(const ms of [6000, 30000])
       setTimeout(() => {
-        loadAvailability(gateway).then(av => ((availability = av), tui?.drawStatus())).catch(() => {});
+        loadAvailability(gateway, { fresh: true }).then(av => ((availability = av), tui?.drawStatus())).catch(() => {});
       }, ms);
 
     /* the keyless providers' models are explored again: what failed under the old address may answer under the new one */
@@ -3588,7 +3593,7 @@ async function main() {
       left = still;
     }
 
-    availability = await loadAvailability(gateway).catch(() => availability);
+    availability = await loadAvailability(gateway, { fresh: true }).catch(() => availability);
     tui?.drawStatus();
     const lines = [...result].map(([platform, x]) => `${x.ok ? '\x1b[32m✔\x1b[0m' : '\x1b[31m✗\x1b[0m'} ${platform} ${dim(x.id)} ${x.ok ? `answers again through ${x.ip} (round ${x.round})` : `still fails through ${x.ip}: ${x.why}`}`);
     console.log([waveNote(`keyless fix: ${[...result.values()].filter(x => x.ok).length} of ${rows.length} providers work again`), ...lines, dim('/proxy keyless clear takes their keys off the proxy again')].join('\n'));
@@ -3606,7 +3611,7 @@ async function main() {
 
     const socks = /^socks/.test(proxyInfo.settings?.url ?? '') ? proxyInfo.settings.url : ANON_PROXY;
     const keys = await gateway.api('/api/keys');
-    availability = await loadAvailability(gateway).catch(() => availability);
+    availability = await loadAvailability(gateway, { fresh: true }).catch(() => availability);
 
     if(sub === 'clear') {
       const mine = routedAll(keys, socks);
@@ -3641,7 +3646,7 @@ async function main() {
     const cleared = k === 0 ? await clearCooldowns(gateway, set.filter(r => r.ok).map(r => r.id)) : [];
     const bad = [...set, ...cleared].filter(r => !r.ok);
     await loadProxy(true).catch(() => {});
-    availability = await loadAvailability(gateway).catch(() => availability);
+    availability = await loadAvailability(gateway, { fresh: true }).catch(() => availability);
     tui?.drawStatus();
     console.log(note(`${set.filter(r => r.ok).length} of ${todo.length} keys now go through ${socks}${k === 0 ? ', their cooldowns are cleared' : ''}${bad.length ? ` (failed: ${bad.map(r => `${r.id}: ${r.error}`).join('; ')})` : ''}; /proxy keyless clear undoes it`));
   }
@@ -3674,7 +3679,7 @@ async function main() {
     if(set.missing.length) return void console.log(red(`error: no such key: ${set.missing.join(', ')} (/gateway keys lists the ids)`));
     if(!set.ids.size) return void console.log(red(`error: the keys ${p.ids.join(', ')} reach no model (disabled, or every model is outside their scope)`));
 
-    availability = await loadAvailability(gateway).catch(() => availability);
+    availability = await loadAvailability(gateway, { fresh: true }).catch(() => availability);
     keyScope.ids = p.ids;
     keyScope.models = set.ids;
     tui?.drawStatus();
@@ -4301,10 +4306,11 @@ async function main() {
       if(arg === 'status' || arg === 'net') {
         const poll = async () => {
           if(split.mode !== arg) return;
+          const t0 = Date.now();
           split.sockets = await ownSockets(getpid()).catch(() => []);
           if(arg === 'net') annotateRates(split.sockets);
           tui.drawPane();
-          split.timer = setTimeout(poll, net.active.length ? 500 : 1000);
+          split.timer = setTimeout(poll, pollDelay(net.active.length, Date.now() - t0));
         };
         await poll();
       }
@@ -4757,7 +4763,7 @@ async function main() {
         let hop = null; /* an automatic skip is one line, printed with the next model (hopLine) */
         if(spent.length) {
           const names = (known ?? []).filter(m => { const ps = availability?.byModel.get(m)?.platforms ?? []; return ps.length && ps.every(p => spent.includes(p)) && availability?.byModel.get(m)?.blocked !== false; });
-          for(const m of names) byProvider += skipModels(m, 'provider exhausted', known, skipRetryMs ?? SKIP_COOLDOWN_MS);
+          for(const m of names) (skipModel(m, 'provider exhausted', skipRetryMs ?? SKIP_COOLDOWN_MS), byProvider++); /* the names come from `known`: no lookup per model */
           if(byProvider) {
             const err = skipError ?? stats.last()?.error ?? '';
             const why = isUpstreamFailure(err) ? 'every route failed upstream' : /quota|exhausted/i.test(err) && !/rate.?limit/i.test(err) ? 'quota used up' : 'rate limited';
@@ -5882,6 +5888,8 @@ async function main() {
       repl.restoreQueue(pendingQueue);
     }, 0);
 
+  /* where the loop stalls: /events lag, ~/.cache/ollama-repl/lag.jsonl (lib/lag.js) */
+  startLagWatch({ describe: () => `${phase.name}${phase.tool ? ` ${phase.tool}` : ''}` });
   await repl.run();
   ratings?.flush();
   flushPersist();

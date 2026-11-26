@@ -430,7 +430,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   turn; `status` the live state - the phase, the current request (route,
   bytes out and in, chunks, time to headers and first token, proxied),
   the sockets the process owns with the traffic over each (`ss`), memory
-  and descriptors, refreshed every second. `/split` alone toggles.
+  and descriptors, refreshed every second while a request runs, every 3 s otherwise (and never sooner than 5 times the last `ss` took). `/split` alone toggles.
 - `/proxy` reports the socks proxy the gateway sends upstream requests
   through (here the anon service): its settings, bypassed platforms,
   per-key proxies, the latency it adds and the time to first byte per
@@ -657,7 +657,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   seen when `/gateway keys` is looked at), `failover` (skips with the reason,
   switches to the standby or the best rated model, provider fallback),
   `standby` (warm, probe failed, none left), `takeover`, `rating` (a model
-  whose requests fail) and `proxy`. In the verbose view (Ctrl+O) each one
+  whose requests fail), `proxy` and `lag` (the loop was blocked, a synchronous section ran long: `lib/lag.js`, `lag.jsonl` in the cache directory). In the verbose view (Ctrl+O) each one
   is a single line, also the ones that happened before it was switched on;
   `/events` lists the last ones with a count per kind.
 - **Model rating.** Every gateway model has a score 0-100 for how good a

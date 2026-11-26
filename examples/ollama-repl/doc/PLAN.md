@@ -11,7 +11,7 @@ How to check any change: `for t in tests/test-*.js; do qjsm $t >/dev/null 2>&1 |
 `qjsm usage-baseline.js --days 1` against the baseline in `doc/HEALTH-EXPERIMENTS.md`.
 Rules that apply to every task: record a design decision in a doc before building it; every fix has a test and
 removes its `BUGS` entry; update `TODO.md` and the affected docs in the same change; stage files by name;
-no commit trailers; `examples/` needs no repo `ChangeLog` entry.
+no commit trailers; every change gets an entry in `examples/ollama-repl/ChangeLog` (GNU style, see the repo `CLAUDE.md`).
 
 Contents
 
@@ -396,11 +396,8 @@ Plan and rationale: `../chat-bridge/doc/HARNESS.md` and `../chat-bridge/TODO.md`
 
 ## Suggested order
 
-1. **A1, A3, A5** (a few minutes of the user's time); N1's stall and H3's rest are open (small).
-2. **B1 after A4** (let a day of traffic run while doing the rest).
-3. **C6, C1, C2** (one terminal and one gateway session) before building more UI or failover on top.
-4. **B2, B3, B4** (failover work, measured by the baseline), then **D1 to D3, D9 to D11**.
-5. **C4 with E1 to E7** (Tor, one session), **F2 to F7**, **F8 after a week of data**.
-6. **H3 first** (testability), then **H1, H2, H6, H7**; **H4/H5** only with a decision on the line editor.
-7. **I and L** as live runs allow; **J1 to J3** are the big feature steps (J3 first), **J4** after research.
-8. **K** when chat-bridge work resumes; **M1** whenever an Ollama or a Gemini key is at hand.
+The ordered list of every pending task, with the reasons for the order, is `TODO.md` (sections 1 to 15). In short:
+decisions and housekeeping (A), bugs and enablers (N1, H3, G3, G5), small failover fixes (D, M2), live verification
+(C, terminal first), the measured failover work (B, after the restart A4 and a day of data), the gateway wishes (D4 to
+D8, after A2), proxy (E, after C4), exploration and rating (F), events and persistence (G), UI (H), files and context (I),
+agents and providers (J), bridge (K), coding quality (L, M1).

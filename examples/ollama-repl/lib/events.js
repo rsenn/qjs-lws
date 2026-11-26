@@ -17,6 +17,7 @@
  *         takeover  a discovered model proposed, accepted, declined
  *         rating    a model whose requests fail (counts against its rating)
  *         proxy     the socks proxy switched, the exit address changed, keyless keys moved
+ *         lag       the event loop was blocked (lib/lag.js) or a synchronous section ran long
  * levels: good (green), info (dim), warn (amber), bad (red)
  */
 

@@ -33,6 +33,7 @@ import createContext from '../../../lib/lws/context.js';
 import { httpClient } from '../../../lib/lws/protocols.js';
 import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
 import { RequestLogger } from '../../../lib/logger.js';
+import { timed } from './lag.js';
 import { debugLogPath } from './session-cache.js';
 import { getenv } from 'std';
 
@@ -560,8 +561,8 @@ export class OpenAIClient {
 
     if(resp.status < 200 || resp.status >= 300) throw new OpenAIError(resp.status, {}, text);
 
-    const data = JSON.parse(text);
-    this.#logger.body(data);
+    const data = timed(`JSON.parse ${url.replace(/^https?:\/\/[^/]+/, '')} (${text.length} chars)`, () => JSON.parse(text));
+    timed('logger.body', () => this.#logger.body(data));
     return data;
   }
 

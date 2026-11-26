@@ -1,262 +1,198 @@
-# ollama-repl TODO (status 2026-11-25)
+## Open from the hiccup investigation of the REPL (2026-11-25, stdin unresponsive)
 
-Only open work is listed here; `doc/PLAN.md` splits it into coarse tasks with steps, checks, owners and an order. What is done lives in git history, in `README.md` (user
-view) and in `doc/ARCHITECTURE.md` (implementor view). Defects are in `BUGS`.
-Tests are in `tests/` (`qjsm tests/test-x.js`, run from this directory) with the installed
-`qjsm` (it has `terminal/*` since 2026-11-25; built from
-`~/Sources/quickjs/qjs-modules/build/x86_64-linux-gnu`). After every change under `lib/`
-run `cmake .` before `cmake --install`. Checks before a commit:
-`for t in tests/test-*.js; do qjsm $t >/dev/null 2>&1 || echo FAIL $t; done` and
-`node --expose-internals check-names.cjs repl.js lib/*.js` (undeclared and doubly
-declared names). Bare test file names in this file mean the files in `tests/`.
+The two causes found are fixed (the blocking pipe read in `lib/run-command.js`; the slow `Array.sort` comparators in
+`limitsText` and `modelStatusTable`) and the loop-lag instrumentation `lib/lag.js` exists. What is left:
+- `/split status|net` still spawns `ss` every 0.5 to 1 s (a slow `ss` on a host with many sockets is what timed out): poll slower, or
+  only while the pane is visible.
+- After the restart (A4): confirm that `/events lag` no longer names `limitsText` or `modelStatusTable`; check the other comparators
+  that call heavy functions (`lib/freellm.js` `keysText` orders, `lib/availability.js` `limitedText`, where `rateOf` is called per comparison).
+- Waiting for the next hiccup: read `/events lag` or `~/.cache/ollama-repl/lag.jsonl` first (the perf data of 23:09:38 shows no long CPU
+  burst: that stall was waiting, not running).
+- A 4.8 s CPU stall in one JS callback after a `/v1/models` download (strace.log.txt, 1795644170.735816; no `BUGS` entry now): needs
+  perf or gdb at the moment it happens, or the slow-section instrumentation.
 
-## 1. Now
+# ollama-repl TODO (status 2026-11-26)
 
-- **Commit the open working-tree changes** (needs the user's explicit OK; the last attempt to commit
-  the hop-line files was blocked): the hop line (`repl.js`, `lib/hop-line.js`, `tests/test-hop-line.js`),
-  the move of the tests into `tests/` (with `smoke.sh` and the doc paths) and the doc cleanup of
-  2026-11-25. Tests pass. The hop line is not seen in a terminal, its colour wiring (`hopText`,
-  `modelName`) has no test, and a manual `/model skip` keeps its own notes. Not to be committed:
-  the untracked `strace.log*` files (110 MB, safe to delete).
-- **Restart the running sessions** so they use the code of Phases 1 to 3 (attempt rows, probe
-  budget, rating reliability, exploration order, Tor host).
-- **Health plan, what is left** (`doc/HEALTH-EXPERIMENTS.md`):
-  - 4.2 after table: a day of traffic on the new code, then `qjsm usage-baseline.js --days 1`
-    and fill the "after" column.
-  - 3.4 failover prefers a provider with headroom over the biggest one (`/gateway quota`); 3.5
-    switch at once on "All models exhausted" for a pinned model; 3.11 the req/day meter
-    (openrouter nemotron-3.5-lightning:free 34/50) feeds failover and the automatic exit
-    decision. All three change `chatRound` / `/model skip` in `repl.js`: do them after the
-    working-tree commit above, and measure against the baseline (kilo share after failures,
-    failure run length).
-  - 3.10 the quota bar's month budget (584M of 2.3G) vs 876M in `/gateway usage`: which
-    tokens does `budget.totalUsed` count (question in `doc/GATEWAY-PROPOSALS.md`).
-  - 4.1 left over: the base `nemotron-3.5-lightning` was not testable (cooldown, one provider key
-    rejected as invalid); repeat when it is usable.
-- **Decisions waiting for the user:** whether kilo (67 to 77 % of the traffic) stays behind
-  Tor (22 keys were routed through `socks5://192.168.178.52:9050` by the proxy policy; gateway
-  key state, it outlives the harness); who takes the gateway proposals 3.6 to 3.9
-  (`doc/GATEWAY-PROPOSALS.md`).
-- **Open `BUGS` entries:** `availability-load-uncoalesced-and-429-swallowed`,
-  `reasoning-test-never-ran` (`tests/test-rawcolor-reasoning.js` has a wrong import path and no `assert`).
-- **Kilo facts to remember** when touching the key spread: Kilo reports no usage per key
-  (tokens are JWTs with a `kiloUserId`; analytics break down by user, org, model, provider,
-  project); two of the three tokens in `~/Documents/accounts.txt` belong to one user, so the
-  keys may share one limit (then spreading over them gains nothing); the three Kilo tokens in
-  that file are rejected (INVALID_TOKEN), so `usageAnalytics.getBreakdown/getSummary` was not
-  tried. Experiment rule: scripts that talk to the gateway use `FREELLMAPI_URL` and
-  `FREELLMAPI_KEY`, never `OPENAI_API_URL` (another service here).
+Every pending task of `doc/PLAN.md`, in the order to do them. The IDs are the plan's: the plan has the steps, files,
+checks and details of each, this list has the order and the reasons for it. Size: S under an hour, M a session, L several
+sessions. Owner: U the user, H this harness, G the freellmapi gateway, Q the qjs-modules session. Done tasks are
+removed from here and from the plan (git history and `README.md` / `doc/ARCHITECTURE.md` have them). Defects are in
+`BUGS`; the facts behind the health work are in `doc/HEALTH-EXPERIMENTS.md`, the gateway wishes in
+`doc/GATEWAY-PROPOSALS.md`.
 
-## 2. Never seen live (verification debts)
+Checks before a commit: `for t in tests/test-*.js; do qjsm $t >/dev/null 2>&1 || echo FAIL $t; done` and
+`node --expose-internals check-names.cjs repl.js lib/*.js` (undeclared and doubly declared names). Tests are in
+`tests/` (`qjsm tests/test-x.js`, run from this directory); bare test names in the docs mean those files. After a
+change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scripts that talk to the gateway use
+`FREELLMAPI_URL` and `FREELLMAPI_KEY`, never `OPENAI_API_URL` (another service here).
 
-Everything below is unit tested or run on mock data only. Each needs one real session
-(a live gateway, a terminal, a Tor proxy) to be called done.
+## Uncommitted and open right now
 
-- **Gateway and routing:** the failover work of 2026-11-24 (Retry-After skips, task-type
-  header, trail soft-skip, `/last` trail, turn repair, routing-health segment, early skip
-  release); the startup likely-routes list; key restriction `/model key:ID`; `/model health`
-  columns; the persisted quota stand-in; `/gateway usage` key spread; the dashboard success
-  path (only a refused token and a wrong password were tried).
-- **Proxy and Tor:** `autoExit` (every keyless provider exhausted: new exit, at most every
-  10 minutes; the gap and the "all exhausted" rule are guesses to tune), `exploreKeylessAgain`,
-  the exit-change pane, `/proxy keyless fix` (only pieces: fake control port, direct probe,
-  candidate logic), the automatic proxy policy (keyless and multi-key through the proxy, single
-  key direct, proxy on exhaustion) and the `SOCKS`/`DIRECT` chips; the PATCH/DELETE key calls
-  follow the freellmapi source, not a run.
-- **Exploration:** tier 0/1 probes and the diagnosis (the retry cannot pin a provider route, so
-  a model that fails through one provider and works through another reads as flaky); takeover
-  end to end (`considerTakeover`; only the decision and step helpers are tested); the needles
-  are fixed, so a provider that caches prompts may answer from cache (vary them if it shows).
-- **Terminal:** the net pane (`/split net`) and its colours, the split pane keys (F2, Alt-n,
-  Ctrl-X chords; a terminal may eat F2 or send Meta differently), live panels, tool call
-  panels, the `/model` chooser filter and the scrolling picker dialogs, `/brief save`, sync
-  frames and the undo at exit, the reply colour `REPLY`, the hop line.
-- **Local models:** `/brief` needs a brief built by the local model; Ollama and Gemini
-  `onMeta` token counts (`test-client-usage.js`) were never run against a live server, and a
-  failed request emits no record for them; `OllamaClient` with `tools` and its streaming
-  `tool_calls` path are unverified (the round trip was verified with Gemini and OpenAI only).
-- **Agents:** `spawn_agent` with `kind`, the read-only switch, a worker waiting for approval,
-  `restart_harness` as a model tool call, the self-edit dialog, SELF_NOTES use by a real
-  model, `ask_user` by a live model, the repeat guard `MAX_REPEAT_ROUNDS`, the standby
-  switch-over on a real 429/5xx, `ollama-repl-ctl monitor` (`waiting` event, two clients,
-  a client that stops reading).
-- **Bridge (`--provider bridge`):** names and the context meter in `/model list` (only the data
-  was tested), the standby switch-over, strength "unknown" (no scores), `x-ratelimit-*` still
-  says "/min" in the status line, a prompt that stopped accepting input after "OpenAI
-  connection failed: dropped" (not reproduced; check `/proc/<pid>/fd/0` of the bridge child).
+- The 429 fix of the availability load (`lib/availability.js`, `tests/test-availability-missing.js`, its `BUGS` entry
+  removed) waits for the other session to commit `lib/lag.js` (it imports it). Not mine: `lib/run-command.js`, `lib/lag.js`,
+  `lib/model-status.js` and the other work in the section above.
+- The untracked `strace.log*` files (110 MB) are not to be committed (see A3).
 
-## 3. Gaps and follow-ups, by area
+## The order
 
-**Gateway failover**
-- The provider-fallback 5 minute cool-down (`lib/provider-fallback.js`) ignores Retry-After, and a
-  plain "Soonest cooldown reset ~3m" text without the header is not read.
-- The trail soft-skip is per model; a platform-wide skip needs the key outcome per platform.
-- Availability is not refreshed on a timer: skips are released, and the routing-health numbers
-  move, only when `/model list`, `/model skip` or another refresh runs.
-- Failover covers `chatRound()` only: a limit in the middle of a streamed reply is not handled;
-  when every model is unavailable a hint with the earliest `resets_at` would help.
-- After a switch to the local model the next round still starts on the failed client (routed by
-  the cool-down); the status line keeps the old route.
-- The monthly-quota vs daily-limit split needs a dashboard session; without it the per-provider
-  skip of the attempt trail applies.
-- A throw inside tool execution itself is untested against `lib/turn-repair.js`.
-- The provider fallback and `/handoff-model` are not part of the one next-model order yet.
+### 1. Decisions and housekeeping (minutes each, mostly the user)
 
-**Proxy and exit address**
-- Tor cookie authentication is not supported (password only); a remote Tor needs an ssh tunnel.
-- Tor answers 250 OK to NEWNYM more often than once per 10 s without a new circuit: an exit change
-  right after another may keep the circuit.
-- A keyless platform the gateway lists only as a provider (no key row) cannot get a proxy.
-- Which limits an address change lifts is a guess (windows, cooldown, exhaustion, IP errors).
-- `/proxy keyless fix` tests the strongest limited model per provider only; a provider whose other
-  models stay limited is reported as working. Its steps are not events yet.
-- A keyed provider limited per IP gets a proxy for its key too, which adds the proxy's latency to
-  every request of that key. The transient/real split is a regex over the error text.
+1. **A3** (U, S) delete `strace.log`, `strace.log.copy.txt`, `strace.log.txt`, `strace.log.txt2` (110 MB); keep or move `harness.mp4`.
+2. **A5** (U, S) look at a real automatic skip once (the hop line, colours, a piped run) and say whether the wording is right.
+3. **A2** (U, S) who takes the gateway proposals D4 to D8: the user changes freellmapi, a patch is prepared against
+   `~/Sources/freellmapi`, or the harness keeps working around them. Needed before D4 to D8.
+4. **A4** (U/H, S) restart the running session so it uses the code of Phases 1 to 3 and the 2026-11-26 changes. Blocked: it is
+   under `sudo ptrace.sh -f ollama-repl` (the stall investigation of the other session) and a restart ends that trace;
+   do it when that is finished (`ollama-repl-ctl` does not see it, its socket is under `/run/user/1000/ollama-repl/snap-*`).
+   It starts the clock for B1.
+5. **A1** (U, S) keep kilo behind Tor? The data side is done (usage rows carry `proxied`, the baseline splits `kilo` and
+   `kilo +socks`); decide from a day of rows after A4 (`doc/HEALTH-EXPERIMENTS.md`, last section).
 
-**Exploration, rating, picking**
-- Exploration: only OpenAI-compatible gateways are explored; each model costs 2 requests of free
-  quota (tier 0) and the top 30 a 3 to 12k token tier 1; no time-to-first-token (not streamed);
-  `/model explore` skips limited models instead of queueing them and has no argument for the tier
-  or the concurrency; the explored identity is not used for routing; entries of the older
-  three-prompt code count as verified; the live refresh runs only with `/model health`, not on a
-  timer; the TCP check connects to the gateway, not to the model's upstream.
-- Rating: the weights (55 intelligence, +-25 learned, reliability +-10, latency, probe, state) are
-  a first guess, to tune on real use; `/gateway limits|quota|keys` keep their own orders; a route
-  that is not a catalog id gets a record of its own name.
-- Strength column: the gateway's intelligence scores are coarse (many at 74 % or 50 %); find a better
-  source (a benchmark table by model family, or measured results) as a tie-break inside a score group.
-  The `MODEL_STRENGTH_PATTERNS` tiers are hard-coded name patterns, unknown models get tier 9.
-- Model lists: `/model a,b,c` and the last sweep are not saved with the session or shown in `/status`
-  (a pasted sweep line does not survive wrapping over several lines); the request-rate window left
-  is not in the `/model next` line; other `compactTable` tables (`/model list`, limits) still have one
-  flexible column; only `/model health` is selectable (the other pagers could take `select` too);
-  column filters are plain substring matches; no mouse selection; shift+arrows need `ESC [ 1;2 A/B`
-  (J and K work everywhere); `smoke.sh` does not run `test-pager-select.js` under a pty.
-- `/gateway limits|models`: the day window's exact reset is unknown (shown `<= 24 h`), IP limits are a
-  text heuristic, `/model list FILTER` does not exist yet; `/gateway limited` loses the detail and the
-  providers on a narrow terminal; freellmapi fusion, `x-freellm-cache`/`compress` and profile
-  management are not exposed.
+### 2. Bugs and enablers (small, they unblock later work)
 
-**Events, stats, persistence**
-- Events not reported yet: learned cooldown changes, a rating that moved by 10 or more, key quota,
-  the persisted-quota stand-in being replaced, the keyless IP fix steps, `/gateway providers`
-  changes, the standby used as a sub-agent. The key status is compared only when `/gateway keys` is
-  looked at; events are not persisted.
-- `quota.jsonl` is written but nothing reads it (a `/gateway forecast` trend could); the status bar
-  shows the preloaded quota as fresh until the first refresh; a killed process loses at most 20 s
-  of quota and 5 s of cooldowns.
-- Other clients (explore, standby, sub-agent) are not logged in `usage.jsonl`; could be, with a `label`.
-- Config: briefs still live in `~/.config/ollama-repl/brief-*.json` (`lib/project-brief.js`
-  `cachePath`) not in the cache; the restored `/model` pattern is announced only, it does not
-  restore the cycle position; `/rename` after start does not move the session files; old
-  `<model>.json/.log/-diffs` in project directories are not migrated; the provider debug logs
-  (`lib/logger.js`) still go to the cwd; no unit test for `lib/session-cache.js` and the env parser.
-- `/handoff`, `/compact`, `/handoff-model` summaries and `/each` use local-model calls
-  (`lib/handoff.js`) without the verbose panels; `/brief` panels show whole documents (behind
-  `/view N`); the compaction type of the net pane needs those calls watched with a label (they go
-  through `localTrace`, not `watchNet`).
+6. **N1** (H, S to M) `loadavailability-stalls-the-loop`: one availability load blocks the loop 0.5 to 1.1 s; the other session is
+   on it (`lib/lag.js`). Left over: a load still costs 7 requests, a per-table TTL (the key table changes rarely) would cut it.
+   Blocks D3. Also from the hiccup section above: slow `/split status|net` polling of `ss`, confirm the sort fixes after a restart.
+7. **H3 rest** (H, S) the context subcommands (`/context`, `/log`), the dialog state of `ChatREPL` and the remaining wiring of
+   `repl.js` are only testable inside `main()`: move the pure parts into `lib/` as they are touched; prerequisite for H1, H2, J1.
+8. **G3** (H, S) log the other clients (explore, standby, sub-agent) in `usage.jsonl` with a `label`; the baseline then counts only
+   `main` for turn statistics. Gives B1 and B2 cleaner data.
+9. **G5** (H, S) flush the quota snapshot and the cooldowns on SIGTERM, SIGINT and `/restart` (a kill loses up to 20 s and 5 s).
 
-**Terminal UI**
-- Net pane: the exploration's requests show with the label `explore`; the elapsed bar counts
-  against a fixed 90 s; non-streamed OpenAI replies show no reply tail; requests are paired to sockets
-  by the peer port only (two parallel requests to one host share the first socket); no scrolling,
-  a long list is clipped; the gateway sends the key only as an ordinal, so the pane cannot name it,
-  and a successful request shows no key; handoff and `/compact` prompts show the first line of the
-  user message (give them a short subject if that reads badly).
-- Live panels redraw the whole window every 120 ms (changed rows only would be cheaper); exploration
-  panels scroll away as the chat goes on; a tool that throws leaves its panel on the failure line only
-  when `runToolLoop` catches it; `repl.js` cannot be imported by a test (it runs `main()`), so helpers
-  like `inKind`, the context subcommands and the dialog state are only mirrored in tests.
-- Kitty keyboard and focus events stay off: `ChatREPL#termReadHandler` would need a layer that runs
-  `decodeKeys()` and hands `handleKey()` the legacy string (needs a kitty terminal); the line editor
-  is the base REPL of qjs-modules, `terminal.LineEditor` would replace `ChatREPL`'s whole base class;
-  `showColors` is off in chat, so the grey suggestion and preview do not show.
-- Verbose: no per-language highlighting (`markdown.js highlight()` is generic); the `/last` panel,
-  plain `--verbose` lines and the unified diff of an edit tool call are not coloured as a diff;
-  panels are kept for the whole session (`HISTORY_MAX`), the oldest drop first; Ctrl-O in plain mode shows
-  only new traffic.
-- Smaller: `/context` subcommands could apply to `/log`; no switch to turn the quips off; the
-  "thinking:" label is unchanged; the live in-transcript scroll of the latest panel was not done (the
-  pager covers it); a terminal sending another sequence for Alt-PgUp/PgDn needs an entry in
-  `chat-repl.js`; the TUI start pushes the screen into the scrollback (needs a cursor position query);
-  `/js` output and Tab lists come from the base REPL; the status line is clipped, not wrapped;
-  Ctrl-C while a stream flows does not cancel it (`abort()` only knows requests waiting for headers);
-  the lws connections of control-socket clients and CDP show in `/split status` only while connected.
-- Move to qjs-modules `terminal` (not asked of that session yet, probably as sibling modules):
-  `piped`, `termWidth`, `wrapHanging` (ansi.js), `Pager`, `colorJson`, `MarkdownStream`; the rest of
-  `look.js` (`highlight`, `helpPanel`, `note`, `pctCell`) needs a theme design first. The faster
-  `terminal.js` width functions live in qjs-modules (see tool-registry `PROPOSALS.md`).
-- Files: attachment limits are constants in `lib/file-refs.js` (no option; a file the user names could
-  be allowed up to 100 KB); a glob attach also fires on a `*.js` inside quoted prose (attach only
-  standalone path-like tokens, or add a `/noattach` and leading `!` prefix); `read_file` resolves
-  relative to the harness root (allow an absolute path under an extra root, or let `/cd` follow the job);
-  `/log` and `/context` have no filtered view of only the tool-call history.
+### 3. Small failover and display fixes (each with a test)
 
-**Context, compaction, handoff**
-- The compaction trigger is an estimate (chars / 3.5), not the provider's token count; the summarizer is the
-  local ollama model also when the main provider is a gateway, and a 4B model can drop or garble details;
-  after a handoff `/reset` keeps the base messages but the compacted turns are gone from the local history;
-  a compaction may summarize a loaded skill away; a single long turn is cut by the auto compaction (nothing
-  older to summarize).
-- Takeover: the in-flight request finishes before the pause takes effect (no abort); only the main
-  conversation is held.
-- A handoff-aware prompt budget for duck's 16000 characters; `tools: false` in `/v1/models` so the repl
-  switches to `--no-tools` by itself and a failover skips chatgpt, duck and deepai.
-- System prompt: re-inject a short tool-use reminder periodically (e.g. on each tool result in
-  `runToolLoop`); `gatherProjectContext()` is shallow and fixed at startup; no memory of files already
-  read (a per-session "already shown" set); `qjsProjectDirs()`/`referenceFiles()`/`nativeModules()` re-read
-  directories on every call (cache per session if it gets slow); `nativeModules()`' guess of the project
-  a `.so` came from is not shown to the model; unverified: whether the shorter system prompt changes
-  `qwen2.5-coder`, and whether the model reads a file before rewriting it.
+10. **D1** (H, S) the provider-fallback cool-down ignores Retry-After and the "Soonest cooldown reset ~3m" text
+    (`lib/provider-fallback.js`; `soonestReset` is already in `lib/transcript-text.js`). Started, no code yet.
+11. **D10** (H, S) the give-up panel gets a summary line with the earliest reset time of all routes.
+12. **D11** (H, S) after a switch to the local model the next round still starts on the failed client and the status line keeps the
+    old route: give the local client an `onMeta` or set the route on switch.
+13. **D12** (H, S) document the degraded mode without a dashboard session (monthly vs daily split) in `/gateway status`.
+14. **D13** (H, S) test a throwing tool against `lib/turn-repair.js` (move the repair decision into a testable `lib/` function).
+15. **M2** (H, S) the hop line names the provider that served the spent model when the trail has it.
+16. **D2** (H, M) platform-wide soft-skip from the fallback trail (skip every model of a platform when all its keys appear in it).
+17. **D9** (H, M) a limit in the middle of a streamed reply: keep what was printed, drop the spent model, continue; design first.
+18. **D14** (H, M) fold the provider fallback and `/handoff-model` into the one next-model order, or document why they stay apart.
+19. **D3** (H, S) a low-rate availability refresh while a request runs or the session is idle; after N1.
 
-**Agents, peers, sessions**
-- Several conversations ("agents") in one ollama-repl, picked with up/down + Enter (a refactor: the
-  closure in `main()` becomes an `Agent` class, module state in `tool-requests.js` and `repl.js` becomes
-  per agent, a TUI agent list with replay on switch); `ollama-repl-ctl -a NAME` and a `multi` mode with an
-  NDJSON stream per agent.
-- Make `spawn_agent` non-blocking (returns an id, runs in the background, the result comes back as a
-  notification message) with a running/finished list (up/down + Enter).
-- Claude Code sessions as a provider: headless `claude -p --input-format stream-json --output-format
-  stream-json` as a child process is the best fit (unverified: `--resume` with `--input-format
-  stream-json`, attaching the Agent SDK to a running session); `~/.claude/sessions/<pid>.json`
-  discovery works, the per-session socket protocol is internal and not worth targeting; tmux
-  `send-keys`/`capture-pane` is the fallback. The other direction already works (a Claude session
-  drives ollama-repl through `ollama-repl-ctl`).
-- Peers: a worker's mode is not updated on `/mode`, no way to cancel a running peer task, the primary is
-  not told which models are candidates, Gemini has no delegation; N restarts leave N waiting `qjsm`
-  processes (no `execve` in QuickJS); a session started before the AF_UNIX fix holds the abstract
-  socket name (restart it); a process started from the fallback is not a source tree itself.
-- `/skill`: the model cannot load a skill itself (no tool), skills are not listed in the system prompt,
-  plugin skills and `allowed-tools`/`argument-hint` are ignored.
-- Delegation lesson: two agents edited `chat-bridge.js` at once and the weaker worker left a half-done
-  edit: give each delegated task its own file or a lock and review the diff before the next dispatch.
-  A local-model brief for other projects wants a goal, milestones and an out-of-scope list instead of
-  "find weaknesses" (see `~/Sources/bass-doctor/TODO.md`; `lib/project-brief.js`).
-- Bridge parity (plan in `../chat-bridge/doc/HARNESS.md`, failover plan in `../chat-bridge/TODO.md`):
-  `--provider bridge` has none of the gateway functions (limits, `/route`, `/standby`, usage meters);
-  needs chat-bridge to serve the metadata and a backend interface here (`lib/gateway.js` with freellmapi
-  and bridge backends); the browser is not started for you (the bridge prints the command), a hard-killed
-  repl can leave the bridge child running, no `--new-tabs` option.
+### 4. Live verification (one real session each, before building more on top)
 
-## 4. Coding-quality ideas (assessments of 2026-08 to 2026-10, none verified live)
+Do the terminal pass first, then the gateway passes. Every failure becomes a `BUGS` entry; every pass removes its bullet.
 
-- The model does not always pick `for_each` (one run did 25 edits itself and deleted three declarations):
-  a harness nudge when the prompt matches `/every|each|all .* (function|file)/` and edits start without
-  `for_each`, or run the item extraction in the harness (`/each`-style).
-- Verify after edit: a per-task check hook (a comment-only task: `git diff` has no removed lines and no added
-  non-comment lines, else auto-`/undo` that item and retry); a `max_lines` check on `insert_above`; verify that
-  the anchor line of a `for_each` insert contains the item name.
-- `think: true` for the planning round and `think: false` for sub-items; Gemini `thinkingConfig.thinkingLevel`
-  as a client option (`"low"` works on `gemini-3.8-flash`, `"minimal"` does not); a busy Gemini 503 outlasts all
-  5 retries (retry longer, or skip a busy item); `for_each` could pack several items per request to save quota.
-- Larger refactors (rename across files) are untested (needs `grep` -> `for_each(files)` and a build/test step).
-- The target model `qwen2.5-coder` via a local Ollama was never run here (the Ollama install was broken:
-  snap leftovers, mode 700, AppArmor); retry `ollama pull qwen2.5-coder`, run the two PoC tasks (a `RingBuffer`
-  class on `std.open()`, a small C routine against `quickjs.h`) and read the `<model>.log`. `qwen2.5-coder`
-  still inserts comments above a neighbouring declaration and ends items with a text `run_command` call.
-- `ask_user`/`[y/N]` at EOF of piped stdin ends the session without an answer: re-test piped input against a
-  `confirm()`/`ask()` prompt (a PoC run piped as `<prompt>\n/exit\n` hit a 90 s timeout).
-- The binding-writing demo (the README "Demo" section: zlib `deflate`/`inflate`/`crc32` with the
-  auto-attached `fib.c`, `point.c` and `reference/quickjs-binding-api.md`) has not been re-run live: needs an
-  Ollama server or a `GEMINI_API_KEY`; the outcome decides whether the curated context fixed the old
-  never-replies case (its `BUGS` entry is gone); record the result in the README demo section.
+20. **C6** (U/H, M) one sitting in a real terminal and tmux: net pane, `SOCKS`/`DIRECT` chips, split-pane keys, live panels, tool call
+    panels, pickers and the chooser filter, `/brief save`, sync frames, the reply colour, the hop line (also settles A5), the long
+    reasoning panel, Ctrl-O.
+21. **C1** (H, M) provoke a 429 on a pinned model: Retry-After skips, task-type header, trail soft-skip, `/last` trail, turn repair,
+    routing-health segment, early skip release, hop line, give-up panel after 3 backoffs.
+22. **C2** (H, M) startup likely-routes list, `/model health` columns, `/gateway usage` key spread, persisted quota stand-in,
+    dashboard success path.
+23. **C3** (H, S) key restriction `/model key:ID,ID`: status mark, `/route` refusal, warning for shared platforms.
+24. **C5** (H, M) a tier 0/1 sweep, the diagnosis steps, the `12k?` busy display, takeover end to end, the prompt-cache question for the fixed needles.
+25. **C4** (H, M) Tor: `autoExit`, `/proxy keyless fix`, the proxy policy, the PATCH/DELETE key calls, the chips against real sockets;
+    tune the 10 minute gap and the "all exhausted" rule. Feeds E4.
+26. **C7** (H, M) Ollama and Gemini `onMeta` token counts and failed-request records, `OllamaClient` with `tools` and streaming
+    `tool_calls`, `/brief` built by the local model.
+27. **C8** (H, L) agents: `spawn_agent` with `kind`, read-only switch, a worker waiting for approval, `restart_harness`, self-edit dialog,
+    `ask_user`, repeat guard, standby switch-over on a real 429/5xx, `ollama-repl-ctl monitor`.
+28. **C9** (H, M) `--provider bridge`: names and context meter, standby switch-over, strength, the "/min" label, the dropped-input report.
+
+### 5. Measured failover work (against the health baseline)
+
+29. **B1** (H, S, needs A4 and a day of traffic) fill the "after" column of the 4.2 table: failed turns, failed hops (harness exceptions
+    should be 0), time to next success, kilo share, retries, rating ties, transient verdict share, used share of verified models.
+    Settles A1.
+30. **B2** (H, M) 3.5 faster switch on "All models exhausted" for a pinned model: first list the runs with `attempt` >= 2 from the new
+    rows, write the rule into `ARCHITECTURE.md` section 10, change `chatRound`, put the choice in a testable `lib/` function.
+31. **B3** (H, M) 3.4 failover headroom: prefer a provider with quota left over the biggest one (a headroom term in `score()` or `pickNext`).
+32. **B4** (H, S to M) 3.11 the req/day meter feeds the rating and the automatic exit decision; shares the headroom definition with B3.
+33. **B5** (H/G, S) 3.10 which tokens `budget.totalUsed` counts (584M of 2.3G vs 876M); then fix the quota bar text.
+34. **B6** (H, S) 4.1 leftover: repeat the 400/1500 tier 1 rerun for the base `nemotron-3.5-lightning` when it is usable.
+
+### 6. Gateway changes (after A2; each has its evidence in `doc/GATEWAY-PROPOSALS.md`)
+
+35. **D4** (G) kilo key spread; first check whether the three keys share one limit (two tokens belong to one user; Kilo reports no usage
+    per key; needs a valid token for `usageAnalytics.getBreakdown`).
+36. **D5** (G) `blocked` false negatives: a model listed usable while its provider is `rate_limited`.
+37. **D6** (G) daily resets exposed as resets with the exact end, not `cooldown`.
+38. **D7** (G) route check for tool support before counting routes.
+39. **D8** (G) the invalid upstream key found by the 4.1 rerun: replace or disable it.
+
+### 7. Proxy and exit address (after C4)
+
+40. **E4** (H, S) which limits an address change really lifts: count the cooldowns that came back, adjust `ipLimitedPlatforms`/`clearCooldowns`.
+41. **E2** (H, S) NEWNYM throttling: wait out Tor's 10 s (`GETINFO newnym-wait`) and verify the address changed in `autoExit` and `/proxy exit`.
+42. **E1** (H, S) Tor cookie authentication for a local Tor.
+43. **E6** (H, S) show the latency a proxy adds per platform and take a key off the proxy again when its limit is gone.
+44. **E5** (H, M) `/proxy keyless fix` tests a second model of a provider and turns its steps into `proxy` events.
+45. **E7** (H, M) classify transient vs real failures by the gateway's error code and status, not by a regex over the text.
+46. **E3** (H/G, M) a keyless platform without a key row cannot get a proxy: needs the gateway to create the row; until then the pane says so.
+
+### 8. Exploration and rating
+
+47. **F2** (H, S) show the quota cost of exploration (probes and tokens today); options for tier 0 only and the concurrency of `/model explore`.
+48. **F7** (H, S) vary the needles per probe when a suspicious pass rate shows (prompt caching).
+49. **F5** (H, S) re-probe entries written by the old three-prompt code once (mark a version on the entry).
+50. **F3** (H, M) queue limited models until their `until` instead of skipping them, report them as "waiting".
+51. **F6** (H, S) a live refresh timer and a status segment for the exploration; check the model's upstream, not only the gateway.
+52. **F4** (H, M) decide on the explored identity: tier 0/1 no longer collect it; either re-add a cheap identity field and use it for routing, or drop the idea and the stale wording.
+53. **F10** (H, M) save `/model a,b,c` and the last sweep with the session, show them in `/status`, accept a sweep list split over lines, show the request-rate window in `/model next`.
+54. **F11** (H, M) one flexible column in `compactTable` tables, more selectable pagers, numeric and regex filters, mouse selection, `test-pager-select.js` under a pty in `smoke.sh`.
+55. **F12** (H, M) `/gateway` details: exact day reset (needs D6), IP limits, `/model list FILTER`, narrow-terminal layout of `/gateway limited`, gateway features not exposed (fusion, cache/compress headers, profiles).
+56. **F9** (H, M) a benchmark table by model family as a tie-break for strength; replace the hard-coded `MODEL_STRENGTH_PATTERNS`.
+57. **F8** (H, M, after a week of data) fit the rating weights to `usage.jsonl`; add the gateway-usage evidence term; map provider rows to catalog ids.
+58. **F1** (H, M, after C7) probe Ollama and Gemini with tier 0 when selected.
+
+### 9. Events, statistics, persistence
+
+59. **G1** (H, S each) more events (learned cooldowns, rating moves of 10 or more, key quota, quota stand-in replaced, keyless fix steps, provider status changes, standby as sub-agent); compare key status on every refresh without extra requests; persist the important events.
+60. **G2** (H, M) read `quota.jsonl` back (a trend for `/gateway forecast` and B4); mark the preloaded quota as stale in the status bar.
+61. **G4** (H, M) config cleanup: briefs to the cache, restore the `/model` cycle position, `/rename` moves the session files, migrate old `<model>.json/.log`, debug logs out of the cwd, tests for `lib/session-cache.js` and the env parser.
+62. **G6** (H, M) verbose panels and net-pane labels for the local-model calls (`/handoff`, `/compact`, `/handoff-model`, `/each`); cap the `/brief` panel.
+
+### 10. Terminal UI
+
+63. **H7** (H, S each) `/context` subcommands for `/log`, a quips switch, the "thinking:" label, in-transcript panel scroll, other Alt-PgUp/PgDn sequences, the scrollback push at start, wrapped status line, Ctrl-C while a stream flows, lws connections in `/split status`.
+64. **H2** (H, M) repaint changed rows only, pin the exploration panels, close every tool panel on a throw (after H3 rest).
+65. **H1** (H, M) net pane: scrolling, a fixed 90 s bar replaced by the client's timeouts, reply tails, a better request-to-socket pairing, an `explore` filter, naming the key, short subjects for handoff prompts.
+66. **H6** (H, M) verbose colouring: per-language highlighting, `/last` and plain `--verbose` lines, diff view of edit calls, panel history limit, Ctrl-O in plain mode.
+67. **H8** (Q, M) move `piped`, `termWidth`, `wrapHanging`, `Pager`, `colorJson`, `MarkdownStream` to qjs-modules `terminal`; check the installed qjsm has the faster width functions.
+68. **H4, H5** (H, L each) kitty keyboard and focus events; the line editor (`terminal.LineEditor` vs turning `showColors` on). Decide on the editor first; both need a kitty terminal to check.
+
+### 11. Files, context, compaction
+
+69. **I1** (H, S each) attachment limits as an option and command, a 100 KB allowance for named files, no glob attach inside quoted prose, absolute paths under an extra root.
+70. **I2** (H, S) a filtered view of only the tool-call history in `/log` and `/context`.
+71. **I3** (H, M) compaction accuracy: real token counts as the trigger, a gateway model as summarizer, pinned skills, gentler cuts of a single long turn.
+72. **I4** (H, M) takeover: abort an expensive in-flight request, hold sub-agents too.
+73. **I5** (H, M) a handoff-aware prompt budget for duck (16000 characters); `tools: false` in `/v1/models` so the repl switches to `--no-tools` by itself.
+74. **I6** (H, M, needs live runs) a periodic tool-use reminder, an "already shown" set, cached directory reads, show the `.so` project guess to the model, verify the shorter system prompt on `qwen2.5-coder`.
+
+### 12. Agents, peers, providers
+
+75. **J7** (H, S) delegation hygiene: one file or a lock per delegated task, review the diff before the next dispatch, the brief wording for other projects.
+76. **J3** (H, M) non-blocking `spawn_agent` with a notification and a list of running agents; the first step toward J1.
+77. **J5** (H, M) peers: update a worker's mode on `/mode`, cancel a peer task, tell the primary the candidate models, an automatic check of delegate output, N waiting `qjsm` processes after N restarts.
+78. **J6** (H, M) a `load_skill` tool, skills in the system prompt, plugin skills and `allowed-tools`.
+79. **J1** (H, L, after H3 and J3) several conversations in one process (an `Agent` class, per-agent state, an agent list in the TUI).
+80. **J2** (H, M, after J1) `ollama-repl-ctl -a NAME` and a `multi` NDJSON mode.
+81. **J4** (H, L, research first) Claude Code as a provider through headless `claude -p` stream-json; verify `--resume` with stream-json and Agent SDK attach first.
+
+### 13. Bridge (when chat-bridge work resumes)
+
+82. **K2** (H, S) start the browser or print it clearly, no stray bridge child after a hard kill, a `--new-tabs` option.
+83. **K3** (H, S) a strength table for the bridge sites; the standby switch-over for a bridge (after C9).
+84. **K1** (H, L) the backend interface: `lib/gateway.js` with freellmapi and bridge backends, and chat-bridge serving the metadata.
+
+### 14. Coding quality of the models (need a model to test against)
+
+85. **L5** (H, M, needs a working Ollama) fix the Ollama install, pull `qwen2.5-coder`, run the two PoC tasks and read the log; try the other candidate models.
+86. **L6** (H, S) re-test piped input at `ask_user` and `[y/N]` (the 90 s timeout at EOF).
+87. **L1** (H, M) the `for_each` nudge or harness-side item extraction.
+88. **L2** (H, M) verify after edit: a comment-only check with auto-undo, a `max_lines` check, the anchor check.
+89. **L3** (H, S) `think` per round, Gemini `thinkingLevel`, longer retries on a busy 503, several `for_each` items per request.
+90. **L4** (H, M) a rename across files (grep, `for_each(files)`, build step).
+91. **L7** (H, S) the comment task on other providers; check the free tiers at the provider.
+92. **M1** (H, S, needs a model) re-run the binding demo and record the result in the README demo section.
+
+### 15. Continuous
+
+- **M3** keep the docs true: `README.md` and `/help` agree; a new slash command touches the six places of `ARCHITECTURE.md` section 16; update this file and the plan when a task closes.

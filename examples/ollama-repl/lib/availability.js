@@ -31,6 +31,7 @@ import { setTimeout, clearTimeout } from 'os';
 import { writeConfigFile } from './config.js';
 import { cooldownsPath } from './persist.js';
 import { emit } from './events.js';
+import { timed } from './lag.js';
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -160,7 +161,18 @@ export function applyShadowBlocks(byModel, now = Date.now()) {
 const IP_ERROR = /\b(ips?|ip address)\b|your (ip|network|region|country)|region|country|geo[- ]?(block|restrict)|location|vpn|proxy|data ?cent(er|re)|too many requests from|not available in your/i;
 
 /** the id the gateway gives a group of rows: stripProviderSuffix() of the display name, then slugifyGroupLabel() */
+const groupIds = new Map();
 export const groupId = displayName => {
+  const raw = String(displayName ?? '');
+  let id = groupIds.get(raw);
+  if(id === undefined) {
+    id = groupIdOf(raw);
+    if(groupIds.size > 5000) groupIds.clear();
+    groupIds.set(raw, id);
+  }
+  return id;
+};
+const groupIdOf = displayName => {
   let s = String(displayName ?? '').trim();
   for(let prev; prev !== s; ) {
     prev = s;
@@ -186,6 +198,13 @@ const firstOfNextMonth = now => {
 /** what a key's cooldown means, by the source the gateway records */
 const COOLDOWN_KIND = { credit: ['credit', 'out of credits'], tier: ['tier', 'the model is not on the key\'s tier'], authoritative: ['cooldown', 'the provider named a retry time'], heuristic: ['cooldown', 'cooldown after a rate limit or error'], checkin: ['cooldown', 'waiting for the daily check-in'] };
 
+/* the first error of a row that points at the address, found once per errors array (the rows share it across their keys) */
+const ipErrors = new WeakMap();
+const ipError = errors => {
+  if(!ipErrors.has(errors)) ipErrors.set(errors, errors.find(e => IP_ERROR.test(e)));
+  return ipErrors.get(errors);
+};
+
 /** why one key cannot serve one model right now: [] when it can */
 function keyBlocks(k, modelId, errors, now) {
   if(!k.enabled) return [{ kind: 'key', until: null, detail: `key ${k.id} is disabled` }];
@@ -196,7 +215,7 @@ function keyBlocks(k, modelId, errors, now) {
 
   for(const c of k.cooldowns ?? []) {
     if(c.modelId !== modelId || c.expiresAtMs <= now) continue;
-    const ip = c.source !== 'credit' && c.source !== 'tier' && errors.find(e => IP_ERROR.test(e));
+    const ip = c.source !== 'credit' && c.source !== 'tier' && ipError(errors);
     const [kind, detail] = COOLDOWN_KIND[c.source] ?? COOLDOWN_KIND.heuristic;
     out.push(ip ? { kind: 'ip', until: c.expiresAtMs, detail: `the errors point at the IP or region: ${ip.slice(0, 80)}` } : { kind, until: c.expiresAtMs, detail });
   }
@@ -308,22 +327,62 @@ export function reportChanges(av) {
   if(fresh.length) emit('gateway', `${fresh.length} new model${fresh.length > 1 ? 's' : ''} in the catalog: ${names(fresh, id => id)}`, 'info');
 }
 
-export async function loadAvailability(gateway) {
-  const av = await loadAvailabilityNow(gateway);
-  try {
-    reportChanges(av);
-  } catch(e) {}
-  return av;
+const loading = new Map(); /* gateway -> the load in flight */
+
+/** the last answer of each dashboard table, by origin and path: stands in when a later call fails */
+const lastTables = new Map();
+
+let missingAt = 0;
+
+/** says (at most once a minute) that tables of a load did not answer and the previous ones were used */
+export function reportMissing(missing, now = Date.now()) {
+  if(!missing.length || now - missingAt < 60e3) return false;
+  missingAt = now;
+  emit('gateway', `the availability load missed ${missing.length} table${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}; the previous answer is used`, 'warn');
+  return true;
+}
+
+export function loadAvailability(gateway, { fresh = false } = {}) {
+  const running = loading.get(gateway);
+  if(running && !fresh) return running;
+
+  const run = async () => {
+    if(running) await running.catch(() => {});
+    const av = await loadAvailabilityNow(gateway);
+    try {
+      timed('reportChanges', () => reportChanges(av));
+    } catch(e) {}
+    return av;
+  };
+
+  const p = run().finally(() => loading.get(gateway) === p && loading.delete(gateway));
+  loading.set(gateway, p);
+  return p;
 }
 
 async function loadAvailabilityNow(gateway) {
   if(gateway.isBridge) return loadBridgeAvailability(gateway);
 
   const now = Date.now();
-  const get = p => gateway.api(p).catch(() => null);
+  /* a dashboard table that does not answer (the gateway allows 120 requests a minute, so a 429 is likely) is not
+     silently dropped: the previous answer stands in for it and the load says which tables are missing */
+  const missing = [];
+  const get = p =>
+    gateway.api(p).then(
+      r => (lastTables.set(`${gateway.origin}${p}`, r), r),
+      e => (missing.push(`${p.replace(/^\/api\//, '')} (${e?.status ?? String(e?.message ?? e).split('\n')[0].slice(0, 40)})`), lastTables.get(`${gateway.origin}${p}`) ?? null),
+    );
 
   const [models, chain, rateRes, tokenRes, penRes, keyRes, routing] = await Promise.all([gateway.models(true), get('/api/models'), get('/api/fallback/rate-limit-usage'), get('/api/fallback/token-usage'), get('/api/fallback/penalty-inspector'), get('/api/keys'), get('/api/fallback/routing')]);
 
+  const av = timed('loadAvailability compute', () => availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRes, routing }));
+  av.missing = missing;
+  reportMissing(missing, now);
+  return av;
+}
+
+/** the synchronous part of loadAvailabilityNow: what the answers of the gateway mean for each model */
+function availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRes, routing }) {
   const rate = new Map((rateRes?.rows ?? []).map(r => [key(r.platform, r.modelId), r]));
   const budget = new Map((tokenRes?.models ?? []).map(m => [key(m.platform, m.modelId), m]));
   const errorsOf = new Map((penRes?.rows ?? []).map(r => [key(r.platform, r.modelId), (r.recentErrors ?? []).map(e => e.error ?? '')]));
@@ -497,7 +556,8 @@ function limitsTable(width, rows, ex) {
  * used of every period (minute, day, month), what is limited right now and
  * when it ends. Without FILTER only rows that have usage or a limit are shown.
  */
-export function limitsText(av, filter = '', width = 0, ex = null) {
+export const limitsText = (...args) => timed('limitsText', () => limitsTextNow(...args));
+function limitsTextNow(av, filter = '', width = 0, ex = null) {
   const f = filter.toLowerCase();
   const names = new Set([...av.rate.keys(), ...av.budget.keys()]);
 
@@ -512,9 +572,9 @@ export function limitsText(av, filter = '', width = 0, ex = null) {
       const slash = k.indexOf('/');
       const name = slash > 0 ? `\x1b[2m${k.slice(0, slash + 1)}\x1b[0m${k.slice(slash + 1)}` : k;
       const by = blocks.length ? `\x1b[33m${[...new Set(blocks.map(x => KIND[x.kind] ?? x.kind))].join(', ')}\x1b[0m` : '';
-      return { k, until, cells: bar => [name, windowText(r?.rpm, bar), windowText(r?.rpd, bar), windowText(r?.tpm, bar), b ? quotaCell(b.used, b.budget, bar) : '-', by, when && until != null && until - av.at < 10 * 60e3 ? `\x1b[32m${when}\x1b[0m` : when ? `\x1b[2m${when}\x1b[0m` : ''] };
+      return { k, until, limited: blocks.length > 0, cells: bar => [name, windowText(r?.rpm, bar), windowText(r?.rpd, bar), windowText(r?.tpm, bar), b ? quotaCell(b.used, b.budget, bar) : '-', by, when && until != null && until - av.at < 10 * 60e3 ? `\x1b[32m${when}\x1b[0m` : when ? `\x1b[2m${when}\x1b[0m` : ''] };
     })
-    .sort((a, b) => (b.cells(0)[5] ? 1 : 0) - (a.cells(0)[5] ? 1 : 0) || (a.until ?? Infinity) - (b.until ?? Infinity) || a.k.localeCompare(b.k));
+    .sort((a, b) => (b.limited ? 1 : 0) - (a.limited ? 1 : 0) || (a.until ?? Infinity) - (b.until ?? Infinity) || a.k.localeCompare(b.k));
 
   if(!rows.length) return f ? `(no model matches "${filter}")` : '(nothing is limited or used yet - /gateway limits FILTER lists any model)';
 
@@ -545,7 +605,8 @@ function limitedTable(width, rows, av, ex) {
 }
 
 /** /gateway limited [FILTER]: the model ids that cannot serve a request now, soonest back first */
-export function limitedText(av, filter = '', width = 0, ex = null) {
+export const limitedText = (...args) => timed('limitedText', () => limitedTextNow(...args));
+function limitedTextNow(av, filter = '', width = 0, ex = null) {
   const f = filter.toLowerCase();
   const rows = [...av.byModel]
     .filter(([id, e]) => e.blocked && (!f || id.toLowerCase().includes(f)))
