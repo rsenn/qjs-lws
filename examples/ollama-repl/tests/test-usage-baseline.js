@@ -48,4 +48,14 @@ check('empty input', baseline([]).records === 0 && baselineText(baseline([])).in
   check('with their own latency', direct.msMedian < socks.msMedian);
 }
 
+/* rows of the other clients are not turns */
+{
+  const mix = baseline([row(), row({ label: 'explore' }), row({ label: 'standby', error: 'x', status: 500 }), row()]);
+  check('labelled rows are no turns', mix.turns === 2 && mix.turnsFailed === 0 && mix.records === 4);
+}
+{
+  const { usageRow } = await import('../lib/persist.js');
+  check('usageRow keeps the label of another client', usageRow('o', 's', { model: 'm' }, 'explore').label === 'explore');
+  check('the main client has none', usageRow('o', 's', { model: 'm' }, 'main').label === undefined && usageRow('o', 's', { model: 'm' }).label === undefined);
+}
 console.log('test-usage-baseline: ok');

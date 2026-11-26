@@ -743,7 +743,7 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
 | `.../session.log`, `history`, `state.json`, `diffs/` | `SessionLog`, `ChatREPL`, `session-cache.js`, `FileExchange` | transcript, input history, `/model` pattern and picked model, file diffs |
 | `~/.cache/ollama-repl/exploration.json` | `Exploration` | per-model probe results (`ORIGIN\|MODEL`) |
 | `~/.cache/ollama-repl/ratings.json` | `Ratings` | per-model rating state |
-| `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per main-client request (trimmed to 90 days); `attempt` = n-th automatic skip retry of its round (0, the first try, is not written); `proxied` = upstream went through the gateway's socks proxy (true/false, absent if unknown), the baseline lists a proxied platform as its own row (`kilo +socks`) |
+| `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per request (trimmed to 90 days); the other clients (explore, standby, sub-agent) log theirs with `label`, the main client has none, and the baseline counts turns from the unlabelled rows only; `attempt` = n-th automatic skip retry of its round (0, the first try, is not written); `proxied` = upstream went through the gateway's socks proxy (true/false, absent if unknown), the baseline lists a proxied platform as its own row (`kilo +socks`) |
 | `~/.cache/ollama-repl/quota.json`, `quota.jsonl` | `saveQuota` | last gateway snapshot; 15-minute history (180 days) |
 | `~/.cache/ollama-repl/cooldowns.json` | `availability.js` | learned cooldowns, shadow blocks |
 | `~/.cache/ollama-repl/logs/` | `session-cache.js` `debugLogPath` | `-x` debug logs |

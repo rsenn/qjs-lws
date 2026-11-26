@@ -56,12 +56,10 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
    Blocks D3. Also from the hiccup section above: slow `/split status|net` polling of `ss`, confirm the sort fixes after a restart.
 7. **H3 rest** (H, S) the context subcommands (`/context`, `/log`), the dialog state of `ChatREPL` and the remaining wiring of
    `repl.js` are only testable inside `main()`: move the pure parts into `lib/` as they are touched; prerequisite for H1, H2, J1.
-8. **G3** (H, S) log the other clients (explore, standby, sub-agent) in `usage.jsonl` with a `label`; the baseline then counts only
-   `main` for turn statistics. Gives B1 and B2 cleaner data.
 ### 3. Small failover and display fixes (each with a test)
 
-12. **D11** (H, S) after a switch to the local model the next round still starts on the failed client and the status line keeps the
-    old route: give the local client an `onMeta` or set the route on switch.
+12. **D11 rest** (H, S) the local client now reports to the status line (`onMeta`); what is left: the next round still starts on the
+    failed client until its cool-down routes it away (decide whether the switch should stick).
 16. **D2** (H, M) platform-wide soft-skip from the fallback trail (skip every model of a platform when all its keys appear in it).
 17. **D9** (H, M) a limit in the middle of a streamed reply: keep what was printed, drop the spent model, continue; design first.
 18. **D14** (H, M) fold the provider fallback and `/handoff-model` into the one next-model order, or document why they stay apart.

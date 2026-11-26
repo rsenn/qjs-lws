@@ -1,5 +1,13 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/persist.js (usageRow, appendUsage), lib/usage-baseline.js (baseline),
+	repl.js (watchNet): the explore, standby and sub-agent clients log their
+	requests in usage.jsonl with a label; the baseline counts turns from the
+	unlabelled (main) rows only.
+
+	* repl.js (localCandidate): the local fallback client reports to the
+	status line and /usage (onMeta).
+
 	* lib/lag.js (timed, startLagWatch): New. Loop-lag watch and timed
 	sections; slow rows in lag.jsonl carry the callers (where).
 

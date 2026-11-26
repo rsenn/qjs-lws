@@ -137,7 +137,7 @@ Harness side (H) unless marked G.
   shows, what `repairTurn` keeps).
 - **D11. Local model switch leaves the old route (S).** After a switch to the local model the next round still starts
   on the failed client (routed by the cool-down) and the status line keeps the old route (the local client has no
-  `onMeta`). Give the local client an `onMeta`, or set the route text on switch.
+  `onMeta`). Done: the local client has an `onMeta`. Open: should the switch stick for the next round.
 - **D14. One next-model order (M).** The provider fallback and `/handoff-model` are not part of the single order
   (standby, then best rated); fold them in, or document why they stay apart.
 
@@ -208,8 +208,6 @@ Harness side (H) unless marked G.
   Events are not persisted: write the important ones (`quota`, `failover`, `proxy`) to a small jsonl.
 - **G2. Read the quota history (M).** `quota.jsonl` is written but nothing reads it: a trend for `/gateway forecast`
   and for B4. The status bar shows the preloaded quota as fresh until the first refresh answers: mark it stale.
-- **G3. Usage rows of the other clients (S).** Explore, standby and sub-agent requests are not in `usage.jsonl`; log
-  them with a `label` (`explore`, `standby`, `agent`) and make `usage-baseline` count only `main` for turn statistics.
 - **G4. Config cleanup (M).** Briefs still live in `~/.config/ollama-repl/brief-*.json` (`lib/project-brief.js
   cachePath`), move to the cache; the restored `/model` pattern does not restore the cycle position; `/rename` after
   start does not move the session files (the key is fixed at startup); old `<model>.json/.log/-diffs` in project
@@ -382,7 +380,7 @@ Plan and rationale: `../chat-bridge/doc/HARNESS.md` and `../chat-bridge/TODO.md`
 ## Suggested order
 
 The ordered list of every pending task, with the reasons for the order, is `TODO.md` (sections 1 to 15). In short:
-decisions and housekeeping (A), bugs and enablers (N1, H3, G3), small failover fixes (D), live verification
+decisions and housekeeping (A), bugs and enablers (N1, H3), small failover fixes (D), live verification
 (C, terminal first), the measured failover work (B, after the restart A4 and a day of data), the gateway wishes (D4 to
 D8, after A2), proxy (E, after C4), exploration and rating (F), events and persistence (G), UI (H), files and context (I),
 agents and providers (J), bridge (K), coding quality (L, M1).

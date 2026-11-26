@@ -46,10 +46,11 @@ export function baseline(rows) {
   const failed = r => !!r.error && !interrupted(r);
   const ok = rows.filter(r => !r.error);
 
-  /* turns: per session, a row with attempt 0 starts one, a retry joins the open one */
+  /* turns (the main client's rows only): per session, a row with attempt 0 starts one, a retry joins the open one */
   const open = new Map();
   const turns = [];
   for(const r of rows) {
+    if(r.label) continue; /* explore, standby and sub-agent rows are traffic, not turns of the user */
     const t = open.get(r.session);
     if(!(r.attempt > 0) || !t) {
       const n = { session: r.session, rows: [r] };

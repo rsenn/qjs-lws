@@ -62,11 +62,12 @@ function readLines(path, sinceMs = 0) {
 }
 
 /** the part of a request record worth keeping: no messages, no raw usage */
-export function usageRow(origin, session, r) {
+export function usageRow(origin, session, r, label) {
   return {
     at: r.at ?? Date.now(),
     origin,
     session,
+    label: label && label !== 'main' ? label : undefined, /* who asked: explore, standby, sub-agent, local fallback; absent for the main client */
     model: r.model,
     requested: r.requested,
     routedVia: r.routedVia,
@@ -82,7 +83,7 @@ export function usageRow(origin, session, r) {
   };
 }
 
-export const appendUsage = (origin, session, r) => appendLine(usagePath(), usageRow(origin, session, r));
+export const appendUsage = (origin, session, r, label) => appendLine(usagePath(), usageRow(origin, session, r, label));
 
 /** @returns {object[]} the usage rows of a gateway origin since sinceMs, oldest first */
 export const readUsage = ({ origin, sinceMs = 0 } = {}) => readLines(usagePath(), sinceMs).filter(r => !origin || r.origin === origin);

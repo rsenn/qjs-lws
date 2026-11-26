@@ -793,7 +793,17 @@ function localTrace(label) {
 }
 
 /** a client reports to the network pane: OpenAI clients by their phases, the others by wrapping their calls */
+let usageSession = null; /* the session key of the usage rows, set by main() */
+
 function watchNet(client, label) {
+  /* the other clients (explore, standby, sub-agent) log their requests too, with the label; the main client's onMeta does it itself */
+  if(label !== 'main' && label !== 'local fallback' && 'onMeta' in client) {
+    const prev = client.onMeta;
+    client.onMeta = meta => {
+      prev?.(meta);
+      if(gatewayRef?.enabled && usageSession) appendUsage(gatewayRef.origin, usageSession, meta, label);
+    };
+  }
   if('onPhase' in client) {
     const prev = client.onPhase;
     client.onPhase = (name, meta) => {
@@ -3811,6 +3821,8 @@ async function main() {
       if(!model) return local;
 
       const c = watchNet(new OllamaClient({ ...opts, model }), 'local fallback');
+      /* the status line and /usage follow the route that answers: the local client reports like the main one (not logged as gateway traffic) */
+      c.onMeta = meta => (stats.add(meta), tui?.drawStatus());
       local = { key: `${endpointOf(c)}/${model}`, label: `ollama/${model}`, client: c };
       return local;
     };
@@ -3920,6 +3932,7 @@ async function main() {
   /* the session's files live in ~/.cache/ollama-repl/sessions/KEY/, not in the current directory */
   /* no --name: the funny one made at the start (lib/session-name.js); the cache key stays model + project so a restart still resumes */
   const cacheKey = sessionKey({ ...opts, name: givenName });
+  usageSession = cacheKey;
   const log = new SessionLog(sessionFile(cacheKey, 'session.log'));
   let sentFiles = new SentFiles(opts.model, opts.root);
   let fileExchange = new FileExchange(opts.model, opts.root, `${sessionDir(cacheKey)}/diffs`);
