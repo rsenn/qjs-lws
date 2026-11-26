@@ -38,7 +38,7 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
 
 ### 1. Decisions and housekeeping (minutes each, mostly the user)
 
-1. **A3** (U, S) delete `strace.log`, `strace.log.copy.txt`, `strace.log.txt`, `strace.log.txt2` (110 MB); keep or move `harness.mp4`.
+1. **A3** (U, S) delete `strace.log`, `strace.log.txt`, `strace.log.txt2` and `perf.data` (about 100 MB; `perf.data` is git-ignored, the strace files are untracked); keep or move `harness.mp4` (14 MB) and decide on `qwen2.5-coder.json`.
 2. **A5** (U, S) look at a real automatic skip once (the hop line, colours, a piped run) and say whether the wording is right.
 3. **A2** (U, S) who takes the gateway proposals D4 to D8: the user changes freellmapi, a patch is prepared against
    `~/Sources/freellmapi`, or the harness keeps working around them. Needed before D4 to D8.
