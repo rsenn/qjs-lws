@@ -14,3 +14,7 @@
     PIPELINE-less workaround in examples/ollama-repl/lib/*-client.js reverted); remove the entry if
     that works. tests/unittests/test-fetch-idle-gap.js covers the idle-gap case. lib/fetch.js:139 still enables LCCSCF_PIPELINE by default, so ordinary fetch()
     users would be exposed if the bug were real.
+
+- test-rawcolor-missing-module (tests/unittests/test-rawcolor.js:4): the suite imports ../examples/ollama-repl/lib/rawcolor.js, which resolves to tests/examples/... (one level short) and, even with the right depth, the module now lives at examples/ollama-repl/lib/tui/rawcolor.js, so run-all.sh reports the suite as crashed with "could not load module". Confirmed by running the suite with qjsm.
+
+    qjsm tests/unittests/test-rawcolor.js

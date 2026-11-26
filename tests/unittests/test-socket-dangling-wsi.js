@@ -35,14 +35,26 @@ function makeServer(port, extra = {}) {
     protocols: [
       {
         name: 'http',
+        /* headers only: the body never completes, so the connection stays
+           open until a test closes it (a finished loopback response closes
+           before the test gets to look at the live socket) */
         onHttp(wsi) {
-          wsi.respond(200, 2, {});
-          wsi.write('ok', LWS_WRITE_HTTP_FINAL);
+          wsi.respond(200, 1000, {});
         },
         ...extra,
       },
     ],
   });
+}
+
+/* destroy whatever a test created even when one of its asserts throws, so a
+   failure does not leave live contexts behind for the next test */
+async function guarded(contexts, fn) {
+  try {
+    await fn();
+  } finally {
+    for(const c of contexts) c.destroy();
+  }
 }
 
 /* contexts reached through the global list, as the scenario states */
@@ -52,40 +64,32 @@ await tests({
   async 'retained client socket: .local after close is null/undefined, no crash'() {
     const port = freePort();
     const server = makeServer(port);
-    let established, closed = false, held;
+    let established;
     const client = new LWSContext({
-      protocols: [
-        {
-          name: 'http',
-          onEstablishedClientHttp(wsi) { established = wsi; },
-          onClosedClientHttp() { closed = true; },
-          onClosed() { closed = true; },
-        },
-      ],
+      protocols: [{ name: 'http', onEstablishedClientHttp(wsi) { established = wsi; } }],
     });
 
-    client.clientConnect({ address: '127.0.0.1', port, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
-    for(let i = 0; i < 100 && !established; i++) await sleep(10);
-    assert(established, 'client never established');
+    await guarded([client, server], async () => {
+      client.clientConnect({ address: '127.0.0.1', port, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
+      for(let i = 0; i < 100 && !established; i++) await sleep(10);
+      assert(established, 'client never established');
 
-    const c = globalCtx(client);
-    assert(c, 'client context not in LWSContext.contexts');
-    held = c.sockets().find(s => s === established || s.client);
-    assert(held, 'client socket not in ctx.sockets()');
-    assert(held.local === null || typeof held.local.port == 'number', 'bad local while live');
+      const c = globalCtx(client);
+      assert(c, 'client context not in LWSContext.contexts');
+      const held = c.sockets().find(s => s === established);
+      assert(held, 'client socket not in ctx.sockets()');
+      assert(held.local === null || typeof held.local.port == 'number', 'bad local while live');
 
-    established.close();
-    for(let i = 0; i < 100; i++) { await sleep(10); }
-    std.gc();
+      established.close();
+      await sleep(300);
+      std.gc();
 
-    /* the held wrapper outlives the wsi */
-    const r = touch(held);
-    assert(r.local === null || r.local === undefined, 'stale .local: ' + r.local);
-    assert(!(held.fd > 0), 'stale fd after close: ' + held.fd);
-
-    assert(!c.sockets().includes(held), 'closed socket still listed');
-    client.destroy();
-    server.destroy();
+      /* the held wrapper outlives the wsi */
+      const r = touch(held);
+      assert(r.local === null || r.local === undefined, 'stale .local: ' + r.local);
+      assert(!(held.fd > 0), 'stale fd after close: ' + held.fd);
+      assert(!c.sockets().includes(held), 'closed socket still listed');
+    });
   },
 
   async 'every socket in the list stays inspectable across close of the others'() {
@@ -96,29 +100,29 @@ await tests({
       protocols: [{ name: 'http', onEstablishedClientHttp(wsi) { seen.push(wsi); } }],
     });
 
-    for(let i = 0; i < 5; i++)
-      client.clientConnect({ address: '127.0.0.1', port, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
-    for(let i = 0; i < 100 && seen.length < 5; i++) await sleep(10);
+    await guarded([client, server], async () => {
+      for(let i = 0; i < 5; i++)
+        client.clientConnect({ address: '127.0.0.1', port, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
+      for(let i = 0; i < 50 && !seen.length; i++) await sleep(10);
 
-    const snapshot = globalCtx(client).sockets();
-    assert(snapshot.length >= 5, 'expected sockets, got ' + snapshot.length);
+      /* some of the five may still be queued behind the first (no role yet) */
+      const snapshot = globalCtx(client).sockets();
+      assert(snapshot.length >= 2, 'expected several sockets, got ' + snapshot.length);
 
-    /* close from inside the iteration: later list entries lose their wsi */
-    for(const s of snapshot) {
-      touch(s);
-      for(const o of seen) try { o.close(); } catch(e) {}
-    }
+      /* close from inside the iteration: later list entries lose their wsi */
+      for(const s of snapshot) {
+        touch(s);
+        for(const o of seen) try { o.close(); } catch(e) {}
+      }
 
-    await sleep(200);
-    std.gc();
+      await sleep(300);
+      std.gc();
 
-    for(const s of snapshot) {
-      const r = touch(s);
-      assert(r.local === null || r.local === undefined, 'stale .local after close');
-    }
-
-    client.destroy();
-    server.destroy();
+      for(const s of snapshot) {
+        const r = touch(s);
+        assert(r.local === null || r.local === undefined, 'stale .local after close');
+      }
+    });
   },
 
   async 'server-side accepted sockets: .local read in and after onClosed'() {
@@ -163,19 +167,24 @@ await tests({
       protocols: [{ name: 'http', onEstablishedClientHttp(wsi) { established = wsi; } }],
     });
 
-    client.clientConnect({ address: '127.0.0.1', port, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
-    for(let i = 0; i < 100 && !established; i++) await sleep(10);
+    await guarded([], async () => {
+      client.clientConnect({ address: '127.0.0.1', port, path: '/', host: 'localhost', method: 'GET', protocol: 'http' });
+      for(let i = 0; i < 100 && !established; i++) await sleep(10);
+      assert(established, 'client never established');
 
-    const held = LWSContext.sockets().concat(server.sockets());
+      /* only this test's own contexts: its sockets are all live here */
+      const held = globalCtx(client).sockets().concat(globalCtx(server).sockets());
+      assert(held.some(s => s.local && s.local.port == port), 'listening socket missing');
 
-    client.destroy();
-    server.destroy();
-    std.gc();
+      client.destroy();
+      server.destroy();
+      std.gc();
 
-    for(const s of held) {
-      const r = touch(s);
-      assert(r.local === null || r.local === undefined, 'stale .local after context destroy');
-    }
+      for(const s of held) {
+        const r = touch(s);
+        assert(r.local === null || r.local === undefined, 'stale .local after context destroy');
+      }
+    });
   },
 });
 

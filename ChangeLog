@@ -1,5 +1,11 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* tests/unittests/test-socket-dangling-wsi.js: The test server holds the
+	connection open (headers only) so the sockets are still live when read,
+	and each test destroys its contexts in a finally block.
+
+	* BUGS: test-rawcolor-missing-module.
+
 	* lib/lws/protocols.js (onClientHttpDropProtocol, connect,
 	onReceiveClientHttpRead): a client connection dropped in the middle of a
 	body fails with "dropped after N ms, B bytes received"; a drop before the
