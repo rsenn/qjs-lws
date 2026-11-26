@@ -227,7 +227,20 @@ lwsjs_spa_get(JSContext* ctx, JSValueConst this_val, int magic) {
 
   switch(magic) {
     case PROP_PARAMNAMES: {
-      ret = from_stringarray(ctx, s->info.param_names);
+      uint32_t i;
+
+      /* declared names, then the ones lws discovered for open (NULL) slots */
+      ret = JS_NewArray(ctx);
+
+      for(i = 0; i < s->info.count_params; i++) {
+        const char* name = lws_spa_get_name(s->spa, i);
+
+        if(!name)
+          break;
+
+        JS_SetPropertyUint32(ctx, ret, i, JS_NewString(ctx, name));
+      }
+
       break;
     }
 

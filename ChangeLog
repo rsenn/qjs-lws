@@ -1,5 +1,10 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lws-spa.c (lwsjs_spa_get): paramNames lists the names lws
+	discovered for open slots too, not only the declared ones. Without
+	them MultipartMixin.formData() dropped every plain text field of a
+	multipart upload (tests/test-fetch.js testMultipartPost).
+
 	* tests/unittests/test-crypto.js: Every test skips when crypto.digest is
 	missing (lws.so built without OpenSSL 3 exports an empty crypto object)
 	instead of failing 14 of 15.
