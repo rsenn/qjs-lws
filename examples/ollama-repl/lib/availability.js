@@ -32,6 +32,7 @@ import { writeConfigFile } from './config.js';
 import { cooldownsPath } from './persist.js';
 import { emit } from './events.js';
 import { timed } from './lag.js';
+import { reportKeys } from './key-events.js';
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -385,6 +386,7 @@ async function loadAvailabilityNow(gateway, fresh = false) {
   const av = timed('loadAvailability compute', () => availabilityFrom(now, { models, chain, rateRes, tokenRes, penRes, keyRes, routing }));
   av.missing = missing;
   reportMissing(missing, now);
+  reportKeys(Array.isArray(keyRes) ? keyRes : []);
   return av;
 }
 

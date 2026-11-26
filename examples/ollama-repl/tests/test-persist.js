@@ -1,6 +1,6 @@
 /* test-persist.js: usage rows, quota snapshots and cooldowns survive in the cache directory */
 import { setenv } from 'std';
-import { usageRow, appendUsage, readUsage, saveQuota, loadQuota, flushPersist, trimLogs, usagePath } from '../lib/persist.js';
+import { usageRow, appendUsage, readUsage, saveQuota, loadQuota, flushPersist, trimLogs, usagePath, appendEvent, readEvents } from '../lib/persist.js';
 import { recordCooldownEvent, getLearnedCooldown, recordLocalFailure, saveCooldowns, loadCooldowns } from '../lib/availability.js';
 import { UsageStats } from '../lib/usage-stats.js';
 import { remove } from 'os';
@@ -48,4 +48,15 @@ loadCooldowns();
 check('cooldowns load without error and keep the value', getLearnedCooldown('kilo/x') === 60000);
 
 remove(usagePath());
+/* events of the kept kinds outlive the session */
+{
+  const at = Date.now();
+  check('a failover event is kept', appendEvent({ at, kind: 'failover', level: 'warn', text: 'a -> b' }) === true);
+  check('a quota event is kept', appendEvent({ at, kind: 'quota', level: 'warn', text: 'budget 80%' }) === true);
+  check('an exploration event is not', appendEvent({ at, kind: 'explore', level: 'info', text: 'x is usable' }) === false);
+  const rows = readEvents({ sinceMs: at - 1000 });
+  check('read back in order', rows.length === 2 && rows[0].kind === 'failover' && rows[1].text === 'budget 80%');
+  check('an old event is trimmed at startup', appendEvent({ at: at - 40 * 86400e3, kind: 'proxy', level: 'info', text: 'old' }) && (trimLogs(at), readEvents().every(r => r.text !== 'old')));
+}
+
 console.log('test-persist: ok');

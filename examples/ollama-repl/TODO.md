@@ -130,7 +130,7 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 
 ### 9. Events, statistics, persistence
 
-59. **G1** (H, S each) more events (learned cooldowns, rating moves of 10 or more, key quota, quota stand-in replaced, keyless fix steps, provider status changes, standby as sub-agent); compare key status on every refresh without extra requests; persist the important events.
+59. **G1 rest** (H, S each) more events: learned cooldowns, rating moves of 10 or more, key quota, quota stand-in replaced, keyless fix steps, provider status changes, standby as sub-agent. (Done: key status on every availability load, `quota`/`failover`/`proxy` events kept in `events.jsonl`.)
 60. **G2** (H, M) read `quota.jsonl` back (a trend for `/gateway forecast` and B4); mark the preloaded quota as stale in the status bar.
 61. **G4** (H, M) config cleanup: briefs to the cache, restore the `/model` cycle position, `/rename` moves the session files, migrate old `<model>.json/.log`, debug logs out of the cwd, tests for `lib/session-cache.js` and the env parser.
 62. **G6** (H, M) verbose panels and net-pane labels for the local-model calls (`/handoff`, `/compact`, `/handoff-model`, `/each`); cap the `/brief` panel.

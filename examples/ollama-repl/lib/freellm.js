@@ -32,6 +32,7 @@ import { probeBrief } from './exploration.js';
 import { rateOf, rateProvider, ratingCell } from './rating.js';
 import { saveQuota, loadQuota } from './persist.js';
 import { emit } from './events.js';
+import { reportKeys } from './key-events.js';
 import { dashboardTokenFromBrowser } from './cdp-token.js';
 
 /* refresh() reads the gateway at most this often */
@@ -217,24 +218,7 @@ export class Gateway {
 
   #preloaded = false;
   #down = false;
-  #keyStatus = null;
 
-  /** a provider key that went unhealthy, or healthy again, since the keys were last looked at */
-  #reportKeys(keys, names) {
-    const now = new Map(keys.map(k => [k.id, k.status ?? 'unknown']));
-    const before = this.#keyStatus;
-    this.#keyStatus = now;
-    if(!before) return;
-
-    for(const k of keys) {
-      const was = before.get(k.id);
-      const is = now.get(k.id);
-      if(was === undefined || was === is) continue;
-      const label = `${names.get(k.platform) ?? k.platform}${k.label ? ` (${k.label})` : ''} key ${k.id}`;
-      if(is === 'healthy') emit('key', `${label} is healthy again`, 'good');
-      else emit('key', `${label}: ${was} -> ${is}${k.lastHealthError ? ` (${String(k.lastHealthError).slice(0, 80)})` : ''}`, is === 'error' ? 'bad' : 'warn');
-    }
-  }
   #quotaLevel = new Map();
 
   /** a platform's monthly token budget crossing 80%, 95% and 100%: said once per step (and again after a month rollover) */
@@ -425,7 +409,7 @@ export class Gateway {
     const all = filter === 'all';
     const f = all ? '' : filter.toLowerCase();
     const names = new Map(providers.map(p => [p.platform, p.name]));
-    this.#reportKeys(Array.isArray(keys) ? keys : [], names);
+    reportKeys(Array.isArray(keys) ? keys : [], p => names.get(p) ?? p);
     const nameOf = k => k.platform === 'custom' ? (k.groupLabel ?? 'custom') : (names.get(k.platform) ?? k.platform);
     const rows = (Array.isArray(keys) ? keys : []).filter(k => !f || `${nameOf(k)} ${k.platform} ${k.label ?? ''}`.toLowerCase().includes(f));
 

@@ -89,7 +89,7 @@ import { externalIp } from './lib/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
 import { startLagWatch, timed } from './lib/lag.js';
 import { messageText, messageSelection, summarizeMessages, parseContextArgs } from './lib/context-view.js';
-import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
+import { appendEvent, appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
 import { hopLine, hopStyle } from './lib/hop-line.js';
 import { exploreOrder as exploreOrderOf, earliestReset, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/transcript-text.js';
 import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
@@ -697,6 +697,7 @@ const ui = { verbose: false };
 /* background events (lib/events.js) in the verbose view: one line each, kept in the transcript tagged verbose-only, so Ctrl+O shows the past ones too */
 setNamer(id => (id && !/\s/.test(id) ? strengthColor(tierOf(id)) : null));
   setSink(ev => {
+  appendEvent(ev); /* quota, failover and proxy events outlive the session (events.jsonl) */
   if(tui?.active) tui.write(`${eventLine(ev)}\n`, 1);
   else if(ui.verbose) console.log(eventLine(ev));
 });

@@ -208,6 +208,7 @@ place that knows about all subsystems.
 | `lib/palette.js` | Every colour of the TUI as a `#rrggbb` string (`STOPS`, `ACCENT`, `REPLY`, `TOOL_COLORS`, the raw-content colours, ...); `look.js` and `rawcolor.js` take their colours from here. |
 | `lib/look.js` | `note`, `card`, `banner`, `quotaCell`, `pctCell`, `toolLine`, `toolResult`, `highlight`, ...; `panel`, `meter`, `gradientRule`, `sideBySide`, `shortPath` are thin wrappers over `terminal/widgets` that pass the palette. |
 | `lib/context-view.js` | `/context` and `/log` helpers: `messageText`, `messageSelection`, `summarizeMessages`, `parseContextArgs`. |
+| `lib/key-events.js` | `reportKeys`: a key that went unhealthy or healthy again, from any look at the key list (availability load, `/gateway keys`), said once. |
 | `lib/hop-line.js` | `hopLine`: the one transcript line of an automatic model switch (§10). |
 | `lib/ip-pane.js` | `ipGroups`, `ipChangeParts`, `ipChangePanel`: the old/new exit address pane with the models that could work again (§14). |
 | `lib/ansi.js` | `piped` (stdout is not a tty), `red`, `yellow`, ... |
@@ -745,6 +746,7 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
 | `~/.cache/ollama-repl/exploration.json` | `Exploration` | per-model probe results (`ORIGIN\|MODEL`) |
 | `~/.cache/ollama-repl/ratings.json` | `Ratings` | per-model rating state |
 | `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per request (trimmed to 90 days); the other clients (explore, standby, sub-agent) log theirs with `label`, the main client has none, and the baseline counts turns from the unlabelled rows only; `attempt` = n-th automatic skip retry of its round (0, the first try, is not written); `proxied` = upstream went through the gateway's socks proxy (true/false, absent if unknown), the baseline lists a proxied platform as its own row (`kilo +socks`) |
+| `~/.cache/ollama-repl/events.jsonl` | `appendEvent` | the `quota`, `failover` and `proxy` events (30 days), read back with `readEvents` |
 | `~/.cache/ollama-repl/quota.json`, `quota.jsonl` | `saveQuota` | last gateway snapshot; 15-minute history (180 days) |
 | `~/.cache/ollama-repl/cooldowns.json` | `availability.js` | learned cooldowns, shadow blocks |
 | `~/.cache/ollama-repl/logs/` | `session-cache.js` `debugLogPath` | `-x` debug logs |

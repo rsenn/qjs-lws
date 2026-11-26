@@ -191,8 +191,7 @@ Harness side (H) unless marked G.
 - **G1. More events (S each).** Learned cooldown changes (`recordCooldownEvent`), a rating that moved by 10 or more,
   key quota (the monthly request cap of a single key), the persisted-quota stand-in being replaced, the keyless fix
   steps, `/gateway providers` status changes (a provider turning down), the standby used as a sub-agent. The key
-  status is only compared when `/gateway keys` is looked at (add it to the refresh without extra requests).
-  Events are not persisted: write the important ones (`quota`, `failover`, `proxy`) to a small jsonl.
+  status is compared at every availability load too (`lib/key-events.js`, done), and the `quota`, `failover` and `proxy` events are kept in `events.jsonl` (done, 30 days).
 - **G2. Read the quota history (M).** `quota.jsonl` is written but nothing reads it: a trend for `/gateway forecast`
   and for B4. The status bar shows the preloaded quota as fresh until the first refresh answers: mark it stale.
 - **G4. Config cleanup (M).** Briefs still live in `~/.config/ollama-repl/brief-*.json` (`lib/project-brief.js

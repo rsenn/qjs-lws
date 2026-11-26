@@ -18,7 +18,7 @@
  * flushPersist();                                    // at exit
  * ```
  *
- * The jsonl files are trimmed at startup (trimLogs): usage.jsonl keeps 90 days, quota.jsonl 180.
+ * The jsonl files are trimmed at startup (trimLogs): usage.jsonl keeps 90 days, quota.jsonl 180, events.jsonl 30.
  */
 import { loadFile, open as fopen } from 'std';
 import { setTimeout, clearTimeout } from 'os';
@@ -29,6 +29,7 @@ import { timed } from './lag.js';
 export const usagePath = () => `${cacheDir()}/usage.jsonl`;
 export const quotaPath = () => `${cacheDir()}/quota.json`;
 export const quotaLogPath = () => `${cacheDir()}/quota.jsonl`;
+export const eventsPath = () => `${cacheDir()}/events.jsonl`;
 export const cooldownsPath = () => `${cacheDir()}/cooldowns.json`;
 
 const QUOTA_LOG_EVERY_MS = 15 * 60e3;
@@ -84,6 +85,15 @@ export function usageRow(origin, session, r, label) {
 }
 
 export const appendUsage = (origin, session, r, label) => appendLine(usagePath(), usageRow(origin, session, r, label));
+
+/** the kinds of event worth keeping after the session (the others are noise of the moment): written to events.jsonl */
+export const PERSISTED_EVENTS = new Set(['quota', 'failover', 'proxy']);
+
+/** adds an event of a kept kind to events.jsonl; false when it is not kept or could not be written */
+export const appendEvent = ev => PERSISTED_EVENTS.has(ev?.kind) && appendLine(eventsPath(), { at: ev.at, kind: ev.kind, level: ev.level, text: ev.text });
+
+/** @returns {object[]} the kept events since sinceMs, oldest first */
+export const readEvents = ({ sinceMs = 0 } = {}) => readLines(eventsPath(), sinceMs);
 
 /** @returns {object[]} the usage rows of a gateway origin since sinceMs, oldest first */
 export const readUsage = ({ origin, sinceMs = 0 } = {}) => readLines(usagePath(), sinceMs).filter(r => !origin || r.origin === origin);
@@ -147,7 +157,7 @@ export function flushPersist() {
 
 /** drops the old lines of the jsonl files; called once at startup */
 export function trimLogs(now = Date.now()) {
-  for(const [path, days] of [[usagePath(), 90], [quotaLogPath(), 180]]) {
+  for(const [path, days] of [[usagePath(), 90], [quotaLogPath(), 180], [eventsPath(), 30]]) {
     const text = loadFile(path);
     if(!text) continue;
     const since = now - days * 86400e3;
