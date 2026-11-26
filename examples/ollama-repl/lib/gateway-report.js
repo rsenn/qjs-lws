@@ -93,7 +93,7 @@ export function reportText(report, cols = 100) {
   const order = ['ok', 'spent', 'limited', 'invalid', 'unknown'];
   const sorted = [...rows].sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state) || b.ready - a.ready || a.name.localeCompare(b.name));
   const title = piped ? 'gateway providers' : `\x1b[1;38;2;45;212;191m⛁ gateway providers\x1b[0m`;
-  const tail = detailed ? `${usable} model rows can serve now` : 'no dashboard session: model rows are not counted (/gateway login)';
+  const tail = detailed ? `${usable} model rows can serve now` : 'no dashboard session (/gateway login): model rows are not counted, only the monthly totals are known (/gateway usage); without the per-model limits and daily windows a failing provider is skipped from the error\'s attempt trail alone';
 
   return [`${title}  ${head.join(' · ')}`, `  ${flow(sorted.map(entry), cols || 100, 2)}`, piped ? `  ${tail}` : `  \x1b[2m${tail}\x1b[0m`].join('\n');
 }

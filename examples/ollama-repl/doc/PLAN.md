@@ -115,9 +115,6 @@ One real session each; the unit tests only cover the helpers. Do these in a live
 
 Harness side (H) unless marked G.
 
-- **D1. Provider-fallback cool-down ignores Retry-After (S).** `lib/provider-fallback.js`: the 5 minute cool-down
-  should use the header when present, and a plain "Soonest cooldown reset ~3m" text without it should be parsed
-  (the regex already exists in `routeFailure` in `repl.js`; move it to `lib/` and share). Test: classify() cases.
 - **D2. Platform-wide soft-skip (M).** The trail soft-skip is per model. The header gives the key outcome only as an
   ordinal (`key2`), so a platform-wide skip needs `diagnose`'s `parseTrail` plus availability: skip every model of a
   platform when all its keys appear in the trail. Test with a trail fixture.
@@ -138,17 +135,9 @@ Harness side (H) unless marked G.
   (failover covers `chatRound()` start). Steps: detect an error after first token; keep what was printed as an
   assistant prefix, drop the spent model, continue with "continue" or re-ask; design first (what the transcript
   shows, what `repairTurn` keeps).
-- **D10. Hint on total exhaustion (S).** When every model is unavailable the original error is shown; add the earliest
-  `resets_at` (availability `until`) to the give-up panel (`routeFailure` already shows per-route back times; add a
-  summary line).
 - **D11. Local model switch leaves the old route (S).** After a switch to the local model the next round still starts
   on the failed client (routed by the cool-down) and the status line keeps the old route (the local client has no
   `onMeta`). Give the local client an `onMeta`, or set the route text on switch.
-- **D12. Dashboard-less operation (S).** The monthly-quota vs daily-limit split needs a dashboard session; without it
-  only the per-provider skip of the attempt trail applies. Document the degraded mode in `/gateway status` output.
-- **D13. Turn repair under a tool throw (S).** A throw inside tool execution itself is untested against
-  `lib/turn-repair.js`; add a test with a throwing tool in a fake `runToolLoop` helper, or move the repair decision
-  into a `lib/` function that can be tested.
 - **D14. One next-model order (M).** The provider fallback and `/handoff-model` are not part of the single order
   (standby, then best rated); fold them in, or document why they stay apart.
 
@@ -226,8 +215,6 @@ Harness side (H) unless marked G.
   start does not move the session files (the key is fixed at startup); old `<model>.json/.log/-diffs` in project
   directories are not migrated; provider debug logs (`lib/logger.js`) still go to the cwd; add unit tests for
   `lib/session-cache.js` and the env parser.
-- **G5. Process loss (S).** A killed process loses at most 20 s of quota snapshot and 5 s of cooldowns: flush on
-  SIGTERM/SIGINT (`flushPersist` exists) and on `/restart`.
 - **G6. Local-model panels (M).** `/handoff`, `/compact`, `/handoff-model` summaries and `/each` use local-model calls
   (`lib/handoff.js`) without the verbose panels, and they go through `localTrace`, not `watchNet`, so the net pane's
   compaction type needs them labelled; `/brief` panels show whole documents (up to the 8k-token window, behind
@@ -379,8 +366,6 @@ Plan and rationale: `../chat-bridge/doc/HARNESS.md` and `../chat-bridge/TODO.md`
 - **M1. Binding demo re-run (S, needs a model).** The curated context (`reference/quickjs-binding-api.md`,
   `fib.c`, `point.c`) was never tried live: run the zlib prompt against a reachable Ollama or Gemini, record the
   outcome in the README demo section (whether the old never-replies case is fixed; its BUGS entry is gone).
-- **M2. Hop line detail (S).** The hop line does not say which provider served the spent model (the gateway names it
-  only in the trail): add it when the trail has it. Also give `hopText`/`modelName` a test (H3).
 - **M3. Keep docs true (continuous).** `README.md` and `/help` must agree; every new slash command touches the six
   places in ARCHITECTURE section 16; update `TODO.md` in the same change; this file when a task closes.
 
@@ -397,7 +382,7 @@ Plan and rationale: `../chat-bridge/doc/HARNESS.md` and `../chat-bridge/TODO.md`
 ## Suggested order
 
 The ordered list of every pending task, with the reasons for the order, is `TODO.md` (sections 1 to 15). In short:
-decisions and housekeeping (A), bugs and enablers (N1, H3, G3, G5), small failover fixes (D, M2), live verification
+decisions and housekeeping (A), bugs and enablers (N1, H3, G3), small failover fixes (D), live verification
 (C, terminal first), the measured failover work (B, after the restart A4 and a day of data), the gateway wishes (D4 to
 D8, after A2), proxy (E, after C4), exploration and rating (F), events and persistence (G), UI (H), files and context (I),
 agents and providers (J), bridge (K), coding quality (L, M1).

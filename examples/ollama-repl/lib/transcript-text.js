@@ -11,6 +11,8 @@
  * ```
  */
 
+import { resetMs } from './provider-fallback.js';
+
 /** a model name in its strength colour, as in /model list; plain when piped */
 export function makeModelName({ piped = false, fgHex, strengthColor, tierOf }) {
   return id => (piped || !id ? id : `\x1b[1m${fgHex(strengthColor(tierOf(id)), id)}\x1b[0m`);
@@ -18,6 +20,21 @@ export function makeModelName({ piped = false, fgHex, strengthColor, tierOf }) {
 
 /** the reset time the gateway names in an error ("Soonest cooldown reset ~48s."), or null */
 export const soonestReset = text => /Soonest cooldown reset ~?(\S+?)\.?(\s|$)/i.exec(String(text ?? ''))?.[1] ?? null;
+
+/**
+ * the summary line of the give-up panel: when the first route may be tried again, from the reset times the errors name
+ * (null when none names one)
+ *
+ *   earliestReset([['kilo/x', 'Rate limit. Soonest cooldown reset ~3m.'], ['ollama/q', 'refused']])   // 'earliest reset in ~3m: kilo/x'
+ */
+export function earliestReset(attempts) {
+  let best = null;
+  for(const [route, why] of attempts ?? []) {
+    const ms = resetMs({ message: String(why ?? '') });
+    if(ms && (!best || ms < best.ms)) best = { ms, route, text: soonestReset(why) };
+  }
+  return best ? `earliest reset in ~${best.text}: ${best.route}` : null;
+}
 
 /** one route that failed, as a card line: provider dim, model by strength, the first sentence of the error, the reset time amber */
 export function routeFailure(route, why, { piped = false, dim = s => s, modelName = s => s } = {}) {

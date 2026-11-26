@@ -26,7 +26,7 @@ r = await timed('sleep 5 | cat', { timeoutMs: 300 });
 check(`a timeout returns at once (${r.ms} ms)`, r.timedOut && r.ms < 2000);
 
 /* more than the 64 KB of a pipe buffer, then cut at 32 KB */
-r = await timed('head -c 200000 /dev/zero | tr "\\0" x');
+r = await timed('dd if=/dev/zero bs=1000 count=200 2>/dev/null | tr "\\0" x');
 check('big output is cut', r.output.length > 32768 && r.output.length < 33000 && r.output.endsWith('(truncated)'));
 
 /* a runaway writer is killed */

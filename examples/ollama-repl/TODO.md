@@ -8,8 +8,12 @@ The two causes found are fixed (the blocking pipe read in `lib/run-command.js`; 
   that call heavy functions (`lib/freellm.js` `keysText` orders, `lib/availability.js` `limitedText`, where `rateOf` is called per comparison).
 - Waiting for the next hiccup: read `/events lag` or `~/.cache/ollama-repl/lag.jsonl` first (the perf data of 23:09:38 shows no long CPU
   burst: that stall was waiting, not running).
-- A 4.8 s CPU stall in one JS callback after a `/v1/models` download (strace.log.txt, 1795644170.735816; no `BUGS` entry now): needs
-  perf or gdb at the moment it happens, or the slow-section instrumentation.
+- The 4.8 s stall is explained and fixed (2026-11-26): it is `/model skip` of a spent provider (listModels download, then the loop, then
+  the load's 7 requests, as in the strace). The loop called `skipModels(name)` per model and each call filtered and sorted the whole
+  catalog (`getFilteredModels` 100-150 ms; 31 calls in one 6.8 s stall of the real lag.jsonl). Confirm after a restart that no
+  `getFilteredModels` rows come in bursts. Still unexplained: stalls of about 2.27 s every 6.5 s in phase `waiting` with no timed section
+  (real lag.jsonl 00:37:59 to 00:38:12), and `writeQuota` rows of 300 to 980 ms (25 ms of work measured on the real files). `timed` rows
+  now carry `where` (the callers); for the untimed ones record perf (`perf record -g -p PID`) while it happens.
 
 # ollama-repl TODO (status 2026-11-26)
 
@@ -28,9 +32,6 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
 
 ## Uncommitted and open right now
 
-- The 429 fix of the availability load (`lib/availability.js`, `tests/test-availability-missing.js`, its `BUGS` entry
-  removed) waits for the other session to commit `lib/lag.js` (it imports it). Not mine: `lib/run-command.js`, `lib/lag.js`,
-  `lib/model-status.js` and the other work in the section above.
 - The untracked `strace.log*` files (110 MB) are not to be committed (see A3).
 
 ## The order
@@ -57,18 +58,10 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
    `repl.js` are only testable inside `main()`: move the pure parts into `lib/` as they are touched; prerequisite for H1, H2, J1.
 8. **G3** (H, S) log the other clients (explore, standby, sub-agent) in `usage.jsonl` with a `label`; the baseline then counts only
    `main` for turn statistics. Gives B1 and B2 cleaner data.
-9. **G5** (H, S) flush the quota snapshot and the cooldowns on SIGTERM, SIGINT and `/restart` (a kill loses up to 20 s and 5 s).
-
 ### 3. Small failover and display fixes (each with a test)
 
-10. **D1** (H, S) the provider-fallback cool-down ignores Retry-After and the "Soonest cooldown reset ~3m" text
-    (`lib/provider-fallback.js`; `soonestReset` is already in `lib/transcript-text.js`). Started, no code yet.
-11. **D10** (H, S) the give-up panel gets a summary line with the earliest reset time of all routes.
 12. **D11** (H, S) after a switch to the local model the next round still starts on the failed client and the status line keeps the
     old route: give the local client an `onMeta` or set the route on switch.
-13. **D12** (H, S) document the degraded mode without a dashboard session (monthly vs daily split) in `/gateway status`.
-14. **D13** (H, S) test a throwing tool against `lib/turn-repair.js` (move the repair decision into a testable `lib/` function).
-15. **M2** (H, S) the hop line names the provider that served the spent model when the trail has it.
 16. **D2** (H, M) platform-wide soft-skip from the fallback trail (skip every model of a platform when all its keys appear in it).
 17. **D9** (H, M) a limit in the middle of a streamed reply: keep what was printed, drop the spent model, continue; design first.
 18. **D14** (H, M) fold the provider fallback and `/handoff-model` into the one next-model order, or document why they stay apart.

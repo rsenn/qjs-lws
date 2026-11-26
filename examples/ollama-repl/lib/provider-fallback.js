@@ -21,6 +21,24 @@
 const MIN = 60000;
 
 /**
+ * how long an error says the route stays dry, in ms: the Retry-After header (seconds, `err.retryAfter`), else the gateway's
+ * "Soonest cooldown reset ~48s|3m|2h" text; null when it names no time
+ *
+ *   resetMs(Object.assign(new Error('Soonest cooldown reset ~3m.'), { status: 429 }))   // 180000
+ */
+export function resetMs(err) {
+  if(err?.retryAfter > 0) return err.retryAfter * 1000;
+  const m = /Soonest cooldown reset ~?(\d+(?:\.\d+)?)\s*(s|m|min|h|d)\b/i.exec(`${err?.detail ?? ''} ${err?.message ?? ''} ${err?.body ?? ''}`);
+  return m ? Math.round(+m[1] * { s: 1000, m: MIN, min: MIN, h: 60 * MIN, d: 24 * 60 * MIN }[m[2].toLowerCase()]) : null;
+}
+
+/** the cool-down of a limit: what the error says (and a cushion), kept within 30 s and 60 min; `fallback` without a time */
+const coolFor = (err, fallback) => {
+  const ms = resetMs(err);
+  return ms ? Math.min(60 * MIN, Math.max(30000, ms + 5000)) : fallback;
+};
+
+/**
  * What kind of failure `err` is, null when another route would not help
  * (a bad request: 400, 404, 413, 422 - the same request fails everywhere).
  *
@@ -33,8 +51,8 @@ export function classify(err) {
   if(isGone(err)) return { kind: 'gone', cooldownMs: 12 * 60 * MIN, reason };
 
   if(status === 401 || status === 403) return { kind: 'auth', cooldownMs: 30 * MIN, reason };
-  if(status === 402 || status === 429 || err?.isRateLimit) return { kind: 'limit', cooldownMs: 5 * MIN, reason };
-  if(status >= 500 && status < 600) return { kind: 'upstream', cooldownMs: 2 * MIN, reason };
+  if(status === 402 || status === 429 || err?.isRateLimit) return { kind: 'limit', cooldownMs: coolFor(err, 5 * MIN), reason };
+  if(status >= 500 && status < 600) return { kind: 'upstream', cooldownMs: coolFor(err, 2 * MIN), reason };
   if(status === 408 || /no response after|stream stalled|timed? ?out|connection (failed|closed|refused|reset)|ECONN|EPIPE|ENOTFOUND/i.test(String(err?.message ?? ''))) return { kind: 'network', cooldownMs: MIN, reason };
 
   return null;

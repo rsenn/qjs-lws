@@ -38,6 +38,25 @@ const base = () => [{ role: 'user', content: 'old' }, { role: 'assistant', conte
   check('user command kept', repairTurn(m, turn, { sideEffects: true, reason: 'HTTP 429' }) === 'kept' && m.length === 5 && m.at(-1).role === 'assistant');
 }
 
+/* a tool that throws: the round has two calls, only the first was answered when the throw ended the turn; that
+   round goes, the earlier finished round stays, and the note closes the turn */
+{
+  const turn = { role: 'user', content: 'go' };
+  const call = id => ({ id, function: { name: 'run_command', arguments: '{}' } });
+  const m = [
+    ...base(),
+    turn,
+    { role: 'assistant', content: '', toolCalls: [call('a')] },
+    { role: 'tool', toolCallId: 'a', content: 'ok' },
+    { role: 'assistant', content: '', toolCalls: [call('b'), call('c')] },
+    { role: 'tool', toolCallId: 'b', content: 'ok' },
+  ];
+  const before = m.length;
+  check('throwing tool: kept', repairTurn(m, turn, { sideEffects: true, reason: 'TypeError: boom' }) === 'kept');
+  check('throwing tool: the half answered round is gone', m.length === before - 2 + 1 && m.at(-2).role === 'tool' && m.at(-2).toolCallId === 'a');
+  check('throwing tool: the note names the error', m.at(-1).role === 'assistant' && m.at(-1).content.includes('TypeError: boom'));
+}
+
 /* compaction folded the turn away */
 check('gone', repairTurn(base(), { role: 'user' }, { sideEffects: true, reason: 'x' }) === 'gone');
 console.log('test-turn-repair: ok');

@@ -161,7 +161,7 @@ place that knows about all subsystems.
 | `lib/turn-repair.js` | `repairTurn(messages, turnMsg, {sideEffects, reason})`: what to keep of a failed turn. |
 | `lib/handoff.js` | `buildHandoff`, `summarize`, `digest`, `splitTurns`, `clipToolResults`, `buildKnowledge`, `HANDOFF_MODEL`: compacted conversation for a model switch or `/compact`. |
 | `lib/failover.js` | `Failover`, `failoverNote`, `skipNote`: client-side failover for a **pinned chat-bridge site** only. |
-| `lib/provider-fallback.js` | `ProviderFallback`, `classify`, `isGone`, `shortReason`: when the *endpoint* refuses (401/403, outage), cool the route down and go to the next provider, finally local Ollama. |
+| `lib/provider-fallback.js` | `ProviderFallback`, `classify`, `isGone`, `shortReason`, `resetMs`: the cool-down of a limit follows Retry-After or "Soonest cooldown reset ~3m" (30 s to 60 min, 5 min without a time); when the *endpoint* refuses (401/403, outage), cool the route down and go to the next provider, finally local Ollama. |
 | `lib/fallback-trail.js` | `parseTrail`, `spentModels`, `trailText`, `TRAIL_SKIP_MS`: reads the gateway's `X-Fallback-Trail` (the hops that ran out before an answer). |
 | `lib/skips.js` | `releaseRecovered`: a self-set skip ends early when a fresh availability says the model is usable again. |
 | `lib/routing-health.js` | `routingHealth`: the one-line "gateway running dry" status. |
@@ -443,9 +443,9 @@ Rules: the spent model and the next one are named, coloured by strength tier
 (`strengthColor`); providers teal, times amber, the reason red (amber for a plain
 rate limit), the arrow lime; at most 4 providers are named, the rest is `+K more`;
 without colour (piped) the same text. A skip typed by the user keeps its own notes
-and the chooser. The `failover` event text is unchanged. Open: the hop line
-does not say which provider served the spent model (the gateway names it only in
-the trail).
+and the chooser. The `failover` event text is unchanged. A single-model hop names
+the provider that served the spent model (`via`: the last request's platform, else
+the only provider the gateway lists for it) as `provider/model`.
 
 **The give-up panel (2026-11-25).** When every route failed and the round waits before
 trying again (`chatRound`, backoff), the message is an amber panel in the TUI (a card

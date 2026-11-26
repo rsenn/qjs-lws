@@ -1,5 +1,5 @@
 /* test-transcript-text.js: the pure helpers behind the coloured transcript lines and the exploration queue */
-import { exploreOrder, makeModelName, routeFailure, servedIds, soonestReset } from '../lib/transcript-text.js';
+import { exploreOrder, makeModelName, routeFailure, servedIds, soonestReset, earliestReset } from '../lib/transcript-text.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-transcript-text: ${what}`);
@@ -37,4 +37,7 @@ check('a served model outranks a better rated one', o.priority('b') > o.priority
 check('a missing rating counts as 0', o.priority('c') === 0);
 check('platformsOf is passed through', o.platformsOf('x')[0] === 'x');
 
+/* the give-up panel names the earliest reset */
+check('earliest of several', earliestReset([['a/x', 'Rate limit. Soonest cooldown reset ~3m.'], ['b/y', 'refused'], ['c/z', 'Soonest cooldown reset ~48s.']]) === 'earliest reset in ~48s: c/z');
+check('none names a time', earliestReset([['a/x', 'boom']]) === null && earliestReset([]) === null);
 console.log('test-transcript-text: ok');

@@ -27,4 +27,8 @@ eq(tags, '[arrow:⇄] <a> [warn:rate limited]: [provider:p] [arrow:→] <b>');
   if(!line.includes(`<${HOP_COLORS.warn}>rate limited</>`)) throw new Error('test-hop-line: a rate limit is amber');
   if(Object.keys(hopStyle({ piped: true })).length) throw new Error('test-hop-line: piped is plain');
 }
+{
+  const line = hopLine({ from: 'qwen3', via: 'kilo', why: 'rate limited', next: 'gemma', rating: 70 });
+  if(line !== '⇄ kilo/qwen3 rate limited → gemma rating 70') throw new Error(`test-hop-line: via: ${line}`);
+}
 console.log('test-hop-line: ok');

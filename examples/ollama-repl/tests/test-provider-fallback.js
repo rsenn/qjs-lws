@@ -1,6 +1,6 @@
 /* test-provider-fallback.js: failure classes, cool-downs and the next-candidate pick of lib/provider-fallback.js,
    and the one-line message of OpenAIError (no header dump) */
-import { classify, shortReason, ProviderFallback } from '../lib/provider-fallback.js';
+import { classify, shortReason, resetMs, ProviderFallback } from '../lib/provider-fallback.js';
 import { OpenAIError } from '../lib/openai-client.js';
 
 const check = (what, ok) => {
@@ -26,6 +26,15 @@ check('503 upstream', kind(503) === 'upstream');
 check('408 network', kind(408) === 'network');
 check('timeout network', kind(undefined, 'no response after 30s') === 'network');
 check('connection network', kind(undefined, 'Ollama connection failed: refused') === 'network');
+/* the cool-down of a limit follows what the error says */
+const lim = (msg, extra = {}) => classify(Object.assign(new Error(msg), { status: 429 }, extra)).cooldownMs;
+check('no time: 5 min', lim('Rate limit') === 5 * 60000);
+check('Retry-After 90 s', lim('Rate limit', { retryAfter: 90 }) === 95000);
+check('text 3m', lim('All models rate-limited. Soonest cooldown reset ~3m.') === 185000);
+check('text 48s', lim('Soonest cooldown reset ~48s.') === 53000);
+check('text 2h is capped at 60 min', lim('Soonest cooldown reset ~2h.') === 60 * 60000);
+check('a short reset is at least 30 s', lim('Soonest cooldown reset ~2s.') === 30000);
+check('resetMs: none', resetMs(new Error('boom')) === null && resetMs(undefined) === null);
 check('400 is not failed over', kind(400) === null);
 check('404 is not failed over', kind(404) === null);
 check('plain error is not failed over', kind(undefined, 'something else') === null);

@@ -1,4 +1,8 @@
 
 - loadavailability-stalls-the-loop (lib/availability.js:availabilityFrom, lib/openai-client.js:fetchJSON): one load blocks the loop for 0.5-1.1 s against a fake gateway of the live size (699 models, 1500 rows, 83 keys; compute 220-270 ms, JSON.parse of /api/fallback/penalty-inspector 140 ms, the rest decoding and chunk handling of 7 responses, about 12 MB in the fake); callers that finished together used to run their continuations in one pass (the 4.8 s and 9 s stalls in the strace logs); the real response sizes are not known, lag.jsonl (lib/lag.js) says which section ran how long.
 
-    note: restart a session, use /model skip and /gateway views, read /events lag or ~/.cache/ollama-repl/lag.jsonl
+    note: stalls of about 2.27 s every 6.5 s while waiting for a model (real lag.jsonl, no timed section) are not explained; restart a session, use /model skip and /gateway views, read /events lag or ~/.cache/ollama-repl/lag.jsonl
+
+- shish-head-c-dev-zero-empty (/usr/local/bin/shish, installed 2026-11-26 03:08): shish -c 'head -c 20 /dev/zero | wc -c' prints 0 where sh prints 20 (head -c on /dev/zero gives no output); found because tests/test-run-command.js ran that pipeline through run_command and got an empty result, the test now uses dd.
+
+    note: shish -c 'head -c 20 /dev/zero | wc -c'

@@ -48,7 +48,7 @@
  *     independent of `TRAFFIC`.
  */
 import { exit, getenv, getenviron, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
-import { clearTimeout, exec, getcwd, getpid, isatty, kill, realpath, setTimeout, stat, readdir, S_IFDIR, ttyGetWinSize } from 'os';
+import { clearTimeout, exec, getcwd, getpid, isatty, kill, realpath, setTimeout, signal, stat, readdir, S_IFDIR, ttyGetWinSize } from 'os';
 import { rmSync } from 'fs';
 import { OllamaClient } from './lib/ollama-client.js';
 import { GeminiClient } from './lib/gemini-client.js';
@@ -90,7 +90,7 @@ import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js'
 import { startLagWatch, timed } from './lib/lag.js';
 import { appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
 import { hopLine, hopStyle } from './lib/hop-line.js';
-import { exploreOrder as exploreOrderOf, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/transcript-text.js';
+import { exploreOrder as exploreOrderOf, earliestReset, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/transcript-text.js';
 import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
 import { ipProxyTargets, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms as exhaustedByAddress } from './lib/ip-fix.js';
 import { ipGroups, ipChangePanel, ipChangeParts } from './lib/ip-pane.js';
@@ -1173,6 +1173,8 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
       if(providerHook && fail && ['limit', 'upstream', 'network'].includes(fail.kind) && !opts.quiet && backoffs < BACKOFF_SECS.length) {
         const secs = BACKOFF_SECS[backoffs++];
         const lines = attempts.length ? attempts.map(([r, why]) => routeFailure(r, why)) : [fail.reason];
+        const earliest = earliestReset(attempts);
+        if(earliest) lines.push(`\x1b[2m${earliest}\x1b[0m`);
         const title = `every route failed · waiting ${secs}s · retry ${backoffs}/${BACKOFF_SECS.length}`;
         if(tui?.active) console.log(panel(title, lines.join('\n'), tui.width, { border: '#fbbf24' }));
         else console.log(card('⤼', `every route failed: waiting ${secs}s, retry ${backoffs}/${BACKOFF_SECS.length}`, lines, '#a3e635'));
@@ -1645,6 +1647,14 @@ async function prepareRestart(opts, messages, baseMessageCount, overrides = {}) 
 
 /* set by main(): ends this process and runs the restarted one in its place;
    resolves only with an error message (success never returns) */
+/** writes what waits for a timer: ratings, the quota snapshot, the cooldowns (exit, /restart, SIGTERM) */
+function flushState() {
+  try {
+    ratings?.flush();
+    flushPersist();
+    saveCooldowns();
+  } catch(e) {}
+}
 let restartHook = null;
 const RESTART_EXIT = 75;
 
@@ -2618,6 +2628,13 @@ const routeFailure = (route, why) => routeFailureText(route, why, { piped, dim, 
 
 /** a model name in its strength colour (as in /model list); plain when piped */
 const modelName = makeModelName({ piped, fgHex: (hex, text) => fgHex(hex, text), strengthColor, tierOf }); /* fgHex is a const declared below: reached lazily */
+/** the provider that served `model` (the last request's platform, else the only provider the gateway lists for it), '' when not known */
+const servedVia = model => {
+  const last = statsRef?.last();
+  if(last?.platform && (last.model === model || last.routedVia === model)) return last.platform;
+  const ps = availability?.byModel.get(model)?.platforms ?? [];
+  return ps.length === 1 ? ps[0] : '';
+};
 const hopText = hop => hopLine(hop, hopStyle({ piped, dim, fgHex: (hex, text) => fgHex(hex, text), modelName }));
 
 /** 38;2;r;g;b text from a #rrggbb color */
@@ -4241,9 +4258,7 @@ async function main() {
     //console.log('ChatREPL', prompt);
 
     if(prompt === '/exit' || prompt === '/quit') {
-      ratings?.flush();
-      flushPersist();
-      saveCooldowns();
+      flushState();
       return repl.exit(0);
     }
 
@@ -4781,7 +4796,7 @@ async function main() {
           const cause = !skipError ? 'manual' : /model_not_found|no longer available/i.test(skipError) ? 'no longer available' : isUpstreamFailure(skipError) ? 'every route failed upstream' : isExhaustedError(skipError) ? 'rate limited or quota used up' : String(skipError).split('\n')[0].slice(0, 60);
           const n = skipModels(target, cause, known, skipRetryMs ?? SKIP_COOLDOWN_MS);
           if(!n) return void console.log(red(`error: no model matches "${target}"`));
-          if(skipError && n === 1) hop = { from: target, why: `${cause}, skipped ${Math.ceil((skipRetryMs ?? SKIP_COOLDOWN_MS) / 60000)}m` };
+          if(skipError && n === 1) hop = { from: target, via: servedVia(target), why: `${cause}, skipped ${Math.ceil((skipRetryMs ?? SKIP_COOLDOWN_MS) / 60000)}m` };
           else console.log(note(n === 1 ? skipNote(target, cause) : `skipped ${n} models matching "${target}": ${[...skippedModels].map(([m]) => m).join(', ')}`, 'skip'));
         } else {
           const n = unskipModels(target);
@@ -5755,6 +5770,7 @@ async function main() {
      (the first one, which keeps the terminal) runs that, so a session restarted ten times is still two
      processes, not eleven */
   restartHook = async overrides => {
+    flushState(); /* the exec below drops the quota snapshot and cooldowns that wait for their timers */
     const r = await prepareRestart(opts, messages, baseMessageCount, overrides);
     if(typeof r === 'string') return r;
 
@@ -5888,12 +5904,13 @@ async function main() {
       repl.restoreQueue(pendingQueue);
     }, 0);
 
+  /* a kill (SIGTERM, a closed terminal) must not lose the 20 s quota snapshot, the 5 s cooldowns and the ratings */
+  for(const sig of [15, 1]) signal(sig, () => (flushState(), repl.exit(128 + sig)));
+
   /* where the loop stalls: /events lag, ~/.cache/ollama-repl/lag.jsonl (lib/lag.js) */
   startLagWatch({ describe: () => `${phase.name}${phase.tool ? ` ${phase.tool}` : ''}` });
   await repl.run();
-  ratings?.flush();
-  flushPersist();
-  saveCooldowns();
+  flushState();
 }
 
 await main();

@@ -1,0 +1,33 @@
+2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
+
+	* lib/lag.js (timed, startLagWatch): New. Loop-lag watch and timed
+	sections; slow rows in lag.jsonl carry the callers (where).
+
+	* lib/run-command.js (runCommand): output goes to an unlinked scratch
+	file, not a pipe, so a descendant holding the pipe cannot block the loop.
+
+	* lib/availability.js (loadAvailability, groupId, limitsText): concurrent
+	loads share one request set, { fresh: true } reloads after a change;
+	groupId memoised; limitsText sorts on a flag worked out once per row.
+
+	* lib/model-status.js (modelStatusTable): sort keys worked out once per row.
+
+	* repl.js (allModelNames, /model skip): the names are copied, not
+	filtered and sorted per model (a 4.8 s stall on a spent provider).
+
+	* lib/provider-fallback.js (resetMs, classify): the cool-down of a limit
+	follows Retry-After or "Soonest cooldown reset ~3m".
+
+	* lib/transcript-text.js (earliestReset), repl.js: the give-up panel ends
+	with the earliest reset time.
+
+	* repl.js (flushState): ratings, quota snapshot and cooldowns are written
+	on exit, /restart, SIGTERM and SIGHUP.
+
+	* lib/hop-line.js (hopLine), repl.js (servedVia): a single-model hop names
+	the provider that served the spent model.
+
+	* lib/gateway-report.js (reportText): /gateway status explains the
+	degraded mode without a dashboard session.
+
+	* tests/test-turn-repair.js: a tool that throws mid round.
