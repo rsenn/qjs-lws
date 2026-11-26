@@ -23,6 +23,7 @@ macro(build_libressl BINARY SUFFIX PIC)
     set(LIBRESSL_C_FLAGS_${SUFFIX} "-w -include ${CMAKE_CURRENT_SOURCE_DIR}/cmake/diet-endian-compat.h")
   endif()
 
+  toolchain_cache_args(_toolchain_args)
   ExternalProject_Add(
     libressl_${SUFFIX}
     URL https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-${LIBRESSL_VERSION}.tar.gz
@@ -35,6 +36,7 @@ macro(build_libressl BINARY SUFFIX PIC)
       "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
       "-DCMAKE_SYSROOT:PATH=${CMAKE_SYSROOT}"
       "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}"
+      ${_toolchain_args}
       "-DCMAKE_C_FLAGS:STRING=${LIBRESSL_C_FLAGS_${SUFFIX}}"
       "-DCMAKE_VERBOSE_MAKEFILE:BOOL=${CMAKE_VERBOSE_MAKEFILE}"
       "-DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}"

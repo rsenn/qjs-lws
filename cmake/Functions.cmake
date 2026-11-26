@@ -1046,3 +1046,30 @@ function(getenv_default OUTPUT_VAR VAR_NAME)
     set("${OUTPUT_VAR}" "${RESULT}" PARENT_SCOPE)
   endif()
 endfunction()
+#
+# toolchain_cache_args <OUTPUT-VARIABLE>
+#
+# The -D options a nested (ExternalProject) cmake build needs next to
+# CMAKE_TOOLCHAIN_FILE when this project is cross compiling: the ANDROID_*
+# and CMAKE_ANDROID_* cache variables (ANDROID_ABI, ANDROID_PLATFORM) that
+# the toolchain file reads, the compiler target triple and the processor.
+# Without them an Android toolchain file builds armeabi-v7a at API 21.
+#
+function(toolchain_cache_args out)
+  set(args)
+  if(CMAKE_CROSSCOMPILING)
+    set(vars CMAKE_C_COMPILER_TARGET CMAKE_SYSTEM_PROCESSOR)
+    get_cmake_property(cache CACHE_VARIABLES)
+    foreach(var ${cache})
+      if(var MATCHES "^(CMAKE_)?ANDROID_")
+        list(APPEND vars ${var})
+      endif()
+    endforeach()
+    foreach(var ${vars})
+      if(${var})
+        list(APPEND args "-D${var}:STRING=${${var}}")
+      endif()
+    endforeach()
+  endif()
+  set(${out} "${args}" PARENT_SCOPE)
+endfunction()

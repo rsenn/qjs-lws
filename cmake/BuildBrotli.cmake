@@ -23,6 +23,7 @@ macro(build_brotli BINARY SUFFIX PIC)
     set(BROTLI_PATCH_${SUFFIX} PATCH_COMMAND sed -i "s/__attribute__((__noinline__))/__attribute__((noinline))/" <SOURCE_DIR>/c/common/platform.h)
   endif()
 
+  toolchain_cache_args(_toolchain_args)
   ExternalProject_Add(
     brotli_${SUFFIX}
     ${BROTLI_PATCH_${SUFFIX}}
@@ -36,6 +37,7 @@ macro(build_brotli BINARY SUFFIX PIC)
       "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
       "-DCMAKE_SYSROOT:PATH=${CMAKE_SYSROOT}"
       "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}"
+      ${_toolchain_args}
       "-DCMAKE_C_FLAGS:STRING=-w"
       "-DCMAKE_VERBOSE_MAKEFILE:BOOL=${CMAKE_VERBOSE_MAKEFILE}"
       "-DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}"

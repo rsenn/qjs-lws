@@ -18,6 +18,7 @@ macro(build_zlib BINARY SUFFIX PIC)
   endif()
   set(ZLIB_LIBRARY_FILE_${SUFFIX} "${ZLIB_PREFIX_${SUFFIX}}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}${ZLIB_LIBRARY_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
+  toolchain_cache_args(_toolchain_args)
   ExternalProject_Add(
     zlib_${SUFFIX}
     URL https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
@@ -30,6 +31,7 @@ macro(build_zlib BINARY SUFFIX PIC)
       "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
       "-DCMAKE_SYSROOT:PATH=${CMAKE_SYSROOT}"
       "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}"
+      ${_toolchain_args}
       "-DCMAKE_C_FLAGS:STRING=-w"
       "-DCMAKE_VERBOSE_MAKEFILE:BOOL=${CMAKE_VERBOSE_MAKEFILE}"
       "-DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}"
