@@ -1,5 +1,10 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/session/usage-stats.js (emptyReplyNote), repl.js (chatRound): New.
+	A reply with no text and no tool call prints a note with the finish
+	reason, the tokens and where the answer may be (the reasoning, or the
+	token limit). tests/test-empty-reply.js, run by smoke.sh.
+
 	* lib/session/session-cache.js (addRoot, pickRoot, SESSION_SETTINGS),
 	lib/session/session-log.js (SessionLog#cd), lib/tui/session-browser.js
 	(detailLines), repl.js (main, /cd, persistState): state.json keeps

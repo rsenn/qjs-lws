@@ -49,7 +49,7 @@ OUT=$(cd "$DIR" && timeout 30 qjsm tests/test-pricing.js 2>&1) || { echo "FAIL p
 OUT=$(cd "$DIR" && timeout 30 qjsm tests/test-own-sockets.js 2>&1) || { echo "FAIL own-sockets: $OUT"; FAILED=1; }
 
 # 1g. the session files: atomic session.json, keys, saved settings, listing and pruning
-for T in session-store session-cache session-browser; do
+for T in session-store session-cache session-browser empty-reply; do
   OUT=$(cd "$DIR" && timeout 30 qjsm tests/test-$T.js 2>&1) || { echo "FAIL $T: $OUT"; FAILED=1; }
 done
 

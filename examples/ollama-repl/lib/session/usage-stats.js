@@ -323,3 +323,20 @@ export class UsageStats {
     return n ? (this.records[n - 1] ?? null) : this.last();
   }
 }
+
+/**
+ * the note for a reply that has no text and no tool call, else null: the finish reason, the tokens, and where the
+ * answer may be (a reasoning model can spend its whole budget thinking, or put the answer into the reasoning)
+ */
+export function emptyReplyNote(result) {
+  if(!result || result.content?.trim() || result.toolCalls?.length || result.meta?.error) return null;
+
+  const m = result.meta ?? {};
+  const u = m.usage ?? {};
+  const parts = [`finish=${m.finish ?? '?'}`];
+  if(u.completion != null) parts.push(`${fmtNum(u.completion)} completion tokens`);
+  if(u.reasoning) parts.push(`${fmtNum(u.reasoning)} reasoning`);
+
+  const why = m.finish === 'length' ? ': it ran into the token limit while thinking' : result.reasoning || u.reasoning ? ': the answer may be in its reasoning (Ctrl-O)' : '';
+  return `the model returned no text (${parts.join(', ')})${why}`;
+}

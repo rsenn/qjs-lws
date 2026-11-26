@@ -74,7 +74,7 @@ import { extractTextToolCalls } from './lib/clients/text-tool-calls.js';
 import { formatUsage } from './lib/session/usage.js';
 import { estimateCost } from './lib/clients/pricing.js';
 import { ageText } from './lib/tui/session-browser.js';
-import { UsageStats, routeLine, routeName, formatMeta, quotaText, formatTable, fitTable, fmtNum, fmtMs } from './lib/session/usage-stats.js';
+import { UsageStats, emptyReplyNote, routeLine, routeName, formatMeta, quotaText, formatTable, fitTable, fmtNum, fmtMs } from './lib/session/usage-stats.js';
 import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAllowed, needsApproval, describeWrite, WRITE_TOOLS } from './lib/agent/modes.js';
 import { expandHome, toRelativePath, unquote } from './lib/paths.js';
 import { Gateway, FREELLM_URL } from './lib/gateway/freellm.js';
@@ -1404,6 +1404,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
       response(result);
       cogitated(result);
       recordLatency(client.model, Date.now() - t0);
+      if(!opts.quiet && emptyReplyNote(result)) console.log(note(emptyReplyNote(result), 'warn'));
       return result;
     }
 
@@ -1419,6 +1420,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     response(result);
     cogitated(result);
     recordLatency(client.model, Date.now() - t0);
+    if(!opts.quiet && emptyReplyNote(result)) console.log(note(emptyReplyNote(result), 'warn'));
     return result;
   } catch(e) {
     liveResponse?.update(`← failed · ${fmtMs(Date.now() - t0)}`, `\x1b[31m${String(e.detail ?? e.message ?? e).split('\n')[0]}\x1b[0m`, { border: '#f87171' });
