@@ -338,7 +338,10 @@ export class OpenAIClient {
     return messages.map(({ role, content, toolCalls, name, toolCallId }) => {
       if(role === 'assistant' && toolCalls?.length) {
         pendingCallIds = toolCalls.map(tc => tc.id);
-        return { role, content: content ?? '', tool_calls: toolCalls.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: JSON.stringify(tc.args) } })) };
+        return { role, content: content ?? '', tool_calls: toolCalls.map(tc => {
+          const { thoughtSignature, ...tcWithoutSig } = tc;
+          return { id: tcWithoutSig.id, type: 'function', function: { name: tcWithoutSig.name, arguments: JSON.stringify(tcWithoutSig.args) } };
+        }) };
       }
 
       if(role === 'tool') {
