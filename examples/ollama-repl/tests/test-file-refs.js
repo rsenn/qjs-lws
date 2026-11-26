@@ -1,7 +1,7 @@
 /* test-file-refs.js: small files are attached, big, generated and over-budget ones only named, binary ones skipped */
 import { open } from 'std';
 import * as os from 'os';
-import { extractFileRefs, formatFileRefs, ATTACH_MAX_BYTES } from '../lib/file-refs.js';
+import { extractFileRefs, formatFileRefs, ATTACH_MAX_BYTES } from '../lib/project/file-refs.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-file-refs: ${what}`);

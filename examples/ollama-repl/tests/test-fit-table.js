@@ -1,5 +1,5 @@
 /* test-fit-table.js: a table never gets wider than the terminal: columns give up width, then drop out */
-import { fitTable } from '../lib/usage-stats.js';
+import { fitTable } from '../lib/session/usage-stats.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-fit-table: ${what}`);

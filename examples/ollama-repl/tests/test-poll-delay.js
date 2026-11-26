@@ -1,5 +1,5 @@
 /* test-poll-delay.js: how often a split pane polls ss */
-import { pollDelay } from '../lib/resources.js';
+import { pollDelay } from '../lib/project/resources.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-poll-delay: ${what}`);

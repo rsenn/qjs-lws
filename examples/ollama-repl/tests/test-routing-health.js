@@ -1,5 +1,5 @@
 /* test-routing-health.js: when the status bar shows the routing-health segment */
-import { routingHealth } from '../lib/routing-health.js';
+import { routingHealth } from '../lib/gateway/routing-health.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-routing-health: ${what}`);

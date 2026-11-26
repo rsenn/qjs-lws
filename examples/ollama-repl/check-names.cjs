@@ -3,7 +3,7 @@
  * parses and the tests pass, the request fails when the path runs). A flat check: any declaration anywhere in the file
  * counts, so it does not find a name used outside its scope, only a name that is declared nowhere.
  *
- *   node --expose-internals check-names.cjs repl.js lib/*.js ctl.js usage-baseline.js
+ *   node --expose-internals check-names.cjs repl.js $(find lib -name '*.js') ctl.js usage-baseline.js
  *
  * Uses the acorn parser that comes with node (hence --expose-internals). Prints `file:line: name`, exit status 1 when any.
  */

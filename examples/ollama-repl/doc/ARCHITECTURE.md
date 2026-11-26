@@ -46,12 +46,12 @@ A Claude-Code-style coding agent in the terminal, written in JavaScript for
 through this repository's own `lws.so` (libwebsockets bindings). One process,
 one conversation, one event loop. It drives:
 
-- a local **Ollama** (`lib/ollama-client.js`),
-- **Gemini** (`lib/gemini-client.js`),
-- any **OpenAI-compatible** endpoint (`lib/openai-client.js`), in practice a
+- a local **Ollama** (`lib/clients/ollama-client.js`),
+- **Gemini** (`lib/clients/gemini-client.js`),
+- any **OpenAI-compatible** endpoint (`lib/clients/openai-client.js`), in practice a
   **freellmapi gateway** (an OpenAI-compatible router over dozens of free
   providers, `~/Sources/freellmapi`) or a **chat-bridge** (`examples/chat-bridge`,
-  free chat web sites behind an OpenAI API, started by `lib/bridge-process.js`).
+  free chat web sites behind an OpenAI API, started by `lib/gateway/bridge-process.js`).
 
 Most of the code is not the chat loop but the machinery around a *free-tier
 gateway*: knowing which of ~600 models can answer now, how good they are,
@@ -66,7 +66,7 @@ program that talks to a running session over its control socket).
   qjsm event loop (`os.setTimeout`, `os.setReadHandler`, lws service ticks).
   There are no workers: `lws.so` keeps class prototypes in statics, a second
   runtime loading it breaks the first (`BUGS` entry `lws-statics-not-multi-runtime`;
-  `lib/exploration.js` header repeats the rule). "Background" work (the
+  `lib/gateway/exploration.js` header repeats the rule). "Background" work (the
   exploration, the standby probe, gateway refreshes) is just promises that
   interleave with the foreground on the same loop.
 - **Event loop and lws.** `lws.so` is built with `USE_EPOLL`: one
@@ -105,7 +105,7 @@ program that talks to a running session over its control socket).
 ## 3. Layers at a glance
 
 ```
- ctl.js ──────────────► lib/control-socket.js            external controllers (Claude Code, scripts)
+ ctl.js ──────────────► lib/agent/control-socket.js            external controllers (Claude Code, scripts)
                                  │
  ┌───────────────────────────────▼──────────────────────────────────────────┐
  │ repl.js  main()  — wiring, commands, turn loop, hooks, background workers │
@@ -125,12 +125,35 @@ program that talks to a running session over its control socket).
         clients: openai-client / ollama-client / gemini-client  ──►  lws.so (HTTP)
 ```
 
-Dependency rule: `lib/*.js` never import `repl.js`. State that `lib` modules
+Dependency rule: `lib/**/*.js` never import `repl.js`. State that `lib` modules
 need from `repl.js` is injected (`setRater`, `setNamer`, `setSink`, callbacks
 passed to `Exploration.run`, the `*Hook` objects below). `repl.js` is the only
 place that knows about all subsystems.
 
 ## 4. Source map (every file)
+
+### Layout of `lib/` (decided 2026-11-26)
+
+`lib/` has a flat base and seven directories. A file imported by files of several groups is base; a file that
+belongs to one area goes into that area's directory (the import graph showed 42 of the 76 files used by `repl.js`
+alone, and 12 shared by 5 to 9 files).
+
+| Directory | Holds |
+|---|---|
+| `lib/` (base, flat) | what every area uses and that knows no area: `config`, `paths`, `match`, `look`, `ansi`, `palette`, `lag`, `events`, `run-command` |
+| `lib/clients/` | the model clients and what sits directly on a wire: `ollama-client`, `openai-client`, `gemini-client`, `provider-fallback`, `text-tool-calls`, `trace-chat`, `pricing` |
+| `lib/gateway/` | the gateway, availability, rating, exploration, key and probe handling, the proxy and address checks |
+| `lib/failover/` | what happens when a request fails or a model is replaced: `failover`, `fallback-trail`, `hop-line`, `standby`, `takeover`, `handoff`, `turn-repair` |
+| `lib/tui/` | everything drawn: `tui`, `chat-repl`, `pager`, `markdown`, `rawcolor`, panes, transcript text |
+| `lib/project/` | the project's files: file blocks, exchange and references, sent files, the brief, imports, binding context, resources |
+| `lib/session/` | what a session keeps and counts: the cache, log, name, store, `persist`, usage and its statistics and baseline |
+| `lib/agent/` | the turn's tools and helpers: `tool-requests`, `modes`, `skills`, `delegates`, `harness-error`, `diagnose`, and the control socket with `peer` |
+
+Rules: a new file starts in the directory of the one area that uses it; when a second area imports it, it moves
+to the base. Imports between the directories are allowed; a cycle between two directories is a reason to move the
+shared part to the base. Tests stay flat in `tests/`. Moves are done with
+`move-modules -g -X -m MAP -r .` (tool-registry), never by hand; install rule, `smoke.sh` and `check-names.cjs` find
+`lib/` files recursively.
 
 ### Entry points
 
@@ -138,102 +161,103 @@ place that knows about all subsystems.
 |---|---|
 | `repl.js` | The program. ~5500 lines: arg parsing, prompts, the turn engine, all slash commands, all background wiring. §5. |
 | `ctl.js` | `ollama-repl-ctl`: `list`, `send`, `watch`, `monitor`, `steer`, `cancel`, `restart` against a session's control socket. |
-| `usage-baseline.js` | `qjsm usage-baseline.js [--days N] [--origin URL] [--json]`: the health numbers of `usage.jsonl` (over `lib/usage-baseline.js`). |
-| `check-names.cjs` | `node --expose-internals check-names.cjs repl.js lib/*.js`: names used but not declared, and doubly declared names (§22). |
-| `smoke.sh` | Restart gate and quick check: imports every `lib/*.js`, runs a few tests, starts the REPL in a pty and sends 7 commands. §19–20. |
+| `usage-baseline.js` | `qjsm usage-baseline.js [--days N] [--origin URL] [--json]`: the health numbers of `usage.jsonl` (over `lib/session/usage-baseline.js`). |
+| `check-names.cjs` | `node --expose-internals check-names.cjs repl.js $(find lib -name '*.js')`: names used but not declared, and doubly declared names (§22). |
+| `smoke.sh` | Restart gate and quick check: imports every `lib/**/*.js`, runs a few tests, starts the REPL in a pty and sends 7 commands. §19–20. |
 
-### Model clients (`lib/*-client.js`)
+### Model clients (`lib/clients/*-client.js`)
 
 | File | Class | Notes |
 |---|---|---|
-| `lib/openai-client.js` | `OpenAIClient`, `OpenAIError`, `parseUsage` | The main client. `chat()`/`chatStream()`, per-request metadata `meta` (route, tokens, headers), `onPhase`/`onMeta` hooks, `listModels()`, `abort()`, `extraHeaders`. Reads freellmapi headers `X-Routed-Via`, `X-Fallback-Trail`, `X-Fallback-Detail`, `X-Fallback-Attempts`, `X-Freellm-*` in `#headerMeta`. |
-| `lib/ollama-client.js` | `OllamaClient` | `/api/chat` directly on lws; thinking modes (`--think`). |
-| `lib/gemini-client.js` | `GeminiClient` | `generateContent`/`streamGenerateContent`. |
-| `lib/trace-chat.js` | `traceChat` | Wraps a client's `chat` to watch a call it does not own (used by `NetActivity.wrap` for clients without `onPhase`). |
-| `lib/text-tool-calls.js` | `extractTextToolCalls`, `aliasToolCall` | Tool calls a model wrote as text (`qwen2.5-coder` style) turned into structured ones. |
+| `lib/clients/openai-client.js` | `OpenAIClient`, `OpenAIError`, `parseUsage` | The main client. `chat()`/`chatStream()`, per-request metadata `meta` (route, tokens, headers), `onPhase`/`onMeta` hooks, `listModels()`, `abort()`, `extraHeaders`. Reads freellmapi headers `X-Routed-Via`, `X-Fallback-Trail`, `X-Fallback-Detail`, `X-Fallback-Attempts`, `X-Freellm-*` in `#headerMeta`. |
+| `lib/clients/ollama-client.js` | `OllamaClient` | `/api/chat` directly on lws; thinking modes (`--think`). |
+| `lib/clients/gemini-client.js` | `GeminiClient` | `generateContent`/`streamGenerateContent`. |
+| `lib/clients/trace-chat.js` | `traceChat` | Wraps a client's `chat` to watch a call it does not own (used by `NetActivity.wrap` for clients without `onPhase`). |
+| `lib/clients/text-tool-calls.js` | `extractTextToolCalls`, `aliasToolCall` | Tool calls a model wrote as text (`qwen2.5-coder` style) turned into structured ones. |
 
 ### Turn engine
 
 | File | Exports / role |
 |---|---|
-| `lib/tool-requests.js` | `TOOLS` (schemas), `executeTool`, `writeCount`, `journalPaths`/`undoJournal`/`resetJournal` (`/undo`), `listFiles`. |
-| `lib/modes.js` | `MODES` (`plan auto manual edits`), `needsApproval`, `toolAllowed`, `nextMode`, `PLAN_NOTE`, `describeWrite`. |
-| `lib/turn-repair.js` | `repairTurn(messages, turnMsg, {sideEffects, reason})`: what to keep of a failed turn. |
-| `lib/handoff.js` | `buildHandoff`, `summarize`, `digest`, `splitTurns`, `clipToolResults`, `buildKnowledge`, `HANDOFF_MODEL`: compacted conversation for a model switch or `/compact`. |
-| `lib/failover.js` | `Failover`, `failoverNote`, `skipNote`: client-side failover for a **pinned chat-bridge site** only. |
-| `lib/provider-fallback.js` | `ProviderFallback`, `classify`, `isGone`, `shortReason`, `resetMs`: the cool-down of a limit follows Retry-After or "Soonest cooldown reset ~3m" (30 s to 60 min, 5 min without a time); when the *endpoint* refuses (401/403, outage), cool the route down and go to the next provider, finally local Ollama. |
-| `lib/fallback-trail.js` | `parseTrail`, `spentModels`, `trailText`, `TRAIL_SKIP_MS`: reads the gateway's `X-Fallback-Trail` (the hops that ran out before an answer). |
-| `lib/skips.js` | `releaseRecovered`: a self-set skip ends early when a fresh availability says the model is usable again. |
-| `lib/routing-health.js` | `routingHealth`: the one-line "gateway running dry" status. |
-| `lib/latency.js` | `recordLatency`, `isDegraded`, `latencyReport`. |
+| `lib/agent/tool-requests.js` | `TOOLS` (schemas), `executeTool`, `writeCount`, `journalPaths`/`undoJournal`/`resetJournal` (`/undo`), `listFiles`. |
+| `lib/agent/modes.js` | `MODES` (`plan auto manual edits`), `needsApproval`, `toolAllowed`, `nextMode`, `PLAN_NOTE`, `describeWrite`. |
+| `lib/failover/turn-repair.js` | `repairTurn(messages, turnMsg, {sideEffects, reason})`: what to keep of a failed turn. |
+| `lib/failover/handoff.js` | `buildHandoff`, `summarize`, `digest`, `splitTurns`, `clipToolResults`, `buildKnowledge`, `HANDOFF_MODEL`: compacted conversation for a model switch or `/compact`. |
+| `lib/failover/failover.js` | `Failover`, `failoverNote`, `skipNote`: client-side failover for a **pinned chat-bridge site** only. |
+| `lib/clients/provider-fallback.js` | `ProviderFallback`, `classify`, `isGone`, `shortReason`, `resetMs`: the cool-down of a limit follows Retry-After or "Soonest cooldown reset ~3m" (30 s to 60 min, 5 min without a time); when the *endpoint* refuses (401/403, outage), cool the route down and go to the next provider, finally local Ollama. |
+| `lib/failover/fallback-trail.js` | `parseTrail`, `spentModels`, `trailText`, `TRAIL_SKIP_MS`: reads the gateway's `X-Fallback-Trail` (the hops that ran out before an answer). |
+| `lib/gateway/skips.js` | `releaseRecovered`: a self-set skip ends early when a fresh availability says the model is usable again. |
+| `lib/gateway/routing-health.js` | `routingHealth`: the one-line "gateway running dry" status. |
+| `lib/gateway/latency.js` | `recordLatency`, `isDegraded`, `latencyReport`. |
 
 ### Model choice (gateway intelligence)
 
 | File | Exports / role |
 |---|---|
-| `lib/availability.js` | `loadAvailability`, `reportChanges`, `noteIpChange`, `limitsText`, `limitedText`, `kindsText`, `backText`, `backShort`, `untilText`, `spanText`, `recordLocalFailure`, learned cooldowns (`saveCooldowns`/`loadCooldowns`), `groupId`. §12. |
-| `lib/rating.js` | `Ratings` (state), `score`, `setRater`/`rateOf`, `setProviderRater`/`rateProvider`, `sortByRating`, `ratingCell`. §12. |
-| `lib/exploration.js` | `Exploration` (cache + worker), `probeUsable` (tier 0/1), `isTransientProbe`, `probeCells`, `probeBrief`, `deepText`. §12. |
-| `lib/probe-context.js` | `buildProbe`, `grade`, `deepBudget`, `plainQuestion`, `NEEDLES`: the synthetic compacted context of the deep probe. |
-| `lib/diagnose.js` | `diagnose`, `causeOfError`, `parseTrail`: why a probe failed. |
-| `lib/standby.js` | `pickNext`, `probeModel`, `isTransient`: the next model, one small pinned probe. |
-| `lib/takeover.js` | `betterReason`, `stepText`: when a probed model deserves to take over a running task. |
-| `lib/model-status.js` | `modelStatusTable`: rows of `/model health`. |
-| `lib/key-models.js` | `loadKeyData`, `parseKeyScope`, `modelsOfKeys`: `/model key:ID,...` restriction. |
-| `lib/delegates.js` | `Delegates`, `KINDS`, `discoverGateway`, `DELEGATE_NOTES`: which weaker sub-agent model did well for which job kind (`delegates.json`). |
+| `lib/gateway/availability.js` | `loadAvailability`, `reportChanges`, `noteIpChange`, `limitsText`, `limitedText`, `kindsText`, `backText`, `backShort`, `untilText`, `spanText`, `recordLocalFailure`, learned cooldowns (`saveCooldowns`/`loadCooldowns`), `groupId`. §12. |
+| `lib/gateway/rating.js` | `Ratings` (state), `score`, `setRater`/`rateOf`, `setProviderRater`/`rateProvider`, `sortByRating`, `ratingCell`. §12. |
+| `lib/gateway/exploration.js` | `Exploration` (cache + worker), `probeUsable` (tier 0/1), `isTransientProbe`, `probeCells`, `probeBrief`, `deepText`. §12. |
+| `lib/gateway/probe-context.js` | `buildProbe`, `grade`, `deepBudget`, `plainQuestion`, `NEEDLES`: the synthetic compacted context of the deep probe. |
+| `lib/agent/diagnose.js` | `diagnose`, `causeOfError`, `parseTrail`: why a probe failed. |
+| `lib/failover/standby.js` | `pickNext`, `probeModel`, `isTransient`: the next model, one small pinned probe. |
+| `lib/failover/takeover.js` | `betterReason`, `stepText`: when a probed model deserves to take over a running task. |
+| `lib/gateway/model-status.js` | `modelStatusTable`: rows of `/model health`. |
+| `lib/gateway/key-models.js` | `loadKeyData`, `parseKeyScope`, `modelsOfKeys`: `/model key:ID,...` restriction. |
+| `lib/agent/delegates.js` | `Delegates`, `KINDS`, `discoverGateway`, `DELEGATE_NOTES`: which weaker sub-agent model did well for which job kind (`delegates.json`). |
 
 ### Gateway and network
 
 | File | Exports / role |
 |---|---|
-| `lib/freellm.js` | `Gateway` (§11), `keyCells`, `FREELLM_URL`. |
-| `lib/gateway-report.js` | `gatewayReport`, `reportText`: `/gateway status`. |
-| `lib/proxy-probe.js` | `proxySettings`, `setProxyEnabled`, `proxied`, `measure`, `exitIp`, `newExit` (Tor `NEWNYM`), `PROBE_URL`, `EXIT_IP_URL`. |
-| `lib/ip-check.js` | `externalIp`, `parseIp`, `isPublicIp`, `IP_HOSTS`. |
-| `lib/ip-fix.js` | `ipCandidates`, `routedKeys`, `routedAll`, `setKeyProxy`, `clearCooldowns`, `ipProxyTargets`, `ipLimitedPlatforms`, `ANON_PROXY`. §14. |
-| `lib/usage-baseline.js` | `baseline`, `baselineText`, `errorClass`: the numbers of usage.jsonl (turns, failure runs, per platform); run by `usage-baseline.js`. |
-| `lib/harness-error.js` | `isHarnessError`: an error of our own code, not rated against a model, classed apart by the baseline. |
-| `lib/cdp-token.js` | `dashboardTokenFromBrowser`: reads the dashboard session token over Chrome DevTools Protocol. |
-| `lib/bridge-process.js` | `startBridge`, `pickModel`: `--provider bridge`. |
-| `lib/net-activity.js` | `NetActivity`: in-flight HTTP requests with phases (feeds the net pane). |
-| `lib/resources.js` | `ownSockets`, `processInfo`, `PORT_NAMES`: this process's sockets via `ss`/procfs. |
+| `lib/gateway/freellm.js` | `Gateway` (§11), `keyCells`, `FREELLM_URL`. |
+| `lib/gateway/gateway-report.js` | `gatewayReport`, `reportText`: `/gateway status`. |
+| `lib/gateway/proxy-probe.js` | `proxySettings`, `setProxyEnabled`, `proxied`, `measure`, `exitIp`, `newExit` (Tor `NEWNYM`), `PROBE_URL`, `EXIT_IP_URL`. |
+| `lib/gateway/ip-check.js` | `externalIp`, `parseIp`, `isPublicIp`, `IP_HOSTS`. |
+| `lib/gateway/ip-fix.js` | `ipCandidates`, `routedKeys`, `routedAll`, `setKeyProxy`, `clearCooldowns`, `ipProxyTargets`, `ipLimitedPlatforms`, `ANON_PROXY`. §14. |
+| `lib/session/usage-baseline.js` | `baseline`, `baselineText`, `errorClass`: the numbers of usage.jsonl (turns, failure runs, per platform); run by `usage-baseline.js`. |
+| `lib/agent/harness-error.js` | `isHarnessError`: an error of our own code, not rated against a model, classed apart by the baseline. |
+| `lib/gateway/cdp-token.js` | `dashboardTokenFromBrowser`: reads the dashboard session token over Chrome DevTools Protocol. |
+| `lib/gateway/bridge-process.js` | `startBridge`, `pickModel`: `--provider bridge`. |
+| `lib/tui/net-activity.js` | `NetActivity`: in-flight HTTP requests with phases (feeds the net pane). |
+| `lib/project/resources.js` | `ownSockets`, `processInfo`, `PORT_NAMES`: this process's sockets: lws connections from `LWSContext.sockets()` (local, peer, protocol, buffered bytes) joined by local+peer address with `ss` for the kernel counters, unix sockets and state; `joinLws`. |
 
 ### Terminal UI
 
 | File | Exports / role |
 |---|---|
-| `lib/tui.js` | `Tui`: layout, history with kinds, panels, split pane, status/input rows. §15. |
-| `lib/chat-repl.js` | `ChatREPL extends REPL`: line editor, queue, dialogs (`choose`, `confirm`, `ask`), pager host, shortcut keys. §15. |
-| `lib/pager.js` | `Pager`: full-screen scrolling view, optionally a selectable list with column filters. |
+| `lib/tui/tui.js` | `Tui`: layout, history with kinds, panels, split pane, status/input rows. §15. |
+| `lib/tui/chat-repl.js` | `ChatREPL extends REPL`: line editor, queue, dialogs (`choose`, `confirm`, `ask`), pager host, shortcut keys. §15. |
+| `lib/tui/pager.js` | `Pager`: full-screen scrolling view, optionally a selectable list with column filters. |
 | `lib/palette.js` | Every colour of the TUI as a `#rrggbb` string (`STOPS`, `ACCENT`, `REPLY`, `TOOL_COLORS`, the raw-content colours, ...); `look.js` and `rawcolor.js` take their colours from here. |
 | `lib/look.js` | `note`, `card`, `banner`, `quotaCell`, `pctCell`, `toolLine`, `toolResult`, `highlight`, ...; `panel`, `meter`, `gradientRule`, `sideBySide`, `shortPath` are thin wrappers over `terminal/widgets` that pass the palette. |
-| `lib/context-view.js` | `/context` and `/log` helpers: `messageText`, `messageSelection`, `summarizeMessages`, `parseContextArgs`. |
-| `lib/key-events.js` | `reportKeys`: a key that went unhealthy or healthy again, from any look at the key list (availability load, `/gateway keys`), said once. |
-| `lib/hop-line.js` | `hopLine`: the one transcript line of an automatic model switch (§10). |
-| `lib/ip-pane.js` | `ipGroups`, `ipChangeParts`, `ipChangePanel`: the old/new exit address pane with the models that could work again (§14). |
+| `lib/tui/context-view.js` | `/context` and `/log` helpers: `messageText`, `messageSelection`, `summarizeMessages`, `parseContextArgs`. |
+| `lib/gateway/key-events.js` | `reportKeys`: a key that went unhealthy or healthy again, from any look at the key list (availability load, `/gateway keys`), said once. |
+| `lib/failover/hop-line.js` | `hopLine`: the one transcript line of an automatic model switch (§10). |
+| `lib/tui/ip-pane.js` | `ipGroups`, `ipChangeParts`, `ipChangePanel`: the old/new exit address pane with the models that could work again (§14). |
 | `lib/ansi.js` | `piped` (stdout is not a tty), `red`, `yellow`, ... |
-| `lib/usage-stats.js` | `UsageStats` (session ledger), `fitTable`, `formatTable`, `fmtNum`, `fmtMs`, `routeLine`, `routeName`, `formatMeta`. |
-| `lib/net-pane.js` | `netPaneLines`, `hopsOf`, `kindOf`, `TYPES`, `annotateRates`: the `/split net` pane. |
+| `lib/session/usage-stats.js` | `UsageStats` (session ledger), `fitTable`, `formatTable`, `fmtNum`, `fmtMs`, `routeLine`, `routeName`, `formatMeta`. |
+| `lib/clients/pricing.js` | `PRICES`, `priceOf`, `estimateCost`, `fmtUsd` (cost estimate for endpoints that report none). |
+| `lib/tui/net-pane.js` | `netPaneLines`, `hopsOf`, `kindOf`, `TYPES`, `annotateRates`: the `/split net` pane. |
 | `lib/events.js` | `emit`, `setSink`, `setNamer`, `eventLine`, `eventsText`, `recent`: the background event channel. |
-| `lib/markdown.js` | `MarkdownStream`, `highlight`, `inline`: markdown for the terminal, one line at a time. |
-| `lib/rawcolor.js` | colouring of the raw content the verbose view shows. |
-| `lib/quips.js`, `lib/session-name.js` | spinner words, funny session names. |
+| `lib/tui/markdown.js` | `MarkdownStream`, `highlight`, `inline`: markdown for the terminal, one line at a time. |
+| `lib/tui/rawcolor.js` | colouring of the raw content the verbose view shows. |
+| `lib/tui/quips.js`, `lib/session/session-name.js` | spinner words, funny session names. |
 
 ### Files, sessions, config
 
 | File | Role |
 |---|---|
-| `lib/session-cache.js` | `cacheDir`, `sessionKey`, `sessionDir`, `sessionFile`, `loadSessionState`/`saveSessionState`, `debugLogPath`. |
-| `lib/session-store.js` | `SessionStore`: `session.json` (messages, baseline, queue). |
-| `lib/session-log.js` | `SessionLog`: plain-text transcript. |
+| `lib/session/session-cache.js` | `cacheDir`, `sessionKey`, `sessionDir`, `sessionFile`, `loadSessionState`/`saveSessionState`, `debugLogPath`. |
+| `lib/session/session-store.js` | `SessionStore`: `session.json` (messages, baseline, queue). |
+| `lib/session/session-log.js` | `SessionLog`: plain-text transcript. |
 | `lib/config.js` | `SETTINGS`, `globalSettings`, `setSetting`, `loadEnvFile`, `userSystemPrompt`, `writeConfigFile` (atomic write). |
-| `lib/persist.js` | `appendUsage`, `readUsage`, `saveQuota`, `loadQuota`, `flushPersist`, `trimLogs`. |
-| `lib/file-refs.js`, `lib/file-blocks.js`, `lib/file-exchange.js`, `lib/sent-files.js` | File names/globs in a prompt are attached; `File: path` blocks in a reply are written; diffs of what was exchanged. |
-| `lib/project-brief.js`, `lib/reference-files.js`, `lib/binding-context.js`, `lib/imports.js` | Project scan, reference docs for QuickJS projects. |
-| `lib/skills.js` | `/skill`: instruction files loaded into the conversation. |
+| `lib/session/persist.js` | `appendUsage`, `readUsage`, `saveQuota`, `loadQuota`, `flushPersist`, `trimLogs`. |
+| `lib/project/file-refs.js`, `lib/project/file-blocks.js`, `lib/project/file-exchange.js`, `lib/project/sent-files.js` | File names/globs in a prompt are attached; `File: path` blocks in a reply are written; diffs of what was exchanged. |
+| `lib/project/project-brief.js`, `lib/project/reference-files.js`, `lib/project/binding-context.js`, `lib/project/imports.js` | Project scan, reference docs for QuickJS projects. |
+| `lib/agent/skills.js` | `/skill`: instruction files loaded into the conversation. |
 | `lib/match.js`, `lib/paths.js` | Glob matching, `~` expansion. |
 | `lib/run-command.js` | `runCommand`. |
-| `lib/control-socket.js`, `lib/peer.js` | §17. |
+| `lib/agent/control-socket.js`, `lib/agent/peer.js` | §17. |
 
 ## 5. `repl.js` anatomy
 
@@ -324,7 +348,7 @@ user line ─► ChatREPL.handleCmd ─► (busy? queue / immediate command / st
 1. Slash commands are matched by prefix in a long `if` chain (`/model`,
    `/gateway`, `/split`, ...). They print and `return`.
 2. `!cmd` runs a shell command and feeds the output to the model as a tool result.
-3. A plain prompt: `attachFiles` (file names/globs → file blocks via `lib/file-refs.js`),
+3. A plain prompt: `attachFiles` (file names/globs → file blocks via `lib/project/file-refs.js`),
    optional binding context, plan-mode and "for_each" hints, then
    `messages.push({role:'user', content, request})` and **`runToolLoop`**.
 4. After the loop: `applyFileBlocks(reply)` (writes `File: path` blocks),
@@ -389,6 +413,17 @@ as returned); Ollama has a real `tool` role (`tool_name`, string content, `argum
 `tool_calls[].function.arguments` (a JSON string) and `tool_call_id`. Tool calls arrive whole, never token by
 token, so `onToken` fires for text only. Not covered: multimodal parts (images, audio, PDFs).
 
+**Cost estimate (`lib/clients/pricing.js`).** Endpoints that report no cost (Cerebras sends only
+rate-limit headers) get an estimate: a static table `PRICES[provider][model] = [input, output]`
+in USD per million tokens, applied to the reply's `usage.prompt`/`usage.completion`. Rules:
+the key is `--provider`'s name (`opts.label`, e.g. `cerebras`), not the host; a cost the
+endpoint reports itself (`usage.cost`) always wins; the estimate lives in `meta.costEst`
+and is shown with a `~` (`/last`, `/usage`), never mixed silently with reported costs;
+an unlisted model has no estimate (nothing is guessed); cached tokens are billed as normal
+prompt tokens (the table has no cache rate). The Cerebras rows come from its public
+`https://api.cerebras.ai/public/v1/models` (no key; `pricing.prompt`/`pricing.completion`
+per token), read 2026-11-26; refresh the table from that URL when a price looks stale.
+
 Clients for side work are separate instances pinned to one model:
 `makeClient(model)` (standby probes), `makeExploreClient(id)` (exploration, headers
 `<session>-explore`), both wrapped by `watchNet(c, label)` so the net pane
@@ -396,19 +431,19 @@ colours their connections.
 
 ## 9. Tools the model can call
 
-`lib/tool-requests.js` `TOOLS`: `list_directory`, `read_file`, `grep`,
+`lib/agent/tool-requests.js` `TOOLS`: `list_directory`, `read_file`, `grep`,
 `insert_above`, `edit_file`, `write_file`, `for_each`, `run_command`,
 `ask_user`, `restart_harness`, `spawn_agent`. `executeTool(name, args, ctx)`
 runs them; file writes go through the journal (`/undo`). Which tools exist in a
 turn: `runToolLoop` filters by `forEach`/`opts.omitTools`/`toolAllowed(mode, name)`.
-`lib/modes.js`: `plan` read-only, `auto` free, `manual` asks for every write and
+`lib/agent/modes.js`: `plan` read-only, `auto` free, `manual` asks for every write and
 command, `edits` (default) free writes, asked commands. Changes to the
 harness's own files always ask (`approveSelf`, `--self-edit` to waive). You
 can now also choose "Yes, whole session" to remember your preference for the
 duration of the session.
 
 `spawn_agent` → `spawnAgent` (`repl.js`): isolated conversation, either another
-ollama-repl instance found by `lib/peer.js` (`findPeers`, `askPeer`) or the same
+ollama-repl instance found by `lib/agent/peer.js` (`findPeers`, `askPeer`) or the same
 process with another model; chosen by `Delegates.rank` and recorded
 (`/delegate good|bad`).
 
@@ -462,7 +497,7 @@ ends self-set skips when availability shows recovery) and are saved over `/resta
 
 ## 11. The gateway subsystem
 
-`lib/freellm.js` `Gateway` wraps an `OpenAIClient` pointed at a freellmapi.
+`lib/gateway/freellm.js` `Gateway` wraps an `OpenAIClient` pointed at a freellmapi.
 Two APIs:
 
 - **Public** (`/v1/...`, the client's key): `/v1/usage` (month ledger, `byPlatform`,
@@ -476,7 +511,7 @@ Two APIs:
 
 Session token: `Gateway.login()` tries `FREELLMAPI_DASHBOARD_TOKEN`, then
 `FREELLMAPI_EMAIL`/`PASSWORD` (`POST /api/auth/login`), then the token of a
-logged-in dashboard tab over CDP (`lib/cdp-token.js`). `gateway.dashboard` is
+logged-in dashboard tab over CDP (`lib/gateway/cdp-token.js`). `gateway.dashboard` is
 true afterwards; `hasLimits` says the limit APIs answer; `isBridge` marks a chat-bridge.
 
 `Gateway.refresh(force)` (throttled by `REFRESH_MS`=3 s) fills `state`
@@ -496,7 +531,7 @@ helpers (`modelInfo`, `ratingInputs`).
 
 Three data sources combine into "which model next":
 
-### Availability (`lib/availability.js`, `loadAvailability(gateway)`)
+### Availability (`lib/gateway/availability.js`, `loadAvailability(gateway)`)
 
 Joins `/v1/models`, `/api/models`, the rate-limit and token-usage tables, the
 penalty inspector and `/api/keys` into `av.byModel: Map<id, entry>` with
@@ -521,7 +556,7 @@ state (proxy, cooldowns): it waits for the running load, then runs its own; (2) 
 is memoised per display name; (3) the IP-error regex runs once per provider row, not per
 cooldown of each key. `lib/lag.js` (section 2) shows what is left.
 
-### Rating (`lib/rating.js`)
+### Rating (`lib/gateway/rating.js`)
 
 `score(rec, inputs)` → 0..100: intelligence (gateway score or name tier, up to
 55), context window (+4..−4), learned adjustment (decays, half-life 7 days,
@@ -535,7 +570,7 @@ now (limited −40, cooling −10, quota nearly used −8). Limit-type failures
 `rateOf`. **Perf rule**: `modelInfo(id)` uses an indexed `WeakMap` (`infoIndex`);
 never scan the budget rows per call (that cost 27 s once).
 
-### Exploration (`lib/exploration.js`)
+### Exploration (`lib/gateway/exploration.js`)
 
 `Exploration.run(ids, makeClient, {concurrency=2, tools, deep, force, diagnose,
 platformsOf, priority, onEvent, onResult, onDone})`: background worker lanes on the main loop.
@@ -546,13 +581,13 @@ in this run) is skipped, not cached (`skipped` event and count).
 - **Tier 0** (`probeUsable`): one tiny request with a `ping` tool (does it answer,
   call tools, how fast). **Tier 1** (`probeDeep`, only for `deep(id) > 0`, i.e. the
   30 best rated, `deepFor` in `main`): a fixed synthetic compacted conversation
-  (`lib/probe-context.js` `buildProbe`: system prompt, summary with filler, harness
+  (`lib/gateway/probe-context.js` `buildProbe`: system prompt, summary with filler, harness
   tool schemas, three "needles" at 10/50/90 % depth) sized to a quarter of the
   model's window (`deepBudget`, 1.5k–12k tokens); it must report the facts in
   one `report_findings` call (`grade`). Budget 1500 reply tokens, one retry with 3000 when
   the reply was cut off at the limit after all facts were recalled. Result in `entry.deep`.
 - **Failures are diagnosed in the worker** (`opts.diagnose` = `diagnoseModel`,
-  `lib/diagnose.js`): error text + the gateway's state for the model, provider
+  `lib/agent/diagnose.js`): error text + the gateway's state for the model, provider
   and keys; a "flaky" verdict (second try answers) re-runs the probe. Stored:
   `diagnosis {cause, detail, transient, retryInMs, steps}`, `retryAt`.
   `isTransientProbe(e)` (busy provider) → no rating penalty, retry in 10 min;
@@ -569,23 +604,23 @@ fills in), `/model health`, `/model explore PATTERN` (sweep), `/model sweep`.
 ### Scopes
 
 `keyScope` (`/model key:ID,...`, restricts to models a key reaches,
-`lib/key-models.js`) and `modelScope` (`/model a,b,c`) combine in
+`lib/gateway/key-models.js`) and `modelScope` (`/model a,b,c`) combine in
 `inKeyScope(id)`; `pickNext(..., {allowed: inKeyScope})`, the likely-routes list,
 standby and takeover honour it. `inKeysOnly` (key scope alone) is used by the
 sweep so a sweep can find models outside the list.
 
 ## 13. Standby, takeover, handoff, compaction
 
-- **Standby** (`--standby`, `lib/standby.js`, `refreshStandby`/`standbyHook`): the
+- **Standby** (`--standby`, `lib/failover/standby.js`, `refreshStandby`/`standbyHook`): the
   model the gateway would pick next (by rating), pinned and probed so it is warm;
   `/standby`. Used by failover step 5 and as a sub-agent model.
-- **Takeover** (`considerTakeover`, `lib/takeover.js`): when `explored()` finds a
+- **Takeover** (`considerTakeover`, `lib/failover/takeover.js`): when `explored()` finds a
   tool-capable model that `betterReason` calls better (stronger tier, or
   ≥2× faster) *while a request runs*, the running model pauses at its next step
   (`takeoverHook.hold`), the candidate gets a compacted handoff, says what it
   would do (`stepText`), the user is asked (`repl.choose`), then the model is
   switched. `--no-takeover` disables; declined models are not proposed for 30 min.
-- **Handoff / compaction** (`lib/handoff.js` `buildHandoff`): base messages stay,
+- **Handoff / compaction** (`lib/failover/handoff.js` `buildHandoff`): base messages stay,
   last N turns (`--handoff-turns`) verbatim with big tool results clipped, older
   turns summarised by a *local* Ollama model (never the exhausted site; a plain
   `digest` if it is unreachable). `compactHook` runs it at `--compact-at` % of the
@@ -595,11 +630,11 @@ sweep so a sweep can find models outside the list.
 
 Why: keyless providers and some keyed ones limit per IP address.
 
-- `lib/proxy-probe.js`: reads/sets the gateway's upstream proxy, measures its
+- `lib/gateway/proxy-probe.js`: reads/sets the gateway's upstream proxy, measures its
   overhead (`measure`), asks the exit address (`exitIp`), and `newExit` opens the
   Tor control port itself (`AUTHENTICATE`, `SIGNAL NEWNYM`, `QUIT`; no script).
-- `lib/ip-check.js` `externalIp`: direct or via SOCKS, several "what is my IP" hosts.
-- `lib/ip-fix.js`: `ipCandidates` (keyless keys with limited models),
+- `lib/gateway/ip-check.js` `externalIp`: direct or via SOCKS, several "what is my IP" hosts.
+- `lib/gateway/ip-fix.js`: `ipCandidates` (keyless keys with limited models),
   `ipProxyTargets` (keyless keys, and the keys of a provider with several keys only while it is IP-limited), `ipProxyReleases` (those keys back to direct),
   `setKeyProxy`, `clearCooldowns`.
 - `main()`: `/proxy [on|off|exit|keyless [apply|clear|fix]|auto]`; `fixKeyless`
@@ -619,7 +654,7 @@ Why: keyless providers and some keyed ones limit per IP address.
 
 ## 15. The terminal UI
 
-### `lib/tui.js` `Tui`
+### `lib/tui/tui.js` `Tui`
 
 Rows: transcript scroll region on top; a rule with the activity (spinner);
 input rows (grow with text); status rows (3). Everything printed with
@@ -638,9 +673,15 @@ input rows (grow with text); status rows (3). Everything printed with
   `/split [diff|git|status|net|off|next|prev]`; keys in `ChatREPL`:
   F2/Shift-F2, Alt-1..4, Alt-0, Alt-\\, Ctrl-X d/g/s/n/o/Tab (`SPLIT_CHORD`).
   `tui.width` excludes the pane; use `panelInner()` for table widths.
-  `status` and `net` read the process's sockets with `ss` (`ownSockets`, a shell pipeline
+  `status` and `net` read the process's sockets (`ownSockets`): lws connections come from
+  `LWSContext.sockets()` (rule of 2026-11-26: the harness has no reference to the contexts its
+  clients create, so the static is the way in), and `ss` stays for what lws cannot know (bytes
+  sent/received, rtt, kernel state, queues, unix sockets). `ss` entries are joined to lws
+  sockets by the local+peer pair and gain an `lws` field `{ id, protocol, buffered }`; a
+  connected lws socket `ss` did not list (timeout) is added as an `ESTAB` entry with zero
+  counters; an `lws.so` without `LWSContext.sockets` leaves the plain `ss` result. `ss` is a shell pipeline
   per poll, 80 ms of kernel time on this host, much more on a host with thousands of
-  sockets). Polling rule (`pollDelay`, `lib/resources.js`, 2026-11-25): 1 s while a request
+  sockets). Polling rule (`pollDelay`, `lib/project/resources.js`, 2026-11-25): 1 s while a request
   is in flight (the panes show live traffic), 3 s while idle, and never sooner than 5 times
   the duration of the last poll, so `ss` takes at most about a fifth of one core however
   slow it is. Rates are computed from the time between polls, so the interval does not
@@ -648,7 +689,7 @@ input rows (grow with text); status rows (3). Everything printed with
 - Drawing: `drawRule`, `drawStatus`, `drawInput`/`drawEditor`, `ensureInputRows`,
   `suspend()`/`resume()` around the pager (alternate screen).
 
-### `lib/chat-repl.js` `ChatREPL extends REPL`
+### `lib/tui/chat-repl.js` `ChatREPL extends REPL`
 
 - `handleCmd(expr, from)` (submitted line): queueing while busy (`#queue`,
   `restoreQueue`, `dropQueued`), steering (`Ctrl-X Ctrl-S` → `sendNow`, stop words
@@ -673,7 +714,7 @@ input rows (grow with text); status rows (3). Everything printed with
 - `lib/look.js`: palette (`STOPS`, `ACCENT`, `WARN`), `note(text, kind)`,
   `card(emoji, title, items, colour)` (title + indented bullets),
   `panel(title, text, cols, {max, more, border})`, `meter`, `quotaCell`, `pctCell`.
-- `lib/usage-stats.js` **`fitTable(width, make, flex, drop)`**: `make(bar)` returns
+- `lib/session/usage-stats.js` **`fitTable(width, make, flex, drop)`**: `make(bar)` returns
   rows with meters of `bar` cells; meters shrink (6, 3, 0), flexible columns
   (indexes in `flex`) are cut with an ellipsis (ANSI-aware `cut`), columns in
   `drop` disappear in order. Rule: **one entry, one line, at any width**.
@@ -685,7 +726,7 @@ input rows (grow with text); status rows (3). Everything printed with
 ### Verbose and events
 
 `ui.verbose` (Ctrl-O): full tool results, every request/response with headers,
-reasoning, raw content (`lib/rawcolor.js`). Background events
+reasoning, raw content (`lib/tui/rawcolor.js`). Background events
 (`lib/events.js`: `emit(kind, text, level)`, kinds `explore gateway quota key
 failover standby takeover rating proxy`; levels good/info/warn/bad) go to a ring
 buffer (1000), `/events`, and — through `setSink` — to the transcript tagged
@@ -722,14 +763,14 @@ the transcript; do not open a panel that captures stdout in an instant command.
 
 ## 17. Control socket, peers, delegation
 
-`lib/control-socket.js` `ControlSocket`: a Unix socket `$XDG_RUNTIME_DIR/ollama-repl/o<pid>.s`
+`lib/agent/control-socket.js` `ControlSocket`: a Unix socket `$XDG_RUNTIME_DIR/ollama-repl/o<pid>.s`
 plus `<pid>.json` (name, model, root). Client → server: lines of input (Ctrl-X
 Ctrl-S prefix steers). Server → client: JSON lines `hello accepted output
 waiting ready info activity`. `activity` phases: `request reasoning answer
 toolcall toolresult idle`. Started by `--listen` or `/remote-control`
 (`startControl` in `main`). `control.event/update/activity` calls are scattered
 through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
-`ctl.js` is the client; `lib/peer.js` lets one session hand a task to another
+`ctl.js` is the client; `lib/agent/peer.js` lets one session hand a task to another
 (`findPeers` on the same root, `askPeer`), used by `spawnAgent` and `/delegate`.
 `--worker` makes a session a delegate target.
 
@@ -741,8 +782,8 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
 | `~/.config/ollama-repl/env` | user | `KEY=VALUE` environment (`FREELLMAPI_*`) |
 | `~/.config/ollama-repl/system.md` | user | replaces the built-in system prompt |
 | `~/.config/ollama-repl/delegates.json` | `delegates.js` | sub-agent model track record |
-| `~/.cache/ollama-repl/sessions/<key>/session.json` | `SessionStore` | messages, baseline, queue |
-| `.../session.log`, `history`, `state.json`, `diffs/` | `SessionLog`, `ChatREPL`, `session-cache.js`, `FileExchange` | transcript, input history, `/model` pattern and picked model, file diffs |
+| `~/.cache/ollama-repl/sessions/<key>/session.json` | `SessionStore` | `version`, `updatedAt`, messages, baseline, queue; written via `.tmp` + rename, an unreadable one is kept as `session.json.corrupt` |
+| `.../session.log`, `history`, `state.json`, `diffs/` | `SessionLog`, `ChatREPL`, `session-cache.js`, `FileExchange` | transcript, input history, name/model/project/title/message count, saved `settings` and `skippedModels`, the `/model` pattern, file diffs (see "Sessions" below) |
 | `~/.cache/ollama-repl/exploration.json` | `Exploration` | per-model probe results (`ORIGIN\|MODEL`) |
 | `~/.cache/ollama-repl/ratings.json` | `Ratings` | per-model rating state |
 | `~/.cache/ollama-repl/usage.jsonl` | `appendUsage` | one line per request (trimmed to 90 days); the other clients (explore, standby, sub-agent) log theirs with `label`, the main client has none, and the baseline counts turns from the unlabelled rows only; `attempt` = n-th automatic skip retry of its round (0, the first try, is not written); `proxied` = upstream went through the gateway's socks proxy (true/false, absent if unknown), the baseline lists a proxied platform as its own row (`kilo +socks`) |
@@ -752,6 +793,62 @@ through `chatRound*`, `runToolLoop`, failover (`providerHook.announce`).
 | `~/.cache/ollama-repl/logs/` | `session-cache.js` `debugLogPath` | `-x` debug logs |
 | `$XDG_RUNTIME_DIR/ollama-repl/` | `ControlSocket` | sockets and info |
 | `/tmp/ollama-repl-restart-<pid>.json`, `$TMPDIR/ollama-repl-resume-*.json(.bak)` | restart (§19) | restart request, resumed state |
+
+### Sessions (decided 2026-11-26)
+
+- **Key.** `--name NAME` is the key. Without it the key is `BASENAME-HASH`: the project directory's name and a
+  hash of its real path (`lib/session/session-cache.js` `sessionKey`). The model is **not** part of the key any more, so
+  switching model keeps the conversation. A directory of the old form `MODEL-HASH` for the same project is adopted
+  (renamed, the newest one) the first time. Two live sessions on one key share and clobber one `session.json`:
+  give each its own `--name`.
+- **`session.json`** `{ version: 1, updatedAt, messages, baseMessageCount, queue }`, written to `session.json.tmp` and
+  renamed, so a crash leaves the old file whole. A file that cannot be read is renamed to `session.json.corrupt` (never
+  overwritten, a note says so) and the session starts cold; a file without `version` is version 0 (same fields).
+- **`state.json`** is the session's metadata and settings, small, read without opening the conversation:
+  `{ version, updatedAt, name, provider, model, modelPattern, root, startRoot, roots, title, messages, settings, skippedModels }`.
+  `title` is the first prompt (60 characters), `messages` the count. `settings` holds `mode`, `stream`, `think`,
+  `temperature`, `numCtx`, `maxRounds`, `scan`, `verbose`, `fallbackModel`, `root`; it is written whenever one of them
+  changed (after every turn and every command). `allowPaid`, the `--no-*` switches and the cdp endpoint are **not**
+  saved: a paid or reduced run is decided at every start. `skippedModels` keeps entries until they expire.
+- **Working directory (decided 2026-11-26).** `state.json` also keeps `startRoot` (the real path of the directory the session
+  was first started in, never changed afterwards), `root` (the directory it is in now, the last one) and `roots`, the
+  chain of directories: `[{ at, root, how }]` with `how` = `start` (the first entry), `cd` (a `/cd`), `--root` (a later
+  start with `--root` that named another directory than the last one) or `fallback` (the last directory was gone); a directory equal to the previous entry is not
+  added, and the chain keeps the first entry and the last 99. `/cd` appends to it at once and writes a `CD: OLD -> NEW`
+  line to `session.log`. A start without `--root` goes on in `root`; when that directory is gone it falls back to the
+  newest earlier entry that exists, then `startRoot`, then the current directory, and says so. All paths are absolute and
+  real (symlinks resolved). The browser shows `started in` and `moves` when the session has been elsewhere.
+- **Precedence** at start: command line, then the session's saved `settings`, then `settings.json`, then the built-in
+  default. `--resume FILE` (restart) still overrides all of them, as before. The saved `name` is reused unless
+  `--name` is given or another live session has it.
+- **Listing and cleanup.** `/sessions` (and `--sessions` on the command line) list the saved sessions, newest first:
+  key, age, messages, model, project, title. `/sessions prune [DAYS]` / `--prune-sessions DAYS` delete the ones not
+  touched for DAYS (default 30) except live ones. Nothing is deleted without being asked.
+
+### Session browser (decided 2026-11-26)
+
+`/sessions` in the TUI opens a full-screen browser (`lib/tui/session-browser.js`, hosted by `ChatREPL#openSessionBrowser`
+like the pager: alternate screen, keys go to it first, the mouse wheel is up/down). Without a TUI (piped, `--sessions`)
+and with `/sessions list` the same sessions are printed as the text table; `/sessions prune [DAYS]` is unchanged.
+
+- **Layout.** A header line, the **list** on top (about 45% of the rows, at least 3), a rule, the **details** of the
+  highlighted session below (the rest, at least 6), a key line. The list scrolls so the highlighted row is always
+  visible; the highlighted row has a background colour over the full width. Columns: marker (`*` running here, `●`
+  running elsewhere), key, age, messages, model, project, title; each is cut to its width, the title takes what is left.
+- **Details** (for the highlighted row): key and name, state (this session, running in pid N, or saved), project,
+  provider/model, message count and size of `session.json`, last update (absolute and age), the saved settings, the
+  title, and the last prompt and the last reply (two lines each; read from `session.json` when the row is highlighted,
+  cached per key, nothing is read for a file over 8 MB).
+- **Keys.** Up/Down (j/k), PgUp/PgDn, Home/End move; **Enter or `l` loads**; **`i` inspects**; `q`, Esc Esc, Ctrl-C close.
+  Inspect opens the pager with the whole conversation (a header per message, long messages cut at 2000 characters,
+  tool calls as one line) and returns to the browser on `q`.
+- **Load** switches this process to that session: it restarts like `/restart` but with `--name KEY` (the key is the
+  session's directory name, so the saved conversation and settings come back), no `--resume`, no harness check (the code
+  did not change). Its `--model` is dropped when the saved provider is the one running now (the session's own model comes
+  back), else kept. The conversation of the session being left is already saved (after every turn). Refused with a
+  message in the key line: the session that is open now, and one that another process is running (use
+  `ollama-repl-ctl -s NAME`). The new process runs under the key as its name.
+- Not in this version: filtering by typing, deleting from the list (use `/sessions prune`), renaming.
 
 `XDG_CACHE_HOME`/`XDG_CONFIG_HOME` override the bases (tests set them to a temp dir).
 All JSON writes use `writeConfigFile` (write + rename). Persisted data survives
@@ -767,7 +864,7 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
 - Edits to the harness's own files ask the user every time (`touchesHarness`,
   `approveSelf`, `--self-edit`); `SELF_NOTES` tells the model.
 - `prepareRestart(opts, messages, base, overrides)`: runs the **check** first —
-  from a source tree `sh smoke.sh repl.js` (≈13 s: imports of every `lib/*.js`,
+  from a source tree `sh smoke.sh repl.js` (≈13 s: imports of every `lib/**/*.js`,
   a few tests, a pty start with 7 commands; timeout 180 s), else `qjsm repl.js --help`.
   A failing check aborts and leaves the session unchanged. Then it writes the
   state (messages, model, mode, skips, queue, session id) to a temp file and
@@ -789,7 +886,7 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   it skips itself otherwise.
 - `smoke.sh [REPL.js]`: the restart gate (§19); `SMOKE_ARGS`, `SMOKE_WAIT`.
 - Syntax and names: `node --check file.js` is a fast pre-check (the code is plain ES modules);
-  `node --expose-internals check-names.cjs repl.js lib/*.js` finds undeclared and doubly declared names.
+  `node --expose-internals check-names.cjs repl.js $(find lib -name '*.js')` finds undeclared and doubly declared names.
 - Health numbers: `qjsm usage-baseline.js --days 1` (before/after a change to failover or exploration).
 - Add a test per new `lib/` module, named after it; keep tests independent of the
   network and of `~/.cache` (set `XDG_CACHE_HOME` to a temp dir *before* importing
@@ -851,7 +948,7 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   `isTransientProbe` and `diagnose` decide; never treat a 429 as "model bad".
 - **Exploration entries and needles.** A passed entry carries `v` 3 (tier 0 as it is now); an older pass is `verified` but not
   `current`, so the run asks it again from scratch (`Exploration#current`). The tier 1 probe takes `seed`
-  (`needlesFor(seed)`, `lib/probe-context.js`): each run varies codename, port and owner, `grade` uses the probe's own needles;
+  (`needlesFor(seed)`, `lib/gateway/probe-context.js`): each run varies codename, port and owner, `grade` uses the probe's own needles;
   without a seed the fixed `NEEDLES` stay (tests).
 - **Tor control.** `newExit` authenticates with `CTRLPASS`, else (a local Tor) with the control cookie (`torCookie`: `CTRLCOOKIE`,
   `/run/tor/control.authcookie`, `/var/lib/tor/control_auth_cookie`); `newnym` asks `GETINFO newnym-wait` and waits it out (at
@@ -875,10 +972,10 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   (`ipLiftTally`): one `proxy` event says how many limits the new address lifted, per kind (`req/min 8/10, req/day 0/20, ...`);
   the events are kept in `events.jsonl`, so the data to adjust `ipLimitedPlatforms`/`clearCooldowns` (which kinds really lift) builds up.
 - **Proxy latency.** `/proxy` shows what the proxy adds per platform: the median time to the response headers of the proxied
-  against the direct requests of the last 7 days (`proxyLatency`, `lib/usage-baseline.js`), for platforms with 3 rows of each.
+  against the direct requests of the last 7 days (`proxyLatency`, `lib/session/usage-baseline.js`), for platforms with 3 rows of each.
 - **Availability tables.** `/api/models` (the chain) and `/api/fallback/routing` change rarely and are asked once a minute
   (`SLOW_TABLES`, `lastTables`), the other five tables (usage, limits, penalties, keys with their cooldowns) every load;
-  `{ fresh: true }` asks all of them. `av.keyCounts` (platform to enabled keys) lets `spentPlatforms` (`lib/fallback-trail.js`)
+  `{ fresh: true }` asks all of them. `av.keyCounts` (platform to enabled keys) lets `spentPlatforms` (`lib/failover/fallback-trail.js`)
   say that every key of a platform ran out in the trail of an answer: the models only that platform serves are skipped
   for `TRAIL_SKIP_MS` at once.
 - **No per-item call that re-derives the whole catalog** (found 2026-11-25 in the real
@@ -901,7 +998,7 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   tool calls and recalled facts, not style.
 - **Shadowed names**: QuickJS accepts a module-level function with the same name as an import, and
   the function silently wins (`exhaustedPlatforms` in `repl.js` once made the proxy trigger of
-  `lib/ip-fix.js` inert). `check-names.cjs` parses with acorn, which rejects such a redeclaration, and
+  `lib/gateway/ip-fix.js` inert). `check-names.cjs` parses with acorn, which rejects such a redeclaration, and
   also lists undeclared names (a missing import such as `fg` only throws when the path runs); run it
   before a commit.
 - **`runCommand` must never read a pipe that a descendant may hold open** (found
@@ -913,7 +1010,7 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   blocks, whatever a leftover background process does. Output is capped (4 MB: the
   command is killed beyond that). A pipe also deadlocked past its 64 KB buffer.
 - **Restart safety**: anything the restart check imports must load without a
-  network and without `~/.cache` state; keep `lib/*.js` import-clean.
+  network and without `~/.cache` state; keep `lib/**/*.js` import-clean.
 
 ## 23. Glossary
 
@@ -927,7 +1024,7 @@ The harness can edit and restart itself (`/restart`, the `restart_harness` tool)
   model is usable again.
 - **tier**: model strength 0 (strongest, violet) … 9 (unknown, green), from the
   gateway's `intelligence` or the name (`modelStrength`).
-- **rating**: 0..100 "how good a pick is this model now" (`lib/rating.js`).
+- **rating**: 0..100 "how good a pick is this model now" (`lib/gateway/rating.js`).
 - **tier 0 / tier 1 probe**: the cheap tool-call probe / the synthetic-context probe.
 - **standby**: the warm second model.
 - **takeover**: a better model picking up a running task.

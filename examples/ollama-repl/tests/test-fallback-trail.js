@@ -1,6 +1,6 @@
 /* test-fallback-trail.js: parsing of X-Fallback-Trail and the models it marks as spent */
-import { parseTrail, spentModels, spentPlatforms, trailText } from '../lib/fallback-trail.js';
-import { formatMeta, routeLine, retryText } from '../lib/usage-stats.js';
+import { parseTrail, spentModels, spentPlatforms, trailText } from '../lib/failover/fallback-trail.js';
+import { formatMeta, routeLine, retryText } from '../lib/session/usage-stats.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-fallback-trail: ${what}`);

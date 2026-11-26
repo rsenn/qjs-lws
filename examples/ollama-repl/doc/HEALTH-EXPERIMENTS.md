@@ -79,17 +79,17 @@ Every item had a test and closed its `BUGS` entry; tests are in `tests/`.
 
 | Item | What | Where |
 |---|---|---|
-| 1.1 | `attempt` on usage rows: 0 is the first try, n the n-th automatic `/model skip` retry of the round (only the main client logs usage; the rows cannot otherwise tell a failed turn from a failed hop of the retry chain) | `repl.js` `chatRound`/`onMeta`, `lib/persist.js` `usageRow` |
-| 1.2 | `qjsm usage-baseline.js [--days N] [--origin URL] [--json]` prints the numbers of this document (turns, error classes, fallbacks vs latency, per platform, failure runs, time to next success) | `lib/usage-baseline.js` |
-| 2.1 | Tor control host from the socks URL (`torHost`; `TORHOST` still wins) for `autoExit`, `/proxy exit` and `fixKeyless` | `lib/proxy-probe.js` |
-| 2.2 | tier 1 probe budget 400 to 1500 reply tokens, one retry with 3000 when cut off at the limit after all facts were recalled | `lib/exploration.js` `probeDeep` |
-| 2.3 | a rate-limited tier 1 probe is "not tested (provider busy)" (`12k?`), never "context lost" | `repl.js`, `lib/events.js`, `lib/exploration.js` |
-| 2.4 | a failed request with no `routedVia`, or an error of our own code, is not rated; the row stays in usage.jsonl and the baseline classes it `harness exception` | `lib/harness-error.js`, `repl.js` `onMeta` |
+| 1.1 | `attempt` on usage rows: 0 is the first try, n the n-th automatic `/model skip` retry of the round (only the main client logs usage; the rows cannot otherwise tell a failed turn from a failed hop of the retry chain) | `repl.js` `chatRound`/`onMeta`, `lib/session/persist.js` `usageRow` |
+| 1.2 | `qjsm usage-baseline.js [--days N] [--origin URL] [--json]` prints the numbers of this document (turns, error classes, fallbacks vs latency, per platform, failure runs, time to next success) | `lib/session/usage-baseline.js` |
+| 2.1 | Tor control host from the socks URL (`torHost`; `TORHOST` still wins) for `autoExit`, `/proxy exit` and `fixKeyless` | `lib/gateway/proxy-probe.js` |
+| 2.2 | tier 1 probe budget 400 to 1500 reply tokens, one retry with 3000 when cut off at the limit after all facts were recalled | `lib/gateway/exploration.js` `probeDeep` |
+| 2.3 | a rate-limited tier 1 probe is "not tested (provider busy)" (`12k?`), never "context lost" | `repl.js`, `lib/events.js`, `lib/gateway/exploration.js` |
+| 2.4 | a failed request with no `routedVia`, or an error of our own code, is not rated; the row stays in usage.jsonl and the baseline classes it `harness exception` | `lib/agent/harness-error.js`, `repl.js` `onMeta` |
 | 2.5 | `test-rawcolor.js` takes its colours from `lib/palette.js` | tests |
 | 2.6 | `fg` was used and not imported in `repl.js` (the long live reasoning panel threw); `check-names.cjs` finds undeclared and doubly declared names | `repl.js`, `check-names.cjs` |
-| 3.1 | a provider that just rate-limited (transient diagnosis with `retryAt`) is not probed again in the same run: its other models are skipped, not cached (evidence: 106 electronhub models probed one by one after "resumes in 16 h") | `lib/exploration.js` `run`, option `platformsOf` |
-| 3.2 | the probe queue goes best first: served in the last 24 h (+100), then rating | `lib/exploration.js` option `priority`, `repl.js` `exploreOrder` |
-| 3.3 | rating: `reliability(ok, fail) = n/(n+10) * clamp(10 - 150 * failRate, -10, 10)` replaces the flat `((ok+1)/(n+2)-0.5)*20` (428/0 gives 9.8, 150/1 8.4, 2314/53 6.6, 7 % failures 0, 20 % -10; no data 0); the `adj` cap stays; used instead of the Wilson bound of the first plan: simpler, same order for the three cases | `lib/rating.js` |
+| 3.1 | a provider that just rate-limited (transient diagnosis with `retryAt`) is not probed again in the same run: its other models are skipped, not cached (evidence: 106 electronhub models probed one by one after "resumes in 16 h") | `lib/gateway/exploration.js` `run`, option `platformsOf` |
+| 3.2 | the probe queue goes best first: served in the last 24 h (+100), then rating | `lib/gateway/exploration.js` option `priority`, `repl.js` `exploreOrder` |
+| 3.3 | rating: `reliability(ok, fail) = n/(n+10) * clamp(10 - 150 * failRate, -10, 10)` replaces the flat `((ok+1)/(n+2)-0.5)*20` (428/0 gives 9.8, 150/1 8.4, 2314/53 6.6, 7 % failures 0, 20 % -10; no data 0); the `adj` cap stays; used instead of the Wilson bound of the first plan: simpler, same order for the three cases | `lib/gateway/rating.js` |
 | 4.1 | tier 1 rerun (12k tokens, with tools, 3 runs each, local gateway): at 400 tokens 1 run in 3 of `-30b` and of `-30b-a3b` was cut off without a tool call, at 1500 all 6 passed; the base `nemotron-3.5-lightning` was not testable (5 routes: 3 rate-limited, 2 without tool calling; one provider key rejected as invalid) | rerun |
 
 ## Before snapshot (4.2)

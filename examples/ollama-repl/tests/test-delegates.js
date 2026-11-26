@@ -1,6 +1,6 @@
 /* test-delegates.js: the delegate memory ranks by what worked, learns from runs and votes, keeps itself on disk */
-import { Delegates, discoverGateway } from '../lib/delegates.js';
-import { peerAnswer } from '../lib/peer.js';
+import { Delegates, discoverGateway } from '../lib/agent/delegates.js';
+import { peerAnswer } from '../lib/agent/peer.js';
 import { getenv } from 'std';
 import { remove } from 'os';
 

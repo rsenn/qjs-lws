@@ -1,5 +1,5 @@
 /* test-ip-fix.js: which keyless keys a new IP address could help, and which keys are routed through the proxy */
-import { ipCandidates, routedKeys, ANON_PROXY } from '../lib/ip-fix.js';
+import { ipCandidates, routedKeys, ANON_PROXY } from '../lib/gateway/ip-fix.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-ip-fix: ${what}`);
@@ -41,7 +41,7 @@ check('routedKeys finds those on the proxy', routedKeys(keys, ANON_PROXY).map(k 
 check('routedKeys by host and port, not scheme', routedKeys([{ keyless: true, maskedProxyUrl: 'socks5://127.0.0.1:9050' }], ANON_PROXY).length === 1);
 
 /* automatic routing: keyless keys and keys of IP-limited providers that have no proxy yet */
-import { ipProxyTargets, ipProxyReleases, RELEASE_AFTER_MS, ipLimitedPlatforms, routedAll, exhaustedPlatforms } from '../lib/ip-fix.js';
+import { ipProxyTargets, ipProxyReleases, RELEASE_AFTER_MS, ipLimitedPlatforms, routedAll, exhaustedPlatforms } from '../lib/gateway/ip-fix.js';
 {
   const keys2 = [
     { id: 1, platform: 'kilo', keyless: true, enabled: true },

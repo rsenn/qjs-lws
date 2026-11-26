@@ -1,5 +1,112 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/project/resources.js (ownSockets, joinLws, lwsConnections): The
+	connections come from LWSContext.sockets() (local, peer, protocol,
+	buffered bytes) and are joined by local+peer address to the ss entries,
+	which keep supplying the byte counters, rtt, kernel state, queues and
+	unix sockets; an ss entry gains an lws field, a connected lws socket ss
+	did not list is added as ESTAB. An lws.so without LWSContext.sockets
+	leaves the plain ss result. tests/test-own-sockets.js, smoke.sh,
+	doc/ARCHITECTURE.md, TODO.md follow.
+
+	* lib/clients/openai-client.js (toolFields, chat, chatStream): New. A
+	request carries tool_choice only together with tools; the last round of
+	a tool loop (toolChoice none, no tools) made Cerebras answer HTTP 400.
+	tests/test-provider-alias.js checks it.
+
+	* lib/tui/rawcolor.js (lastLines), repl.js (chatRound onReasoning):
+	New. The live reasoning panel colours only the last 6000 characters of
+	the growing text; colouring all of it on every chunk cost about 0.6 s
+	at 430 KB and blocked the loop in every chunk (lag stalls of 400 ms in
+	the reasoning phase). tests/test-rawcolor.js checks lastLines.
+
+	* BUGS: stream-dropped-in-long-reasoning.
+
+	* lib/tui/session-browser.js: New. The session browser: a scrolling list
+	with a highlighted row, the details of the highlighted session below,
+	Enter/l loads, i inspects (splitHeights, scrollOffset, columnWidths,
+	rowText, detailLines, transcriptText, SessionBrowser).
+
+	* lib/session/session-cache.js (readSession): New. A session's state and
+	conversation for the browser, read only.
+
+	* lib/tui/chat-repl.js (ChatREPL#openSessionBrowser): New.
+
+	* repl.js (/sessions, prepareSwitch, restartHook): /sessions opens the
+	browser in the TUI (/sessions list prints the table); loading restarts
+	the process with --name KEY and the saved model, without a harness
+	check or --resume. ageText moved to the browser module.
+
+	* lib/tui/pager.js (Pager#layout): setWidth() before setText(): the width
+	was undefined, so a text in the plain pager was wrapped to one character
+	per line.
+
+	* tests/test-session-browser.js: New; tests/test-session-cache.js
+	(readSession). smoke.sh runs them. doc/ARCHITECTURE.md "Session
+	browser", README.md.
+
+	* BUGS: smoke-leaves-sessions.
+
+	* lib/ (all files): lib/ is regrouped into clients/, gateway/,
+	failover/, tui/, project/, session/ and agent/, with the files shared
+	by several areas (config, paths, match, look, ansi, palette, lag,
+	events, run-command) staying in lib/. Every import, comment and doc
+	mention was rewritten by move-modules; the import graph is the same
+	before and after (265 edges).
+
+	* smoke.sh, check-names.cjs, doc/ARCHITECTURE.md, README.md, TODO.md,
+	doc/PLAN.md: lib/ files are found recursively; "Layout of lib/" is the
+	record of the layout and the rule for new files.
+
+	* lib/session-store.js (SessionStore): session.json is written to a
+	.tmp file and renamed, carries version and updatedAt, and an unreadable
+	file is renamed to session.json.corrupt (SessionStore#corrupt).
+
+	* lib/session-cache.js (sessionKey, saveSessionState, SESSION_SETTINGS,
+	pickSettings, applySettings, adoptLegacySession, listSavedSessions,
+	pruneSessions): the key is the project (directory name and path hash),
+	no longer the model; an old MODEL-HASH directory is adopted once;
+	state.json is versioned and holds the session's settings; saved
+	sessions can be listed and pruned.
+
+	* lib/session-log.js (SessionLog#reply): the reply tag names the model
+	instead of QWEN; the header comment says where the log is.
+
+	* repl.js (parseArgs, main, sessionsCommand, persistState): the options
+	the command line sets are recorded (opts.given); a plain start restores
+	the session's saved settings, name and skipped models, and persistState
+	writes them after every turn and command. New /sessions, --sessions and
+	--prune-sessions. A corrupt session.json is reported.
+
+	* tests/test-session-store.js, tests/test-session-cache.js: New.
+	smoke.sh runs them (step 1g). doc/ARCHITECTURE.md "Sessions", README.md.
+
+	* lib/pricing.js (PRICES, priceOf, estimateCost, fmtUsd): New. A price
+	table (Cerebras) for endpoints that report no cost.
+
+	* repl.js (main onMeta), lib/usage-stats.js (formatMeta, totals,
+	summary): meta.costEst is the estimate of a reply without a reported
+	cost; /last shows it and /usage sums it, both marked with a ~.
+
+	* tests/test-pricing.js: New. smoke.sh runs it (step 1f).
+
+	* lib/usage-stats.js (quotaWindows, quotaText), repl.js (/quota): New.
+	/quota shows the x-ratelimit-* limits of the newest answer per window.
+
+	* tests/test-quota.js: New. quotaText on Cerebras and OpenAI headers.
+
+	* tests/test-provider-alias.js: New. resolveProvider and the client's
+	env variable names.
+
+	* smoke.sh: runs tests/test-provider-alias.js (step 1d).
+
+	* lib/openai-client.js (PROVIDERS, resolveProvider, OpenAIClient): New.
+	Curated provider aliases and openai:NAME read NAME_API_KEY/NAME_API_URL;
+	the client takes apiUrlEnv and defaultBaseUrl.
+
+	* repl.js (parseArgs): --provider accepts the curated aliases and
+	openai:NAME; they need --model.
+
 	* lib/availability.js (noteIpChange, ipLiftTally, reportChanges): one
 	event says how many limits an address change lifted, per kind.
 

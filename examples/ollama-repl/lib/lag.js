@@ -14,7 +14,7 @@
 import { open as fopen } from 'std';
 import { setTimeout, clearTimeout } from 'os';
 import { emit } from './events.js';
-import { cacheDir } from './session-cache.js';
+import { cacheDir } from './session/session-cache.js';
 
 export const TICK_MS = 100;
 export const STALL_MS = 150;

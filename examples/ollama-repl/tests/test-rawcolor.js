@@ -1,5 +1,5 @@
 /**
- * test-rawcolor.js: lib/rawcolor.js must never change the visible text,
+ * test-rawcolor.js: lib/tui/rawcolor.js must never change the visible text,
  * only add colors. Run by smoke.sh (qjsm test-rawcolor.js), exit status 1 on
  * a failure.
  */
@@ -9,7 +9,7 @@ import { GREEN, RED, TEAL } from '../lib/palette.js';
 /* the escape of a palette color, so a palette change does not break the checks */
 const rgb = hex => [1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';');
 import { exit } from 'std';
-import { colorArgs, colorContent, colorJson, colorMeta } from '../lib/rawcolor.js';
+import { colorArgs, colorContent, colorJson, colorMeta, lastLines } from '../lib/tui/rawcolor.js';
 
 let failed = 0;
 const check = (name, ok) => {
@@ -50,6 +50,14 @@ const args = stripAnsi(colorArgs({ path: 'a.js', old_string: 'one\ntwo', n: 2 })
 check('colorArgs shows keys', args.includes('path:') && args.includes('old_string:') && args.includes('n: 2'));
 check('colorArgs shows a multi-line string as lines', args.includes('│ one') && args.includes('│ two'));
 check('colorArgs on nothing', stripAnsi(colorArgs({})) === '(no arguments)');
+
+/* the live reasoning panel colours only the tail of a growing text */
+const long = Array.from({ length: 20000 }, (_, i) => `thought ${i}: weigh "option ${i}" with 42 steps`).join('\n');
+const tail = lastLines(long);
+check('lastLines: short text whole', lastLines('a\nb', 100) === 'a\nb');
+check('lastLines: bounded', tail.length <= 6000 && tail.length > 5000);
+check('lastLines: starts at a line, ends where the text ends', long.endsWith(tail) && long[long.length - tail.length - 1] === '\n');
+check('lastLines: no newline in range cuts the characters', lastLines('x'.repeat(50), 10) === 'x'.repeat(10));
 
 console.log(failed ? `${failed} failed` : 'rawcolor ok');
 exit(failed ? 1 : 0);

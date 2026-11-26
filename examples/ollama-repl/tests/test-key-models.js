@@ -1,5 +1,5 @@
 /* test-key-models.js: the models of a selection of gateway keys */
-import { parseKeyScope, modelsOfKeys } from '../lib/key-models.js';
+import { parseKeyScope, modelsOfKeys } from '../lib/gateway/key-models.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-key-models: ${what}`);

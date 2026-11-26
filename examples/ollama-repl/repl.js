@@ -1,10 +1,10 @@
 #!/usr/bin/env qjsm
 /**
  * A Claude-Code-style REPL that talks to a local Ollama model (default:
- * qwen2.5-coder, over a kept-alive HTTP connection - lib/ollama-client.js,
+ * qwen2.5-coder, over a kept-alive HTTP connection - lib/clients/ollama-client.js,
  * built on the `httpClient` protocol adapter, lib/lws/protocols.js),
- * Google's Gemini API (lib/gemini-client.js), or any OpenAI-compatible API
- * (lib/openai-client.js, same `httpClient`-based structure as GeminiClient
+ * Google's Gemini API (lib/clients/gemini-client.js), or any OpenAI-compatible API
+ * (lib/clients/openai-client.js, same `httpClient`-based structure as GeminiClient
  * - works with OpenAI, Mistral, Together, Groq, local servers, etc.) -
  * `--provider` selects which. All three clients expose the same
  * `chat()`/`chatStream()` shape, so everything below this point is
@@ -12,16 +12,16 @@
  *
  * File/glob references typed into a prompt ("fix the bug in src/foo.js",
  * "review *.md") are detected, read, and attached to the outgoing message
- * (lib/file-refs.js); files the model sends back using the "File: path"
+ * (lib/project/file-refs.js); files the model sends back using the "File: path"
  * convention below are parsed out of its reply and written into the
- * project tree (lib/file-blocks.js), same as Claude Code applying an edit.
+ * project tree (lib/project/file-blocks.js), same as Claude Code applying an edit.
  *
  * Run (Ollama must already be running locally with the model pulled; for
  * `--provider gemini`, GEMINI_API_KEY must be exported instead, and for
  * `--provider openai`, OPENAI_API_KEY):
  *   qjsm repl.js [--provider ollama|gemini|openai|bridge] [--model NAME|list] [--host localhost] [--port 11434] [--root .]
  * Or, once installed (see CMakeLists.txt - installs to bin/ollama-repl,
- * lib/ollama-client.js's cross-tree imports rewritten to the installed
+ * lib/clients/ollama-client.js's cross-tree imports rewritten to the installed
  * `lws/*.js` module path):
  *   ollama-repl [--model ...] [...]
  *
@@ -32,7 +32,7 @@
  * suspicion (or simply unwanted).
  *
  * Three separate logs, not one - each answers a different question:
- *   - `session.log` in the session's cache dir (lib/session-log.js) - the conversation transcript
+ *   - `session.log` in the session's cache dir (lib/session/session-log.js) - the conversation transcript
  *     (prompts/replies/tool calls/files written), always on.
  *   - `DATE-TIME-NAME-PROVIDER.log` in ~/.cache/ollama-repl/logs/ (lib/logger.js's `RequestLogger`, one
  *     per client) - the raw request/response JSON each provider actually
@@ -50,73 +50,75 @@
 import { exit, getenv, getenviron, loadFile, open as fopen, popen, out as stdout, err as stderr } from 'std';
 import { clearTimeout, exec, getcwd, getpid, isatty, kill, realpath, setTimeout, signal, stat, readdir, S_IFDIR, ttyGetWinSize } from 'os';
 import { rmSync } from 'fs';
-import { OllamaClient } from './lib/ollama-client.js';
-import { GeminiClient } from './lib/gemini-client.js';
-import { OpenAIClient } from './lib/openai-client.js';
-import { Failover, failoverNote, skipNote } from './lib/failover.js';
-import { ProviderFallback, classify, isGone } from './lib/provider-fallback.js';
-import { buildHandoff, buildKnowledge, HANDOFF_MODEL } from './lib/handoff.js';
-import { buildBrief, briefSize, lastBrief } from './lib/project-brief.js';
-import { startBridge, pickModel } from './lib/bridge-process.js';
-import { extractFileRefs, formatFileBlocks, formatFileRefs, SOURCE_EXT } from './lib/file-refs.js';
-import { saveAllBlocks } from './lib/file-blocks.js';
-import { TOOLS, executeTool, resetJournal, undoJournal, writeCount } from './lib/tool-requests.js';
-import { looksLikeBindingPrompt, bindingContext } from './lib/binding-context.js';
+import { OllamaClient } from './lib/clients/ollama-client.js';
+import { GeminiClient } from './lib/clients/gemini-client.js';
+import { OpenAIClient, PROVIDERS, resolveProvider } from './lib/clients/openai-client.js';
+import { Failover, failoverNote, skipNote } from './lib/failover/failover.js';
+import { ProviderFallback, classify, isGone } from './lib/clients/provider-fallback.js';
+import { buildHandoff, buildKnowledge, HANDOFF_MODEL } from './lib/failover/handoff.js';
+import { buildBrief, briefSize, lastBrief } from './lib/project/project-brief.js';
+import { startBridge, pickModel } from './lib/gateway/bridge-process.js';
+import { extractFileRefs, formatFileBlocks, formatFileRefs, SOURCE_EXT } from './lib/project/file-refs.js';
+import { saveAllBlocks } from './lib/project/file-blocks.js';
+import { TOOLS, executeTool, resetJournal, undoJournal, writeCount } from './lib/agent/tool-requests.js';
+import { looksLikeBindingPrompt, bindingContext } from './lib/project/binding-context.js';
 import { fileMode, SKIP_DIRS } from './lib/match.js';
-import { ChatREPL,PrintError } from './lib/chat-repl.js';
-import { ControlSocket, controlDir, listSessions } from './lib/control-socket.js';
-import { SessionLog } from './lib/session-log.js';
-import { SessionStore } from './lib/session-store.js';
-import { SentFiles } from './lib/sent-files.js';
-import { FileExchange } from './lib/file-exchange.js';
+import { ChatREPL,PrintError } from './lib/tui/chat-repl.js';
+import { ControlSocket, controlDir, listSessions } from './lib/agent/control-socket.js';
+import { SessionLog } from './lib/session/session-log.js';
+import { SessionStore } from './lib/session/session-store.js';
+import { SentFiles } from './lib/project/sent-files.js';
+import { FileExchange } from './lib/project/file-exchange.js';
 import { runCommand } from './lib/run-command.js';
-import { extractTextToolCalls } from './lib/text-tool-calls.js';
-import { formatUsage } from './lib/usage.js';
-import { UsageStats, routeLine, routeName, formatMeta, formatTable, fitTable, fmtNum, fmtMs } from './lib/usage-stats.js';
-import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAllowed, needsApproval, describeWrite, WRITE_TOOLS } from './lib/modes.js';
+import { extractTextToolCalls } from './lib/clients/text-tool-calls.js';
+import { formatUsage } from './lib/session/usage.js';
+import { estimateCost } from './lib/clients/pricing.js';
+import { ageText } from './lib/tui/session-browser.js';
+import { UsageStats, routeLine, routeName, formatMeta, quotaText, formatTable, fitTable, fmtNum, fmtMs } from './lib/session/usage-stats.js';
+import { MODES, DEFAULT_MODE, MODE_INFO, MODE_COLOR, PLAN_NOTE, nextMode, toolAllowed, needsApproval, describeWrite, WRITE_TOOLS } from './lib/agent/modes.js';
 import { expandHome, toRelativePath, unquote } from './lib/paths.js';
-import { Gateway, FREELLM_URL } from './lib/freellm.js';
-import { pickNext, probeModel, isTransient } from './lib/standby.js';
-import { diagnose } from './lib/diagnose.js';
-import { deepBudget } from './lib/probe-context.js';
-import { proxyLatency } from './lib/usage-baseline.js';
-import { costText, Exploration, isTransientProbe, probeBrief, probeCells } from './lib/exploration.js';
-import { funnyName } from './lib/session-name.js';
-import { NetActivity } from './lib/net-activity.js';
-import { traceChat } from './lib/trace-chat.js';
-import { betterReason, stepText } from './lib/takeover.js';
-import { loadKeyData, parseKeyScope, modelsOfKeys } from './lib/key-models.js';
-import { externalIp } from './lib/ip-check.js';
+import { Gateway, FREELLM_URL } from './lib/gateway/freellm.js';
+import { pickNext, probeModel, isTransient } from './lib/failover/standby.js';
+import { diagnose } from './lib/agent/diagnose.js';
+import { deepBudget } from './lib/gateway/probe-context.js';
+import { proxyLatency } from './lib/session/usage-baseline.js';
+import { costText, Exploration, isTransientProbe, probeBrief, probeCells } from './lib/gateway/exploration.js';
+import { funnyName } from './lib/session/session-name.js';
+import { NetActivity } from './lib/tui/net-activity.js';
+import { traceChat } from './lib/clients/trace-chat.js';
+import { betterReason, stepText } from './lib/failover/takeover.js';
+import { loadKeyData, parseKeyScope, modelsOfKeys } from './lib/gateway/key-models.js';
+import { externalIp } from './lib/gateway/ip-check.js';
 import { emit, setSink, setNamer, eventLine, eventsText } from './lib/events.js';
 import { startLagWatch, timed } from './lib/lag.js';
-import { messageText, messageSelection, summarizeMessages, parseContextArgs } from './lib/context-view.js';
-import { appendEvent, appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/persist.js';
-import { hopLine, hopStyle } from './lib/hop-line.js';
-import { exploreOrder as exploreOrderOf, earliestReset, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/transcript-text.js';
-import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/rating.js';
-import { ipProxyTargets, ipProxyReleases, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms as exhaustedByAddress } from './lib/ip-fix.js';
-import { ipGroups, ipChangePanel, ipChangeParts } from './lib/ip-pane.js';
-import { netPaneLines, annotateRates } from './lib/net-pane.js';
+import { messageText, messageSelection, summarizeMessages, parseContextArgs } from './lib/tui/context-view.js';
+import { appendEvent, appendUsage, readUsage, trimLogs, flushPersist, loadQuota } from './lib/session/persist.js';
+import { hopLine, hopStyle } from './lib/failover/hop-line.js';
+import { exploreOrder as exploreOrderOf, earliestReset, makeModelName, routeFailure as routeFailureText, servedIds } from './lib/tui/transcript-text.js';
+import { Ratings, setRater, setProviderRater, rateOf, ratingCell } from './lib/gateway/rating.js';
+import { ipProxyTargets, ipProxyReleases, ipLimitedPlatforms, routedAll, ANON_PROXY, ipCandidates, routedKeys, setKeyProxy, clearCooldowns, keylessExhausted, exhaustedPlatforms as exhaustedByAddress } from './lib/gateway/ip-fix.js';
+import { ipGroups, ipChangePanel, ipChangeParts } from './lib/tui/ip-pane.js';
+import { netPaneLines, annotateRates } from './lib/tui/net-pane.js';
 import { SETTINGS, configDir, settingsPath, globalSettings, setSetting, unsetSetting, loadEnvFile, userSystemPrompt } from './lib/config.js';
-import { sessionKey, sessionFile, sessionDir, loadSessionState, saveSessionState, setLogName } from './lib/session-cache.js';
-import { findPeers, askPeer, peerAnswer } from './lib/peer.js';
-import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './lib/skills.js';
-import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/delegates.js';
-import { gatewayReport, reportText } from './lib/gateway-report.js';
-import { releaseRecovered } from './lib/skips.js';
-import { routingHealth } from './lib/routing-health.js';
-import { repairTurn } from './lib/turn-repair.js';
-import { spentModels, spentPlatforms, TRAIL_SKIP_MS } from './lib/fallback-trail.js';
-import { noteIpChange, saveCooldowns, loadCooldowns, loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure, groupId } from './lib/availability.js';
-import { modelStatusTable } from './lib/model-status.js';
-import { recordLatency } from './lib/latency.js';
-import { Tui } from './lib/tui.js';
-import { exitAfterNewnym, exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled, torHost } from './lib/proxy-probe.js';
-import { PORT_NAMES, ownSockets, pollDelay, processInfo } from './lib/resources.js';
-import { MarkdownStream } from './lib/markdown.js';
-import { isHarnessError } from './lib/harness-error.js';
-import { done as doneQuip, quip } from './lib/quips.js';
-import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning, fg, HEADER, BORDER, HINT, THEME } from './lib/rawcolor.js';
+import { sessionKey, sessionFile, sessionDir, loadSessionState, saveSessionState, setLogName, readSession, addRoot, pickRoot, adoptLegacySession, listSavedSessions, pruneSessions, pickSettings, applySettings } from './lib/session/session-cache.js';
+import { findPeers, askPeer, peerAnswer } from './lib/agent/peer.js';
+import { listSkills, findSkill, skillMessage, skillMarker, skillDirs } from './lib/agent/skills.js';
+import { Delegates, KINDS, DELEGATE_NOTES, discoverGateway, memoryLines } from './lib/agent/delegates.js';
+import { gatewayReport, reportText } from './lib/gateway/gateway-report.js';
+import { releaseRecovered } from './lib/gateway/skips.js';
+import { routingHealth } from './lib/gateway/routing-health.js';
+import { repairTurn } from './lib/failover/turn-repair.js';
+import { spentModels, spentPlatforms, TRAIL_SKIP_MS } from './lib/failover/fallback-trail.js';
+import { noteIpChange, saveCooldowns, loadCooldowns, loadAvailability, kindsText, limitsText, limitedText, backText, untilText, recordLocalFailure, groupId } from './lib/gateway/availability.js';
+import { modelStatusTable } from './lib/gateway/model-status.js';
+import { recordLatency } from './lib/gateway/latency.js';
+import { Tui } from './lib/tui/tui.js';
+import { exitAfterNewnym, exitIp, measure, newExit, proxied, proxySettings, setProxyEnabled, torHost } from './lib/gateway/proxy-probe.js';
+import { PORT_NAMES, ownSockets, pollDelay, processInfo } from './lib/project/resources.js';
+import { MarkdownStream } from './lib/tui/markdown.js';
+import { isHarnessError } from './lib/agent/harness-error.js';
+import { done as doneQuip, quip } from './lib/tui/quips.js';
+import { colorArgs, colorContent, colorJson, colorMeta, colorReasoning, lastLines, fg, HEADER, BORDER, HINT, THEME } from './lib/tui/rawcolor.js';
 import { file, highlight, note, card, controlNote, remoteText, replyMark, remoteMark, waveNote, banner, gradientRule, helpPanel, numberedDiff, toolLine, toolResult, meter, pctCell, modeBadge, panel, reportPanel, shortPath, WARN as WARN_BORDER } from './lib/look.js';
 import { stripAnsi } from 'terminal';
 import { enableCapabilities, queryCapabilities } from 'terminal/capabilities';
@@ -145,9 +147,11 @@ const USAGE = [
   'A Claude-Code-style REPL for a local Ollama model, Gemini, any OpenAI-compatible API or the chat-bridge.',
   '',
   '@Provider and model',
-  ['--provider NAME', 'freellm (default), ollama, gemini, openai or bridge. freellm is a freellmapi gateway (FREELLMAPI_URL, else http://localhost:3001/v1, key FREELLMAPI_KEY, else OPENAI_API_KEY), model auto. ollama without --model takes the first model `ollama list` shows. bridge starts examples/chat-bridge itself on a free port and uses it (models = the chat sites).'],
+  ['--provider NAME', 'freellm (default), ollama, gemini, openai, a curated OpenAI-compatible alias (cerebras, groq, mistral, together, openrouter), openai:NAME or bridge. An alias or openai:NAME reads NAME_API_KEY and NAME_API_URL (the URL defaults for curated ones) and needs --model. freellm is a freellmapi gateway (FREELLMAPI_URL, else http://localhost:3001/v1, key FREELLMAPI_KEY, else OPENAI_API_KEY), model auto. ollama without --model takes the first model `ollama list` shows. bridge starts examples/chat-bridge itself on a free port and uses it (models = the chat sites).'],
   ['--model NAME', 'model to talk to; with bridge one is picked in turn unless given.'],
   ['--model list', 'list the available chat models and exit (gemini, openai-compatible /models incl. chat-bridge; ollama via `ollama list`).'],
+  ['--sessions', 'list the saved sessions (key, age, messages, model, project, title) and exit.'],
+  ['--prune-sessions DAYS', 'delete the saved sessions not used for DAYS days (default 30) and exit; one that is running is kept.'],
   ['--host HOST', 'API host (default localhost).'],
   ['--port PORT', 'API port (default 11434).'],
   ['--root DIR', 'project directory the model works in (default .).'],
@@ -204,6 +208,7 @@ const USAGE = [
   ['GEMINI_API_KEY', 'API key for --provider gemini.'],
   ['OPENAI_API_KEY', 'API key for --provider openai (and freellm, unless FREELLMAPI_KEY is set).'],
   ['OPENAI_API_URL', 'base URL for --provider openai.'],
+['NAME_API_KEY, NAME_API_URL', 'key and base URL for --provider NAME (cerebras, groq, mistral, together, openrouter) or openai:NAME; the URL has a default for the listed ones.'],
   ['FREELLMAPI_KEY, FREELLMAPI_URL', 'unified key and base URL of a freellmapi gateway, for --provider freellm.'],
   ['FREELLMAPI_DASHBOARD_TOKEN', 'dashboard session token of the gateway; with it /gateway quota and the status line show per-model quotas (requests and tokens per minute/day, monthly budget). FREELLMAPI_EMAIL + FREELLMAPI_PASSWORD log in instead.'],
   '',
@@ -216,7 +221,11 @@ const USAGE = [
 
 function parseArgs(argv) {
   loadEnvFile(); /* ~/.config/ollama-repl/env, before anything reads FREELLMAPI_* */
-  const opts = { ...{ mode: DEFAULT_MODE, provider: 'freellm', model: undefined, host: 'localhost', port: 11434, root: '.', stream: true, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80, sessionId: undefined }, ...globalSettings() };
+  const base = { ...{ mode: DEFAULT_MODE, provider: 'freellm', model: undefined, host: 'localhost', port: 11434, root: '.', stream: true, debug: false, failsafe: false, numCtx: 16384, temperature: 0.2, maxRounds: DEFAULT_MAX_ROUNDS, yes: false, listen: undefined, noSystem: false, name: undefined, think: 'detect', resume: undefined, fallbackModel: undefined, compactAt: 80, sessionId: undefined }, ...globalSettings() };
+  /* the options the command line sets (not the defaults or settings.json): saved session settings never override them */
+  const given = new Set();
+  const opts = new Proxy(base, { set: (t, k, v) => (given.add(k), (t[k] = v), true) });
+  let givenArgs;
 
   for(let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -259,18 +268,33 @@ function parseArgs(argv) {
     else if(arg === '--max-rounds') opts.maxRounds = +argv[++i];
     else if(arg === '--yes' || arg === '-y') opts.mode = 'auto';
     else if(arg === '--mode') opts.mode = argv[++i];
-    else if(arg === '--verbose') ui.verbose = true;
+    else if(arg === '--verbose') (ui.verbose = true), (opts.verbose = true);
     else if(arg === '--listen') opts.listen = argv[i + 1] && !argv[i + 1].startsWith('-') ? argv[++i] : '';
     else if(arg === '--resume') opts.resume = argv[++i];
     else if(arg === '--fallback-model') opts.fallbackModel = argv[++i];
+    else if(arg === '--sessions') opts.listSessions = true;
+    else if(arg === '--prune-sessions') opts.pruneSessions = +argv[++i] || 30;
     else if(arg === '--help' || arg === '-h') {
       console.log(formatUsage(USAGE));
       exit(0);
     }
   }
 
-  if(!['ollama', 'gemini', 'openai', 'freellm', 'bridge'].includes(opts.provider)) {
-    console.log(red(`error: --provider must be "ollama", "gemini", "openai", "freellm" or "bridge", got "${opts.provider}"`));
+  givenArgs = new Set(given);
+
+  /* openai, a curated alias (cerebras) or openai:NAME: an OpenAI-compatible
+     endpoint reading NAME_API_KEY / NAME_API_URL (see lib/clients/openai-client.js) */
+  const alias = ['ollama', 'gemini', 'freellm', 'bridge'].includes(opts.provider) ? null : resolveProvider(opts.provider);
+  if(alias) {
+    opts.provider = 'openai';
+    if(alias.name !== 'openai') {
+      opts.label = alias.name;
+      opts.apiKeyEnv = alias.apiKeyEnv;
+      opts.apiUrlEnv = alias.apiUrlEnv;
+      opts.defaultBaseUrl = alias.defaultBaseUrl;
+    }
+  } else if(!['ollama', 'gemini', 'freellm', 'bridge'].includes(opts.provider)) {
+    console.log(red(`error: --provider must be "ollama", "gemini", "openai", "openai:NAME", ${Object.keys(PROVIDERS).filter(n => n !== 'openai').map(n => `"${n}"`).join(', ')}, "freellm" or "bridge", got "${opts.provider}"`));
     exit(1);
   }
 
@@ -298,6 +322,11 @@ function parseArgs(argv) {
   }
 
   /* bridge: undefined = picked from the bridge's models, see main() */
+  if(opts.provider === 'openai' && opts.label && opts.label !== 'freellm' && !opts.model) {
+    console.log(red(`error: --provider ${opts.label} has no default model: pass --model NAME (or --model list)`));
+    exit(1);
+  }
+
   opts.model ??= opts.provider === 'gemini' ? 'gemini-flash-latest' : opts.provider === 'openai' ? 'gpt-4o-mini' : opts.provider === 'bridge' ? undefined : (ollamaModels() ?? [])[0];
 
   if(opts.provider === 'ollama' && !opts.model) {
@@ -305,7 +334,8 @@ function parseArgs(argv) {
     exit(1);
   }
 
-  return opts;
+  base.given = givenArgs;
+  return base;
 }
 
 const NOTOOLS_PROMPT = `You are a coding assistant that changes the code in the user's project.
@@ -628,7 +658,7 @@ function phaseText() {
   return null;
 }
 
-/* the rule says a quip for the phase (see lib/quips.js), then what really happens */
+/* the rule says a quip for the phase (see lib/tui/quips.js), then what really happens */
 function tuiSpinner(label) {
   const t0 = Date.now();
   const seed = Math.floor(Math.random() * 1e6);
@@ -660,7 +690,7 @@ function tuiSpinner(label) {
  * One chat() or chatStream() call, printed the same way either way -
  * shows a spinner (startSpinner() above) until the first sign of a reply
  * (the first token, or the whole reply for non-streaming), then a
- * quip-and-time line ("Made it so in 3.2s", lib/quips.js) once it's completely done. `abortRef.current` is
+ * quip-and-time line ("Made it so in 3.2s", lib/tui/quips.js) once it's completely done. `abortRef.current` is
  * set to the active client's abort() for the duration of the call (and
  * cleared after) - see main()'s ChatREPL construction below, whose Ctrl-C
  * handler calls it to cancel the in-flight request instead of quitting.
@@ -688,7 +718,7 @@ let usageAttempt = 0;
 /* the control socket (--listen, /remote-control), set by startControl(); module level because chatRound() and runToolLoop() publish activity on it */
 let control = null;
 
-/* lib/tui.js layout, set by main() on a terminal unless --no-tui */
+/* lib/tui/tui.js layout, set by main() on a terminal unless --no-tui */
 let tui = null;
 
 /* view switches: verbose (Ctrl-O) shows reasoning, full tool results and
@@ -1051,7 +1081,7 @@ function messagesText(msgs) {
 /** a path the model gave, relative to root */
 const underRoot = (root, p) => (String(p ?? '').startsWith('/') ? p : `${root}/${p}`);
 
-/* set by main(): { keys(client), label(client), pf: ProviderFallback, next(tried), switched(candidate) }, see lib/provider-fallback.js */
+/* set by main(): { keys(client), label(client), pf: ProviderFallback, next(tried), switched(candidate) }, see lib/clients/provider-fallback.js */
 let providerHook = null;
 let providerNoted = '';
 
@@ -1262,9 +1292,10 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
       onReasoning: text => {
         reasoning += text;
         control?.activity('reasoning', { text });
-        const body = colorReasoning(reasoning.trim());
-        if(!liveReasoning) liveReasoning = livePanel('◌ reasoning', body, { border: BORDER, tail: true });
-        else if(Date.now() - reasonAt >= 100) liveReasoning.update('◌ reasoning', body);
+        /* the panel shows the tail: colouring all of it on every chunk made a long reasoning block the loop (350 KB: 400 ms
+           per chunk); the whole text is coloured once when the reply starts (showReasoning) */
+        if(!liveReasoning) liveReasoning = livePanel('◌ reasoning', colorReasoning(lastLines(reasoning).trim()), { border: BORDER, tail: true });
+        else if(Date.now() - reasonAt >= 100) liveReasoning.update('◌ reasoning', colorReasoning(lastLines(reasoning).trim()));
         reasonAt = Date.now();
       },
     };
@@ -1542,7 +1573,7 @@ function routeTarget(arg) {
 }
 
 /** QUICKJS notes and, when the harness itself is in the project, how to change it safely */
-/* the memory of which sub-agent models did well (lib/delegates.js), and whether the primary is told it may delegate */
+/* the memory of which sub-agent models did well (lib/agent/delegates.js), and whether the primary is told it may delegate */
 const delegates = new Delegates();
 let delegateNotesOn = false;
 let statsRef = null; /* main()'s stats, for the helpers outside it */
@@ -1674,6 +1705,34 @@ function flushState() {
     saveCooldowns();
   } catch(e) {}
 }
+/**
+ * The command line of a process that continues session `key` (the session browser's load): the arguments this one
+ * was started with, minus --resume, --name and --root (the key is the name, the saved settings bring the root back),
+ * with --model replaced by the saved model when the saved provider is the one running now (a provider that wants
+ * --model needs it on the command line, the saved one is only read later), plus --name KEY. No harness check: the
+ * code did not change. Same shape as prepareRestart's result.
+ */
+function prepareSwitch(opts, key, saved = {}) {
+  const script = harness.target ? `${harness.target}/repl.js` : harness.script;
+  const sameProvider = saved.provider && saved.model && saved.provider === (opts.label ?? opts.provider);
+  const args = [];
+  const given = scriptArgs.slice(1);
+  let hadModel = false;
+
+  for(let i = 0; i < given.length; i++) {
+    if(given[i] === '--resume' || given[i] === '--name' || given[i] === '--root') i++;
+    else if(given[i] === '--model' && sameProvider) {
+      args.push('--model', saved.model);
+      hadModel = true;
+      i++;
+    } else args.push(given[i]);
+  }
+
+  if(sameProvider && !hadModel) args.push('--model', saved.model);
+  args.push('--name', key);
+  return { argv: ['qjsm', script, ...args], moved: script !== harness.script ? script : null, fallback: null, backup: `${getenv('TMPDIR') || '/tmp'}/ollama-repl-switch-${getpid()}.none` };
+}
+
 let restartHook = null;
 const RESTART_EXIT = 75;
 
@@ -1753,9 +1812,9 @@ async function spawnAgent(parentClient, parentMessages, opts, log, confirmRun, a
   if(subModel && subModel !== opts.model) {
     // Need to create a new client with the specified model
     const subOpts = { ...opts, model: subModel };
-    if(opts.provider === 'gemini') subClient = new (await import('./lib/gemini-client.js')).GeminiClient(subOpts);
-    else if(opts.provider === 'openai') subClient = new (await import('./lib/openai-client.js')).OpenAIClient(subOpts);
-    else subClient = new (await import('./lib/ollama-client.js')).OllamaClient(subOpts);
+    if(opts.provider === 'gemini') subClient = new (await import('./lib/clients/gemini-client.js')).GeminiClient(subOpts);
+    else if(opts.provider === 'openai') subClient = new (await import('./lib/clients/openai-client.js')).OpenAIClient(subOpts);
+    else subClient = new (await import('./lib/clients/ollama-client.js')).OllamaClient(subOpts);
     watchNet(subClient, 'sub-agent');
   }
 
@@ -1809,7 +1868,7 @@ const MAX_REPEAT_ROUNDS = 2;
 
 /**
  * Drives the tool-calling loop (see SYSTEM_PROMPT/TOOLS): runs one
- * chat round with TOOLS (lib/tool-requests.js) offered, and if the reply
+ * chat round with TOOLS (lib/agent/tool-requests.js) offered, and if the reply
  * asks for one or more tool calls, executes each one (executeTool()) and
  * feeds its result back as a `tool`-role message, then repeats - up to
  * MAX_TOOL_ROUNDS - until a reply with no tool calls (or the round cap) is
@@ -1827,7 +1886,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
     /* chat-only model: one plain round, the reply carries File: blocks */
     const result = await chatRound(client, messages, opts, abortRef, {});
     messages.push({ role: 'assistant', content: result.content });
-    log.reply(result.content);
+    log.reply(result.content, client.model);
     return result.content;
   }
 
@@ -1850,7 +1909,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
     elideOldToolResults(messages, ctxWindowNow ?? opts.numCtx);
     const result = await chatRound(client, messages, opts, abortRef, final ? { toolChoice: 'none' } : { tools });
 
-    /* models that write the call as text (qwen2.5-coder) - see lib/text-tool-calls.js */
+    /* models that write the call as text (qwen2.5-coder) - see lib/clients/text-tool-calls.js */
     if(!result.toolCalls?.length && !final) {
       const text = extractTextToolCalls(result.content, tools);
       if(text.toolCalls) Object.assign(result, text);
@@ -1864,7 +1923,7 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
     }
 
     messages.push({ role: 'assistant', content: result.content, ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}) });
-    log.reply(result.content);
+    log.reply(result.content, client.model);
 
     if(!result.toolCalls?.length) {
       /* A change was asked for, but the model answered in prose (typically by
@@ -2133,6 +2192,7 @@ const HELP_TEXT = `/reset          - clear conversation history (keeps the initi
 /verbose [on|off] - show full tool results, every request and response with all gateway headers (Ctrl-O toggles)
 /remote-control [PATH|off] - open the control socket now (like --listen), so ollama-repl-ctl or Claude Code can type into this session; off closes it. /listen is the same command
 /queue [list|clear|drop N] - the prompts waiting behind the running request (Enter queues one while the model works, Ctrl-X Ctrl-S sends the typed one now and cancels the running request); the queue is saved with the session and runs again after a restart
+/sessions [list|prune [DAYS]] - browse the saved sessions (Enter loads one, i inspects it); list prints them, prune deletes the ones unused for DAYS (30)
 /rename [NAME]  - rename the session (ollama-repl-ctl -s NAME picks it); without NAME a funny one is made up
 /model [NAME|next|key:ID[,key:ID..]|key:off|list [all]|skip|unskip] - show provider/model/endpoint; list hides the models the endpoint calls unavailable (no key, disabled), list all shows them; switch model by #, name, or pattern; /model skip marks current as skipped (10m cooldown), /model unskip removes skip; key:ID,key:ID lists the models reachable through those gateway keys (/gateway keys shows the ids) and restricts the model selection to them (list, /model NAME and patterns, skip, standby, takeover, exploration; the model in use moves to the strongest usable one of them), key:off lifts it - the gateway still picks the key of a request itself; next lists the models most likely to work now (the warm standby, then the best rated ones verified lately) and switches to the one you choose; skip (typed by you) asks the same way after skipping, a round that skips by itself takes the warm standby, else the best rated
 /model sweep - /model a,b,c with the usable models of the last /model explore sweep
@@ -2173,12 +2233,12 @@ Anything else is sent to the model as a prompt.`;
 const HELP_SECTIONS = [
   ['conversation', ['/reset', '/clear', '/undo', '/each', '/system', '/context', '/log', '/files']],
   ['project', ['/cd', '/run', '/diff']],
-  ['model and gateway', ['/model', '/events', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/last', '/requests', '/gateway', '/proxy', '/status', '/model health']],
-  ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/about', '/js', '/help', '/exit', '/export']],
+  ['model and gateway', ['/model', '/events', '/route', '/provider', '/fallback', '/compact', '/handoff', '/handoff-model', '/brief', '/standby', '/delegate', '/config', '/skill', '/restart', '/stream', '/tools', '/usage', '/quota', '/last', '/requests', '/gateway', '/proxy', '/status', '/model health']],
+  ['session', ['/mode', '/verbose', '/view', '/split', '/mouse', '/remote-control', '/queue', '/rename', '/sessions', '/about', '/js', '/help', '/exit', '/export']],
 ];
 
 /** commands whose output the TUI shows as a panel (/js writes past std.out, /each talks to the model) */
-const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/listen', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/usage', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run', '/model health']);
+const REPORT_COMMANDS = new Set(['/queue', '/mouse', '/proxy', '/reset', '/clear', '/undo', '/diff', '/cd', '/status', '/mode', '/verbose', '/remote-control', '/listen', '/model', '/provider', '/fallback', '/compact', '/handoff-model', '/route', '/standby', '/delegate', '/config', '/restart', '/sessions', '/usage', '/quota', '/last', '/requests', '/gateway', '/tools', '/system', '/stream', '/files', '/context', '/log', '/run', '/model health']);
 
 const TIPS = ['Ask questions, edit files, or run commands. Name files or globs (src/*.js) to attach them.', 'Shift-Tab cycles the modes plan, auto, manual, edits. Ctrl-O shows everything the model gets and says.', '/help lists the commands, /about shows this panel again.'];
 
@@ -2237,7 +2297,7 @@ function modelStrength(modelName, intelligence = null) {
 
 /** the strength tier of a model id as /model list has it: the gateway's intelligence score when it has one, else the name */
 /**
- * options that make an exploration run sensible (lib/exploration.js): the platforms of a model, so a provider that just
+ * options that make an exploration run sensible (lib/gateway/exploration.js): the platforms of a model, so a provider that just
  * rate-limited is not probed again at once, and the order, best rated first with the models that served a request in the
  * last 24 hours ahead of the rest
  */
@@ -2302,13 +2362,13 @@ function modelsForGlob(pattern, known) {
   return (known ?? []).filter(m => re.test(m) && !unavailableModels.has(m) && !availability?.byModel.get(m)?.blocked && inKeyScope(m));
 }
 
-/* what the gateway limits right now (lib/availability.js), loaded by /model and /gateway; null without a dashboard session */
+/* what the gateway limits right now (lib/gateway/availability.js), loaded by /model and /gateway; null without a dashboard session */
 let availability = null;
 let keysSort = 'use'; /* order of /gateway keys, changed by sort:NAME */
 let unavailableModels = new Set(); /* names the endpoint lists as unavailable (no key, disabled): hidden, not selectable */
 let gatewayRef = null;
 
-/* the standby model (lib/standby.js): probed and warm, ready to take over or to run a sub-agent */
+/* the standby model (lib/failover/standby.js): probed and warm, ready to take over or to run a sub-agent */
 const standby = { on: false, id: null, name: '', state: 'off', ms: 0, toolOk: false, servedBy: '', error: '', at: 0, busy: false, pinned: null, bad: new Map(), switchedAt: 0 };
 const STANDBY_TTL_MS = 10 * 60_000;
 
@@ -2323,10 +2383,10 @@ let lastSweep = [];
 const inKeysOnly = id => !keyScope.models || keyScope.models.has(id);
 const inKeyScope = id => (!keyScope.models || keyScope.models.has(id)) && (!modelScope.set || modelScope.set.has(id));
 
-/* the async exploration of the gateway's READY models (lib/exploration.js), started by /model health */
+/* the async exploration of the gateway's READY models (lib/gateway/exploration.js), started by /model health */
 let exploration = null;
 
-/* the rating of every gateway model (lib/rating.js): what the model is, how it did in real requests and in the
+/* the rating of every gateway model (lib/gateway/rating.js): what the model is, how it did in real requests and in the
    exploration, and its state now; the lists and the pick of the next model sort by it, best first */
 let ratings = null;
 
@@ -2605,7 +2665,7 @@ function listWidth() {
   }
 }
 
-/** the hop line of an automatic model switch: model names by strength tier, providers teal, times amber (lib/hop-line.js) */
+/** the hop line of an automatic model switch: model names by strength tier, providers teal, times amber (lib/failover/hop-line.js) */
 /** one route that failed, as a card line: provider dim, model by strength, the first sentence of the error, the reset time amber */
 const routeFailure = (route, why) => routeFailureText(route, why, { piped, dim, modelName });
 
@@ -2743,8 +2803,11 @@ function completeArgs(cmd, args, word) {
     case '/queue':
       return n === 0 ? ['list', 'clear', 'drop'] : [];
     case '/compact':
+    case '/quota':
     case '/last':
     case '/requests':
+    case '/sessions':
+      return n === 0 ? ['list', 'prune'] : [];
     case '/rename':
     case '/restart':
     case '/undo':
@@ -2919,10 +2982,78 @@ function statusLinesNow(opts, stats, messages, ctxWindow, busy, gateway, remote,
   return [gradientRule(cols), statusBar([left, center, right], cols - 1), two.join(dimmed(' │ '))];
 }
 
+
+/**
+ * /sessions and --sessions: the saved sessions, newest first, or `prune [DAYS]` to delete
+ * the ones not used for DAYS (30). Running sessions are kept: `ownKey` and what listSessions() knows.
+ */
+function sessionsCommand(args, ownKey) {
+  const keep = new Set(ownKey ? [ownKey] : []);
+  for(const s of listSessions()) {
+    keep.add(s.name);
+    if(s.root) keep.add(sessionKey({ root: s.root }));
+  }
+
+  if(args[0] === 'prune') {
+    const days = +args[1] || 30;
+    const gone = pruneSessions({ days, keep });
+    return gone.length ? `deleted ${gone.length} session${gone.length > 1 ? 's' : ''} not used for ${days} days: ${gone.join(', ')}` : `(no session older than ${days} days)`;
+  }
+
+  const rows = listSavedSessions();
+  if(!rows.length) return '(no saved sessions)';
+
+  const home = getenv('HOME') ?? '';
+  const now = Date.now();
+  const short = (t, n) => (t && t.length > n ? `${t.slice(0, n - 1)}…` : t ?? '');
+  return formatTable([['key', 'age', 'msgs', 'model', 'project', 'title'], ...rows.map(r => [r.key + (keep.has(r.key) ? ' *' : ''), ageText(now - r.at), r.messages ?? '-', short(r.model, 28) || '-', short((r.root ?? '').replace(home, '~'), 36) || '-', short(r.title, 40) || '-'])]) + '\n(* = running)';
+}
+
 async function main() {
   const opts = parseArgs(scriptArgs.slice(1));
   /* the session name now: the debug logs carry it; the cache key below only follows an explicit --name */
   const givenName = opts.name;
+
+  if(opts.listSessions || opts.pruneSessions !== undefined) {
+    console.log(sessionsCommand(opts.pruneSessions !== undefined ? ['prune', String(opts.pruneSessions)] : [], null));
+    exit(0);
+  }
+
+  /* the session's key and what it remembered: its settings come back unless the command line named them */
+  adoptLegacySession(opts);
+  const cacheKey = sessionKey({ ...opts, name: givenName });
+  const savedState = loadSessionState(cacheKey);
+  const restored = applySettings(opts, savedState.settings, opts.given).filter(k => k !== 'verbose'); /* verbose is the UI's: below */
+
+  /* the working directory: the session goes on where it was (--root wins), and its chain of directories is kept */
+  const realRoot = d => realpath(d)[0] ?? d;
+  const isDir = d => fileMode(resolveDir('.', d)) === S_IFDIR;
+  const launchDir = realRoot(opts.root);
+  let rootNote = null;
+
+  if(!opts.given.has('root')) {
+    const pick = pickRoot(savedState, isDir);
+    if(pick) {
+      opts.root = pick.root;
+      if(pick.fallback) rootNote = `the last directory of this session (${savedState.root}) is gone: continuing in ${pick.root}`;
+    } else if(savedState.root) rootNote = `no directory of this session exists any more: staying in ${launchDir}`;
+  }
+
+  const startRoot = savedState.startRoot ?? launchDir;
+  let rootsList = savedState.roots ?? (savedState.root ? addRoot([], savedState.root, 'start', savedState.updatedAt) : []);
+  const nowRoot = realRoot(opts.root);
+  if(!rootsList.length) rootsList = addRoot(rootsList, nowRoot, 'start');
+  else rootsList = addRoot(rootsList, nowRoot, opts.given.has('root') ? '--root' : 'fallback');
+
+  if(savedState.settings?.verbose !== undefined && !opts.given.has('verbose') && savedState.settings.verbose !== ui.verbose) {
+    ui.verbose = savedState.settings.verbose;
+    restored.push('verbose');
+  }
+
+  for(const m of savedState.skippedModels ?? []) if(m.until > Date.now()) skippedModels.set(m.name, { until: m.until, reason: m.reason });
+
+  /* the name too, unless another session runs under it now */
+  if(!givenName && savedState.name && !listSessions().some(s => s.name === savedState.name && s.pid !== getpid())) opts.name = savedState.name;
   opts.name ??= funnyName(listSessions().map(s => s.name));
   setLogName(opts.name);
   completionOllama = opts.provider === 'ollama';
@@ -2967,6 +3098,7 @@ async function main() {
     client.onMeta = meta => {
       meta.proxied = proxied(proxyInfo.settings, meta.platform);
       meta.attempt = usageAttempt;
+      meta.costEst = meta.usage?.cost == null ? estimateCost(opts.label ?? opts.provider, meta.model, meta.usage) : undefined;
       /* the hops that ran out before this answer: the client's own picks (standby, /model skip) leave them alone for a while */
       for(const m of spentModels(meta.trail, meta.routedVia)) skipModel(m, 'ran out in the gateway chain', TRAIL_SKIP_MS);
       /* a platform whose every key ran out for one model: its models that no other platform serves go too, not one by one */
@@ -2998,7 +3130,7 @@ async function main() {
   const gatewayHeaders = sid => ({ 'x-session-id': sid, ...(gateway?.enabled && !gateway.isBridge ? { 'x-freellm-task-type': 'code' } : {}) });
 
   /* the gateway's upstream proxy and its measured latency; the first probe runs in the background */
-  /* which providers of the gateway answer and still have models left (lib/gateway-report.js); refresh reloads the limits first */
+  /* which providers of the gateway answer and still have models left (lib/gateway/gateway-report.js); refresh reloads the limits first */
   const probeGateway = async refresh => {
     if(gateway.isBridge) return note('a chat-bridge reports its sites: /gateway providers, /gateway limited');
     if(refresh && gateway.hasLimits) availability = await loadAvailability(gateway).catch(() => availability);
@@ -3501,7 +3633,7 @@ async function main() {
     }
   }
 
-  /** why a probe failed (lib/diagnose.js): the error, the gateway's picture of the model, its provider and keys, one more try; run by the exploration worker */
+  /** why a probe failed (lib/agent/diagnose.js): the error, the gateway's picture of the model, its provider and keys, one more try; run by the exploration worker */
   async function diagnoseModel(id, result) {
     const [keys, provs] = await Promise.all([gateway.api('/api/keys').catch(() => []), gateway.providers().then(p => p.providers ?? []).catch(() => [])]);
 
@@ -3528,7 +3660,7 @@ async function main() {
   }
 
   /**
-   * tier 1 of the exploration (a synthetic compacted context sized to the model's window, lib/probe-context.js) runs for
+   * tier 1 of the exploration (a synthetic compacted context sized to the model's window, lib/gateway/probe-context.js) runs for
    * the 30 best rated of `ids` only: it costs several thousand tokens per model, and verified results are kept
    */
   const deepFor = ids => {
@@ -3803,7 +3935,7 @@ async function main() {
   }
 
   /* provider failover: a route that refuses (bad key), is out of quota or down is cooled down and the request
-     retried on the next provider, finally the local Ollama model (chatRound, lib/provider-fallback.js) */
+     retried on the next provider, finally the local Ollama model (chatRound, lib/clients/provider-fallback.js) */
   {
     let local = null; /* the local candidate, built on first use */
     const endpointOf = c => c.baseUrl ?? `ollama://${c.host}:${c.port}`;
@@ -3928,8 +4060,7 @@ async function main() {
   if(opts.provider === 'ollama') console.log(dim(await thinkNote(client)));
 
   /* the session's files live in ~/.cache/ollama-repl/sessions/KEY/, not in the current directory */
-  /* no --name: the funny one made at the start (lib/session-name.js); the cache key stays model + project so a restart still resumes */
-  const cacheKey = sessionKey({ ...opts, name: givenName });
+  /* no --name: the funny one made at the start (lib/session/session-name.js); the cache key is the project (or --name), see lib/session/session-cache.js */
   usageSession = cacheKey;
   const log = new SessionLog(sessionFile(cacheKey, 'session.log'));
   let sentFiles = new SentFiles(opts.model, opts.root);
@@ -3992,6 +4123,7 @@ async function main() {
     }
   } else {
     saved = store.load();
+    if(store.corrupt) console.log(red(`error: ${store.path} could not be read: it was kept as ${store.corrupt} and this session starts cold`));
     pendingQueue = saved?.queue ?? [];
     delegateNotesOn = !opts.noDelegate && !opts.failsafe && !opts.noSystem && !opts.noTools && (opts.provider === 'openai' || opts.provider === 'ollama');
     messages = saved ? saved.messages : opts.failsafe || opts.noSystem ? [] : [{ role: 'system', content: opts.noTools ? NOTOOLS_PROMPT : opts.label === 'bridge' ? BRIDGE_PROMPT : formatSystemPrompt(opts.root) }];
@@ -4003,7 +4135,24 @@ async function main() {
     }
   }
 
-  const saveSession = () => store.save(messages, baseMessageCount, repl?.queue ?? []);
+  /* the session's metadata and settings (state.json): written whenever one of them changed, after every turn and every command */
+  let stateSig = '';
+  const persistState = () => {
+    const now = Date.now();
+    const skipped = [];
+    for(const [name, info] of skippedModels) if(info.until > now) skipped.push({ name, until: info.until, reason: info.reason });
+
+    const first = messages.find(m => m.role === 'user' && typeof m.content === 'string' && !m.content.startsWith('(automatic project scan'));
+    const patch = { name: opts.name, provider: opts.label ?? opts.provider, model: opts.model, root: realRoot(opts.root), startRoot, roots: rootsList, messages: messages.length, settings: pickSettings(opts, { verbose: ui.verbose }), skippedModels: skipped };
+    if(first) patch.title = first.content.replace(/\s+/g, ' ').trim().slice(0, 60);
+
+    const sig = JSON.stringify(patch);
+    if(sig === stateSig) return;
+    stateSig = sig;
+    saveSessionState(cacheKey, patch);
+  };
+
+  const saveSession = () => (store.save(messages, baseMessageCount, repl?.queue ?? []), persistState());
 
   /* context window of the model, for the status line */
   /* the model a /model command picked outlives the process: the next start of this session goes on with it unless --model is given */
@@ -4247,6 +4396,14 @@ async function main() {
   }
 
   const runLine = async line => {
+    try {
+      return await runLineNow(line);
+    } finally {
+      persistState();
+    }
+  };
+
+  const runLineNow = async line => {
     const prompt = line.trim();
     if(!prompt) return;
 
@@ -4438,6 +4595,8 @@ async function main() {
 
       prevRoot = opts.root;
       opts.root = dir;
+      rootsList = addRoot(rootsList, realRoot(dir), 'cd');
+      log.cd(realRoot(prevRoot), realRoot(dir));
       retargetHarness(dir);
       sentFiles.setRoot(opts.root);
       fileExchange.setRoot(opts.root);
@@ -4520,6 +4679,39 @@ async function main() {
       return void console.log(q.length ? q.map((t, i) => `${i + 1}. ${t.length > 100 ? `${t.slice(0, 99)}…` : t}`).join('\n') : '(no prompts queued)');
     }
 
+    if(prompt === '/sessions' || prompt.startsWith('/sessions ')) {
+      const args = prompt.slice('/sessions'.length).trim().split(/\s+/).filter(Boolean);
+
+      /* the browser: a list and the details of the highlighted session, Enter loads it, i inspects it */
+      if(!args.length && !piped) {
+        const sessions = listSavedSessions();
+        if(!sessions.length) return void console.log('(no saved sessions)');
+
+        const running = new Map();
+        for(const s of listSessions()) {
+          if(s.pid === getpid()) continue;
+          running.set(s.name, { pid: s.pid, name: s.name });
+          if(s.root) running.set(sessionKey({ root: s.root }), { pid: s.pid, name: s.name });
+        }
+
+        const opened = repl.openSessionBrowser({
+          sessions,
+          live: key => running.get(key) ?? null,
+          ownKey: cacheKey,
+          readSession,
+          home: getenv('HOME') ?? '',
+          onLoad: async key => {
+            saveSession();
+            console.log(note(`loading session ${key} ...`));
+            console.log(red(await restartHook({ session: key, saved: loadSessionState(key) })));
+          },
+        });
+        if(opened) return;
+      }
+
+      return void console.log(sessionsCommand(args[0] === 'list' ? [] : args, cacheKey));
+    }
+
     if(prompt === '/rename' || prompt.startsWith('/rename ')) {
       /* no argument: a new funny name */
       const name = prompt.slice('/rename'.length).trim() || funnyName(listSessions().map(s => s.name));
@@ -4548,6 +4740,8 @@ async function main() {
       past.records = readUsage({ origin: gatewayRef?.enabled ? gatewayRef.origin : undefined, sinceMs: Date.now() - days * 86400e3 });
       return void console.log(past.summary(`last ${days} day${days > 1 ? 's' : ''}`));
     }
+
+    if(prompt === '/quota') return void console.log(quotaText(stats.records));
 
     if(prompt === '/last' || prompt.startsWith('/last ')) {
       const n = +prompt.slice(5).trim() || 0;
@@ -5445,7 +5639,7 @@ async function main() {
       }
 
       messages.push({ role: 'assistant', content: reply });
-      log.reply(reply);
+      log.reply(reply, client.model);
       saveSession();
       return;
     }
@@ -5545,6 +5739,8 @@ async function main() {
 
   /* the /model pattern of the last run of this session */
   const lastPattern = loadSessionState(cacheKey).modelPattern;
+  if(rootNote) console.log(note(rootNote, 'warn'));
+  if(restored.length) console.log(note(`settings of the last run of this session: ${restored.map(k => `${k}=${k === 'verbose' ? ui.verbose : opts[k]}`).join(', ')} (the command line wins; /sessions lists the saved ones)`, 'resume'));
   if(lastPattern) console.log(dim(`last /model pattern of this session: ${lastPattern} (/model ${lastPattern} cycles it)`));
 
   /* commands that only flip a flag or show something do not wait for the running request: typed while the
@@ -5605,7 +5801,7 @@ async function main() {
   repl.addCleanupHandler(() => restarting || removeSnapshot());
 
   /* auto-compaction and /compact: replaces the older turns of a conversation by a summary
-     (lib/handoff.js, written by a local model) and keeps the last few verbatim. Auto only
+     (lib/failover/handoff.js, written by a local model) and keeps the last few verbatim. Auto only
      fires once the window is known and `compactAt` percent of it is in use, and not again
      until the conversation has grown noticeably, so a conversation that stays large
      (one huge recent turn) is not re-summarized every round. */
@@ -5787,7 +5983,7 @@ async function main() {
      processes, not eleven */
   restartHook = async overrides => {
     flushState(); /* the exec below drops the quota snapshot and cooldowns that wait for their timers */
-    const r = await prepareRestart(opts, messages, baseMessageCount, overrides);
+    const r = overrides?.session ? prepareSwitch(opts, overrides.session, overrides.saved) : await prepareRestart(opts, messages, baseMessageCount, overrides);
     if(typeof r === 'string') return r;
 
     if(r.moved) console.log(waveNote(`restarting from the source tree ${r.moved} (this session runs the installed copy, which does not see its edits)`));
@@ -5874,7 +6070,7 @@ async function main() {
   if(opts.listen !== undefined && !startControl(opts.listen || undefined)) exit(1);
 
   /* over a chat-bridge, a pinned site that hits its limit hands the turn to the
-     next available one by itself, with a compacted conversation (lib/failover.js);
+     next available one by itself, with a compacted conversation (lib/failover/failover.js);
      auto is routed by the bridge */
   if(gateway?.isBridge && !opts.noFailover) {
     const failover = new Failover(client);

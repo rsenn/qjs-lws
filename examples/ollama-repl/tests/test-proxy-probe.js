@@ -1,6 +1,6 @@
 /* test-proxy-probe.js: where Tor's control port is, from the proxy URL or TORHOST */
 import { setenv } from 'std';
-import { torHost, newnym, torCookie, exitAfterNewnym } from '../lib/proxy-probe.js';
+import { torHost, newnym, torCookie, exitAfterNewnym } from '../lib/gateway/proxy-probe.js';
 import { writeConfigFile } from '../lib/config.js';
 
 const check = (what, ok) => {

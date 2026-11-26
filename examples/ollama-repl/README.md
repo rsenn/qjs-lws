@@ -8,7 +8,7 @@ works against Gemini, any OpenAI-compatible endpoint, and - through
 `examples/chat-bridge` - the free chat websites (DeepSeek, Mistral, Qwen, ...)
 driven in your own browser (`--provider bridge`).
 
-- **Dedicated HTTP client.** `lib/ollama-client.js` talks to Ollama's
+- **Dedicated HTTP client.** `lib/clients/ollama-client.js` talks to Ollama's
   `/api/chat` endpoint directly through the `httpClient` protocol adapter
   (`lib/lws/protocols.js`) - the same building block `fetch()` uses - with
   its own `LWSContext`. Each prompt opens its own fresh connection rather
@@ -22,21 +22,21 @@ driven in your own browser (`--provider bridge`).
 - **File/glob/directory detection.** Type a path or glob straight into
   your prompt ("fix the bug in `src/foo.js`", "review `*.md`", or
   `src/**.ts` to recurse a whole tree for one extension) and it's read off
-  disk and attached automatically (`lib/file-refs.js`, `lib/match.js`) -
+  disk and attached automatically (`lib/project/file-refs.js`, `lib/match.js`) -
   no special `@file` syntax needed. A directory reference ending in `/`
   (`src/`) attaches up to `MAX_DIR_FILES` (4) of its source files instead
   of failing to resolve - top-level files first, then newest-first within
   each depth, not just "whatever's newest anywhere in the tree" (which
   tended to pick every result from one deeply-nested subdirectory).
   Referencing one specific file also has its direct local imports/
-  `#include`s extracted (`lib/imports.js`, a regex-based parser +
+  `#include`s extracted (`lib/project/imports.js`, a regex-based parser +
   `os.readdir()`-backed resolver) and named - not attached - in a note
   after its content, so the model can `READ:` whichever of them it
   actually turns out to need instead of every reference dragging its
   whole dependency chain along unasked.
 - **File exchange tracking.** Every file attached (project -> model) and
   every file the model writes back (model -> project) is recorded for the
-  session (`lib/file-exchange.js`); `/files` dumps the full history. A
+  session (`lib/project/file-exchange.js`); `/files` dumps the full history. A
   written file that already existed gets diffed against its previous
   content first, and the diff is saved to `diffs/NNN-name.diff` in the session's cache directory (below) -
   reviewable, and revertible with `patch -R < that-file`.
@@ -44,17 +44,17 @@ driven in your own browser (`--provider bridge`).
   instructed (via the system prompt in `repl.js`) to reply with a
   `File: path` line followed by a fenced code block. Every such block in
   a reply is parsed out and written into your project tree automatically
-  (`lib/file-blocks.js`), and printed as `modified: path`. Any OTHER
+  (`lib/project/file-blocks.js`), and printed as `modified: path`. Any OTHER
   fenced code block in a reply - one without a `File:` label - is saved
   too, as `<model>-output-N.ext` (extension guessed from the block's
-  language tag, `lib/sent-files.js` tracks the numbering across a run so
+  language tag, `lib/project/sent-files.js` tracks the numbering across a run so
   it never collides with a previous run's output files) - nothing the
   model writes is silently dropped just because it skipped the
   convention. The system prompt asks it to suggest a real filename for
   every snippet it writes (even a quick example), so the auto-numbered
   fallback is mostly a safety net rather than the common case.
 - **Project awareness (native tool calls).** The model has tools
-  (`lib/tool-requests.js`: `list_directory`, `read_file`, `grep`, `edit_file`,
+  (`lib/agent/tool-requests.js`: `list_directory`, `read_file`, `grep`, `edit_file`,
   `write_file`, `run_command`, ...) and is told to use them proactively, as soon as it
   is unsure about something, rather than guessing: grep the codebase, test a change
   (including a quick `qjsm -e '<code>'` one-liner to check a JS/C-binding API call
@@ -62,12 +62,12 @@ driven in your own browser (`--provider bridge`).
   run and their results fed back as the next turn automatically (up to `--max-rounds`
   rounds per prompt, `runToolLoop` in `repl.js`) before the final answer is shown. A
   model that writes its calls as text instead (`qwen2.5-coder`) is understood too
-  (`lib/text-tool-calls.js`). `run_command` is never run silently in the default mode - you
+  (`lib/clients/text-tool-calls.js`). `run_command` is never run silently in the default mode - you
   are shown the exact command and asked to approve it (`ChatREPL#confirm()`) before it
   executes; a declined command is reported back to the model as declined.
 - **Automatic project scan at startup.** Before the first prompt, the
   REPL seeds the conversation with a shallow, top-level-only listing of
-  the project root (filtered to `SOURCE_EXT`, `lib/file-refs.js`, and
+  the project root (filtered to `SOURCE_EXT`, `lib/project/file-refs.js`, and
   whatever `.gitignore` already excludes) plus the root `README.md` and
   `CMakeLists.txt` if present (`gatherProjectContext()`, `repl.js`) - the
   same way Claude Code reads project context up front instead of waiting
@@ -78,17 +78,34 @@ driven in your own browser (`--provider bridge`).
   `/reset` clears conversation history but keeps this initial scan; `/clear`
   wipes it too, for a session with no scan at all.
 - **Session persistence.** The conversation is saved to `session.json` in the session's cache directory
-  (`lib/session-store.js`) after every turn and after `/reset`/`/clear`. If
+  (`lib/session/session-store.js`) after every turn and after `/reset`/`/clear`. If
   that file already exists at startup, the REPL resumes from it instead of
   running the automatic project scan again - kill and restart the REPL
   (same `--model` and project, or the same `--name`) and the conversation picks up
   where it left off. `/clear` (see above) is the way to discard a resumed
   session and start over.
+- **Session identity and settings.** A session is `--name NAME`, else the project (its directory name and a
+  hash of its path): the model is not part of it, so `/model` and a restart with another model keep the
+  conversation. Two sessions running at once in one project need their own `--name`. Beside the conversation,
+  `state.json` keeps the session's name, model, project, title and its settings (`mode`, `stream`, `think`,
+  `temperature`, `numCtx`, `maxRounds`, `scan`, `verbose`, `fallbackModel`, the `/cd` root, skipped models), written
+  whenever one changes; a plain start puts them back (the command line still wins, then `settings.json`) and says
+  which ones. `allowPaid` and the `--no-*` switches are never saved. `session.json` is written whole or not at
+  all; an unreadable one is kept as `session.json.corrupt`.
+- **`/sessions` (session browser), `--sessions`.** In the TUI `/sessions` opens a full-screen browser: the saved
+  sessions as a list that scrolls (the highlighted row has a background; `*` is this session, `●` one that runs in
+  another process), and below it the details of the highlighted one (project, model, messages, size, last update,
+  saved settings, title, the last prompt and reply). Up/Down j/k, PgUp/PgDn, Home/End move; **Enter or `l` loads** the
+  session (this process restarts into it, the way `/restart` does, under the session's key as name; its own model and
+  settings come back; the session you leave is already saved); **`i` inspects** it (the whole conversation in the
+  pager); `q` goes back. The session that is open and one that another process runs cannot be loaded. `/sessions list`
+  and `--sessions` print the list as a table instead. `/sessions prune [DAYS]` (and `--prune-sessions DAYS`) delete
+  the ones unused for DAYS (30); running ones stay, nothing is deleted unasked.
 - **QuickJS/qjs-modules awareness.** The system prompt points the model at
   `quickjs.h` (the QuickJS C API) and the qjs-modules JS built-ins
   (`fs`/`console`/`process`/`util`) by name rather than paraphrasing their
   API inline - mentioning either in a prompt attaches the real file
-  (`lib/reference-files.js`), same as any project file, so the model reads
+  (`lib/project/reference-files.js`), same as any project file, so the model reads
   the actual source instead of a summary of it. The sibling `qjs-*`
   native-module projects checked out next to this repo (`qjs-modules`,
   `qjs-ffi`, `qjs-net`, ...) are real prior art for how a binding is
@@ -96,7 +113,7 @@ driven in your own browser (`--provider bridge`).
   name (e.g. `LIST: qjs-modules`, `READ: qjs-ffi/ffi.c`), not just this
   project.
 - **Real line editing + persisted history + Tab-completion.**
-  `lib/chat-repl.js` drives the prompt loop through qjs-modules' built-in
+  `lib/tui/chat-repl.js` drives the prompt loop through qjs-modules' built-in
   `REPL` (module `'repl'`) instead of a plain `std.in.getline()` loop -
   up/down arrow recalls previous prompts, `^R` reverse-searches them,
   history persists across runs (`~/.<scriptname>_history` by default,
@@ -106,7 +123,7 @@ driven in your own browser (`--provider bridge`).
   base REPL's live JS-syntax highlighting (meaningless for a chat prompt).
 - **Session log.** Every prompt (with what was attached), reply, tool
   result, and file written is appended, timestamped, to `session.log` in
-  the session's cache directory (`lib/session-log.js`) - independent of the
+  the session's cache directory (`lib/session/session-log.js`) - independent of the
   terminal, and across runs (opened in append mode). This is a read-only
   transcript; `session.json` (see "Session persistence" above) is the
   actual resumable conversation state.
@@ -116,12 +133,12 @@ driven in your own browser (`--provider bridge`).
   non-streamed reply) arrives; a dim line like "Made it so in 3.2s"
   follows once a turn is fully done. Instead of "Thinking..." the spinner
   tells nerd jokes from Star Trek, Monkey Island, Discworld and the
-  Indiana Jones games (`lib/quips.js`), a new one every 4 seconds, picked
+  Indiana Jones games (`lib/tui/quips.js`), a new one every 4 seconds, picked
   by phase: "Hailing frequencies open" while sending, "Look behind you, a
   three-headed monkey!" while waiting, "Using the rubber chicken on the
   problem" while a tool runs. In the TUI the facts follow the joke. All three clients cap how long it can
   spin: `timeoutSecs` (15 minutes by default - see `DEFAULT_TIMEOUT_SECS`
-  in `lib/ollama-client.js`/`lib/gemini-client.js`/`lib/openai-client.js`)
+  in `lib/clients/ollama-client.js`/`lib/clients/gemini-client.js`/`lib/clients/openai-client.js`)
   bounds both the initial wait for a reply to begin and, separately, any
   gap between chunks once a streamed reply is under way - a connection
   that goes silent past that window is force-closed and the turn fails
@@ -129,16 +146,16 @@ driven in your own browser (`--provider bridge`).
 
 ## Using `OllamaClient`/`GeminiClient`/`OpenAIClient` directly
 
-`lib/ollama-client.js`, `lib/gemini-client.js` and `lib/openai-client.js`
+`lib/clients/ollama-client.js`, `lib/clients/gemini-client.js` and `lib/clients/openai-client.js`
 are all usable on their own from a `qjsm` REPL, independent of `repl.js`'s
 own chat loop - handy for poking at a model manually, or for driving real
 API-native tool/function calling, the way `repl.js`'s own tool loop uses it. See
 `doc/ARCHITECTURE.md` section 8 for the message format; short version:
 
 ```js
-import { OllamaClient } from './lib/ollama-client.js';
-// or: import { GeminiClient } from './lib/gemini-client.js';
-// or: import { OpenAIClient } from './lib/openai-client.js';
+import { OllamaClient } from './lib/clients/ollama-client.js';
+// or: import { GeminiClient } from './lib/clients/gemini-client.js';
+// or: import { OpenAIClient } from './lib/clients/openai-client.js';
 
 const client = new OllamaClient({ model: 'qwen2.5-coder' });
 const { content } = await client.chat([{ role: 'user', content: 'hi' }]);
@@ -231,7 +248,7 @@ the site table and per-site quirks: `../chat-bridge/README.md`,
   a site pinned by name: when it hits its message limit, asks you to
   log in, or does not take the prompt, the turn is retried on the next
   available site (one line says so; never `auto`). The conversation is compacted first
-  (`lib/handoff.js`): system prompt and project scan kept, the last
+  (`lib/failover/handoff.js`): system prompt and project scan kept, the last
   `--handoff-turns N` (3) user turns kept with big tool results clipped,
   older turns summarized by a small local model (`--handoff-model`,
   default `qwen3:4b-instruct`, needs a running ollama; without it a plain
@@ -282,6 +299,7 @@ Engaged at warp 9 in 3.2s - auto:fast -> kilo/nvidia/nemotron-3.5-lightning:free
 
 | Command | Shows |
 |---|---|
+| `/quota` | The rate limits the endpoint reported with its newest answer (`x-ratelimit-*` headers): requests and tokens left against the limit, per window (minute, hour, day for Cerebras). Nothing is shown before the first answer. |
 | `/last [N]` | Everything about the last request, or request #N of `/requests`: requested model, served model, routed platform/model (`X-Routed-Via`), upstream provider, request id (`X-Request-ID` = `execution_id`), HTTP status, finish reason, prompt/completion/reasoning/cached tokens, cost, time to headers / first token / end, failed hops before it (`X-Fallback-Attempts`, `-Trail`, `-Detail`), compression, cache, rate limit left |
 | `/requests [N]` | The last N (10) requests of the session, one line each |
 | `/usage` | Session totals, then a table per routed model and per platform |
@@ -333,7 +351,7 @@ theme gradient, `≋≈☼` (waves rising into the sun), instead of the old
 (`waveNote()` in `lib/look.js`).
 
 On a terminal, ollama-repl keeps its input and three status rows at the
-bottom of the screen, in its own teal-to-amber look (`lib/tui.js` for
+bottom of the screen, in its own teal-to-amber look (`lib/tui/tui.js` for
 the layout, `lib/look.js` for the style, both on qjs-modules' `terminal`
 widgets):
 
@@ -521,7 +539,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   local models included: state, bytes up and
   down with rates, round trip, and for the request on it the phase, a
   progress bar, the route and a peek at what was sent and what flows back.
-  Finished requests stay a minute. `lib/net-pane.js`, `lib/net-activity.js`.
+  Finished requests stay a minute. `lib/tui/net-pane.js`, `lib/tui/net-activity.js`.
 - **Key restriction (`/model key:ID,key:ID`).** Lists the models reachable
   through those gateway keys (a key serves the models of its platform inside
   its model scope; the ids are in `/gateway keys`) and restricts the model
@@ -542,7 +560,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   `quota.jsonl` (the month's use per platform every 15 minutes; 180 days) and
   `cooldowns.json` (learned cooldowns and the unexpired local blocks).
   `/usage history [DAYS]` sums up the earlier sessions from `usage.jsonl`.
-  `lib/persist.js`.
+  `lib/session/persist.js`.
 - **Hop line.** An automatic skip (the gateway ran out of models, a route failed upstream) is one line,
   `⇄ SPENT reason[: N models of providers][, back TIME] → NEXT rating R`, model names in their strength colour.
 - **Failover and choice (`/model next`, `/model skip`).** A model that
@@ -627,7 +645,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
 - **Two-tier exploration.** Tier 0 is one tiny request with a `ping` tool on
   offer (answers? calls tools? how fast): no identity question, no system-prompt
   word. Tier 1 runs for the 30 best rated models only: a fixed synthetic compacted
-  conversation (`lib/probe-context.js`: system prompt, a summary with tool-result
+  conversation (`lib/gateway/probe-context.js`: system prompt, a summary with tool-result
   filler, the harness's tool schemas, three facts at about 10/50/90% depth) sized
   to a quarter of the model's context window, 1.5k to 12k tokens, and the model
   must report the facts with one tool call. Nothing of your project is sent. The
@@ -637,7 +655,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   prompt). A tier 1 failure by a provider hiccup is asked again after 10 minutes,
   a real one after 6 hours; passed tiers are never repeated.
 - **Diagnosis of failed probes.** When the exploration's probe of a model
-  fails, the worker looks into it right there (`lib/diagnose.js`): what the
+  fails, the worker looks into it right there (`lib/agent/diagnose.js`): what the
   error says (rate limited, upstream error, timeout, model gone, key
   refused, empty answer), the gateway's own
   picture of the model (limited by which window, back when), its providers
@@ -675,7 +693,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   it, best first: `/model list`, `/model health` (`Rate` column),
   `/gateway models`, `/gateway limited` and `/gateway providers` (a
   provider rates as the mean of its best three models; `sort:use` brings
-  back the heaviest-used order). `lib/rating.js`.
+  back the heaviest-used order). `lib/gateway/rating.js`.
 - **Key order (`/gateway keys sort:NAME`).** `use` (default: tokens, then
   requests this month, heaviest first), `requests`, `quota` (share of the
   platform quota used), `ok` (longest without a healthy answer first),
@@ -689,7 +707,7 @@ last 1.4k+66 · session 2 req 3.0k tok · req/min ██·· 3/10 · gateway █
   (`/gateway login`); `all` adds the providers without a key. Real keys
   are never read: the gateway's reveal and export endpoints are not used.
 - **Async exploration.** `/model health` starts a background exploration
-  (`lib/exploration.js`, on the REPL's own event loop, two models at a
+  (`lib/gateway/exploration.js`, on the REPL's own event loop, two models at a
   time) of every READY gateway model, best first: the models that served a request in the
   last day, then the rating. Each model gets the two probes described below; a provider
   that just rate-limited is not probed again in the same run (its other models are skipped
@@ -801,7 +819,7 @@ from `~/Sources/quickjs/qjs-modules` has them.
 
 ### Colours in verbose mode
 
-Ctrl-O (`/verbose`) shows the raw content in colour (`lib/rawcolor.js`, in
+Ctrl-O (`/verbose`) shows the raw content in colour (`lib/tui/rawcolor.js`, in
 the theme palette). The colouring only adds colour: with the escape
 sequences removed the text is exactly what was sent or received
 (`tests/test-rawcolor.js`, run by `smoke.sh`).
@@ -918,7 +936,7 @@ the model back to work, `(added to the prompt: ...)` for the for_each hint.
 ```sh
 ollama-repl --listen --name alpha       # in a terminal (--name: default is the model name)
 ollama-repl-ctl list                    # name, pid, model, root, socket of live sessions
-ollama-repl-ctl send 'summarize lib/chat-repl.js'   # prints the reply, exits when idle
+ollama-repl-ctl send 'summarize lib/tui/chat-repl.js'   # prints the reply, exits when idle
 ollama-repl-ctl -s alpha send /diff     # -s: session name, pid, model fragment or socket path
 ollama-repl-ctl watch                   # follow the session's output
 ollama-repl-ctl monitor                 # what the model does now: reasoning, answer, tool calls and results, as they happen (--json: raw 'activity' events)
@@ -941,7 +959,7 @@ bounds the wait, default 600) - it never starts one itself.
 waits for the user at the terminal, 124 on timeout (`-t SECS`, default 600;
 the session keeps working). The wire format (plain input lines, one JSON event
 per line out: `hello`, `accepted`, `output`, `waiting`, `ready`) is documented
-at the top of `lib/control-socket.js`; `--json` makes `ollama-repl-ctl` print
+at the top of `lib/agent/control-socket.js`; `--json` makes `ollama-repl-ctl` print
 the raw events.
 
 - The model's `run_command` approval (`[y/N]`) and `ask_user` questions are
@@ -1010,7 +1028,7 @@ a plain digest of what was asked and which files were touched if it cannot
 be reached), and the last `--handoff-turns` turns (default 3) stay verbatim
 with long tool results clipped. The system prompt and project scan are
 never touched. It is the same code as the failover handoff
-(`lib/handoff.js`).
+(`lib/failover/handoff.js`).
 
 - **Automatic**: before a request, when the estimated use (characters / 3.5
   plus the tool schemas) reaches `--compact-at PCT` (default 80, 0 = off)
@@ -1058,7 +1076,7 @@ only. `/route` is the short way to set it:
 
 When a request fails for a reason a retry cannot fix, the route is put out of
 use for a cool-down and the same request (the whole conversation is kept) is
-retried on the next candidate, without the user (`lib/provider-fallback.js`,
+retried on the next candidate, without the user (`lib/clients/provider-fallback.js`,
 `chatRound()` in `repl.js`):
 
 | failure | cool-down | what happens |
@@ -1119,7 +1137,7 @@ documented afterwards, and only read, not run - see TODO.md.
   - **Check first**: the restart runs `smoke.sh` on the edited source
     tree. A failing check refuses the restart, the running session is
     untouched, and the failure output goes back to the model to fix.
-    `smoke.sh` imports every `lib/*.js`, runs `tests/test-rawcolor.js` and starts
+    `smoke.sh` imports every `lib/**/*.js`, runs `tests/test-rawcolor.js` and starts
     the REPL in a pty (with `--listen`, plus `SMOKE_ARGS`) with a fixed
     command set. An installed copy that is told to restart then runs the
     source tree's `repl.js` and says so (`≋ restarting from the source
@@ -1150,7 +1168,7 @@ documented afterwards, and only read, not run - see TODO.md.
   5xx status, a `timeout`/`gateway_error`/`upstream_error` code or a
   message such as "no response after", "timed out", "502", "503", "bad
   gateway" now counts as a model failure (`Failover.isUpstreamFailure`,
-  `lib/failover.js`). The note says "upstream failure" and the model is
+  `lib/failover/failover.js`). The note says "upstream failure" and the model is
   reported as `(MODEL: REASON - skipped for 10m)`.
 - **Repeated tool calls**: results of identical tool calls within one turn
   are cached and returned again; rounds made only of repeats withdraw the
@@ -1229,11 +1247,11 @@ end to end.
 
 - Replies stream token by token by default; `--no-stream` (or `/stream off`,
   or `stream` in `settings.json`) prints the full reply at once.
-- File detection is a best-effort token scan (`lib/file-refs.js`), capped
+- File detection is a best-effort token scan (`lib/project/file-refs.js`), capped
   at 20 files / 1&nbsp;MiB total per prompt so a broad glob can't flood the
   request; skipped matches are reported.
 - File writes reject any path that would escape `--root` (`../..`, an
-  absolute path, `~`) - see `isSafeRelativePath()` in `lib/file-blocks.js`.
+  absolute path, `~`) - see `isSafeRelativePath()` in `lib/project/file-blocks.js`.
 - The "only emit a `File:` block when asked" instruction in the system
   prompt is just that - an instruction. Smaller/less-steerable models may
   still emit one unprompted on occasion; review `modified: path` lines
@@ -1253,10 +1271,10 @@ end to end.
 
 ## chat-bridge as a backend
 
-`Gateway` (lib/freellm.js) answers for both a freellmapi gateway and a
+`Gateway` (lib/gateway/freellm.js) answers for both a freellmapi gateway and a
 chat-bridge: `/v1/usage` says which one (`source: "chat-bridge"`, `gateway.kind`,
 `gateway.isBridge`). For a bridge, `/gateway usage|providers|forecast|models`
-work as they are, and `loadAvailability()` (lib/availability.js) builds the same
+work as they are, and `loadAvailability()` (lib/gateway/availability.js) builds the same
 picture from the bridge's own endpoints: a site is a model and a provider at
 once, a site that hit its limit is blocked until its cooldown ends (`/gateway
 limits`, `/gateway limited`, `/model list`), its learned request budget stands

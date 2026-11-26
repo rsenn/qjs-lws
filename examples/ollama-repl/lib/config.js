@@ -6,7 +6,7 @@
  *   env              KEY=VALUE lines (FREELLMAPI_URL, FREELLMAPI_KEY, ...) put in the
  *                    environment at startup; a variable already set wins
  *   system.md        replaces the built-in system prompt when present
- *   delegates.json   which sub-agent models did well (lib/delegates.js)
+ *   delegates.json   which sub-agent models did well (lib/agent/delegates.js)
  *
  * ```js
  * const opts = { provider: 'ollama', ...globalSettings() };   // then the command line on top

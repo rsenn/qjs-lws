@@ -1,5 +1,5 @@
 /* hopLine: the one-line text of an automatic model switch (plain and coloured) */
-import { hopLine } from '../lib/hop-line.js';
+import { hopLine } from '../lib/failover/hop-line.js';
 
 function eq(a, b) {
   if(a !== b) throw new Error(`expected\n  ${b}\ngot\n  ${a}`);
@@ -19,7 +19,7 @@ eq(tags, '[arrow:⇄] <a> [warn:rate limited]: [provider:p] [arrow:→] <b>');
 
 /* the terminal styling: colours by part, dim through dim(), plain when piped */
 {
-  const { hopStyle, HOP_COLORS } = await import('../lib/hop-line.js');
+  const { hopStyle, HOP_COLORS } = await import('../lib/failover/hop-line.js');
   const st = hopStyle({ dim: s => `~${s}~`, fgHex: (hex, text) => `<${hex}>${text}</>`, modelName: id => `[${id}]` });
   const line = hopLine({ from: 'a', why: 'rate limited', providers: ['kilo'], count: 3, back: '5m', next: 'b', rating: 80 }, st);
   if(!line.includes(`<${HOP_COLORS.provider}>kilo</>`) || !line.includes(`<${HOP_COLORS.time}>5m</>`) || !line.includes('~rating 80~') || !line.includes('[a]') || !line.includes('[b]'))

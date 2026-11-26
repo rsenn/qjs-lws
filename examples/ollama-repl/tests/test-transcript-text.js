@@ -1,5 +1,5 @@
 /* test-transcript-text.js: the pure helpers behind the coloured transcript lines and the exploration queue */
-import { exploreOrder, makeModelName, routeFailure, servedIds, soonestReset, earliestReset } from '../lib/transcript-text.js';
+import { exploreOrder, makeModelName, routeFailure, servedIds, soonestReset, earliestReset } from '../lib/tui/transcript-text.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-transcript-text: ${what}`);

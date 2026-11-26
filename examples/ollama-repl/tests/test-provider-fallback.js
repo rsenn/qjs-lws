@@ -1,7 +1,7 @@
-/* test-provider-fallback.js: failure classes, cool-downs and the next-candidate pick of lib/provider-fallback.js,
+/* test-provider-fallback.js: failure classes, cool-downs and the next-candidate pick of lib/clients/provider-fallback.js,
    and the one-line message of OpenAIError (no header dump) */
-import { classify, shortReason, resetMs, ProviderFallback } from '../lib/provider-fallback.js';
-import { OpenAIError } from '../lib/openai-client.js';
+import { classify, shortReason, resetMs, ProviderFallback } from '../lib/clients/provider-fallback.js';
+import { OpenAIError } from '../lib/clients/openai-client.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-provider-fallback: ${what}`);

@@ -1,5 +1,5 @@
-/* test-rawcolor-reasoning.js: colorReasoning (lib/rawcolor.js) only adds colour, in the palette's colours */
-import { colorReasoning } from '../lib/rawcolor.js';
+/* test-rawcolor-reasoning.js: colorReasoning (lib/tui/rawcolor.js) only adds colour, in the palette's colours */
+import { colorReasoning } from '../lib/tui/rawcolor.js';
 import { PROSE, INLINE_CODE, CODE_STRING, HEADER, CODE_FENCE } from '../lib/palette.js';
 
 const check = (what, ok) => {

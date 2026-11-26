@@ -1,0 +1,451 @@
+  /**
+ * A tiny Google Gemini `generateContent`/`streamGenerateContent` client
+ * (https://ai.google.dev/api/generate-content), built directly on the
+ * `httpClient` protocol adapter (`lib/lws/protocols.js`) with its own
+ * `LWSContext` - same structure as `OllamaClient` (./ollama-client.js) -
+ * rather than the shared `fetch()` (lib/fetch.js): `fetch()`'s pooled
+ * context never overrides lws's own 15s connection timeout, which Gemini
+ * can easily exceed on a "thinking" response (confirmed directly: a real
+ * request closed with a bare "closed" ConnectionError after ~15s before
+ * this client switched to its own long-timeout context - see BUGS).
+ *
+ * `chat()` posts to `:generateContent` and returns the complete reply in
+ * one go; `chatStream()` posts to `:streamGenerateContent?alt=sse` and
+ * reads the SSE (blank-line-delimited `data: {...}`) response
+ * incrementally as it arrives, same shape as `OllamaClient#chatStream` - a
+ * real `ReadableStream` (lib/lws/streams.js), no child process or second
+ * connection needed.
+ *
+ * `messages`/`options`/return value follow this project's shared message
+ * and tool-use format (documented in `../../doc/ARCHITECTURE.md` section 8, not Ollama's own wire
+ * shape) - `#toContents()` converts it natively into Gemini's `contents`/
+ * `tools`/`toolConfig` request shape and back out of its response.
+ *
+ * Each request opens its own fresh connection rather than a kept-alive
+ * `LCCSCF_PIPELINE` connection reused across turns - see OllamaClient's
+ * own doc comment (BUGS: h1-late-queued-pipeline-never-promoted) for why.
+ */
+import createContext from '../../../../lib/lws/context.js';
+import { httpClient } from '../../../../lib/lws/protocols.js';
+import { LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT, LWS_SERVER_OPTION_IGNORE_MISSING_CERT, toString } from 'lws.so';
+import { RequestLogger } from '../../../../lib/logger.js';
+import { debugLogPath } from '../session/session-cache.js';
+import { getenv, puts } from 'std';
+import { setTimeout, clearTimeout } from 'os';
+
+const DEFAULT_MODEL = 'gemini-flash-latest';
+/* transient failures worth retrying, and the pauses between attempts */
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+const RETRY_DELAYS_S = [3, 6, 12, 24, 40];
+const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+/* Same rationale as OllamaClient's own DEFAULT_TIMEOUT_SECS: lws's 15s
+   built-in default (see wsi-timeout.c/context.c) is too short for a
+   "thinking" model response. Overridable via `timeoutSecs` for tests/
+   tuning. */
+const DEFAULT_TIMEOUT_SECS = 15 * 60;
+
+/* Mirrors OllamaClient's own debug log (see its DEBUG_LOG_PATH comment)
+   but kept in a separate file so the two clients' logs don't interleave.
+   See lib/logger.js's own doc comment. */
+/* the debug log: lib/session/session-cache.js debugLogPath() */
+
+/** a response's (or last stream event's) usageMetadata -> this project's usage record, undefined when it carries none */
+export function geminiUsage(data) {
+  const u = data?.usageMetadata;
+  if(!u) return undefined;
+  const prompt = u.promptTokenCount;
+  const completion = (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0) || undefined;
+  return { prompt, completion, total: u.totalTokenCount ?? (prompt ?? 0) + (completion ?? 0), reasoning: u.thoughtsTokenCount || undefined, cached: u.cachedContentTokenCount || undefined };
+}
+
+export class GeminiClient {
+  /** called with the request's metadata (requested, model, ms, usage) once it is answered, like OpenAIClient#onMeta */
+  onMeta = null;
+  #apiKey;
+  #ctx;
+  #adapter;
+  /** Same req -> {resolve, reject} bookkeeping as OllamaClient#settled -
+      see its own doc comment for why this is a plain Map, not a WeakMap. */
+  #settled = new Map();
+  #logger;
+  #timeoutMs;
+  #timeoutSecs;
+
+  /**
+   * @param {object} opts
+   * @param {string} [opts.apiKey] Gemini API key; defaults to the
+   *   `GEMINI_API_KEY` environment variable
+   * @param {string} [opts.model]  model name, e.g. "gemini-flash-latest"
+   * @param {number} [opts.timeoutSecs] how long a request may wait before
+   *   lws gives up on it (see DEFAULT_TIMEOUT_SECS above)
+   * @param {boolean} [opts.debug] log every request/response to
+   *   DEBUG_LOG_PATH (also turned on by the `DEBUG` env var, regardless
+   *   of this flag)
+   */
+  constructor({ apiKey = getenv('GEMINI_API_KEY'), model = DEFAULT_MODEL, timeoutSecs = DEFAULT_TIMEOUT_SECS, debug = false } = {}) {
+    if(!apiKey) throw new Error('GeminiClient: no API key (pass opts.apiKey or set GEMINI_API_KEY)');
+
+    this.#apiKey = apiKey;
+    this.model = model;
+    this.#timeoutMs = timeoutSecs * 1000;
+    this.#timeoutSecs = timeoutSecs;
+
+    this.#logger = new RequestLogger(debugLogPath('gemini', debug), debug);
+
+    this.#adapter = httpClient((req, resp) => this.#take(req)?.resolve(resp), { error: (req, err) => this.#reject(req, err) });
+
+    /* Same SSL-enabling context options lib/fetch.js's buildContext() uses
+       for a plain HTTPS request with no client-cert-style `tls` object -
+       lws needs LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX (+ friends) up
+       front to be able to make any TLS client connection at all. */
+    this.#ctx = this.#newContext();
+  }
+
+  /** Same rationale as OllamaClient#newContext - see its own doc comment. */
+  #newContext() {
+    return createContext({
+      options: LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_CREATE_VHOST_SSL_CTX | LWS_SERVER_OPTION_IGNORE_MISSING_CERT,
+      protocols: [{ name: 'http', ...this.#adapter }],
+      timeoutSecs: this.#timeoutSecs,
+    });
+  }
+
+  #take(req) {
+    const record = this.#settled.get(req);
+    this.#settled.delete(req);
+    return record;
+  }
+
+  /** Same rationale as OllamaClient#reject - see its own doc comment. */
+  #reject(req, err) {
+    const reason = new Error(`Gemini connection failed: ${err.message}`);
+
+    if(req) {
+      this.#take(req)?.reject(reason);
+      return;
+    }
+
+    for(const { reject } of this.#settled.values()) reject(reason);
+    this.#settled.clear();
+  }
+
+  /**
+   * Converts this project's shared message format (see doc/ARCHITECTURE.md section 8) into
+   * Gemini's `contents` array. `Content.role` only ever accepts `'user'` or
+   * `'model'` in this API - there is no third `'function'`/`'tool'` role -
+   * so `assistant` maps to `model`, `system` messages are pulled out into a
+   * separate `systemInstruction`, and `tool` messages (this project's
+   * format) map to a `'user'`-role turn carrying a `functionResponse` part,
+   * per the API's own contract for replying to a `functionCall`.
+   */
+  #toContents(messages) {
+    const systemParts = [];
+    const contents = [];
+
+    for(const { role, content, toolCalls, name } of messages) {
+      if(role === 'system') {
+        systemParts.push({ text: content });
+        continue;
+      }
+
+      if(role === 'tool') {
+        const response = content != null && typeof content === 'object' ? content : { result: content };
+        contents.push({ role: 'user', parts: [{ functionResponse: { name, response } }] });
+        continue;
+      }
+
+      const parts = [];
+      if(content) parts.push({ text: content });
+      for(const tc of toolCalls ?? []) parts.push({ functionCall: { name: tc.name, args: tc.args }, ...(tc.thoughtSignature ? { thoughtSignature: tc.thoughtSignature } : {}) });
+
+      contents.push({ role: role === 'assistant' ? 'model' : 'user', parts });
+    }
+
+    return { contents, systemInstruction: systemParts.length ? { parts: systemParts } : undefined };
+  }
+
+  /** `toolChoice` (see doc/ARCHITECTURE.md section 8) -> Gemini's `toolConfig.functionCallingConfig`. */
+  #toToolConfig(toolChoice) {
+    if(!toolChoice) return undefined;
+
+    const { mode, allowed } = typeof toolChoice === 'string' ? { mode: toolChoice } : toolChoice;
+    return { functionCallingConfig: { mode: mode.toUpperCase(), ...(allowed ? { allowedFunctionNames: allowed } : {}) } };
+  }
+
+  /** Shared connect+await-response half of chat()/chatStream() below. */
+  async #post(pathSuffix, messages, options) {
+    for(let attempt = 0; ; attempt++) {
+      try {
+        return await this.#postOnce(pathSuffix, messages, options);
+      } catch(e) {
+        /* "high demand" (503), rate limit (429) and the like are transient:
+           back off and retry instead of failing the whole turn */
+        if(!RETRY_STATUS.has(e.status) || attempt >= RETRY_DELAYS_S.length) throw e;
+
+        const secs = RETRY_DELAYS_S[attempt];
+        console.log(`(Gemini HTTP ${e.status}: ${e.apiMessage ?? 'busy'} - retrying in ${secs}s, ${attempt + 1}/${RETRY_DELAYS_S.length})`);
+        await new Promise(resolve => setTimeout(resolve, secs * 1000));
+      }
+    }
+  }
+
+  async #postOnce(pathSuffix, messages, { tools, toolChoice, ...options }) {
+    const { contents, systemInstruction } = this.#toContents(messages);
+
+    const payload = {
+      ...options,
+      contents,
+      ...(systemInstruction ? { systemInstruction } : {}),
+      ...(tools ? { tools: [{ functionDeclarations: tools.map(({ name, description, parameters }) => ({ name, description, parameters })) }] } : {}),
+      ...(toolChoice ? { toolConfig: this.#toToolConfig(toolChoice) } : {}),
+    };
+    const url = `${API_BASE}/${this.model}:${pathSuffix}`;
+    const headers = { 'content-type': 'application/json', 'x-goog-api-key': this.#apiKey };
+
+    this.#logger.request('POST', url, headers);
+    this.#logger.body(payload);
+
+    const { req, wsi } = await this.#adapter.connect(this.#ctx, url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    // Registered synchronously, right after connect() resolves - no
+    // `await` in between - see OllamaClient#post's identical comment for
+    // why that ordering matters.
+    const resp = await this.#awaitResponse(req, wsi);
+
+    this.#logger.response(resp.status, resp.statusText, resp.headers);
+
+    // See OllamaClient#post's identical comment: `.status`, not `.ok`.
+    if(resp.status < 200 || resp.status >= 300) {
+      const headers = {};
+      resp.headers?.forEach((v, k) => (headers[k] = v));
+      const body = await resp.text().catch(() => '');
+      let apiMessage;
+      try {
+        apiMessage = JSON.parse(body)?.error?.message;
+      } catch(e) {}
+
+      const err = new Error(`Gemini HTTP ${resp.status}${apiMessage ? `: ${String(apiMessage).replace(/\s+/g, ' ').slice(0, 300)}` : ''}`);
+      err.status = resp.status;
+      err.headers = headers;
+      err.body = body;
+      err.apiMessage = apiMessage;
+      throw err;
+    }
+
+    return resp;
+  }
+
+  /** Same backstop as OllamaClient#awaitResponse - see its own doc comment. */
+  #awaitResponse(req, wsi) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#take(req);
+        wsi?.close();
+        reject(new Error(`Gemini: no response after ${(this.#timeoutMs / 1000).toFixed(0)}s - connection appears dead, aborting`));
+      }, this.#timeoutMs);
+
+      this.#settled.set(req, {
+        wsi,
+        resolve: v => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        reject: e => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
+    });
+  }
+
+  /** Same rationale as OllamaClient#abort - see its own doc comment.
+   * @returns {boolean} whether a pending request was actually aborted */
+  abort() {
+    if(!this.#settled.size) return false;
+
+    for(const { reject, wsi } of this.#settled.values()) {
+      wsi?.close();
+      reject(new Error('interrupted'));
+    }
+
+    this.#settled.clear();
+    return true;
+  }
+
+  /** Same backstop as OllamaClient#readWithTimeout - see its own doc comment. */
+  #readWithTimeout(reader) {
+    let timer;
+
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reader.cancel().catch(() => {});
+        reject(new Error(`Gemini: stream stalled - no data for ${(this.#timeoutMs / 1000).toFixed(0)}s, aborting`));
+      }, this.#timeoutMs);
+    });
+
+    return Promise.race([reader.read(), timeout]).finally(() => clearTimeout(timer));
+  }
+
+  /**
+   * Pulls `{ content, toolCalls }` (see doc/ARCHITECTURE.md section 8) out of one candidate's
+   * `parts[]` - shared between chat()'s single response and chatStream()'s
+   * per-event chunks. `id` is synthesized here (`name#index`); neither this
+   * API nor Ollama's gives one - see ARCHITECTURE.md section 8.
+   */
+  #toResult(parts) {
+    const content = parts
+      .filter(p => p.text != null)
+      .map(p => p.text)
+      .join('');
+    const toolCalls = parts.filter(p => p.functionCall).map((p, i) => ({ id: `${p.functionCall.name}#${i}`, name: p.functionCall.name, args: p.functionCall.args ?? {}, ...(p.thoughtSignature ? { thoughtSignature: p.thoughtSignature } : {}) }));
+
+    return { content, toolCalls: toolCalls.length ? toolCalls : undefined };
+  }
+
+  /**
+   * Lists the models the API key can use (`GET /v1beta/models`, all pages)
+   * that support `generateContent`, i.e. the ones usable for chat.
+   *
+   * @returns {Promise<{name: string, displayName: string, inputTokenLimit: number, outputTokenLimit: number}[]>}
+   */
+  async listModels() {
+    const out = [];
+    const headers = { 'x-goog-api-key': this.#apiKey };
+    let pageToken;
+
+    do {
+      const url = `${API_BASE.replace(/\/models$/, '')}/models?pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+
+      this.#logger.request('GET', url, headers);
+
+      const { req, wsi } = await this.#adapter.connect(this.#ctx, url, { method: 'GET', headers });
+      const resp = await this.#awaitResponse(req, wsi);
+      const data = await resp.json().catch(() => null);
+
+      if(resp.status < 200 || resp.status >= 300) throw new Error(`Gemini HTTP ${resp.status}: ${data?.error?.message ?? JSON.stringify(data)}`);
+
+      for(const m of data.models ?? [])
+        if(m.supportedGenerationMethods?.includes('generateContent')) out.push({ ...m, name: m.name.replace(/^models\//, '') });
+
+      pageToken = data.nextPageToken;
+    } while(pageToken);
+
+    return out;
+  }
+
+  /**
+   * POSTs one non-streaming `:generateContent` request. `messages`/`options`
+   * follow this project's shared message/tool-use format - see doc/ARCHITECTURE.md section 8.
+   *
+   * @returns {Promise<{content: string, toolCalls?: object[]}>}
+   */
+  async chat(messages, options = {}) {
+    const t0 = Date.now();
+    const resp = await this.#post('generateContent', messages, options);
+    const data = await resp.json();
+    this.#logger.body(data);
+
+    const parts = data?.candidates?.[0]?.content?.parts;
+    if(!parts) throw new Error(`unexpected Gemini response: ${JSON.stringify(data)}`);
+
+    const result = this.#toResult(parts);
+    if(!result.content && !result.toolCalls) throw new Error(`unexpected Gemini response: ${JSON.stringify(data)}`);
+
+    this.onMeta?.({ requested: this.model, model: this.model, ms: Date.now() - t0, usage: geminiUsage(data), finish: data.candidates[0].finishReason });
+    return result;
+  }
+
+  /**
+   * Same as chat(), but posts to `:streamGenerateContent?alt=sse` -
+   * Gemini sends the response as Server-Sent Events, one `data: {...}`
+   * JSON chunk per event, as each part of the reply is generated. A
+   * `functionCall` part arrives whole in one event (see doc/ARCHITECTURE.md section 8) rather
+   * than token-by-token like `text`, so it's only visible in the returned
+   * object, not via `onToken`.
+   *
+   * @param {(token: string) => void} onToken called once per text chunk,
+   *   in order, as SSE events arrive
+   * @returns {Promise<{content: string, toolCalls?: object[]}>}
+   */
+  async chatStream(messages, options = {}, onToken) {
+    const t0 = Date.now();
+    const resp = await this.#post('streamGenerateContent?alt=sse', messages, options);
+    const reader = resp.body.getReader();
+
+    let buf = '';
+    let full = '';
+    const toolCalls = [];
+    // Set once the final SSE event's candidate carries a `finishReason`
+    // (e.g. "STOP") - per the API, that only appears on the last event of
+    // a candidate's stream.
+    let sawFinish = false;
+    let usageData;
+
+    for(;;) {
+      const { done, value } = await this.#readWithTimeout(reader);
+
+      /* toString() (lws.so) only accepts a real ArrayBuffer - a Uint8Array
+         *view* (what getReader().read() yields, per WHATWG) silently
+         returns undefined instead of throwing (see BUGS:
+         tostring-silently-undefined-on-typed-array-view, and
+         OllamaClient#chatStream's identical use of toString() below). */
+      if(!done) buf += toString(value);
+
+      let m;
+      while((m = buf.match(/\r?\n\r?\n/))) {
+        const event = buf.slice(0, m.index);
+        buf = buf.slice(m.index + m[0].length);
+
+        const dataLine = event.split(/\r?\n/).find(line => line.startsWith('data:'));
+        if(!dataLine) continue;
+
+        const chunk = JSON.parse(dataLine.slice(5).trim());
+        this.#logger.body(chunk);
+
+        const candidate = chunk?.candidates?.[0];
+        if(candidate?.finishReason) sawFinish = true;
+        if(chunk?.usageMetadata) usageData = chunk;
+
+        const parts = candidate?.content?.parts ?? [];
+        const { content: token, toolCalls: chunkCalls } = this.#toResult(parts);
+
+        if(token) {
+          full += token;
+          onToken(token);
+        }
+
+        for(const tc of chunkCalls ?? []) toolCalls.push({ ...tc, id: `${tc.name}#${toolCalls.length}` });
+      }
+
+      if(done) {
+        // See OllamaClient#chatStream's identical reasoning: reaching the
+        // end of the HTTP stream without ever seeing a `finishReason`
+        // means the connection closed before the response actually
+        // finished - surface that instead of returning a silently-
+        // truncated reply.
+        if(!sawFinish) throw new Error('Gemini: connection closed before the response finished');
+        this.onMeta?.({ requested: this.model, model: this.model, ms: Date.now() - t0, usage: geminiUsage(usageData) });
+        return { content: full, toolCalls: toolCalls.length ? toolCalls : undefined };
+      }
+    }
+  }
+
+  /* Idempotent - see BUGS: repl-controlc-double-invokes-cleanup-handlers.
+     A double Ctrl-C in the REPL (lib/tui/chat-repl.js's base class) runs every
+     registered cleanup handler, including this one via destroy(), twice;
+     #logger.close() has its own matching guard, see lib/logger.js. */
+  #destroyed = false;
+
+  destroy() {
+    if(this.#destroyed) return;
+    this.#destroyed = true;
+
+    this.#ctx.destroy();
+    this.#logger.close();
+  }
+}

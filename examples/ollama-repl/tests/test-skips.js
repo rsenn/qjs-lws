@@ -1,5 +1,5 @@
 /* test-skips.js: skips end early when the gateway says the model is usable again */
-import { releaseRecovered } from '../lib/skips.js';
+import { releaseRecovered } from '../lib/gateway/skips.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-skips: ${what}`);

@@ -13,7 +13,7 @@ import { gradient, style } from 'terminal/style';
 import * as widgets from 'terminal/widgets';
 import { bigText, keyValue } from 'terminal/widgets';
 import { piped } from './ansi.js';
-import { fmtNum } from './usage-stats.js';
+import { fmtNum } from './session/usage-stats.js';
 import { ACCENT, ARROWS, ERROR, FILE, NUMBERS, REMOTE, SHELL_OP, SHELL_PATH, SHELL_STRING, SHELL_VAR, SIZES, STOPS, TEXT, TIMES, TOKENS, TOOL_COLORS, WARN } from './palette.js';
 
 /* colors, defined in palette.js */

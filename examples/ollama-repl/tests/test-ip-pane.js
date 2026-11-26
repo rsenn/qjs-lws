@@ -1,6 +1,6 @@
 /* test-ip-pane.js: the exit address change pane and the "every keyless provider is exhausted" test */
-import { ipGroups, ipChangeParts, ipChangePanel } from '../lib/ip-pane.js';
-import { keylessExhausted } from '../lib/ip-fix.js';
+import { ipGroups, ipChangeParts, ipChangePanel } from '../lib/tui/ip-pane.js';
+import { keylessExhausted } from '../lib/gateway/ip-fix.js';
 import { stripAnsi } from 'terminal';
 
 const check = (what, ok) => {

@@ -1,5 +1,5 @@
 /* test-usage-baseline.js: turns, failure runs and error classes of the usage baseline */
-import { baseline, baselineText, errorClass, proxyLatency } from '../lib/usage-baseline.js';
+import { baseline, baselineText, errorClass, proxyLatency } from '../lib/session/usage-baseline.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-usage-baseline: ${what}`);
@@ -54,7 +54,7 @@ check('empty input', baseline([]).records === 0 && baselineText(baseline([])).in
   check('labelled rows are no turns', mix.turns === 2 && mix.turnsFailed === 0 && mix.records === 4);
 }
 {
-  const { usageRow } = await import('../lib/persist.js');
+  const { usageRow } = await import('../lib/session/persist.js');
   check('usageRow keeps the label of another client', usageRow('o', 's', { model: 'm' }, 'explore').label === 'explore');
   check('the main client has none', usageRow('o', 's', { model: 'm' }, 'main').label === undefined && usageRow('o', 's', { model: 'm' }).label === undefined);
 }

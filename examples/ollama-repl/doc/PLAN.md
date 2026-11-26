@@ -7,7 +7,7 @@ where in the code, how to check it, what it depends on, and a size (S = under an
 L = several sessions). Owner: H = this harness, G = the freellmapi gateway, U = the user, Q = the qjs-modules session.
 
 How to check any change: `for t in tests/test-*.js; do qjsm $t >/dev/null 2>&1 || echo FAIL $t; done`,
-`node --expose-internals check-names.cjs repl.js lib/*.js`, and for health work
+`node --expose-internals check-names.cjs repl.js $(find lib -name '*.js')`, and for health work
 `qjsm usage-baseline.js --days 1` against the baseline in `doc/HEALTH-EXPERIMENTS.md`.
 Rules that apply to every task: record a design decision in a doc before building it; every fix has a test and
 removes its `BUGS` entry; update `TODO.md` and the affected docs in the same change; stage files by name;
@@ -40,7 +40,7 @@ Contents
 | A2 | **Who takes the gateway proposals** (D4 to D8 below, `doc/GATEWAY-PROPOSALS.md`)? Options: the user changes freellmapi, a patch is prepared here against `~/Sources/freellmapi`, or the harness keeps working around them. | U | S |
 | A3 | **Delete the strace logs** (`strace.log`, `strace.log.copy.txt`, `strace.log.txt`, 110 MB, untracked or ignored). `harness.mp4` (14 MB) is also in the directory: keep or move out. | U | S |
 | A4 | **Restart the running sessions** (`auto`, `worker-freellm`, `qjs-modules`) so they use the code of Phases 1 to 3: attempt rows, probe budget, rating reliability, exploration order, Tor host. Without it the 4.2 "after" numbers stay the old code. `ollama-repl-ctl -s NAME restart` after `smoke.sh` passes. | U / H | S |
-| A5 | **Hop line in a terminal.** Look at a real automatic skip once (the line, the colours, a piped run) and say whether the wording is right (`lib/hop-line.js`). | U | S |
+| A5 | **Hop line in a terminal.** Look at a real automatic skip once (the line, the colours, a piped run) and say whether the wording is right (`lib/failover/hop-line.js`). | U | S |
 
 ## B. Health plan, the rest (`doc/HEALTH-EXPERIMENTS.md`)
 
@@ -63,7 +63,7 @@ Steps: (1) from `usage.jsonl` list runs with `attempt` >= 2 and their errors; (2
 upstream vs timeout) whether the next model can be chosen without a request (availability says it is limited) or
 whether the pinned model should be dropped for the whole run after the first "All models exhausted";
 (3) write the rule into `ARCHITECTURE.md` section 10 first, then change `chatRound` (`repl.js`), keep
-`AUTO_SKIPS`; (4) a test on `lib/skips.js` or a new pure helper (the choice must live in a `lib/` function: `repl.js`
+`AUTO_SKIPS`; (4) a test on `lib/gateway/skips.js` or a new pure helper (the choice must live in a `lib/` function: `repl.js`
 cannot be imported by a test). Success: failure run length and time to the next success in the baseline fall.
 
 **B3. 3.4 Failover headroom (M, needs `/gateway quota` data).**
@@ -84,7 +84,7 @@ rule. Depends on B3 (shares the headroom definition).
 **B5. 3.10 Quota bar question (S, needs G).**
 "584M/2.3G budgeted tokens" vs 876M in `/gateway usage`: find out which tokens `budget.totalUsed` counts (only
 budgeted platforms? only some models?). Steps: read `~/Sources/freellmapi/server/src/routes` for the budget
-endpoint; if kilo has no budget, say so in the bar ("budgeted platforms only") or count all; change `lib/freellm.js`
+endpoint; if kilo has no budget, say so in the bar ("budgeted platforms only") or count all; change `lib/gateway/freellm.js`
 `quotaText` accordingly, with a test; remove the question from `GATEWAY-PROPOSALS.md`.
 
 **B6. 4.1 leftover: the base `nemotron-3.5-lightning` (S).** Repeat the 400/1500 rerun for the base model when its
@@ -184,16 +184,16 @@ Harness side (H) unless marked G.
 - **G1. More events (S each).** Learned cooldown changes (`recordCooldownEvent`), a rating that moved by 10 or more,
   key quota (the monthly request cap of a single key), the persisted-quota stand-in being replaced, the keyless fix
   steps, `/gateway providers` status changes (a provider turning down), the standby used as a sub-agent. The key
-  status is compared at every availability load too (`lib/key-events.js`, done), and the `quota`, `failover` and `proxy` events are kept in `events.jsonl` (done, 30 days).
+  status is compared at every availability load too (`lib/gateway/key-events.js`, done), and the `quota`, `failover` and `proxy` events are kept in `events.jsonl` (done, 30 days).
 - **G2. Read the quota history (M).** `quota.jsonl` is written but nothing reads it: a trend for `/gateway forecast`
   and for B4. The status bar shows the preloaded quota as fresh until the first refresh answers: mark it stale.
-- **G4. Config cleanup (M).** Briefs still live in `~/.config/ollama-repl/brief-*.json` (`lib/project-brief.js
+- **G4. Config cleanup (M).** Briefs still live in `~/.config/ollama-repl/brief-*.json` (`lib/project/project-brief.js
   cachePath`), move to the cache; the restored `/model` pattern does not restore the cycle position; `/rename` after
   start does not move the session files (the key is fixed at startup); old `<model>.json/.log/-diffs` in project
   directories are not migrated; provider debug logs (`lib/logger.js`) still go to the cwd; add unit tests for
-  `lib/session-cache.js` and the env parser.
+  `lib/session/session-cache.js` and the env parser.
 - **G6. Local-model panels (M).** `/handoff`, `/compact`, `/handoff-model` summaries and `/each` use local-model calls
-  (`lib/handoff.js`) without the verbose panels, and they go through `localTrace`, not `watchNet`, so the net pane's
+  (`lib/failover/handoff.js`) without the verbose panels, and they go through `localTrace`, not `watchNet`, so the net pane's
   compaction type needs them labelled; `/brief` panels show whole documents (up to the 8k-token window, behind
   `/view N`): add panels and labels, cap the brief panel.
 
@@ -208,9 +208,9 @@ Harness side (H) unless marked G.
 - **H2. Live panels (M).** A repaint every 120 ms redraws the whole window; repaint changed rows only; the exploration
   panels scroll away as the chat goes on (pin them in the split pane, or a `/events` follow mode); a tool that throws
   leaves its panel on the failure line only when `runToolLoop` catches it (make every path close its panel).
-- **H3. Testability of `repl.js` (rest, S).** Done 2026-11-25: `hopStyle` (`lib/hop-line.js`), `makeModelName`,
-  `routeFailure`, `soonestReset`, `servedIds`, `exploreOrder` (`lib/transcript-text.js`) and `Tui#inKind` have tests.
-  Done 2026-11-26: the `/context` and `/log` helpers and the `/context` argument parsing (`lib/context-view.js`).
+- **H3. Testability of `repl.js` (rest, S).** Done 2026-11-25: `hopStyle` (`lib/failover/hop-line.js`), `makeModelName`,
+  `routeFailure`, `soonestReset`, `servedIds`, `exploreOrder` (`lib/tui/transcript-text.js`) and `Tui#inKind` have tests.
+  Done 2026-11-26: the `/context` and `/log` helpers and the `/context` argument parsing (`lib/tui/context-view.js`).
   Still only in `repl.js`: the dialog state of `ChatREPL` and the rest of the wiring; move pure parts out as they are touched.
 - **H4. Kitty keyboard and focus events (L).** Off today. `ChatREPL#termReadHandler` needs a layer that runs
   `decodeKeys()` and hands `handleKey()` the legacy string of each key (press events only); focus events could pause
@@ -236,7 +236,7 @@ Harness side (H) unless marked G.
 
 ## I. Files, context, compaction
 
-- **I1. File attachment (S each).** The limits are constants in `lib/file-refs.js`: add an option and a command, and
+- **I1. File attachment (S each).** The limits are constants in `lib/project/file-refs.js`: add an option and a command, and
   allow a file the user names explicitly up to 100 KB; a glob attach fires on a `*.js` inside quoted prose: attach only
   standalone path-like tokens, or add a `/noattach` and a leading `!` prefix; `read_file` resolves relative to the
   harness root: allow an absolute path under an extra root, or let `/cd` follow the job.
@@ -293,7 +293,7 @@ Harness side (H) unless marked G.
 - **J7. Delegation hygiene (S).** Lesson: two agents edited `chat-bridge.js` at once and the weaker worker left a
   half-done edit. Give each delegated task its own file or a lock, review the diff before the next dispatch; add the
   rule to the delegation prompt. Also: a local-model brief for other projects should say a goal, milestones and an
-  out-of-scope list instead of "find weaknesses" (`~/Sources/bass-doctor/TODO.md`, `lib/project-brief.js`).
+  out-of-scope list instead of "find weaknesses" (`~/Sources/bass-doctor/TODO.md`, `lib/project/project-brief.js`).
 
 ## K. Bridge (chat-bridge) parity
 
@@ -348,7 +348,7 @@ Plan and rationale: `../chat-bridge/doc/HARNESS.md` and `../chat-bridge/TODO.md`
 
 ## N. Open bugs (`BUGS`)
 
-- **N1. `loadavailability-stalls-the-loop` (`lib/availability.js:availabilityFrom`, `lib/openai-client.js:fetchJSON`):**
+- **N1. `loadavailability-stalls-the-loop` (`lib/gateway/availability.js:availabilityFrom`, `lib/clients/openai-client.js:fetchJSON`):**
   one load blocks the loop for 0.5 to 1.1 s against a fake gateway of the live size (compute 220 to 270 ms, JSON.parse
   of the penalty inspector 140 ms, the rest decoding of 7 responses). Another session works on it (`lib/lag.js` shows
   which section ran how long: restart a session, use `/model skip` and the `/gateway` views, read `/events lag` or

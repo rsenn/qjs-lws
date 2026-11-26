@@ -2,10 +2,11 @@
 
 The two causes found are fixed (the blocking pipe read in `lib/run-command.js`; the slow `Array.sort` comparators in
 `limitsText` and `modelStatusTable`) and the loop-lag instrumentation `lib/lag.js` exists. What is left:
-- `/split status|net` still spawns `ss` every 0.5 to 1 s (a slow `ss` on a host with many sockets is what timed out): poll slower, or
+- `/split status|net` still spawns `ss` (lws sockets now come from `LWSContext.sockets()`, `ss` only adds counters; dropping `ss` needs
+  byte counters on LWSSocket, see qjs-lws TODO.md) every 0.5 to 1 s (a slow `ss` on a host with many sockets is what timed out): poll slower, or
   only while the pane is visible.
 - After the restart (A4): confirm that `/events lag` no longer names `limitsText` or `modelStatusTable`; check the other comparators
-  that call heavy functions (`lib/freellm.js` `keysText` orders, `lib/availability.js` `limitedText`, where `rateOf` is called per comparison).
+  that call heavy functions (`lib/gateway/freellm.js` `keysText` orders, `lib/gateway/availability.js` `limitedText`, where `rateOf` is called per comparison).
 - Waiting for the next hiccup: read `/events lag` or `~/.cache/ollama-repl/lag.jsonl` first (the perf data of 23:09:38 shows no long CPU
   burst: that stall was waiting, not running).
 - The 4.8 s stall is explained and fixed (2026-11-26): it is `/model skip` of a spent provider (listModels download, then the loop, then
@@ -25,13 +26,26 @@ removed from here and from the plan (git history and `README.md` / `doc/ARCHITEC
 `doc/GATEWAY-PROPOSALS.md`.
 
 Checks before a commit: `for t in tests/test-*.js; do qjsm $t >/dev/null 2>&1 || echo FAIL $t; done` and
-`node --expose-internals check-names.cjs repl.js lib/*.js` (undeclared and doubly declared names). Tests are in
+`node --expose-internals check-names.cjs repl.js $(find lib -name '*.js')` (undeclared and doubly declared names). Tests are in
 `tests/` (`qjsm tests/test-x.js`, run from this directory); bare test names in the docs mean those files. After a
 change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scripts that talk to the gateway use
 `FREELLMAPI_URL` and `FREELLMAPI_KEY`, never `OPENAI_API_URL` (another service here).
 
 ## Uncommitted and open right now
 
+- **Session management** (done 2026-11-26, design in `doc/ARCHITECTURE.md` "Sessions"): atomic versioned `session.json`,
+  saved settings in `state.json` restored on a plain start, project-based key with legacy adoption, `/sessions`,
+  `--sessions`, prune, log tag. Still open: the `--resume` temp file stays (it carries `allowPaid` and the `--no-*`
+  switches); not tried in a real terminal with a model; `/sessions prune` never ran against real old sessions
+  (147 `auto-*` directories exist: `/sessions prune 7` is the first use, by the user).
+- **lib/ regrouped (2026-11-26)**, layout in `doc/ARCHITECTURE.md` "Layout of lib/". Not done: `cmake . && cmake --install .` to put
+  the new `bin/lib/<group>/` tree in place (the install rule in `../../CMakeLists.txt` was changed to a recursive copy and checked
+  on a scratch dir only; old flat `bin/lib/*.js` stay there until removed by hand), then `/restart` the running sessions.
+- **Session browser** (done 2026-11-26, design in `doc/ARCHITECTURE.md` "Session browser"): list, details, Enter/l loads, i inspects.
+  Checked in tmux (scrolling, highlight, refuse own session, inspect and back, load of another session with its model and
+  settings); the pure parts have `tests/test-session-browser.js`. Open: filtering by typing, delete, rename from the list;
+  loading a session that another process runs is refused (a takeover would need that process's consent); a pty test of the
+  screen is not automated (only tmux by hand).
 - The untracked `strace.log*` files (110 MB) are not to be committed (see A3).
 
 ## The order
@@ -42,7 +56,7 @@ change under `lib/` run `cmake .` before `cmake --install`. Experiment rule: scr
 2. **A5** (U, S) look at a real automatic skip once (the hop line, colours, a piped run) and say whether the wording is right.
 3. **A2** (U, S) who takes the gateway proposals D4 to D8: the user changes freellmapi, a patch is prepared against
    `~/Sources/freellmapi`, or the harness keeps working around them. Needed before D4 to D8.
-4. **A4** (U, S) the installed copy is current (2026-11-26 04:15: `/usr/local/bin/ollama-repl`, `bin/lib/*.js`). Two sessions still run old code:
+4. **A4** (U, S) the installed copy is current (2026-11-26 04:15: `/usr/local/bin/ollama-repl`, `bin/lib/**/*.js`). Two sessions still run old code:
    `shish-2` (pid 3528177) is stopped (`T`, with a `shish` test job in the same terminal: `fg` it; a `/restart` was sent and runs
    when it continues), and `qjs-modules` (pid 1205281, `qjs-ort...`) is held in a tracing stop by `sudo ptrace.sh -f ollama-repl`
    (its socket is under `/run/user/1000/ollama-repl/snap-*`): end the trace, then `/restart` in it. Restarting starts the clock for B1.
@@ -128,7 +142,7 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 
 59. **G1 rest** (H, S each) more events: learned cooldowns, rating moves of 10 or more, key quota, quota stand-in replaced, keyless fix steps, provider status changes, standby as sub-agent. (Done: key status on every availability load, `quota`/`failover`/`proxy` events kept in `events.jsonl`.)
 60. **G2** (H, M) read `quota.jsonl` back (a trend for `/gateway forecast` and B4); mark the preloaded quota as stale in the status bar.
-61. **G4** (H, M) config cleanup: briefs to the cache, restore the `/model` cycle position, `/rename` moves the session files, migrate old `<model>.json/.log`, debug logs out of the cwd, tests for `lib/session-cache.js` and the env parser.
+61. **G4** (H, M) config cleanup: briefs to the cache, restore the `/model` cycle position, `/rename` moves the session files, migrate old `<model>.json/.log`, debug logs out of the cwd, tests for `lib/session/session-cache.js` and the env parser.
 62. **G6** (H, M) verbose panels and net-pane labels for the local-model calls (`/handoff`, `/compact`, `/handoff-model`, `/each`); cap the `/brief` panel.
 
 ### 10. Terminal UI

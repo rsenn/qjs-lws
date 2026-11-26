@@ -1,7 +1,7 @@
 /* test-probe-deep.js: the tier 1 probe asks once more when a reasoning model's reply is cut off at the token limit */
-import { probeUsable, probeBrief } from '../lib/exploration.js';
+import { probeUsable, probeBrief } from '../lib/gateway/exploration.js';
 import { stripAnsi } from 'terminal';
-import { NEEDLES } from '../lib/probe-context.js';
+import { NEEDLES } from '../lib/gateway/probe-context.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-probe-deep: ${what}`);

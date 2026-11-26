@@ -1,5 +1,5 @@
 /* test-skills.js: skill discovery in both directories, front matter, lookup by prefix, the loaded message */
-import { listSkills, findSkill, parseSkill, skillMessage, skillMarker } from '../lib/skills.js';
+import { listSkills, findSkill, parseSkill, skillMessage, skillMarker } from '../lib/agent/skills.js';
 import { mkdir, symlink, exec } from 'os';
 import { open, setenv } from 'std';
 

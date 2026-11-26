@@ -4,7 +4,7 @@
  * argument, an arbitrary script (multi-line, heredocs, pipes, `find`/
  * `xargs`/`head`/`tail`, ...), not just a single command line - and
  * captures its combined stdout+stderr, for the `run_command` tool (see
- * lib/tool-requests.js).
+ * lib/agent/tool-requests.js).
  *
  * The output goes to an unlinked temporary file, not to a pipe. Reading a
  * pipe to EOF blocks while any descendant of the shell still holds its write

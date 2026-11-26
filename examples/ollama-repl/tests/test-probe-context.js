@@ -1,5 +1,5 @@
 /* test-probe-context.js: the synthetic compacted context of the deep probe */
-import { buildProbe, grade, deepBudget, plainQuestion, needlesFor, NEEDLES } from '../lib/probe-context.js';
+import { buildProbe, grade, deepBudget, plainQuestion, needlesFor, NEEDLES } from '../lib/gateway/probe-context.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-probe-context: ${what}`);

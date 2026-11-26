@@ -1,5 +1,5 @@
 /* test-availability-events.js: events for models that become limited or usable again, and why */
-import { reportChanges, noteIpChange, ipLiftTally } from '../lib/availability.js';
+import { reportChanges, noteIpChange, ipLiftTally } from '../lib/gateway/availability.js';
 import { setSink } from '../lib/events.js';
 
 const check = (what, ok) => {
@@ -34,7 +34,7 @@ console.log('test-availability-events: ok');
 
 /* /gateway limits: no wrapped rows, empty columns left out */
 {
-  const { limitsText } = await import('../lib/availability.js');
+  const { limitsText } = await import('../lib/gateway/availability.js');
   const now = Date.now();
   const mk = (k, until) => [k, [{ kind: 'cooldown', until, row: k }]];
   const av = {
@@ -56,7 +56,7 @@ console.log('test-availability-events: ok');
 
 /* /gateway limited: one line per model at any width */
 {
-  const { limitedText } = await import('../lib/availability.js');
+  const { limitedText } = await import('../lib/gateway/availability.js');
   const now = Date.now();
   const entry = (platforms, until, kinds = ['cooldown']) => ({ blocked: true, kinds, until, platforms, blocks: [{ kind: kinds[0], until, detail: 'the provider named a retry time after a long wait that makes this detail very long indeed' }] });
   const av = { at: now, byModel: new Map([

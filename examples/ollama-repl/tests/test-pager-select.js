@@ -1,7 +1,7 @@
 /* test-pager-select.js: marking rows in a full-screen list (needs a tty: run under script/pty; skipped without one) */
 import * as std from 'std';
 import { isatty } from 'os';
-import { Pager } from '../lib/pager.js';
+import { Pager } from '../lib/tui/pager.js';
 
 if(!isatty(std.out.fileno())) {
   console.log('test-pager-select: skipped (no tty)');

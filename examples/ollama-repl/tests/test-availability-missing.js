@@ -1,5 +1,5 @@
 /* test-availability-missing.js: a dashboard table that does not answer (a 429) keeps its previous answer and is reported */
-import { loadAvailability, reportMissing } from '../lib/availability.js';
+import { loadAvailability, reportMissing } from '../lib/gateway/availability.js';
 import { recent } from '../lib/events.js';
 
 const check = (what, ok) => {

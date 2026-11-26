@@ -10,8 +10,8 @@
  * --json       the numbers as JSON instead of the tables
  */
 import { out as stdout } from 'std';
-import { readUsage } from './lib/persist.js';
-import { baseline, baselineText } from './lib/usage-baseline.js';
+import { readUsage } from './lib/session/persist.js';
+import { baseline, baselineText } from './lib/session/usage-baseline.js';
 
 const args = scriptArgs.slice(1);
 let days = 0, origin, json = false;

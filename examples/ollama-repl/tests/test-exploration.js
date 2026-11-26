@@ -3,7 +3,7 @@ import { setenv, getenv } from 'std';
 import { writeConfigFile } from '../lib/config.js';
 
 setenv('XDG_CACHE_HOME', `${getenv('TMPDIR') || '/tmp'}/test-exploration-${Date.now()}`);
-const { Exploration, explorationPath, probeCells, probeBrief } = await import('../lib/exploration.js');
+const { Exploration, explorationPath, probeCells, probeBrief } = await import('../lib/gateway/exploration.js');
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-exploration: ${what}`);
@@ -47,7 +47,7 @@ ex.setLive({ good: { at: now, reachable: false } });
 check('gateway down shows as such', /gateway down/.test(strip(probeCells(ex, 'good')[0])) && /down/.test(strip(probeBrief(ex, 'good'))));
 check('one file for every gateway', new Exploration('http://other').verified('good'));
 
-import { isTransientProbe, probeBrief } from '../lib/exploration.js';
+import { isTransientProbe, probeBrief } from '../lib/gateway/exploration.js';
 {
   const chk = (w, ok) => { if(!ok) throw new Error(`test-exploration: ${w}`); };
   chk('rate limited is transient', isTransientProbe({ ok: false, error: 'All models rate-limited after 2 attempts' }));
@@ -58,7 +58,7 @@ import { isTransientProbe, probeBrief } from '../lib/exploration.js';
   chk('busy is shown as a warning, not a cross', /busy/.test(probeBrief(ex, 'm')) && !/✗/.test(probeBrief(ex, 'm')));
 }
 
-import { probeCells, costText } from '../lib/exploration.js';
+import { probeCells, costText } from '../lib/gateway/exploration.js';
 {
   const chk = (w, ok) => { if(!ok) throw new Error(`test-exploration: ${w}`); };
   const plain = s => s.replace(/\x1b\[[0-9;]*m/g, '');
@@ -71,7 +71,7 @@ import { probeCells, costText } from '../lib/exploration.js';
 
 /* the worker: a failed probe is diagnosed, a hiccup is probed again, the verdict is stored */
 {
-  const { Exploration } = await import('../lib/exploration.js');
+  const { Exploration } = await import('../lib/gateway/exploration.js');
   const { setenv } = await import('std');
   setenv('XDG_CACHE_HOME', `/tmp/ollama-repl-test-explore-${Date.now()}`);
   const chk = (w, ok) => { if(!ok) throw new Error(`test-exploration: ${w}`); };
@@ -115,8 +115,8 @@ import { probeCells, costText } from '../lib/exploration.js';
 
 /* tier 1: a synthetic compacted context, graded on three recalled facts */
 {
-  const { Exploration, deepText } = await import('../lib/exploration.js');
-  const { NEEDLES } = await import('../lib/probe-context.js');
+  const { Exploration, deepText } = await import('../lib/gateway/exploration.js');
+  const { NEEDLES } = await import('../lib/gateway/probe-context.js');
   const chk = (w, ok) => { if(!ok) throw new Error(`test-exploration: ${w}`); };
   let sent = 0;
   const calls = [];
@@ -150,7 +150,7 @@ import { probeCells, costText } from '../lib/exploration.js';
 
 /* 3.1 / 3.2: a busy provider is not probed again at once, and the queue goes best first */
 {
-  const { Exploration } = await import('../lib/exploration.js');
+  const { Exploration } = await import('../lib/gateway/exploration.js');
   const { setenv } = await import('std');
   setenv('XDG_CACHE_HOME', `/tmp/ollama-repl-test-explore-busy-${Date.now()}`);
   const chk = (w, ok) => { if(!ok) throw new Error(`test-exploration: ${w}`); };

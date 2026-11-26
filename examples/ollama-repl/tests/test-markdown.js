@@ -1,5 +1,5 @@
 /* test-markdown.js: the plain text of a reply has the reply color, never bold or the terminal's foreground */
-import { MarkdownStream } from '../lib/markdown.js';
+import { MarkdownStream } from '../lib/tui/markdown.js';
 import { REPLY } from '../lib/palette.js';
 import { stripAnsi } from 'terminal';
 

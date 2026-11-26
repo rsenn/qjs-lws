@@ -6,3 +6,11 @@
 - shish-head-c-dev-zero-empty (/usr/local/bin/shish, installed 2026-11-26 03:08): shish -c 'head -c 20 /dev/zero | wc -c' prints 0 where sh prints 20 (head -c on /dev/zero gives no output); found because tests/test-run-command.js ran that pipeline through run_command and got an empty result, the test now uses dd.
 
     note: shish -c 'head -c 20 /dev/zero | wc -c'
+
+- smoke-leaves-sessions (smoke.sh:56): every smoke.sh run starts the REPL in a fresh mktemp directory without its own XDG_CACHE_HOME, so each run leaves a tmp.XXXX-hash session directory in the real ~/.cache/ollama-repl/sessions/ (seen in /sessions: three tmp.* entries from runs within the hour).
+
+    XDG_CACHE_HOME=$(mktemp -d) sh smoke.sh repl.js; ls ~/.cache/ollama-repl/sessions | grep '^tmp\.'
+
+- stream-dropped-in-long-reasoning (../../lib/lws/protocols.js:528): a streamed qwen-3.8-27b request over cerebras ended with "error: dropped" (onClientHttpDropProtocol) after 18 s of reasoning, 347 KB, while the loop was blocked 400 ms per chunk (see the lag fix in rawcolor.js); whether the blocked loop (no lws service for hundreds of ms) or the server dropped the connection is not known, seen once in a screenshot of the cerebras session on 2026-11-26.
+
+    note: send a prompt that makes the model reason for more than 15 s through --provider cerebras, watch /events lag and the end of the turn; compare with the colouring fix in place

@@ -1,5 +1,5 @@
 /* test-diagnose.js: why did a probe fail */
-import { parseTrail, causeOfError, diagnose } from '../lib/diagnose.js';
+import { parseTrail, causeOfError, diagnose } from '../lib/agent/diagnose.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-diagnose: ${what}`);

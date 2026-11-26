@@ -1,5 +1,5 @@
 /* test-key-cells.js: the keys and spread cells of /gateway usage */
-import { keyCells } from '../lib/freellm.js';
+import { keyCells } from '../lib/gateway/freellm.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-key-cells: ${what}`);

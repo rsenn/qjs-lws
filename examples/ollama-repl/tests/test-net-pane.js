@@ -1,5 +1,5 @@
 /* test-net-pane.js: box lines are cut to the box width, so a box never wraps and changes height */
-import { fitLine, netPaneLines, kindOf, block, TYPES, routeBadge } from '../lib/net-pane.js';
+import { fitLine, netPaneLines, kindOf, block, TYPES, routeBadge } from '../lib/tui/net-pane.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-net-pane: ${what}`);
@@ -30,7 +30,7 @@ check('plain rows above and below, no border glyphs', /^ +$/.test(plain(b[0])) &
 
 /* the hops the gateway tried, from its fallback headers */
 {
-  const { hopsOf, netPaneLines } = await import('../lib/net-pane.js');
+  const { hopsOf, netPaneLines } = await import('../lib/tui/net-pane.js');
   const strip = x => x.replace(/\x1b\[[0-9;]*m/g, '');
   const m = { requested: 'glm-5.2', status: 429, error: 'All models exhausted', detail: 'blaze/glm-5.2 key1=rate_limited t=0+62ms msg=slow down; router9/zai/glm-5.2 key2=upstream_error t=62+7ms; +3 more' };
   const h = hopsOf(m);

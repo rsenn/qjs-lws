@@ -1,5 +1,5 @@
 /* test-rating.js: the rating of a model and how events move it */
-import { score, reliability, Ratings, setRater, rateOf, sortByRating } from '../lib/rating.js';
+import { score, reliability, Ratings, setRater, rateOf, sortByRating } from '../lib/gateway/rating.js';
 import { setenv } from 'std';
 
 setenv('XDG_CACHE_HOME', '/tmp/ollama-repl-test-rating');

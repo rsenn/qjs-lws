@@ -1,5 +1,5 @@
 /* test-model-status.js: test the Quota / Reset column of the /model health table */
-import { modelStatusTable } from '../lib/model-status.js';
+import { modelStatusTable } from '../lib/gateway/model-status.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-model-status: ${what}`);

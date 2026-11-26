@@ -1,5 +1,5 @@
 /* context-view: the pure parts of /context and /log */
-import { messageText, messageSelection, summarizeMessages, parseContextArgs } from '../lib/context-view.js';
+import { messageText, messageSelection, summarizeMessages, parseContextArgs } from '../lib/tui/context-view.js';
 
 const same = (a, b, what) => {
   if(JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`test-context-view: ${what}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);

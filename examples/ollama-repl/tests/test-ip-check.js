@@ -1,5 +1,5 @@
 /* test-ip-check.js: reading an external address out of a "what is my IP" reply */
-import { parseIp, isPublicIp } from '../lib/ip-check.js';
+import { parseIp, isPublicIp } from '../lib/gateway/ip-check.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-ip-check: ${what}`);

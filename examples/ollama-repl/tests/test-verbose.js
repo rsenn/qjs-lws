@@ -1,6 +1,6 @@
 /* test-verbose.js: verbose-only output (kind 1) stays out of the compact view, also when written without a kind under Tui.kind (Tui#inKind, called by inKind in repl.js) */
 import { open } from 'std';
-import { Tui } from '../lib/tui.js';
+import { Tui } from '../lib/tui/tui.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-verbose: ${what}`);

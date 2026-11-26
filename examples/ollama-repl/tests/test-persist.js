@@ -1,8 +1,8 @@
 /* test-persist.js: usage rows, quota snapshots and cooldowns survive in the cache directory */
 import { setenv } from 'std';
-import { usageRow, appendUsage, readUsage, saveQuota, loadQuota, flushPersist, trimLogs, usagePath, appendEvent, readEvents } from '../lib/persist.js';
-import { recordCooldownEvent, getLearnedCooldown, recordLocalFailure, saveCooldowns, loadCooldowns } from '../lib/availability.js';
-import { UsageStats } from '../lib/usage-stats.js';
+import { usageRow, appendUsage, readUsage, saveQuota, loadQuota, flushPersist, trimLogs, usagePath, appendEvent, readEvents } from '../lib/session/persist.js';
+import { recordCooldownEvent, getLearnedCooldown, recordLocalFailure, saveCooldowns, loadCooldowns } from '../lib/gateway/availability.js';
+import { UsageStats } from '../lib/session/usage-stats.js';
 import { remove } from 'os';
 
 const dir = `/tmp/ollama-repl-test-persist-${Date.now()}`;

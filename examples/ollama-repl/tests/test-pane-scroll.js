@@ -1,6 +1,6 @@
 /* test-pane-scroll.js: the split pane scrolls by itself (wheel over it, Shift-PgUp/PgDn), the offset stays within its lines */
 import { open } from 'std';
-import { Tui } from '../lib/tui.js';
+import { Tui } from '../lib/tui/tui.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-pane-scroll: ${what}`);

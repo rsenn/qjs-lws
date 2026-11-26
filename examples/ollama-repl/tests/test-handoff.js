@@ -1,5 +1,5 @@
 /* test-handoff.js: buildHandoff() with one long turn (no older turn to summarize) */
-import { buildHandoff } from '../lib/handoff.js';
+import { buildHandoff } from '../lib/failover/handoff.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-handoff: ${what}`);

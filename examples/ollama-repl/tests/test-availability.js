@@ -1,5 +1,5 @@
 /* test-availability.js: loadAvailability() against a fake gateway: every kind of limit, its end, the provider column */
-import { loadAvailability, backText, limitsText } from '../lib/availability.js';
+import { loadAvailability, backText, limitsText } from '../lib/gateway/availability.js';
 
 const now = Date.now();
 const rows = [

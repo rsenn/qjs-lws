@@ -1,6 +1,6 @@
 /* test-client-usage.js: Ollama and Gemini token counts -> the usage record /usage and the status line read */
-import { ollamaUsage } from '../lib/ollama-client.js';
-import { geminiUsage } from '../lib/gemini-client.js';
+import { ollamaUsage } from '../lib/clients/ollama-client.js';
+import { geminiUsage } from '../lib/clients/gemini-client.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-client-usage: ${what}`);

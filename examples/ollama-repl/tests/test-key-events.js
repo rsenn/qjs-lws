@@ -1,5 +1,5 @@
 /* test-key-events.js: a key that went unhealthy or healthy again is an event, once, whichever look saw it */
-import { reportKeys, resetKeys } from '../lib/key-events.js';
+import { reportKeys, resetKeys } from '../lib/gateway/key-events.js';
 import { recent } from '../lib/events.js';
 
 const check = (what, ok) => {

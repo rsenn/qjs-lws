@@ -1,5 +1,5 @@
-/* test-turn-repair.js: lib/turn-repair.js leaves a valid conversation behind a half-done turn */
-import { repairTurn } from '../lib/turn-repair.js';
+/* test-turn-repair.js: lib/failover/turn-repair.js leaves a valid conversation behind a half-done turn */
+import { repairTurn } from '../lib/failover/turn-repair.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-turn-repair: ${what}`);

@@ -30,7 +30,7 @@ import { exit, err as stderr, out as stdout } from 'std';
 import { TextDecoder } from 'textcode';
 import { setReadHandler, setTimeout, sleep } from 'os';
 import { AF_UNIX, SOCK_STREAM, SockAddr, Socket } from 'sockets';
-import { listSessions, unixAddr } from './lib/control-socket.js';
+import { listSessions, unixAddr } from './lib/agent/control-socket.js';
 
 function fail(msg, code = 1) {
   stderr.puts(`ollama-repl-ctl: ${msg}\n`);

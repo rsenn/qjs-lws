@@ -1,6 +1,6 @@
 /* test-tui-panels.js: a live panel is replaced in the transcript where it was written */
 import { open } from 'std';
-import { Tui } from '../lib/tui.js';
+import { Tui } from '../lib/tui/tui.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-tui-panels: ${what}`);

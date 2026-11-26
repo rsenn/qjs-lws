@@ -1,6 +1,6 @@
 /* test-harness-error.js: errors of our own code are told from provider and gateway errors */
-import { isHarnessError } from '../lib/harness-error.js';
-import { errorClass } from '../lib/usage-baseline.js';
+import { isHarnessError } from '../lib/agent/harness-error.js';
+import { errorClass } from '../lib/session/usage-baseline.js';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-harness-error: ${what}`);
