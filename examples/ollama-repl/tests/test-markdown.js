@@ -1,13 +1,14 @@
 /* test-markdown.js: the plain text of a reply has the reply color, never bold or the terminal's foreground */
 import { MarkdownStream } from '../lib/tui/markdown.js';
-import { REPLY } from '../lib/palette.js';
+import { REPLY, TEAL } from '../lib/palette.js';
 import { stripAnsi } from 'terminal';
 
 const check = (what, ok) => {
   if(!ok) throw new Error(`test-markdown: ${what}`);
 };
 
-const base = `\x1b[38;2;${[1, 3, 5].map(k => parseInt(REPLY.slice(k, k + 2), 16)).join(';')}m`;
+const sgr = hex => `\x1b[38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
+const base = sgr(REPLY);
 const md = new MarkdownStream();
 const out = md.push('Plain text with `code` and **bold** words.\n- item with `x`\n1. first\n\n') + md.end();
 const lines = out.split('\n');
@@ -18,7 +19,7 @@ check('the color starts again after inline code and bold (every reset)', (lines[
 check('a paragraph is never bold on its own', !lines[0].startsWith('\x1b[1m') && !/^\x1b\[1;/.test(lines[0]));
 check('list text is in the reply color', lines[1].includes(`${base}item`) && lines[2].includes(`${base}first`));
 check('an empty line stays empty', lines[3] === '');
-check('a heading keeps its own style', /^\x1b\[1m\x1b\[38;2;45;212;191mTitle/.test(new MarkdownStream().line('# Title')));
+check('a heading keeps its own style', new MarkdownStream().line('# Title').startsWith(`\x1b[1m${sgr(TEAL)}Title`));
 check('code in a frame is not recolored', !new MarkdownStream().line('```js').includes(base));
 
 console.log('test-markdown: ok');

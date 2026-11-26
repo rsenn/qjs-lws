@@ -16,14 +16,14 @@
  *   `code` **b** *i* ~~s~~ [text](url)   inline styles
  */
 import { stripAnsi } from 'terminal';
-import { REPLY } from '../palette.js';
+import { AMBER as AMBER_HEX, LIME as LIME_HEX, REPLY, TEAL as TEAL_HEX } from '../palette.js';
 
 const CSI = '\x1b[';
 const fg = hex => `${CSI}38;2;${[1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)).join(';')}m`;
 
-const TEAL = fg('#2dd4bf');
-const AMBER = fg('#fbbf24');
-const LIME = fg('#a3e635');
+const TEAL = fg(TEAL_HEX);
+const AMBER = fg(AMBER_HEX);
+const LIME = fg(LIME_HEX);
 const VIOLET = fg('#c084fc');
 const GREEN = fg('#4ade80');
 const DIM = CSI + '2m';

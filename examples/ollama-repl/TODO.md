@@ -152,6 +152,7 @@ Do the terminal pass first, then the gateway passes. Every failure becomes a `BU
 65. **H1** (H, M) net pane: scrolling, a fixed 90 s bar replaced by the client's timeouts, reply tails, a better request-to-socket pairing, an `explore` filter, naming the key, short subjects for handoff prompts.
 66. **H6** (H, M) verbose colouring: per-language highlighting, `/last` and plain `--verbose` lines, diff view of edit calls, panel history limit, Ctrl-O in plain mode.
 67. **H8** (Q, M) move `piped`, `termWidth`, `wrapHanging`, `Pager`, `colorJson`, `MarkdownStream` to qjs-modules `terminal`; check the installed qjsm has the faster width functions.
+    - Decided 2026-11-26: `lib/tui/shared-spinner.js` stays here, it is not moved to qjs-modules.
 68. **H4, H5** (H, L each) kitty keyboard and focus events; the line editor (`terminal.LineEditor` vs turning `showColors` on). Decide on the editor first; both need a kitty terminal to check.
 
 ### 11. Files, context, compaction

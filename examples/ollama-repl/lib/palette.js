@@ -79,3 +79,14 @@ export const CODE_BG = '#0f292e';
 
 /** name of the theme above */
 export const THEME = 'beach / balearic';
+
+/** status and neutral colours of the gateway tables, the status line and the model lists (were literals in repl.js) */
+export const OK = '#4ade80';
+export const MUTED = '#787878';
+export const SPENT = '#fb923c';
+export const SLATE = '#94a3b8';
+export const GREY = '#9ca3af';
+export const CYAN = '#22d3ee';
+export const FUCHSIA = '#e879f9';
+export const WHITE = '#ffffff';
+export const CORAL = '#E07A5F';

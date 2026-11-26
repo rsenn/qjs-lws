@@ -96,6 +96,10 @@ driven in your own browser (`--provider bridge`).
   `CD: OLD -> NEW` line in `session.log`, and the browser shows `started in` and `moves`. `allowPaid` and the `--no-*`
   switches are never saved. `session.json` is written whole or not at
   all; an unreadable one is kept as `session.json.corrupt`.
+- **Interrupting.** Esc while the harness works aborts the step that runs (the request, a wait, a tool) and the loop
+  around it decides what comes next: a `/each` batch goes on with the next item. **Esc three times within 2 seconds
+  stops the whole turn**: the running step is aborted, the prompt queue is cleared, and every loop of the turn ends
+  (tool rounds, retries and waits, batch items, sub-agent turns); it says "stopped" and keeps its finished rounds.
 - **Environment of a session.** The variables a run reads for its provider (`CEREBRAS_API_KEY` and `CEREBRAS_API_URL`
   for `--provider cerebras`, `OPENAI_*`, `GEMINI_API_KEY`, the `FREELLMAPI_*` ones) are recorded with the session, **values
   included**, in `env.json` of the session's cache directory, readable by you only (mode 0600). Nothing else carries

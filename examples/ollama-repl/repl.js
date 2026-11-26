@@ -127,6 +127,7 @@ import { enableCapabilities, queryCapabilities } from 'terminal/capabilities';
 import { keyValue, statusBar } from 'terminal/widgets';
 import { piped, dim, red, green, wrapHanging } from './lib/ansi.js';
 
+import { ACCENT, ARROWS, CORAL, CYAN, ERROR, FUCHSIA, GREY, OK, SHELL_STRING, SHELL_VAR, SLATE, SPENT, WARN, WHITE } from './lib/palette.js';
 /* rmSync throws on a missing file, os.remove did not */
 const removeFile = path => rmSync(path, { force: true });
 
@@ -835,14 +836,14 @@ function localTrace(label) {
 
     if(ev.dir === 'out') {
       const title = `→ ${ev.model} (${label}) · ${n} messages, ${fmtNum(totalChars(ev.messages))} chars`;
-      if(tui?.active) showPanel(title, messagesText(ev.messages), { border: '#c084fc', kind: 1 });
+      if(tui?.active) showPanel(title, messagesText(ev.messages), { border: SHELL_VAR, kind: 1 });
       else if(ui.verbose) console.log(dim(`${title}\n${stripAnsi(messagesText(ev.messages))}`));
       return;
     }
 
     const title = `← ${ev.model} (${label}) · ${fmtMs(ev.ms)}${ev.error ? ' · failed' : ''}`;
     const text = ev.error ? `\x1b[31m${ev.error}\x1b[0m` : colorContent(ev.content || '(empty)');
-    if(tui?.active) showPanel(title, text, { border: ev.error ? '#f87171' : '#c084fc', kind: 1 });
+    if(tui?.active) showPanel(title, text, { border: ev.error ? ERROR : SHELL_VAR, kind: 1 });
     else if(ui.verbose) console.log(dim(`${title}\n${stripAnsi(text)}`));
   };
 }
@@ -967,13 +968,13 @@ function showPanel(title, text, { kind = 0, ...opts } = {}) {
 /** what is left of a model: a limit that is on now (with its end), or the share of its monthly token budget */
 function leftCell(id, now = Date.now()) {
   const e = availability?.byModel.get(id);
-  if(e?.blocked) return fgHex('#f87171', `⏸ ${kindsText(e)}${e.until != null ? `, back in ${fmtAgo(Math.max(0, e.until - now))}` : ''}`);
-  if(e?.until != null) return fgHex('#fbbf24', `◔ cooling, ${fmtAgo(Math.max(0, e.until - now))}`);
+  if(e?.blocked) return fgHex(ERROR, `⏸ ${kindsText(e)}${e.until != null ? `, back in ${fmtAgo(Math.max(0, e.until - now))}` : ''}`);
+  if(e?.until != null) return fgHex(WARN, `◔ cooling, ${fmtAgo(Math.max(0, e.until - now))}`);
 
   const i = modelInfo(id);
   if(i.budget > 0) {
     const left = Math.max(0, 1 - i.used / i.budget);
-    return fgHex(left > 0.3 ? '#4ade80' : left > 0.1 ? '#fbbf24' : '#f87171', `${fgHex('#fbbf24', `${Math.round(left * 100)}%`)}${'\x1b[38;2;' + (left > 0.3 ? '74;222;128' : left > 0.1 ? '251;191;36' : '248;113;113') + 'm'} tokens left (${fmtNum(Math.max(0, i.budget - i.used))})`);
+    return fgHex(left > 0.3 ? OK : left > 0.1 ? WARN : ERROR, `${fgHex(WARN, `${Math.round(left * 100)}%`)}${'\x1b[38;2;' + (left > 0.3 ? '74;222;128' : left > 0.1 ? '251;191;36' : '248;113;113') + 'm'} tokens left (${fmtNum(Math.max(0, i.budget - i.used))})`);
   }
   return dim('no token cap known');
 }
@@ -1000,7 +1001,7 @@ function likelyModelsNow(list, limit = 8, now = Date.now(), all = false) {
       cells: [
         `\x1b[1m${fgHex(strengthColor(x.m.strength), x.m.name)}\x1b[0m`,
         x.rating != null ? ratingCell(x.rating) : '',
-        x.warm ? fgHex('#2dd4bf', 'warm standby') : x.seenAt ? fgHex('#4ade80', `verified ${fgHex('#fbbf24', fmtAgo(now - x.seenAt))}\x1b[38;2;74;222;128m ago${x.e.toolOk ? ', tools' : ''}`) : fgHex('#fb923c', 'not verified'),
+        x.warm ? fgHex(ACCENT, 'warm standby') : x.seenAt ? fgHex(OK, `verified ${fgHex(WARN, fmtAgo(now - x.seenAt))}\x1b[38;2;74;222;128m ago${x.e.toolOk ? ', tools' : ''}`) : fgHex(SPENT, 'not verified'),
         leftCell(x.m.name, now),
         x.m.inputTokens ? dim(`ctx ${fmtNum(x.m.inputTokens)}`) : '',
         /* the providers that serve it, the first column to go when the terminal is narrow */
@@ -1010,8 +1011,8 @@ function likelyModelsNow(list, limit = 8, now = Date.now(), all = false) {
       label: [
         `\x1b[1m${fgHex(strengthColor(x.m.strength), x.m.name)}\x1b[0m`,
         x.rating != null ? `rating ${ratingCell(x.rating).trim()}` : '',
-        x.warm ? fgHex('#2dd4bf', 'warm standby') : '',
-        x.seenAt ? fgHex('#4ade80', `verified ${fgHex('#fbbf24', fmtAgo(now - x.seenAt))}\x1b[38;2;74;222;128m ago${x.e.toolOk ? ', tools' : ''}`) : fgHex('#fb923c', 'not verified'),
+        x.warm ? fgHex(ACCENT, 'warm standby') : '',
+        x.seenAt ? fgHex(OK, `verified ${fgHex(WARN, fmtAgo(now - x.seenAt))}\x1b[38;2;74;222;128m ago${x.e.toolOk ? ', tools' : ''}`) : fgHex(SPENT, 'not verified'),
         leftCell(x.m.name, now),
         x.m.inputTokens ? dim(`ctx ${fmtNum(x.m.inputTokens)}`) : '',
       ].filter(Boolean).join(dim(' · ')),
@@ -1058,7 +1059,7 @@ function setVerbose(on) {
 /* how many messages of a conversation the verbose request panel has shown */
 const shownMessages = new WeakMap();
 
-const ROLE_COLOR = { system: '#2dd4bf', user: '#fbbf24', assistant: '#a3e635', tool: '#c084fc' };
+const ROLE_COLOR = { system: ACCENT, user: WARN, assistant: ARROWS, tool: SHELL_VAR };
 
 /** messages as text for a panel: a colored role line, then the content */
 /** a tool call's arguments, one "→ key: value" each: a command in ``` ```, a long or multi-line text in a fenced block, else the value */
@@ -1084,7 +1085,7 @@ function callText(tc) {
 function messagesText(msgs) {
   return msgs
     .map(m => {
-      const head = `\x1b[1;38;2;${(ROLE_COLOR[m.role] ?? '#ffffff').match(/\w\w/g).map(h => parseInt(h, 16)).join(';')}m${m.role}${m.name ? ` ${m.name}` : ''}\x1b[0m`;
+      const head = `\x1b[1;38;2;${(ROLE_COLOR[m.role] ?? WHITE).match(/\w\w/g).map(h => parseInt(h, 16)).join(';')}m${m.role}${m.name ? ` ${m.name}` : ''}\x1b[0m`;
       const calls = (m.toolCalls ?? m.tool_calls ?? []).map(callText);
       /* the system prompt is long and known: dim; everything else by what each line is */
       const body = typeof m.content == 'string' ? (m.role === 'system' ? `\x1b[2m${m.content}\x1b[0m` : colorContent(m.content, { code: m.role === 'tool' && m.name === 'read_file' })) : m.content ? colorJson(JSON.stringify(m.content)) : null;
@@ -1244,8 +1245,8 @@ async function chatRound(client, messages, opts, abortRef, chatOptions = {}) {
         const earliest = earliestReset(attempts);
         if(earliest) lines.push(`\x1b[2m${earliest}\x1b[0m`);
         const title = `every route failed · waiting ${secs}s · retry ${backoffs}/${BACKOFF_SECS.length}`;
-        if(tui?.active) console.log(panel(title, lines.join('\n'), tui.width, { border: '#fbbf24' }));
-        else console.log(card('⤼', `every route failed: waiting ${secs}s, retry ${backoffs}/${BACKOFF_SECS.length}`, lines, '#a3e635'));
+        if(tui?.active) console.log(panel(title, lines.join('\n'), tui.width, { border: WARN }));
+        else console.log(card('⤼', `every route failed: waiting ${secs}s, retry ${backoffs}/${BACKOFF_SECS.length}`, lines, ARROWS));
         if(await backoff(secs, abortRef)) {
           providerHook.pf.release(['limit', 'upstream', 'network']);
           tried.clear();
@@ -1268,7 +1269,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   const t0 = Date.now();
   const stopSpinner = piped || opts.quiet ? () => {} : startSpinner();
   /* closing line of a round: time, and with a gateway's metadata where it went and the tokens */
-  const cogitated = result => opts.quiet || console.log(highlight(`${doneQuip((Date.now() - t0) / 1000)}${result?.meta ? ` - ${routeLine(result.meta)}` : ''}`, { fg: '#9ca3af' }) + '\n');
+  const cogitated = result => opts.quiet || console.log(highlight(`${doneQuip((Date.now() - t0) / 1000)}${result?.meta ? ` - ${routeLine(result.meta)}` : ''}`, { fg: GREY }) + '\n');
 
   abortRef.current = () => client.abort();
 
@@ -1285,7 +1286,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
   if(panes) {
     /* a round of tool calls is titled by them, the stats of a plain request are in the title otherwise */
     const called = [...new Set(messages.slice(from).flatMap(m => (m.toolCalls ?? m.tool_calls ?? []).map(tc => tc.name ?? tc.function?.name)))];
-    showPanel(called.length ? `→ ${client.model} · tool call ${called.map(n => `\`${n}\``).join(', ')}` : `→ ${client.model} · ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${from ? `, ${messages.length - from} new` : ''}`, messagesText(messages.slice(from)) || '(nothing new)', { border: '#c084fc', kind: 1 });
+    showPanel(called.length ? `→ ${client.model} · tool call ${called.map(n => `\`${n}\``).join(', ')}` : `→ ${client.model} · ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${from ? `, ${messages.length - from} new` : ''}`, messagesText(messages.slice(from)) || '(nothing new)', { border: SHELL_VAR, kind: 1 });
   } else if(verbose) console.log(dim(`-> ${client.model}: ${messages.length} messages, ${fmtNum(totalChars(messages))} chars, ${chatOptions.tools?.length ?? 0} tools${opts.stream ? ', streamed' : ''}${chatOptions.toolChoice ? `, tool_choice ${chatOptions.toolChoice}` : ''}`));
 
   /* verbose: reasoning text as it streams, dim, before the reply */
@@ -1298,7 +1299,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     if(reasoning) {
       const body = colorReasoning(reasoning.trim());
       if(liveReasoning) liveReasoning.update('◌ reasoning', body);
-      else showPanel('◌ reasoning', body, { border: '#E07A5F' });
+      else showPanel('◌ reasoning', body, { border: CORAL });
     }
     reasoning = '';
     liveReasoning = null;
@@ -1335,7 +1336,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     };
 
   /* verbose: what came back, with every gateway header; the panel is there from the start and shows the progress until the answer is complete */
-  let liveResponse = panes ? livePanel('← waiting for the first token', dim('request sent'), { border: '#c084fc', kind: 1 }) : null;
+  let liveResponse = panes ? livePanel('← waiting for the first token', dim('request sent'), { border: SHELL_VAR, kind: 1 }) : null;
   let responseAt = 0;
   const progress = (chars, chunks) => {
     if(!liveResponse || Date.now() - responseAt < 150) return;
@@ -1349,7 +1350,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
       const title = `← ${m.status ?? '-'} ${routeName(m)}${m.provider ? ` via ${m.provider}` : ''} · ${fmtMs(m.ms)}`;
       const body = colorMeta(formatMeta({ ...m, reasoning: result.reasoning }));
       if(liveResponse) liveResponse.update(title, body);
-      else showPanel(title, body, { border: '#c084fc', kind: 1 });
+      else showPanel(title, body, { border: SHELL_VAR, kind: 1 });
       liveResponse = null;
       return;
     }
@@ -1442,7 +1443,7 @@ async function chatRoundOnce(client, messages, opts, abortRef, chatOptions = {})
     if(!opts.quiet && emptyReplyNote(result)) console.log(note(emptyReplyNote(result), 'warn'));
     return result;
   } catch(e) {
-    liveResponse?.update(`← failed · ${fmtMs(Date.now() - t0)}`, `\x1b[31m${String(e.detail ?? e.message ?? e).split('\n')[0]}\x1b[0m`, { border: '#f87171' });
+    liveResponse?.update(`← failed · ${fmtMs(Date.now() - t0)}`, `\x1b[31m${String(e.detail ?? e.message ?? e).split('\n')[0]}\x1b[0m`, { border: ERROR });
     liveResponse = null;
     if(stalled) throw Object.assign(new Error(`no response after ${waitSecs}s (no first token)`), { code: 'timeout' });
     throw e;
@@ -1995,12 +1996,12 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
         if(!toolPanel) return;
         const text = String(out ?? '');
         const bad = /^(error|\(declined)/.test(text);
-        toolPanel.update(`⚙ ${tc.name} · ${bad ? '✗' : '✔'} ${text.split('\n').length} lines, ${text.length} chars · ${fmtMs(Date.now() - toolT0)}`, `${colorArgs(tc.args)}\n${dim('─'.repeat(20))}\n${text ? colorContent(text, { code: tc.name === 'read_file' }) : '(empty)'}`, { border: bad ? '#f87171' : '#c084fc' });
+        toolPanel.update(`⚙ ${tc.name} · ${bad ? '✗' : '✔'} ${text.split('\n').length} lines, ${text.length} chars · ${fmtMs(Date.now() - toolT0)}`, `${colorArgs(tc.args)}\n${dim('─'.repeat(20))}\n${text ? colorContent(text, { code: tc.name === 'read_file' }) : '(empty)'}`, { border: bad ? ERROR : SHELL_VAR });
         toolPanel = null;
       };
 
       if(!opts.quiet) {
-        if(tui?.active) toolPanel = livePanel(`⚙ ${tc.name} · running`, colorArgs(tc.args), { border: '#c084fc', kind: 1 });
+        if(tui?.active) toolPanel = livePanel(`⚙ ${tc.name} · running`, colorArgs(tc.args), { border: SHELL_VAR, kind: 1 });
         else if(ui.verbose) console.log(toolLine(tc.name, tc.args ?? {}));
       }
 
@@ -2065,12 +2066,12 @@ async function runToolLoop(client, messages, opts, log, confirmRun, askUser, abo
 
       /* TUI: a file change as a numbered diff, anything else as one summary line */
       if(tui?.active && !opts.quiet) {
-        if(WRITE_TOOLS.has(tc.name) && !asked && !/^(error|\(declined)/.test(output)) showPanel(`✔ ${tc.name} ${tc.args?.path ?? ''}`, numberedDiff(tc.name, tc.args ?? {}, loadFile(underRoot(opts.root, tc.args?.path)), true), { border: '#4ade80', kind: 1 });
+        if(WRITE_TOOLS.has(tc.name) && !asked && !/^(error|\(declined)/.test(output)) showPanel(`✔ ${tc.name} ${tc.args?.path ?? ''}`, numberedDiff(tc.name, tc.args ?? {}, loadFile(underRoot(opts.root, tc.args?.path)), true), { border: OK, kind: 1 });
         else inKind(1, () => console.log(toolResult(output)));
       }
 
       if(toolPanel) finishTool(output);
-      else if(!opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? '#f87171' : '#c084fc', kind: 1 });
+      else if(!opts.quiet && tui?.active) showPanel(`⎿ ${tc.name} result · ${output.split('\n').length} lines, ${output.length} chars`, output ? colorContent(output, { code: tc.name === 'read_file' }) : '(empty)', { border: /^error/.test(output) ? ERROR : SHELL_VAR, kind: 1 });
       else if(ui.verbose && !opts.quiet) {
         const lines = output.split('\n');
         const shown = lines.slice(0, 200).join('\n');
@@ -3300,7 +3301,7 @@ async function main() {
     }
 
     const body = [...(L.history.length > (ev.type === 'done' ? 1 : 0) ? [dim(L.history.slice(ev.type === 'done' ? -5 : -4, ev.type === 'done' ? -1 : undefined).join('  '))] : []), ...L.lines.slice(-14)].join('\n') || dim('starting');
-    if(!L.pane) L.pane = livePanel(title, body, { border: '#2dd4bf', kind: 1 });
+    if(!L.pane) L.pane = livePanel(title, body, { border: ACCENT, kind: 1 });
     else L.pane.update(title, body);
   }
 
@@ -3318,7 +3319,7 @@ async function main() {
 
     /* a model that answered but failed the deep context test is a failure: it shows in the verbose view only (the explore event says so) */
     const ctxLost = r.deep && !r.deep.ok && !r.deep.transient;
-    if((!quiet || takeStandby) && !ctxLost) console.log(card('🔎', `probe: ${bold(fgHex(strengthColor(tierOf(id)), id))} ${quiet ? 'is usable' : 'responds'} in ${fgHex('#fbbf24', fmtMs(r.latencyMs ?? r.ms))}, ${r.toolOk ? fgHex('#86efac', '✔ calls tools') : fgHex('#f87171', '✘ no tool calls')}${r.deep ? `, ${r.deep.ok ? fgHex('#22d3ee', `🧬 ${Math.round(r.deep.tokens / 1000)}k context holds`) : r.deep.transient ? fgHex('#fbbf24', `⏳ ${Math.round(r.deep.tokens / 1000)}k context not tested (provider busy)`) : fgHex('#e879f9', `💥 ${Math.round(r.deep.tokens / 1000)}k context lost`)}` : ''}${quiet ? '' : dim(' - warm')}${takeStandby ? `, ${fgHex('#2dd4bf', 'now the standby')}` : ''}`, [], '#2dd4bf'));
+    if((!quiet || takeStandby) && !ctxLost) console.log(card('🔎', `probe: ${bold(fgHex(strengthColor(tierOf(id)), id))} ${quiet ? 'is usable' : 'responds'} in ${fgHex(WARN, fmtMs(r.latencyMs ?? r.ms))}, ${r.toolOk ? fgHex(SHELL_STRING, '✔ calls tools') : fgHex(ERROR, '✘ no tool calls')}${r.deep ? `, ${r.deep.ok ? fgHex(CYAN, `🧬 ${Math.round(r.deep.tokens / 1000)}k context holds`) : r.deep.transient ? fgHex(WARN, `⏳ ${Math.round(r.deep.tokens / 1000)}k context not tested (provider busy)`) : fgHex(FUCHSIA, `💥 ${Math.round(r.deep.tokens / 1000)}k context lost`)}` : ''}${quiet ? '' : dim(' - warm')}${takeStandby ? `, ${fgHex(ACCENT, 'now the standby')}` : ''}`, [], ACCENT));
     if(takeStandby) tui?.drawStatus();
 
     considerTakeover(id, { ...r, ms: r.latencyMs ?? r.ms }).catch(e => console.log(note(`takeover: ${String(e.message).split('\n')[0]}`, 'warn')));
@@ -3521,13 +3522,13 @@ async function main() {
 
       const groups = ipGroups(availability, keys);
       emit('proxy', `every keyless provider is exhausted (${ex.platforms.join(', ')}): the exit address of ${socks} changes`, 'warn');
-      const pane = tui?.active ? livePanel('⚠ every keyless provider is exhausted', dim(`${ex.platforms.join(', ')}: asking for a new exit address …`), { border: '#fbbf24' }) : null;
+      const pane = tui?.active ? livePanel('⚠ every keyless provider is exhausted', dim(`${ex.platforms.join(', ')}: asking for a new exit address …`), { border: WARN }) : null;
 
       try {
         await newExit({ host: torHost(socks) });
       } catch(e) {
         emit('proxy', `the exit address could not be changed: ${String(e.message).split('\n')[0]}`, 'bad');
-        return void pane?.update('⚠ exit address not changed', `\x1b[31m${String(e.message).split('\n')[0]}\x1b[0m`, { border: '#f87171' });
+        return void pane?.update('⚠ exit address not changed', `\x1b[31m${String(e.message).split('\n')[0]}\x1b[0m`, { border: ERROR });
       }
 
       /* a circuit takes a moment to build; Tor answers NEWNYM at most every 10 s */
@@ -3637,7 +3638,7 @@ async function main() {
     const title = () => `likely routes · ${ids.length} best rated${todo.length && exploration.pending.size ? ` · probing ${exploration.pending.size}` : ''}`;
     const foot = dim('✔ verified · ◌ probing · · not probed yet · a model whose probe failed is left out, /model health tells why · /model next chooses');
 
-    const pane = tui?.active ? livePanel(title(), `${text()}\n${foot}`, { border: '#2dd4bf' }) : null;
+    const pane = tui?.active ? livePanel(title(), `${text()}\n${foot}`, { border: ACCENT }) : null;
     if(!pane) console.log(`${waveNote(title())}\n${text()}\n${foot}`);
     const refresh = () => pane?.update(title(), `${text()}\n${foot}`);
 
@@ -3909,7 +3910,7 @@ async function main() {
     const why = betterReason({ strength: { cand: strengthOf(id), cur: strengthOf(current) }, probeMs: r.latencyMs ?? Math.round(r.ms / 3), currentMs: last?.ms ?? 0 });
     if(!why) return;
 
-    if(!repl.busy) return void console.log(card('🔎', `probe: ${bold(fgHex(strengthColor(tierOf(id)), id))} looks better than ${current} ${dim(`(${why})`)} - ${fgHex('#a3e635', `/model ${id}`)} switches`, [], '#2dd4bf'));
+    if(!repl.busy) return void console.log(card('🔎', `probe: ${bold(fgHex(strengthColor(tierOf(id)), id))} looks better than ${current} ${dim(`(${why})`)} - ${fgHex(ARROWS, `/model ${id}`)} switches`, [], ACCENT));
 
     takeover.busy = true;
     let release;
@@ -3917,7 +3918,7 @@ async function main() {
     const cand = makeClient(id);
 
     try {
-      console.log(card('🚀', `takeover: ${bold(id)} looks better than ${current}`, [`${dim('why')}  ${fgHex('#fbbf24', why)}`, `${fgHex(strengthColor(tierOf(current)), current)} pauses at its next step`, `${fgHex(strengthColor(tierOf(id)), id)} gets a handoff of the task and does its next step`], '#2dd4bf'));
+      console.log(card('🚀', `takeover: ${bold(id)} looks better than ${current}`, [`${dim('why')}  ${fgHex(WARN, why)}`, `${fgHex(strengthColor(tierOf(current)), current)} pauses at its next step`, `${fgHex(strengthColor(tierOf(id)), id)} gets a handoff of the task and does its next step`], ACCENT));
 
       const h = await buildHandoff(messages.slice(), baseMessageCount, { keepTurns: opts.handoffTurns ?? 3, model: opts.handoffModel ?? HANDOFF_MODEL, host: opts.host, port: opts.port, reason: 'handoff' }).catch(() => null);
       const ctx = h?.messages ?? messages.slice();
@@ -3939,17 +3940,17 @@ async function main() {
       if(!step) {
         takeover.declined.set(id, Date.now() + 30 * 60_000);
         emit('takeover', `${id} could not pick the task up (${failure}); ${current} goes on`, 'warn');
-        return void console.log(card('❌', `takeover: ${bold(id)} could not pick the task up`, [`${dim('why')}  ${fgHex('#f87171', failure)}`, `${current} goes on, ${id} is not proposed again for 30 min`], '#fb923c'));
+        return void console.log(card('❌', `takeover: ${bold(id)} could not pick the task up`, [`${dim('why')}  ${fgHex(ERROR, failure)}`, `${current} goes on, ${id} is not proposed again for 30 min`], SPENT));
       }
 
       emit('takeover', `${id} picked the task up (${why}): ${step.slice(0, 80)}`, 'good');
-      console.log(card('✅', `takeover: ${bold(id)} picked the task up`, [`${dim('first step')}  ${fgHex('#a3e635', oneLine(step, 100))}`, `${dim('reason')}      ${fgHex('#fbbf24', why)}`], '#4ade80'));
+      console.log(card('✅', `takeover: ${bold(id)} picked the task up`, [`${dim('first step')}  ${fgHex(ARROWS, oneLine(step, 100))}`, `${dim('reason')}      ${fgHex(WARN, why)}`], OK));
       const k = await repl.choose(`Switch to ${id}? ${why}; it picked the task up with ${step.slice(0, 60)}`, [`Yes, ${id} takes over`, `No, ${current} goes on`]);
 
       if(k !== 0) {
         takeover.declined.set(id, Date.now() + 30 * 60_000);
         emit('takeover', `declined: ${current} goes on, ${id} is not proposed again for 30 min`);
-        return void console.log(card('↩️', `takeover declined: ${bold(current)} goes on`, [`${id} is not proposed again for 30 min`], '#94a3b8'));
+        return void console.log(card('↩️', `takeover declined: ${bold(current)} goes on`, [`${id} is not proposed again for 30 min`], SLATE));
       }
 
       opts.model = id;
@@ -3958,7 +3959,7 @@ async function main() {
       control?.update({ model: id });
       await updateCtxWindow?.();
       tui?.drawStatus();
-      console.log(card('🎉', `takeover: ${bold(id)} continues the task`, ['the conversation is kept', `${dim('model')}  ${fgHex(strengthColor(tierOf(id)), id)}`], '#4ade80'));
+      console.log(card('🎉', `takeover: ${bold(id)} continues the task`, ['the conversation is kept', `${dim('model')}  ${fgHex(strengthColor(tierOf(id)), id)}`], OK));
     } finally {
       cand.destroy();
       takeover.busy = false;
@@ -4391,8 +4392,9 @@ async function main() {
         console.log(dim(`  ${summary}`));
         results.push(`${item}: ${summary}`);
       } catch(e) {
-        if(!e.stopped) PrintError(e);
-        results.push(`${item}: ${e.stopped ? 'stopped' : `error: ${e.message}`}`);
+        const stopped = e.stopped || stopRequested; /* the abort of the running request arrives as a plain 'interrupted' */
+        if(!stopped) PrintError(e);
+        results.push(`${item}: ${stopped ? 'stopped' : `error: ${e.message}`}`);
         if(stopRequested) break;
       }
     }
@@ -4432,7 +4434,7 @@ async function main() {
    */
   function backgroundReport(prompt, make) {
     const title = prompt.length > 40 ? prompt.slice(0, 39) + '…' : prompt;
-    const pane = livePanel(title, dim('loading …'), { border: '#2dd4bf' });
+    const pane = livePanel(title, dim('loading …'), { border: ACCENT });
     const t0 = Date.now();
 
     make()
@@ -4441,7 +4443,7 @@ async function main() {
         control?.output(stripAnsi(out));
         pane.update(`${title} · ${fmtMs(Date.now() - t0)}`, out || '(nothing)');
       })
-      .catch(e => pane.update(`${title} · failed`, `\x1b[31m${e.detail ?? e.message}\x1b[0m`, { border: '#f87171' }));
+      .catch(e => pane.update(`${title} · failed`, `\x1b[31m${e.detail ?? e.message}\x1b[0m`, { border: ERROR }));
   }
 
   const runLine = async line => {
@@ -4869,7 +4871,7 @@ async function main() {
           tui?.drawStatus();
           return void console.log(note('the model list restriction is lifted: /model next and the failover pick from every model again'));
         }
-        return void console.log(modelScope.set ? card('📋', `model list: ${modelScope.names.length} models`, [...modelScope.names.map(n => `${fgHex(strengthColor(tierOf(n)), n)} ${ratingCell(rateOf(n))}`), dim('/model scope off lifts it')], '#2dd4bf') : note('no model list is set: /model a,b,c restricts /model next, /model skip and the failover to those models'));
+        return void console.log(modelScope.set ? card('📋', `model list: ${modelScope.names.length} models`, [...modelScope.names.map(n => `${fgHex(strengthColor(tierOf(n)), n)} ${ratingCell(rateOf(n))}`), dim('/model scope off lifts it')], ACCENT) : note('no model list is set: /model a,b,c restricts /model next, /model skip and the failover to those models'));
       }
 
       /* /model sweep: /model a,b,c with the usable models of the last /model explore sweep */
@@ -4891,7 +4893,7 @@ async function main() {
         modelScope.names = names;
         modelScope.set = new Set(names);
         emit('failover', `the model choice is restricted to ${names.length} models: ${names.join(', ')}`);
-        console.log(card('📋', `model list: ${bold(String(names.length))} models`, [...names.map(n => `${fgHex(strengthColor(tierOf(n)), n)} ${ratingCell(rateOf(n))}`), dim('/model next, /model skip and the failover pick from these; /model scope off lifts it')], '#2dd4bf'));
+        console.log(card('📋', `model list: ${bold(String(names.length))} models`, [...names.map(n => `${fgHex(strengthColor(tierOf(n)), n)} ${ratingCell(rateOf(n))}`), dim('/model next, /model skip and the failover pick from these; /model scope off lifts it')], ACCENT));
         tui?.drawStatus();
         arg = names.includes(opts.model) ? opts.model : [...names].sort((a, b) => (rateOf(b) ?? -1) - (rateOf(a) ?? -1))[0];
         if(arg === opts.model) return;
@@ -4926,7 +4928,7 @@ async function main() {
         for(const m of gateway?.modelsCached() ?? []) if(typeof m.capabilities?.tools === 'boolean') tools[m.id] = m.capabilities.tools;
         const all = new Set(ready);
         const deep = id => (!tier0 && all.has(id) ? deepBudget(modelInfo(id).ctx) : 0);
-        console.log(card('🧹', `sweep: ${bold(String(ready.length))} model${ready.length === 1 ? '' : 's'} matching ${arg.slice(7).trim()}`, [...ready.slice(0, 12).map(id => `${fgHex(strengthColor(tierOf(id)), id)} ${ratingCell(rateOf(id))}`), ...(ready.length > 12 ? [dim(`… ${ready.length - 12} more`)] : []), ...(skipped ? [`${fgHex('#fb923c', `${skipped} skipped`)} ${dim('limited or without a key')}`] : []), dim('both tiers, ratings updated, 2 at a time')], '#2dd4bf'));
+        console.log(card('🧹', `sweep: ${bold(String(ready.length))} model${ready.length === 1 ? '' : 's'} matching ${arg.slice(7).trim()}`, [...ready.slice(0, 12).map(id => `${fgHex(strengthColor(tierOf(id)), id)} ${ratingCell(rateOf(id))}`), ...(ready.length > 12 ? [dim(`… ${ready.length - 12} more`)] : []), ...(skipped ? [`${fgHex(SPENT, `${skipped} skipped`)} ${dim('limited or without a key')}`] : []), dim('both tiers, ratings updated, 2 at a time')], ACCENT));
         emit('explore', `sweep of ${ready.length} models matching ${arg.slice(7).trim()}`);
 
         exploration.run(ready, makeExploreClient, {
@@ -4948,7 +4950,7 @@ async function main() {
               /* the usable ones: tier 0 passed, tier 1 (when run) passed too, best rated first */
               const good = rows.filter(id => { const e = exploration.get(id); return e?.ok && (!e.deep || e.deep.ok); });
               lastSweep = good;
-              return good.length ? `\n${card('🧭', `use them: ${good.length} usable model${good.length === 1 ? '' : 's'}`, [...good.map(id => `${fgHex(strengthColor(tierOf(id)), id)} ${ratingCell(rateOf(id))}`), `${dim('type')} ${fgHex('#a3e635', '/model sweep')} ${dim('to restrict /model next, /model skip and the failover to them; /model scope off lifts it')}`], '#a3e635')}` : '';
+              return good.length ? `\n${card('🧭', `use them: ${good.length} usable model${good.length === 1 ? '' : 's'}`, [...good.map(id => `${fgHex(strengthColor(tierOf(id)), id)} ${ratingCell(rateOf(id))}`), `${dim('type')} ${fgHex(ARROWS, '/model sweep')} ${dim('to restrict /model next, /model skip and the failover to them; /model scope off lifts it')}`], ARROWS)}` : '';
             })()}`);
           },
         });
@@ -5250,7 +5252,7 @@ async function main() {
 
         const have = new Set(loadedNames());
         const w = listWidth();
-        const lines = compactTable([['skill', 'from', 'description'], ...all.map(sk => [`${have.has(sk.name) ? '● ' : ''}${sk.name}`, sk.source, sk.description || '-'])], w, 2, [28, 6, 0], (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : c === 0 ? fgHex('#2dd4bf', text) : dim(text)));
+        const lines = compactTable([['skill', 'from', 'description'], ...all.map(sk => [`${have.has(sk.name) ? '● ' : ''}${sk.name}`, sk.source, sk.description || '-'])], w, 2, [28, 6, 0], (r, c, text) => (r === 0 ? `\x1b[1m${text}\x1b[0m` : c === 0 ? fgHex(ACCENT, text) : dim(text)));
         console.log(`${waveNote(`${all.length} skills${have.size ? `, ${have.size} loaded (●)` : ''}`)}\n${lines.join('\n')}\n${dim('/skill NAME [request] loads one, /skill off NAME unloads it')}`);
         return;
       }
@@ -5738,7 +5740,7 @@ async function main() {
     try {
       reply = await runToolLoop(client, messages, opts, log, confirmRun, askUser, abortRef, forEach);
     } catch(e) {
-      if(e.stopped) console.log(note('stopped (Esc ×3): the loop was interrupted', 'warn'));
+      if(e.stopped || stopRequested) console.log(note('stopped (Esc ×3): the loop was interrupted', 'warn'));
       else PrintError(e);
       /* a turn that changed files or ran commands keeps its finished rounds (the model must know), anything else goes whole */
       const ran = messages.slice(Math.max(0, messages.indexOf(turnMsg))).some(m => m.role === 'tool' && m.name === 'run_command');

@@ -1,5 +1,21 @@
 2026-11-26  Roman Senn  <roman.l.senn@gmail.com>
 
+	* lib/tui/markdown.js, tests/test-markdown.js: TEAL, AMBER and LIME come
+	from lib/palette.js like in lib/tui/rawcolor.js; markdown had its own
+	copies with other values (#2dd4bf, #fbbf24, #a3e635), so headings, bullets
+	and code literals differed from the verbose panels. VIOLET and GREEN
+	are still duplicated there.
+
+	* lib/tui/press-counter.js (PressCounter): New. lib/tui/chat-repl.js
+	(ChatREPL#termReadHandler, onStop), repl.js (stopRequested, checkStop,
+	chatRound, runToolLoop, forEach, runLine, the turn's catch): Esc three
+	times within 2 s stops the whole turn - the running step is aborted, the
+	queue is cleared and the loops (tool rounds, chatRound retries, /each and
+	for_each items and the retry of one, sub-agent turns) end instead of going
+	on; one Esc still only aborts the running step, so a batch went on with
+	the next item. tests/test-press-counter.js, smoke.sh, README.md,
+	doc/ARCHITECTURE.md (Interrupting).
+
 	* lib/palette.js (SELECT_BG, MARK_BG), lib/ansi.js (bgSgr),
 	lib/tui/pager.js, lib/tui/chat-repl.js, lib/tui/session-browser.js: the
 	selected row of every list (pager list, choose dialog, session browser)
